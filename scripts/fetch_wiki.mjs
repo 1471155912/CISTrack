@@ -3,7 +3,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { chromium } from 'playwright';
+// playwright：Actions 上由 workflow 安装；本地调试走 createRequire 兜底
+import { createRequire } from "node:module";
+const _req = createRequire(import.meta.url);
+let _pw;
+try { _pw = _req("playwright"); }
+catch (e) { _pw = _req("C:/Users/14711/.workbuddy/binaries/node/workspace/node_modules/playwright"); }
+const chromium = _pw.chromium;
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const OUT = path.join(ROOT, 'wiki.json');
@@ -48,10 +54,9 @@ function parseStats(html) {
 
 const stats = {};
 for (const [key, url, article] of PAGES) {
-  const browser = await chromium.launch({
-    headless: true,
-    args: ['--disable-blink-features=AutomationControlled', '--no-sandbox'],
-  });
+  let browser;
+  try { browser = await chromium.launch({ channel: 'msedge', headless: true, args: ['--disable-blink-features=AutomationControlled', '--no-sandbox'] }); }
+  catch (e) { browser = await chromium.launch({ headless: true, args: ['--disable-blink-features=AutomationControlled', '--no-sandbox'] }); }
   const ctx = await browser.newContext({
     userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
     viewport: { width: 1440, height: 900 },
@@ -69,7 +74,14 @@ for (const [key, url, article] of PAGES) {
   await page.waitForTimeout(1500);
   const html = await page.evaluate(() => document.body.innerHTML);
   const st = parseStats(html);
-  if (!st) throw new Error(key + ' 解析失败（infobox 结构变了？）');
+  if (!st) {
+    const hasBox = html.includes('infobox-label');
+    const dbg = hasBox
+      ? html.slice(html.indexOf('infobox-label') - 60, html.indexOf('infobox-label') + 500).replace(/\s+/g, ' ')
+      : '(页面里没有 infobox-label；html 长度 ' + html.length + '；标题 ' + (await page.title().catch(() => '?')) + ')';
+    await browser.close();
+    throw new Error(key + ' 解析失败。调试: ' + dbg);
+  }
   stats[key] = Object.assign({ asOf: new Date().toISOString().slice(0, 10), article }, st);
   console.log(key, '→', JSON.stringify(stats[key]));
   await browser.close();
