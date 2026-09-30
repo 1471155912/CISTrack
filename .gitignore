@@ -1,0 +1,23 @@
+# 构建中间产物（可由 mkdata.mjs / build.mjs 重新生成）
+build/
+
+# 体积较大的原始数据：按需用 refresh.mjs 重新下载
+data/satcat.csv
+data/cat_objs.json
+data/wiki_cache/
+data/missing_*.json
+data/refresh_report.json
+data/*.tle.bak
+
+# 内部过程文档（含工作笔记，不进仓库）
+PROCESS.md
+
+# 版本归档（本地回滚用，不进仓库）
+archive/
+
+# 截图与临时输出
+*.tmp
+*.log
+tmp/
+.DS_Store
+Thumbs.db

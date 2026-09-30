@@ -1,0 +1,34 @@
+{
+ "_readme": "改这里就能更新网页顶部的词条计数（launched=已发射, inOrbit=在轨, launches=发射成功/总）。改完保存，访客刷新即可看到。",
+ "asOf": "2026-09-30",
+ "gw": {
+  "asOf": "2026-09-30",
+  "article": "星网",
+  "launched": {
+   "n": 248,
+   "zh": "试验星32 + 高轨业务星3 + 低轨业务星213",
+   "en": "test 32 + GEO service 3 + LEO service 213"
+  },
+  "inOrbit": {
+   "n": 244,
+   "zh": "试验星28 + 高轨业务星3 + 低轨业务星213",
+   "en": "test 28 + GEO service 3 + LEO service 213"
+  },
+  "launches": "40/41"
+ },
+ "qf": {
+  "asOf": "2026-09-30",
+  "article": "千帆星座",
+  "launched": {
+   "n": 262,
+   "zh": "试验星6，组网星256",
+   "en": "test 6, network 256"
+  },
+  "inOrbit": {
+   "n": 262,
+   "zh": "试验星6，组网星256，理论值",
+   "en": "test 6, network 256, theoretical"
+  },
+  "launches": "19/19"
+ }
+}
