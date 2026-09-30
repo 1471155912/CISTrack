@@ -1,0 +1,44 @@
+name: Update wiki stats
+
+# 每天两次（北京时间 04:00 / 16:00 = UTC 20:00 / 08:00）自动抓取卫星百科词条，
+# 更新 wiki.json 顶部的词条统计。也可在 Actions 页面手动触发。
+# 注意：GitHub 的定时任务可能有几分钟的调度延迟。
+on:
+  schedule:
+    - cron: '0 20 * * *'
+    - cron: '0 8 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Playwright
+        run: |
+          npm i playwright --no-save
+          npx playwright install --with-deps chromium
+
+      - name: Fetch & parse wiki stats
+        run: node scripts/fetch_wiki.mjs
+
+      - name: Commit if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add wiki.json
+          if git diff --cached --quiet; then
+            echo "统计无变化，无需提交"
+          else
+            git commit -m "wiki.json: 自动更新词条统计（$(date -u +'%Y-%m-%d %H:%M UTC')）"
+            git push
+          fi
