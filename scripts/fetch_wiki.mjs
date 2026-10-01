@@ -3,13 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-// playwright：Actions 上由 workflow 安装；本地调试走 createRequire 兜底
-import { createRequire } from "node:module";
-const _req = createRequire(import.meta.url);
-let _pw;
-try { _pw = _req("playwright"); }
-catch (e) { _pw = _req("C:/Users/14711/.workbuddy/binaries/node/workspace/node_modules/playwright"); }
-const chromium = _pw.chromium;
+import { chromium } from 'playwright';
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const OUT = path.join(ROOT, 'wiki.json');
