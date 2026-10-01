@@ -11,7 +11,7 @@ var DAY = 86400000;
 var SGP4 = window.satellite;
 var RAW = window.SATDATA;
 var COAST = window.COAST_DATA || [];
-var VERSION = 'V1.4.8';          // 页脚版本号，后续更新在此改动
+var VERSION = 'V1.4.9';          // 页脚版本号，后续更新在此改动
 
 // ---------------------------------------------------------------- V1.3.7：TLE 分组差分解码
 // 构建脚本按发射批次（COSPAR 前缀）把「名称+两行要素」压成公共模板 + 每颗星的差异串，
@@ -167,7 +167,7 @@ var I18N = {
   d_sel_group: ['点击可选中该批次的全部卫星', 'Click to select all satellites of this group'],
   d_close_info: ['关闭信息窗（只看图）', 'Close info panel'],
   // V1.3.6：信息窗末尾那行提示（主题色小字），拖动过一次后本窗口就不再显示
-  d_drag_tip: ['电脑点击 / 手机长按可自由拖拽', 'Click / long-press to drag freely'],
+  d_drag_tip: ['电脑点击/手机长按可自由拖拽', 'Click/long-press to drag freely'],
   l_search: ['搜索卫星', 'Search satellites'],
   d_pick_hint_desktop: ['电脑端可移动鼠标预览 · 点击固定观测点', 'On desktop, move the cursor to preview · click to fix the site'],
   d_pick_hint_touch: ['点击地图任意位置设置观测点', 'Tap the map anywhere to set the site'],
@@ -765,7 +765,9 @@ function setupInfo(el, key) {
       // 以前窗子被拖到右边界外时，body 会出现横向滚动条，顶栏时钟药丸与右下角章节药丸也跟着
       // 被推到右边。现在配合 html/body 的 overflow-x:hidden，超出部分直接被裁掉，像真的消失一样。
       var KEEP = 24, vw = window.innerWidth, vh = window.innerHeight;
-      var maxL = (vw - KEEP - drag.w) - wrap.left;   // V1.4.5：减掉窗宽，窗子不会越过视口右边缘
+      // V1.4.9：改回「留 24px 在视口内」的对称规则 —— 右侧也允许把窗子部分拉出屏幕
+      //（和左侧一样），超出部分被 html/body 的 overflow-x 裁掉，页面本身绝不会被撑宽。
+      var maxL = (vw - KEEP) - wrap.left;
       var minL = (KEEP - drag.w) - wrap.left;
       var maxT = (vh - KEEP) - wrap.top;
       var minT = (KEEP - drag.h) - wrap.top;
@@ -823,8 +825,10 @@ function showInfo(el, key, html, idKey) {
     INFO_HIDDEN[key] = false;                 // 换了目标就重新显示
     placeInfoCorner(el, key);                 // V1.3.7：换目标时才考虑挪位置，避免跟着鼠标抖
   }
+  // V1.4.9：提示染当前星座的主题色（国网红 / 千帆蓝），不再固定用 --row-sel 的红
+  var tipColor = S.net === 'qf' ? 'var(--c-qf)' : 'var(--c-gw)';
   body.innerHTML = html +
-    '<div class="si-drag"' + (DRAGGED[key] ? ' style="display:none"' : '') + '>' + t('d_drag_tip') + '</div>';
+    '<div class="si-drag"' + (DRAGGED[key] ? ' style="display:none;color:' + tipColor + '"' : ' style="color:' + tipColor + '"') + '>' + t('d_drag_tip') + '</div>';
   el.style.display = INFO_HIDDEN[key] ? 'none' : 'flex';
 }
 function hideInfo(el, key) {
@@ -3432,6 +3436,33 @@ function syncFsBarHeight() {
   var h = sec.classList.contains('fs-mobile') ? Math.ceil(c.getBoundingClientRect().height) : 0;
   sec.style.setProperty('--fsbar-h', (h || 58) + 'px');
 }
+document.querySelectorAll('.fs-exit-btn').forEach(function (b) {
+  b.addEventListener('click', function (e) {
+    e.stopPropagation();
+    if (document.fullscreenElement) document.exitFullscreen();
+  });
+});
+// V1.4.9：全屏期间保持屏幕常亮（Wake Lock）。手机端「熄屏后全屏自动退出」是移动浏览器的
+// 系统行为（熄屏会连带释放全屏），网页拦不住 —— 但让屏幕根本不熄，问题就绕过去了。
+var wakeLockSentinel = null;
+function reqWakeLock() {
+  try {
+    if ('wakeLock' in navigator && document.fullscreenElement && !wakeLockSentinel) {
+      navigator.wakeLock.request('screen').then(function (l) { wakeLockSentinel = l; }).catch(function () {});
+    }
+  } catch (e) {}
+}
+function dropWakeLock() {
+  try { if (wakeLockSentinel) { wakeLockSentinel.release().catch(function () {}); wakeLockSentinel = null; } } catch (e) {}
+}
+document.addEventListener('fullscreenchange', function () {
+  var fsEl = document.fullscreenElement;
+  if (fsEl) reqWakeLock(); else dropWakeLock();
+  // 切后台回来 Wake Lock 会被浏览器自动释放，回到前台且仍在全屏时重新申请
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'visible' && document.fullscreenElement) reqWakeLock(); else dropWakeLock();
+  });
+});
 document.addEventListener('fullscreenchange', function () {
   var fsEl = document.fullscreenElement;
   document.querySelectorAll('section').forEach(function (s) {
@@ -3629,7 +3660,10 @@ document.querySelectorAll('[data-panel]').forEach(function (b) {
 // ---------------------------------------------------------------- 右下角章节跳转药丸
 // V1.3.6：章节重排后档位条改用「↑MOISL↓」——
 // M=地图 Map · O=轨道 Orbits · I=轨道分布 Inclination · S=卫星表格 Satellite table · L=发射历史 Launch history
-var JUMP = [['top', '↑'], ['sec-map', 'M'], ['sec-orbits', 'O'], ['sec-chart', 'I'], ['sec-table', 'S'], ['sec-launches', 'L'], ['bottom', '↓']];
+// V1.4.9：字母改成三列 [id, 英文, 中文] —— 中文界面显示「图轨角星箭」（图=地图 轨=轨道
+// 角=轨道分布 星=卫星表格 箭=发射历史），英文界面仍用 MOISL；中文字号稍大便于辨认，
+// 但按钮 26×24 尺寸固定，药丸条本身不变。
+var JUMP = [['top', '↑', '↑'], ['sec-map', 'M', '图'], ['sec-orbits', 'O', '轨'], ['sec-chart', 'I', '角'], ['sec-table', 'S', '星'], ['sec-launches', 'L', '箭'], ['bottom', '↓', '↓']];
 var JUMP_TITLE = {
   top: { zh: '回到顶部', en: 'Back to top' },
   'sec-map': { zh: '01 地图', en: '01 Map' },
@@ -3640,18 +3674,18 @@ var JUMP_TITLE = {
   bottom: { zh: '到页面底部', en: 'Go to bottom' }
 };
 var jumpPill = document.getElementById('jumpPill');
-jumpPill.innerHTML = JUMP.map(function (j) {
-  var tt = JUMP_TITLE[j[0]];
-  return '<button data-j="' + j[0] + '" type="button" title="' +
-    (tt ? (LANG === 'en' ? tt.en : tt.zh) : j[0]) + '">' + j[1] + '</button>';
-}).join('');
-// 切语言时把档位条的 title 也跟着换（字母本身中英同字）
-function refreshJumpTitles() {
-  jumpPill.querySelectorAll('button[data-j]').forEach(function (b) {
-    var tt = JUMP_TITLE[b.getAttribute('data-j')];
-    if (tt) b.title = LANG === 'en' ? tt.en : tt.zh;
-  });
+function buildJumpPill() {
+  jumpPill.innerHTML = JUMP.map(function (j) {
+    var tt = JUMP_TITLE[j[0]];
+    var label = LANG === 'en' ? j[1] : j[2];
+    return '<button data-j="' + j[0] + '" type="button" title="' +
+      (tt ? (LANG === 'en' ? tt.en : tt.zh) : j[0]) + '">' + label + '</button>';
+  }).join('');
+  jumpPill.classList.toggle('zh-labels', LANG !== 'en');
 }
+buildJumpPill();
+// 切语言时重建档位条（字母与 title 都跟语言走）
+function refreshJumpTitles() { buildJumpPill(); }
 function navHeight() {
   var n = document.querySelector('.topnav');
   return n ? n.offsetHeight : 60;
