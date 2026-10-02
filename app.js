@@ -11,7 +11,7 @@ var DAY = 86400000;
 var SGP4 = window.satellite;
 var RAW = window.SATDATA;
 var COAST = window.COAST_DATA || [];
-var VERSION = 'V1.5.2';          // 页脚版本号，后续更新在此改动
+var VERSION = 'V1.5.3';          // 页脚版本号，后续更新在此改动
 
 // ---------------------------------------------------------------- V1.3.7：TLE 分组差分解码
 // 构建脚本按发射批次（COSPAR 前缀）把「名称+两行要素」压成公共模板 + 每颗星的差异串，
@@ -181,6 +181,16 @@ var I18N = {
   d_satpage: ['第 ', 'Page '],
 };
 function t(k) { var p = I18N[k]; if (!p) return k; return LANG === 'en' ? p[1] : p[0]; }
+// V1.5.3：切语言时同步刷新加载蒙层文案（它只在加载时写一次，否则切换语言后会残留旧语言）
+function refreshMaskText() {
+  try {
+    var tx = document.getElementById('lmTxt'), e = document.getElementById('lmEpoch');
+    if (tx && tx.textContent && tx.textContent.trim()) tx.textContent = t('d_updated');
+    if (e && e.textContent && /[0-9]{4}-[0-9]{2}-[0-9]{2}/.test(e.textContent)) {
+      e.textContent = t('d_epoch') + ' ' + fmtUTC(CONST[S.key] ? CONST[S.key].epochMax : e.textContent) + ' UTC';
+    }
+  } catch (err) {}
+}
 function applyStaticLang() {
   document.querySelectorAll('[data-i18n]').forEach(function (el) { el.innerHTML = t(el.getAttribute('data-i18n')); });
   document.querySelectorAll('[data-i18n-ph]').forEach(function (el) { el.placeholder = t(el.getAttribute('data-i18n-ph')); });
@@ -505,7 +515,7 @@ function syncAllControls() {
   fillGroupSelect();
   [['covBtn', 'cov.on'], ['mapTracksBtn', 'mapTrack'], ['mapNamesBtn', 'names.map'],
    ['pickBtn', 'pick.on'], ['spinBtn', 'spin'], ['tracksBtn', 'showTracks'],
-   ['globeNamesBtn', 'names.globe'], ['coneBtn', 'cone.on'], ['colsToggle', 'allCols']]
+   ['globeNamesBtn', 'names.globe'], ['coneBtn', 'cone.on']]
   .forEach(function (pair) {
     var b = document.getElementById(pair[0]); if (!b) return;
     var v = pair[1].split('.').reduce(function (o, k) { return o[k]; }, S);
@@ -1770,7 +1780,7 @@ function renderTable(opts) {
     tableRows[tr.getAttribute('data-idx')] = tr;
   });
   document.querySelectorAll('#satTable .extra').forEach(function (el) {
-    el.style.display = S.allCols ? '' : 'none';
+    el.style.display = '';   // V1.5.3：表格始终显示全部列（列开关已移除）
   });
   document.getElementById('tableFoot').textContent =
     t('d_tbl_foot_1') + rows.length + t('d_tbl_foot_2') +
@@ -2880,11 +2890,6 @@ tbody.addEventListener('click', function (e) {
   if (!tr) { clearSel(); return; }                              // 点空白处退出选择
   toggleSel(+tr.getAttribute('data-idx'), false);
 });
-document.getElementById('colsToggle').addEventListener('click', function () {
-  S.allCols = !S.allCols;
-  this.classList.toggle('on', S.allCols);
-  renderTable();
-});
 document.getElementById('tableSearch').addEventListener('input', function () {
   S.query = this.value; renderTable();
 });
@@ -3456,12 +3461,6 @@ document.querySelectorAll('.view-ctl button[data-fs]').forEach(function (b) {
   });
 });
 // 全屏左上角「恢复默认视图」：与页面里 #resetZoom 是同一个动作（图表回到自动视野，地图/地球回到 1×）
-document.querySelectorAll('.fs-reset-btn').forEach(function (b) {
-  b.addEventListener('click', function (e) {
-    e.stopPropagation();
-    resetView(b.getAttribute('data-fsreset'));
-  });
-});
 // 01 章节全屏顶栏的实际高度（窄屏会换行变高）→ 写进 --fsbar-h，画布据此让位
 function syncFsBarHeight() {
   var sec = document.getElementById('sec-chart');
@@ -3504,7 +3503,7 @@ document.querySelectorAll('.search-key').forEach(function (k) {
 // V1.5.2：把 △ 与「重置视图」从 .fs-bar 里提到 section 直接子级 —— 它们在 .fs-bar
 // （自带 z-index 与定位上下文）里时，展开控件抽屉后会被盖住，看起来像「按钮消失了」。
 (function liftFsButtons() {
-  document.querySelectorAll('.fs-panel-btn, .fs-reset-btn').forEach(function (b) {
+  document.querySelectorAll('.fs-panel-btn').forEach(function (b) {
     var sec = b.closest('section');
     if (sec && b.parentElement !== sec) sec.appendChild(b);
   });
@@ -3590,7 +3589,13 @@ document.addEventListener('fullscreenchange', function () {
   try { applyMapFsSize(); } catch (e) {}
   try {
     if (fsEl && isTouch() && screen.orientation && screen.orientation.lock) {
-      screen.orientation.lock('landscape').catch(function () {});   // 移动端全屏转横屏
+      // V1.5.3：全屏过渡是异步的，立刻 lock 常被拒 → 稍后重试几次，确保真的锁上横屏
+      var lockTries = 0;
+      (function tryLock() {
+        screen.orientation.lock('landscape').catch(function () {
+          if (++lockTries < 5) setTimeout(tryLock, 150);
+        });
+      })();
     } else if (screen.orientation && screen.orientation.unlock) {
       screen.orientation.unlock();
     }
@@ -3919,6 +3924,21 @@ var SEARCH_BOXES = [
   { input: 'fsSearchMap', sug: 'fsSugMap' },
   { input: 'fsSearchGlobe', sug: 'fsSugGlobe' }
 ];
+
+// V1.5.3：全屏顶部搜索框注册 —— 必须在下面那段统一绑定循环【之前】执行，
+// 且用 try/catch 隔离，避免任何意外影响主页面搜索框的绑定。
+try {
+  document.querySelectorAll('.fs-search-wrap').forEach(function (w, i) {
+    var inp = w.querySelector('.fs-search-input'), sg = w.querySelector('.sug-list');
+    if (!inp || !sg) return;
+    if (!inp.id) inp.id = 'fsTopSearch' + i;
+    if (!sg.id) sg.id = 'fsTopSug' + i;
+    if (!SEARCH_BOXES.some(function (b) { return b.input === inp.id; })) {
+      SEARCH_BOXES.push({ input: inp.id, sug: sg.id });
+    }
+  });
+} catch (e) {}
+
 // V1.5.0：搜索历史（按星座独立、中英共享，刷新即清空）
 var SEARCH_HISTORY = { gw: [], qf: [] };
 function rememberSearch(o) {
@@ -3980,16 +4000,6 @@ function applySearch(src) {
   SEARCH_BOXES.forEach(function (b) { renderSug(b.sug, q); });
 }
 
-// V1.5.2：全屏顶部搜索框（此前只做了样式没绑事件 → 输入不出联想）。这里把三个全屏搜索框
-// 注册进 SEARCH_BOXES，随后那段统一的 forEach 会自动给它们挂上 input/focus/mousedown 全套行为
-// —— 与主页面搜索框完全一致（含跨框联动、历史记录、选中卫星）。
-document.querySelectorAll('.fs-search-wrap').forEach(function (w, i) {
-  var inp = w.querySelector('.fs-search-input'), sg = w.querySelector('.sug-list');
-  if (!inp || !sg) return;
-  if (!inp.id) inp.id = 'fsTopSearch' + i;
-  if (!sg.id) sg.id = 'fsTopSug' + i;
-  SEARCH_BOXES.push({ input: inp.id, sug: sg.id });
-});
 SEARCH_BOXES.forEach(function (b) {
   var el = document.getElementById(b.input); if (!el) return;
   el.addEventListener('input', function () { applySearch(this); });
@@ -4132,6 +4142,7 @@ window.addEventListener('resize', function () { layoutNav(); syncFsBarHeight(); 
 document.getElementById('langBtn').addEventListener('click', function () {
   LANG = LANG === 'en' ? 'zh' : 'en';   // V1.3.6：不写 localStorage，刷新后回到默认中文
   applyStaticLang();
+  refreshMaskText();
   renderChrome();
   refreshJumpTitles();
   rebuild();
