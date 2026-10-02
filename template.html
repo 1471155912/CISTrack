@@ -25,7 +25,7 @@
   --fs-ctl-h: 36px;   /* V1.5.1：全屏顶部四件套（×／重置视图／搜索框／时间药丸）统一高度 */
  color-scheme: dark;
  --bg:#050505; --fg:#f2f2f0; --dim:#8b97a6; --faint:#5a6470; --hair:#1e2126;
- --accent:#4dabf7; --nav-bg:rgba(5,5,5,0.55); --panel:#0b0d10;   /* V1.4.1：毛玻璃要透，就得把底色压低；即使 blur 在个别环境失效，这层底色也保证文字可读 */
+ --accent:#4dabf7; --nav-bg:rgba(5,5,5,0.55); --sug-bg:rgba(8,9,12,0.93); --panel:#0b0d10;   /* V1.4.1：毛玻璃要透，就得把底色压低；即使 blur 在个别环境失效，这层底色也保证文字可读 */
  --row-hover:#0c0e11; --row-focus:#10151c; --info-bg:rgba(9,11,14,0.92);
  --sel-bg:rgba(77,171,247,0.10); --outline:rgba(255,255,255,0.18);
  --tick:#97a3b2; --up:#51cf66; --down:#ff6b6b;
@@ -60,7 +60,7 @@
 :root[data-theme="light"] {
  color-scheme: light;
  --bg:#f7f7f5; --fg:#101215; --dim:#4f5a66; --faint:#78828e; --hair:#d9dce0;
- --accent:#1971c2; --nav-bg:rgba(247,247,245,0.60); --panel:#ffffff;   /* V1.4.1：同上 */
+ --accent:#1971c2; --nav-bg:rgba(247,247,245,0.60); --sug-bg:rgba(250,250,249,0.95); --panel:#ffffff;   /* V1.4.1：同上 */
  --row-hover:#edeff2; --row-focus:#e0e9f5; --info-bg:rgba(255,255,255,0.94);
  --sel-bg:rgba(25,113,194,0.10); --outline:rgba(0,0,0,0.20);
  --tick:#454f5b; --up:#2f9e44; --down:#e03131;
@@ -79,7 +79,7 @@ a, button, select, input, label, [role="button"], .batch-link, .help-btn, .num-b
   -webkit-tap-highlight-color:transparent;
 }
 button:focus, [role="button"]:focus, a:focus, .batch-link:focus,
-#jumpPill button:focus, .view-ctl button:focus, .fs-panel-btn:focus, .fs-reset-btn:focus,
+#jumpPill button:focus, .view-ctl button:focus, .fs-panel-btn:focus:focus,
 .help-btn:focus, .time-val:focus, .num-box:focus, .pager button:focus, .seg button:focus {
   outline:none;
 }
@@ -155,7 +155,7 @@ body { overflow-x:hidden;   /* V1.4.5：同上（部分浏览器需要 body 上�
 /* V1.4.9：档位条字号统一 13px（中文「图轨角星箭」与英文 MOISL 同字号） */
 html[lang="zh-CN"] #jumpPill button, html[lang="en"] #jumpPill button { font-size:13px; }
 /* V1.5.0：这几组浮动控件统一毛玻璃（与顶栏、主页面药丸小窗同款） */
-#jumpPill button, .view-ctl button, .fs-panel-btn, .fs-reset-btn, .fs-clock, .fs-exit-btn {
+#jumpPill button, .view-ctl button, .fs-panel-btn, .fs-clock, .fs-exit-btn {
   backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px);
 }
 
@@ -178,10 +178,9 @@ section.fs-mobile .fs-search-wrap .search-ico { width:18px; height:18px; }
 section.fs-mobile .fs-search-wrap .fs-sug { top:calc(100% + 6px); left:0; right:0; border-radius:12px; overflow:auto; max-height:min(46vh,300px); }
 /* ===== V1.5.1 全屏布局 ===== */
 /* 全屏左上角三键：× 在左上（留 16px 适配大 R 角）、△ 在其正下方、重置视图与 × 同一水平线 → 直角三角形 */
-/* V1.5.1：三键全部 fixed —— 全屏时相对视口定位，不被 .fs-bar 的 flex 行摆布，严格对齐 */
+/* V1.5.3：全屏左上角两键（× 与 △）fixed 定位 */
 section.fs-mobile:fullscreen .fs-exit-btn { position:fixed; left:16px; top:16px; transform:none; width:var(--fs-ctl-h); height:var(--fs-ctl-h); border:1.5px solid var(--dim); box-shadow:0 0 0 1px rgba(0,0,0,.4); }
 section.fs-mobile:fullscreen .fs-panel-btn { position:fixed; left:16px; top:calc(16px + var(--fs-ctl-h) + 10px); width:var(--fs-ctl-h); height:var(--fs-ctl-h); z-index:60; border:1.5px solid var(--dim); box-shadow:0 0 0 1px rgba(0,0,0,.4); }
-section.fs-mobile:fullscreen .fs-reset-btn { position:fixed; left:60px; top:16px; height:var(--fs-ctl-h); z-index:60; border:1.5px solid var(--dim); box-shadow:0 0 0 1px rgba(0,0,0,.4); }
 /* 展开的控件小窗只占它该占的一块，不铺满屏幕 */
 section.fs-mobile:fullscreen .fs-panel {
   width:auto; min-width:230px; max-width:min(360px,50vw); max-height:min(46vh,340px);
@@ -192,7 +191,7 @@ section.fs-mobile .fs-search-wrap .fs-search-input { height:100%; border:0 !impo
 section.fs-mobile .fs-search-wrap .search-key { flex:0 0 15%; min-width:40px; display:flex; align-items:center; justify-content:center; border-radius:0 999px 999px 0; background:var(--row-sel); color:var(--bg); border:0; cursor:pointer; }
 /* 全屏控件小窗里不放搜索框（顶部已经有了） */
 section.fs-mobile:fullscreen .sec-head .search-wrap { display:none !important; }
-/* 全屏退出圆钮（左侧中部）：比 fs-reset-btn(32px 高) 略大 */
+/* 全屏退出圆钮（左上角）*/
 .fs-exit-btn { --fs-exit-fs:18px; display:none; position:absolute; left:12px; top:50%; transform:translateY(-50%); z-index:60; width:36px; height:36px; border-radius:50%; align-items:center; justify-content:center; background:var(--info-bg); border:1px solid var(--dim); color:var(--fg); font-family:var(--mono); font-size:15px; line-height:1; cursor:pointer; -webkit-tap-highlight-color:transparent; transition:color .2s var(--ease), border-color .2s var(--ease); }
 section.fs-mobile .fs-exit-btn { display:flex; }
 .fs-exit-btn:hover { border-color:var(--row-sel); color:var(--row-sel); }
@@ -278,7 +277,6 @@ button.tgl.on, button.ghost.tgl.on, .seg button.on, .seg-mini button.on,
 
 .chart-wrap { position:relative; height:480px; }
 .chart-wrap canvas { width:100%; height:100%; display:block; cursor:crosshair; touch-action:none; -webkit-user-select:none; user-select:none; }
-.chart-info { top:44px; left:60px; max-width:calc(100% - 76px); max-height:calc(100% - 64px); }
 .canvas-wrap { position:relative; height:460px; margin-top:22px; }
 /* V1.5.0：地图章节固定长宽比（1325:620），宽度随容器、高度按比例算 —— 不同屏幕不变形 */
 #sec-map .canvas-wrap { height:auto; aspect-ratio:1325 / 620; }
@@ -326,7 +324,9 @@ section.fs-mobile:fullscreen #sec-map .canvas-wrap { height:auto; aspect-ratio:1
 /* V1.5.1：药丸搜索框 —— 圆角药丸、右端主题色搜索键、毛玻璃；高度统一 38px、宽度自适应 */
 .search-wrap {
   display:flex; align-items:stretch; height:38px; width:min(420px,62vw);
-  border:1px solid var(--hair); border-radius:999px; overflow:hidden;
+  border:1px solid var(--hair); border-radius:999px;
+  /* V1.5.3：不能用 overflow:hidden —— 联想区在药丸下方，会被整块裁掉（主页面搜索"没有联想"的真因） */
+  overflow:visible;
   background:var(--nav-bg); backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px);
 }
 .search-wrap.search-stub {
@@ -371,8 +371,6 @@ tbody tr.just-hit td { background:var(--sel-bg); transition:background .9s var(-
 section.fs-mobile:fullscreen .fs-bar { display:flex; }
 .fs-panel-btn { width:36px; height:36px; display:flex; align-items:center; justify-content:center; background:var(--info-bg); border:1px solid var(--dim); color:var(--fg); cursor:pointer; }
 .fs-panel-btn svg { width:17px; height:17px; fill:currentColor; transition:transform .36s var(--ease); }
-.fs-reset-btn { height:32px; padding:0 13px; display:flex; align-items:center; background:var(--info-bg); border:1px solid var(--dim); color:var(--fg); font-family:var(--mono); font-size:10.5px; letter-spacing:0.12em; white-space:nowrap; cursor:pointer; transition:color .2s var(--ease), border-color .2s var(--ease); }
-.fs-reset-btn:hover { border-color:var(--row-sel); color:var(--row-sel); }
 section.fs-mobile:fullscreen.panel-open .fs-panel-btn svg { transform:rotate(180deg); }
 section.fs-mobile:fullscreen { padding:0; overflow:hidden; }
 section.fs-mobile:fullscreen .canvas-wrap,
@@ -380,7 +378,12 @@ section.fs-mobile:fullscreen .canvas-wrap.tall,
 section.fs-mobile:fullscreen .canvas-wrap.wide,
 section.fs-mobile:fullscreen .chart-wrap { width:100%; height:100vh; margin:0; transform:none; aspect-ratio:auto; min-height:0; }
 section.fs-mobile:fullscreen .sec-head {
-  position:fixed; left:0; top:0; z-index:44; width:calc(50% - 22px); height:auto; max-height:62vh; margin:0; padding:106px 16px 20px;
+  /* V1.5.3：上沿落在左上三键下方（"地图"标题上方一点），不再延伸到屏幕顶端 */
+  position:fixed; left:0; top:calc(16px + var(--fs-ctl-h) + 10px + var(--fs-ctl-h) + 14px);
+  z-index:44; width:calc(50% - 22px); height:auto;
+  max-height:calc(100vh - (16px + var(--fs-ctl-h) + 10px + var(--fs-ctl-h) + 14px) - 18px);
+  margin:0; padding:12px 16px 18px;   /* 上沿留一点，标题不贴边 */
+  border-radius:0 14px 14px 0;
   overflow:auto;
   background:var(--nav-bg); border-right:1px solid var(--hair); overflow:auto; flex-direction:column; gap:12px;
   transform:translateX(-102%); transition:transform .4s var(--ease); backdrop-filter:blur(10px);
@@ -463,7 +466,6 @@ section.fs-mobile:fullscreen .fs-search { display:block; width:100%; max-width:n
 .sat-info .si-head { display:flex; justify-content:flex-end; align-self:stretch; min-width:222px; }
 .sat-info .si-close { width:20px; height:20px; display:flex; align-items:center; justify-content:center; padding:0; background:var(--info-bg); border:1px solid var(--hair); color:var(--dim); font-family:var(--mono); font-size:11px; line-height:1; cursor:pointer; transition:color .2s var(--ease), background .2s var(--ease), border-color .2s var(--ease); }
 .sat-info .si-close:hover { color:var(--bg); background:var(--fg); border-color:var(--fg); }
-#mapInfo { top:36px; max-height:calc(100% - 52px); }
 
 /* V1.3.6：「？」方块 —— 白色字（浅色主题下改用深色保证可读），紧挨所描述的项目、
    与它中线对齐（inline-flex + 基线居中，不再依赖 vertical-align:middle 的偏移） */
@@ -751,6 +753,55 @@ html.loading, html.loading body { overflow:hidden; touch-action:none; }
 @media (max-width:820px) {
   .hero { padding-top:10px; }
 }
+
+/* ===== V1.5.3 最终版：搜索药丸 + 联想区（统一覆盖前面所有零散规则）===== */
+/* 1) 药丸外形：内外都是全圆角；输入框自身透明无边框；搜索键右半圆 */
+.search-wrap, section.fs-mobile .fs-search-wrap {
+  border-radius:999px !important;
+  overflow:visible;
+  position:relative;
+  z-index:150;                 /* 提升整块层叠，避免联想区被页面元素穿插 */
+  background:var(--nav-bg);
+  backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px);
+}
+.search-wrap input, .fs-search-input {
+  background:transparent !important;
+  border:0 !important;
+  border-radius:999px 0 0 999px !important;
+  outline:none;
+}
+.search-wrap .search-key, section.fs-mobile .fs-search-wrap .search-key {
+  border-radius:0 999px 999px 0 !important;
+  background:var(--row-sel) !important;
+  color:var(--bg) !important;
+  border:0 !important;
+}
+/* 2) 联想区：半透明毛玻璃（与顶栏同款）+ 层叠置顶 */
+.sug-list {
+  z-index:220 !important;
+  background:var(--sug-bg) !important;
+  backdrop-filter:blur(22px) saturate(1.25); -webkit-backdrop-filter:blur(22px) saturate(1.25);
+  border:1px solid var(--hair);
+  border-radius:12px;
+  box-shadow:0 18px 48px rgba(0,0,0,.52);
+}
+.sug-list .sug-item { background:transparent; }
+
+/* ===== V1.5.3：窄屏（手机）适配 ===== */
+@media (max-width: 640px) {
+  /* 顶栏左侧标志在手机上保留显示 */
+  .brand-link { display:inline-flex; align-items:center; }
+  .brand-name { font-size:15px; }
+  /* 全屏顶部搜索框收窄，给右侧时间药丸留出距离（按比例缩短右端搜索键） */
+  section.fs-mobile .fs-search-wrap { width:min(200px, 34vw); }
+  section.fs-mobile .fs-search-wrap .search-key { flex:0 0 22%; min-width:34px; }
+  section.fs-mobile .fs-search-wrap .search-ico { width:16px; height:16px; }
+  /* 全屏左上角 × 与 △ 的字号放大，便于手指点按 */
+  section.fs-mobile:fullscreen .fs-exit-btn { font-size:22px; }
+  section.fs-mobile:fullscreen .fs-panel-btn svg { width:19px; height:19px; }
+  /* 时间药丸同步收窄，确保两者不重叠且有间距 */
+  section.fs-mobile:fullscreen .fs-clock { font-size:11px; padding:0 10px; }
+}
 </style>
 </head>
 <body>
@@ -853,7 +904,6 @@ html.loading, html.loading body { overflow:hidden; touch-action:none; }
   <div class="canvas-wrap bleed"><canvas id="map"></canvas><div class="sat-info" id="mapInfo"></div>
     <div class="fs-bar">
       <button class="fs-panel-btn" data-panel type="button" aria-label="展开面板" title="展开/收起设置面板"><svg viewBox="0 0 24 24"><path d="M8 5l8 7-8 7z"/></svg></button>
-      <button class="fs-reset-btn" data-fsreset="map" type="button" data-i18n="b_reset" aria-label="恢复默认视图" title="恢复默认视图">重置视图</button>
     </div>
     <div class="view-ctl">
       <button data-zoom="in" data-view="map" type="button" aria-label="放大" title="放大">+</button>
@@ -901,7 +951,6 @@ html.loading, html.loading body { overflow:hidden; touch-action:none; }
   <div class="canvas-wrap tall wide"><canvas id="globe"></canvas><div class="sat-info" id="globeInfo"></div>
     <div class="fs-bar">
       <button class="fs-panel-btn" data-panel type="button" aria-label="展开面板" title="展开/收起设置面板"><svg viewBox="0 0 24 24"><path d="M8 5l8 7-8 7z"/></svg></button>
-      <button class="fs-reset-btn" data-fsreset="globe" type="button" data-i18n="b_reset" aria-label="恢复默认视图" title="恢复默认视图">重置视图</button>
     </div>
     <div class="view-ctl">
       <button data-zoom="in" data-view="globe" type="button" aria-label="放大" title="放大">+</button>
@@ -973,9 +1022,7 @@ html.loading, html.loading body { overflow:hidden; touch-action:none; }
   <div class="sec-head"><h2 data-i18n="h_sattable">卫星表格</h2>
     <div class="sec-tools">
       <div class="tools-row">
-        <div class="search-wrap" style="width:240px"><input id="tableSearch" type="search" data-i18n-ph="d_search_ph" placeholder="支持模糊与混合搜索" autocomplete="off" /><button class="search-key" type="button" aria-label="搜索"><svg class="search-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.2" fill="none" stroke="currentColor" stroke-width="2.1"/><line x1="15.2" y1="15.2" x2="20.4" y2="20.4" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg></button><div class="sug-list" id="tableSug"></div></div>
-        <button class="ghost tgl" id="colsToggle" type="button" aria-pressed="false" data-i18n="b_cols">全部列</button>
-        <button class="ghost" data-defsec="table" type="button" data-i18n="b_default" title="恢复 04 表格的初始设置">默认设置</button>
+        <div class="search-wrap" style="margin-left:auto"><input id="tableSearch" type="search" data-i18n-ph="d_search_ph" placeholder="支持模糊与混合搜索" autocomplete="off" /><button class="search-key" type="button" aria-label="搜索"><svg class="search-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.2" fill="none" stroke="currentColor" stroke-width="2.1"/><line x1="15.2" y1="15.2" x2="20.4" y2="20.4" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg></button><div class="sug-list" id="tableSug"></div></div>
       </div>
     </div>
     <span class="sec-num">04</span>
