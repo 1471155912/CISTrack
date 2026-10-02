@@ -74,8 +74,8 @@ const RAW = w.SATDATA;
 console.log('--- 基础 ---');
 assert('页面无脚本错误', errors.length === 0, errors.slice(0, 3).join(' | ') || 'none');
 assert('卫星表已渲染 10 行', rows() === 10, rows());
-assert('版本号 V1.4.8', /var VERSION = 'V1\.4\.8'/.test(appSrc));
-assert('页脚显示 CISTrack + 版本号', /CISTrack/.test($('#footCopy').textContent) && /V1\.4\.8/.test($('#footCopy').textContent), $('#footCopy').textContent);
+assert('版本号 V1.5.2', /var VERSION = 'V1\.5\.2'/.test(appSrc));
+assert('页脚显示 CISTrack + 版本号', /CISTrack/.test($('#footCopy').textContent) && /V1\.5\.2/.test($('#footCopy').textContent), $('#footCopy').textContent);
 assert('页脚 B 站链接是橙色主题', /#footLink/.test(tpl) && /#ff8c1a/.test(tpl));
 
 console.log('--- 数据层 ---');
@@ -109,7 +109,8 @@ assert('顶栏切换栏用章节标题那套键，顺序一致',
   [...d.querySelectorAll('.navlinks a')].map(a => a.getAttribute('data-i18n')).join('|') === 'h_map|h_orbits|h_dist|h_sattable|h_launchhist');
 assert('顶栏切换栏 href 与章节一一对应',
   [...d.querySelectorAll('.navlinks a')].map(a => a.getAttribute('href')).join('|') === '#sec-map|#sec-orbits|#sec-chart|#sec-table|#sec-launches');
-assert('档位条 = ↑MOISL↓', [...d.querySelectorAll('#jumpPill button')].map(b => b.textContent).join('') === '↑MOISL↓');
+assert('档位条：中文=图轨角星箭 / 英文=MOISL（V1.4.9）',
+  [...d.querySelectorAll('#jumpPill button')].map(b => b.textContent).join('') === '↑图轨角星箭↓');
 
 console.log('--- 表格 ---');
 assert('默认按 NORAD 从大到小',
@@ -406,8 +407,8 @@ assert('地球禁用区跟随当前半径（放大后可用区随之变大）',
 // ① 自转限流
 assert('自转重绘限流到 20fps（50ms）', /now - lastGlobeDraw > 50/.test(appSrc));
 // ③a 拖动不撑宽
-assert('信息窗拖动右边界减掉窗宽（不会把页面撑宽）',
-  /var maxL = \(vw - KEEP - drag\.w\) - wrap\.left;/.test(appSrc));
+assert('信息窗拖动右边界允许部分拉出屏幕（overflow-x 兜底，页面不撑宽）',
+  /var maxL = \(vw - KEEP\) - wrap\.left;/.test(appSrc));
 assert('页面不允许横向滚动', /html \{[\s\S]{0,120}overflow-x:hidden/.test(tpl) &&
   /body \{[\s\S]{0,80}overflow-x/.test(tpl));
 // ④ 弹窗
@@ -428,6 +429,49 @@ assert('英文发射时间标签 GMT+8', appSrc.indexOf("'Launch time (GMT+8)'")
 assert('手机端 CISTrack 三档字号各 +3px',
   /font-size:26px; letter-spacing:\.03em/.test(tpl) && /font-size:25px; letter-spacing:\.02em/.test(tpl) &&
   /font-size:23px; letter-spacing:\.03em; \}/.test(tpl));
+
+
+assert('触屏点击阈值与鼠标一致（TAP_SLOP，不再硬编码 4px）',
+  /moved <= \(cfg\.tapSlop \|\| TAP_SLOP\) && cfg\.tap/.test(appSrc));
+assert('全屏强制横屏 + 退出时解锁',
+  /screen\.orientation\.lock\('landscape'\)/.test(appSrc) && /screen\.orientation\.unlock/.test(appSrc));
+assert('章节标题前无多余的 > 字符', tpl.indexOf('</button>>') < 0 && html.indexOf('</button>>') < 0);
+assert('CISTrack 标志链到仓库主页', /href="https:\/\/github\.com\/1471155912\/CISTrack"/.test(tpl));
+assert('搜索别名表：火箭 / 发射设施 / 制造商', /var ROCKET_ALIAS/.test(appSrc) &&
+  /var SITE_ALIAS/.test(appSrc) && /var MAKER_ALIAS/.test(appSrc) && /function aliasHit/.test(appSrc));
+assert('联想区：括号标注 + 分割线 + 历史记录',
+  /function sugItemHtml/.test(appSrc) && /var SEARCH_HISTORY/.test(appSrc) &&
+  /\.sug-item \+ \.sug-item \{ border-top/.test(tpl) && /class="sug-note"/.test(appSrc));
+assert('全屏常驻搜索框（无 ⌕ 圆钮）+ 搜索键', !/fs-search-btn/.test(tpl) && /fs-search-wrap/.test(tpl) &&
+  /class="search-key"/.test(tpl) && /search-ico/.test(tpl));
+assert('地图章节固定长宽比（含全屏）', /#sec-map \.canvas-wrap \{ height:auto; aspect-ratio:1325 \/ 620; \}/.test(tpl));
+assert('激活态为反色（含地图章节的 ghost.tgl 与全屏控件）', /button\.ghost\.tgl\.on/.test(tpl) &&
+  /color:var\(--bg\); background:var\(--fg\); border-color:var\(--fg\);/.test(tpl));
+assert('浮动控件统一毛玻璃', /#jumpPill button, \.view-ctl button, \.fs-panel-btn/.test(tpl) &&
+  /backdrop-filter:blur\(8px\)/.test(tpl));
+
+
+assert('curKey 不再出现（当前星座用 S.key）', appSrc.indexOf('curKey') < 0 && /var k = S\.key/.test(appSrc));
+assert('联想项：名称后紧跟括号标注、最右为 NORAD', /class="sug-note">\(/.test(appSrc) && /class="sug-norad"/.test(appSrc));
+assert('切星座：保存/载入各自搜索词并清选中',
+  /function saveSearchText/.test(appSrc) && /function loadSearchText/.test(appSrc) && /saveSearchText\(\);/.test(appSrc));
+assert('全屏左上角三键直角三角形布局', /section\.fs-mobile:fullscreen \.fs-panel-btn \{ position:fixed; left:16px; top:calc\(16px \+ var\(--fs-ctl-h\) \+ 10px\);/.test(tpl) &&
+  /section\.fs-mobile:fullscreen \.fs-reset-btn \{ position:fixed; left:60px; top:16px;/.test(tpl));
+assert('全屏控件小窗不再占满', /section\.fs-mobile:fullscreen \.fs-panel \{/.test(tpl) && tpl.indexOf('max-width:min(360px,50vw)') >= 0);
+assert('搜索框占位符统一为「支持模糊与混合搜索」', /d_search_ph: \['支持模糊与混合搜索'/.test(appSrc) &&
+  tpl.indexOf('placeholder="支持模糊与混合搜索"') >= 0);
+
+
+assert('全屏搜索框已注册进联动体系（会绑联想）', /fsTopSearch/.test(appSrc) &&
+  /document\.querySelectorAll\('\.fs-search-wrap'\)\.forEach/.test(appSrc) &&
+  /SEARCH_BOXES\.push/.test(appSrc));
+assert('△ 与重置视图提到 section 直接子级（防被抽屉盖住）', /function liftFsButtons/.test(appSrc));
+assert('横屏锁定在 fullscreenchange 内（同 tick 早调已删）',
+  !/V1\.5\.0：手机端强制横屏/.test(appSrc) && /screen\.orientation\.lock\('landscape'\)/.test(appSrc));
+assert('退出全屏先锁竖屏', /screen\.orientation\.lock\('portrait'\)/.test(appSrc));
+assert('退出全屏位置二次校正', /}, 420\);/.test(appSrc));
+assert('地图 contain 居中（mapFit）', /function mapFit\(W, H\)/.test(appSrc) &&
+  /\* fit\.w \* k \+ fit\.ox \+ tx/.test(appSrc));
 
 console.log('--- 主题 ---');
 $('#themeBtn').dispatchEvent(new w.MouseEvent('click', { bubbles: true }));

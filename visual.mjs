@@ -129,9 +129,9 @@ async function probe(tag, expectTwoLinePager, expectEn) {
     (await ev(`[...document.querySelectorAll('.navlinks a')].map(a=>a.getAttribute('data-i18n')).join('|')`)) ===
     'h_map|h_orbits|h_dist|h_sattable|h_launchhist');
   ck('说明区搜索框拉满到右边界', await ev(`(function(){
-    var i = document.querySelector('#topSearch').getBoundingClientRect().width;
-    var s = document.querySelector('.hero-side').getBoundingClientRect().width;
-    return Math.abs(i - s) < 2;
+    var i = document.querySelector('#topSearch').closest('.search-wrap').getBoundingClientRect().right;
+    var s = document.querySelector('.hero-side').getBoundingClientRect().right;
+    return Math.abs(i - s) < 6;   // V1.5.1：靠右对齐（含搜索键的整个药丸）
   })()`));
   // V1.4.3：表头改成一律居中（用户要求），所以不再比对「表头与数据同侧」
   ck('卫星表格：表头一律居中', await ev(`(function(){
