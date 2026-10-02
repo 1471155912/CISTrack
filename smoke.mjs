@@ -74,8 +74,8 @@ const RAW = w.SATDATA;
 console.log('--- 基础 ---');
 assert('页面无脚本错误', errors.length === 0, errors.slice(0, 3).join(' | ') || 'none');
 assert('卫星表已渲染 10 行', rows() === 10, rows());
-assert('版本号 V1.5.2', /var VERSION = 'V1\.5\.2'/.test(appSrc));
-assert('页脚显示 CISTrack + 版本号', /CISTrack/.test($('#footCopy').textContent) && /V1\.5\.2/.test($('#footCopy').textContent), $('#footCopy').textContent);
+assert('版本号 V1.5.3', /var VERSION = 'V1\.5\.3'/.test(appSrc));
+assert('页脚显示 CISTrack + 版本号', /CISTrack/.test($('#footCopy').textContent) && /V1\.5\.3/.test($('#footCopy').textContent), $('#footCopy').textContent);
 assert('页脚 B 站链接是橙色主题', /#footLink/.test(tpl) && /#ff8c1a/.test(tpl));
 
 console.log('--- 数据层 ---');
@@ -455,8 +455,11 @@ assert('curKey 不再出现（当前星座用 S.key）', appSrc.indexOf('curKey'
 assert('联想项：名称后紧跟括号标注、最右为 NORAD', /class="sug-note">\(/.test(appSrc) && /class="sug-norad"/.test(appSrc));
 assert('切星座：保存/载入各自搜索词并清选中',
   /function saveSearchText/.test(appSrc) && /function loadSearchText/.test(appSrc) && /saveSearchText\(\);/.test(appSrc));
-assert('全屏左上角三键直角三角形布局', /section\.fs-mobile:fullscreen \.fs-panel-btn \{ position:fixed; left:16px; top:calc\(16px \+ var\(--fs-ctl-h\) \+ 10px\);/.test(tpl) &&
-  /section\.fs-mobile:fullscreen \.fs-reset-btn \{ position:fixed; left:60px; top:16px;/.test(tpl));
+assert('全屏左上角两键（× 与 △）：△ 挂在 × 正下方', tpl.indexOf('fs-panel-btn { position:fixed; left:16px; top:calc(16px + var(--fs-ctl-h) + 10px);') >= 0 && tpl.indexOf('fs-reset-btn') < 0);
+assert('表格列开关与默认设置按钮已移除（恒为全部列）', tpl.indexOf('colsToggle') < 0 && tpl.indexOf('data-defsec="table"') < 0);
+assert('全屏搜索框注册在绑定循环之前', appSrc.indexOf('fsTopSearch') < appSrc.indexOf("el.addEventListener('input', function () { applySearch(this); })"));
+assert('窄屏适配：全屏搜索框收窄 + × 字号放大', tpl.indexOf('@media (max-width: 640px)') >= 0 && tpl.indexOf('fs-exit-btn { font-size:22px; }') >= 0);
+assert('三章节信息窗外观统一（无 chart-info / #mapInfo 特例）', tpl.indexOf('.chart-info {') < 0 && tpl.indexOf('#mapInfo {') < 0);
 assert('全屏控件小窗不再占满', /section\.fs-mobile:fullscreen \.fs-panel \{/.test(tpl) && tpl.indexOf('max-width:min(360px,50vw)') >= 0);
 assert('搜索框占位符统一为「支持模糊与混合搜索」', /d_search_ph: \['支持模糊与混合搜索'/.test(appSrc) &&
   tpl.indexOf('placeholder="支持模糊与混合搜索"') >= 0);
@@ -472,6 +475,51 @@ assert('退出全屏先锁竖屏', /screen\.orientation\.lock\('portrait'\)/.tes
 assert('退出全屏位置二次校正', /}, 420\);/.test(appSrc));
 assert('地图 contain 居中（mapFit）', /function mapFit\(W, H\)/.test(appSrc) &&
   /\* fit\.w \* k \+ fit\.ox \+ tx/.test(appSrc));
+
+
+assert('全屏搜索框注册块紧跟在 SEARCH_BOXES 定义之后（不被塞进函数）', (function(){
+  var d = appSrc.indexOf('var SEARCH_BOXES = [');
+  var a = appSrc.indexOf('V1.5.3：全屏顶部搜索框注册');
+  var b = appSrc.indexOf("el.addEventListener('input', function () { applySearch(this); })");
+  return d >= 0 && a > d && (a - d) < 2000 && b > a;
+})());
+assert('注册块只出现一次', appSrc.split('SEARCH_BOXES.push({ input: inp.id').length === 2);
+
+assert('搜索药丸已改为不裁切（overflow:visible，联想区不再被切掉）',
+  tpl.indexOf('/* V1.5.3：不能用 overflow:hidden') >= 0 && tpl.indexOf('overflow:visible') >= 0);
+assert('联想区贴在药丸下方', tpl.indexOf('top:calc(100% + 4px)') >= 0);
+
+
+assert('搜索药丸为全圆角 + 层叠提升', (function(){
+  var i = tpl.indexOf('.search-wrap, section.fs-mobile .fs-search-wrap {');
+  if (i < 0) return false;
+  var blk = tpl.slice(i, tpl.indexOf('}', i));
+  return blk.indexOf('border-radius:999px !important') >= 0 && blk.indexOf('z-index:150') >= 0;
+})());
+assert('联想区为半透明毛玻璃且置顶', (function(){
+  var i = tpl.indexOf('.sug-list {\n  z-index:220');
+  if (i < 0) return false;
+  var blk = tpl.slice(i, tpl.indexOf('}', i));
+  return blk.indexOf('backdrop-filter:blur(22px)') >= 0 && blk.indexOf('background:var(--sug-bg) !important') >= 0;
+})());
+assert('样式必须写在 </style> 内（不能落在 </html> 之后）', (function(){
+  var m = tpl.indexOf('V1.5.3 最终版');
+  return m > 0 && m < tpl.lastIndexOf('</style>');
+})());
+
+
+assert('不得有内容落在 </html> 之后（样式漏出文档会变成可见文本）', (function(){
+  var i = html.lastIndexOf('</html>');
+  return i > 0 && html.slice(i + 7).trim().length === 0;
+})());
+
+
+assert('全屏控件抽屉上沿不顶屏幕顶端（落在左上三键下方）', (function(){
+  var i = tpl.indexOf('section.fs-mobile:fullscreen .sec-head {');
+  if (i < 0) return false;
+  var blk = tpl.slice(i, tpl.indexOf('}', i));
+  return blk.indexOf('top:0;') < 0 && blk.indexOf('top:calc(') >= 0;
+})());
 
 console.log('--- 主题 ---');
 $('#themeBtn').dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
