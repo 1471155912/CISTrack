@@ -5,6 +5,25 @@ const ROOT = path.dirname(fileURLToPath(import.meta.url));   // 脚本所在目�
 const B = ROOT;
 const R = B + '/data';
 
+// ---- V1.7.0 三轮：构建前自动清理「与现版本 / 留档版本都无关」的一次性产物 ----
+// 只搬不删（进 junk/<时间戳>/，随时整包搬回），且**绝不阻断构建**。
+// 想跳过这次清理：设环境变量 CISTRACK_NO_CLEAN=1。
+if (!process.env.CISTRACK_NO_CLEAN && fs.existsSync(B + '/clean.mjs')) {
+  try {
+    // 注意：这里必须**模块内调用**而不是 execFileSync 派生子进程 ——
+    // 本机 spawn 同一个 node.exe 会稳定报 EBUSY（clean.mjs 因此导出了 scan/applyMove）。
+    const { scan, applyMove } = await import('./clean.mjs');
+    const plan = scan(B, { deep: false, noProfiles: false });
+    if (plan.move.length) {
+      const r = applyMove(plan);
+      console.log('清理：搬走 ' + r.okN + ' 项一次性产物（' + (r.mb / 1048576).toFixed(1) + ' MB）→ junk/（可整包搬回）'
+        + (r.failN ? '；' + r.failN + ' 项搬不动（多半是浏览器用户数据目录被占用），已跳过' : ''));
+    }
+  } catch (e) {
+    console.log('清理：跳过（' + (e && e.message || e) + '）');
+  }
+}
+
 let html = fs.readFileSync(`${B}/template.html`, 'utf8');
 const sgp4 = fs.readFileSync(`${R}/satellite.min.js`, 'utf8');
 const coast = fs.readFileSync(`${R}/coast.js.txt`, 'utf8');
@@ -21,7 +40,7 @@ html = html
   .replace('<!--INJECT_DATA-->', '<script>window.SATDATA=' + data + ';</script>')
   .replace('<!--INJECT_APP-->', '<script>\n' + app + '\n</script>');
 
-const out = `${B}/国网与千帆在轨追踪.html`;
+const out = `${B}/星网与千帆在轨追踪.html`;
 fs.writeFileSync(out, html, 'utf8');
 console.log('written', out, fs.statSync(out).size, 'bytes');
 console.log('placeholders left:', (html.match(/<!--INJECT/g) || []).length);

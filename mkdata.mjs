@@ -352,7 +352,7 @@ console.log('pending summary qf=', JSON.stringify(qfSum));
 //  · 用完整的 NORAD 目录（data/satcat.csv）逐批比对：每个 COSPAR 前缀下的 PAY 数与词条颗数逐批吻合
 //    （2026-211 一箭 9 个 PAY = 极轨26组 8 + EUHT 试验星 1，正好解释词条"8"与目录"9"的差）。
 //  · 词条 44 个 COSPAR 前缀里有 22 个不在 CelesTrak 的 hulianwang / qianfan 分组中
-//    （国网试验星、高轨星、4 个待编目组；千帆 3 组试验星与 2 个待编目组）—— 这正是本页
+//    （星网试验星、高轨星、4 个待编目组；千帆 3 组试验星与 2 个待编目组）—— 这正是本页
 //    「有完整轨道要素、能推算位置」的卫星数少于词条在轨数的原因，不是数据错误。
 const WIKI_STAT = {
   gw: {
@@ -402,7 +402,7 @@ const DATA = {
   generated: new Date().toISOString(),
   source: 'CelesTrak GP（NORAD 空间目标目录）· 多源补漏（分组 + 名称 + 编号反查）',
   gw: {
-    key: 'gw', name: '国网', en: 'SatNet / Guowang', org: '中国卫星网络集团有限公司',
+    key: 'gw', name: '星网', en: 'SatNet / CSCN', org: '中国卫星网络集团有限公司',
     sub: '低轨互联网星座',
     launches: GW_LAUNCH, pending: gwPend, pendingInfo: gwSum, launchCounts: gwCounts, stats: gwStats,
     wiki: WIKI_STAT.gw,
