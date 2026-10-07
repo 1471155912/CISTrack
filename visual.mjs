@@ -7,6 +7,8 @@ import http from 'node:http';
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 const B = fileURLToPath(new URL('.', import.meta.url));
 
@@ -24,7 +26,87 @@ try {
 }
 if (!fs.existsSync(FILE)) { console.log('找不到 HTML:', FILE); process.exit(1); }
 
+// V1.8.0：Edge 的 profile 目录一律放 D 盘（见下 spawn 里的 --user-data-dir）。
+//   顺序：环境变量 CISTRACK_TMP → D:/workbuddyproject/_tmp → D:/Temp → 系统临时目录。
+//   取值时逐个探测可写性，避免在只读/不存在的盘上建目录。
+const TMPROOT = (function () {
+  const cands = [process.env.CISTRACK_TMP, 'D:/workbuddyproject/_tmp', 'D:/Temp', os.tmpdir()].filter(Boolean);
+  for (const c of cands) {
+    try { fs.mkdirSync(c, { recursive: true }); fs.accessSync(c, fs.constants.W_OK); return c; } catch (e) {}
+  }
+  return os.tmpdir();
+})();
+const EDGE_PROFILE = fs.mkdtempSync(path.join(TMPROOT, 'cistrack-visual-'));
+function rmProfile() {
+  // 收尾清掉 profile。删不掉也不能让脚本失败（Windows 上刚退出的浏览器偶尔还占着句柄）。
+  try { fs.rmSync(EDGE_PROFILE, { recursive: true, force: true }); } catch (e) {}
+}
+process.on('exit', rmProfile);
+process.on('SIGINT', () => { rmProfile(); process.exit(130); });
+
+// ---- V1.8.0：测试用「探针副本」----
+// 【为什么需要】app.js 整体是 `(function(){ 'use strict'; ... })();` —— 内部所有声明都活在
+//   IIFE 作用域里，**根本不挂在 window 上**（这和 jsdom 里取不到 window.I18N 是同一个原因）。
+//   于是 CDP 里读不到 chartRect / clampChartView / netDateLabel 这些量，像素级验证无从下手。
+// 【做法】把发布 HTML 原样复制到 D 盘临时目录，在《主 IIFE》的 `'use strict';` 之后**紧邻注入**
+//   一段「只读探针出口」（window.__CISTRACK__）。Edge 打开的是这个副本 —— **发布产物零污染**；
+//   下面还会断言副本与发布 HTML 的差异**仅有这一处注入**（逐字节比对）。
+//   ⚠ 坑：**不能**按「最后一个 `})();`」定位 —— app.js 的主 IIFE 在第 7772 行就闭合了，
+//   7777–7799 是另一个并列的兄弟 IIFE（window.placeChartSearch 定版）。注到那里=注到兄弟作用域，
+//   页面上一个内部名都看不见（第九轮第一次跑就是这么全线 ReferenceError 的）。
+//   探针成员一律写成**取值函数**，所以放在 IIFE 最前面也安全（调用时变量早已初始化）。
+//   同目录再放一份 wiki.json，保证「打开即读词条覆盖计数」这条路径与发布版一致。
+const PROBE_DIR = fs.mkdtempSync(path.join(TMPROOT, 'cistrack-probe-'));
+const PROBE_INS = `
+/* ---- 只读探针出口：仅存在于 visual.mjs 生成的临时副本；发布 HTML 里没有这一段 ---- */
+window.__CISTRACK__ = (function () {
+  function g(n) { try { return eval(n); } catch (e) { return undefined; } }
+  return {
+    get version() { return VERSION; },
+    chartRect: function () { return chartRect; },
+    netRect: function () { return netRect; },
+    chartView: function () { return chartView; },
+    netView: function () { return netView; },
+    setChartView: function (v) { chartView = v; },
+    setNetView: function (v) { netView = v; },
+    clampChartView: function (v) { return clampChartView(v); },
+    clampNetView: function (v) { return clampNetView(v); },
+    chartAutoView: function () { return chartAutoView(); },
+    netAutoView: function () { return netAutoView(); },
+    drawChart: function () { return drawChart(); },
+    drawNet: function () { return drawNet(); },
+    netDateLabel: function (ms) { return netDateLabel(ms); },
+    netColors: function () { return netColors(); },
+    applyPseudoFull: function (on, sec) { return applyPseudoFull(on, sec); },
+    syncFsBarHeight: function () { return syncFsBarHeight(); },
+    _probe: function () { return { hasVersion: typeof VERSION, hasClamp: typeof clampChartView }; }
+  };
+})();`;
+const SHIPPED = fs.readFileSync(FILE, 'utf8');
+// 主 IIFE 的头：`(function () {\n'use strict';` —— 注入点紧跟其后（保留指令序言在最前）
+const HEAD_RE = /\(function \(\) \{\r?\n'use strict';/;
+const HM = HEAD_RE.exec(SHIPPED);
+if (!HM) {
+  console.error('探针副本构建失败：在发布 HTML 里找不到 app 主 IIFE 的头部锚点');
+  process.exit(1);
+}
+const CUT = HM.index + HM[0].length;
+const PROBE_HTML = SHIPPED.slice(0, CUT) + PROBE_INS + '\n' + SHIPPED.slice(CUT);
+const PAGE = path.join(PROBE_DIR, path.basename(FILE));
+fs.writeFileSync(PAGE, PROBE_HTML, 'utf8');
+try {
+  const wj = path.join(path.dirname(FILE), 'wiki.json');
+  if (fs.existsSync(wj)) fs.copyFileSync(wj, path.join(PROBE_DIR, 'wiki.json'));
+} catch (e) {}
+process.on('SIGINT', () => { try { fs.rmSync(PROBE_DIR, { recursive: true, force: true }); } catch (e) {} });
+process.on('exit', () => { try { fs.rmSync(PROBE_DIR, { recursive: true, force: true }); } catch (e) {} });
+console.log('（探针副本：' + PAGE + '）');
+
 const child = spawn(EDGE, ['--headless=new', '--disable-blink-features=AutomationControlled',
+  // V1.8.0：必须显式指定 user-data-dir —— 否则 Edge 会在 %TEMP%（本机默认在 C 盘）下建一整套
+  //   浏览器用户数据目录（Cache/Code Cache/GPUCache…），反复调试会累积上百 MB 把 C 盘写满
+  //   （本机实测过一次 ENOSPC）。这里固定放到 D 盘的临时根目录下，并带上本次运行的唯一后缀。
+  '--user-data-dir=' + EDGE_PROFILE,
   '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
   '--disable-gpu', '--no-first-run', '--no-default-browser-check', '--remote-debugging-port=' + PORT,
   '--window-size=1440,1000', 'about:blank'], { stdio: 'ignore' });
@@ -53,7 +135,13 @@ async function mouse(type, x, y) {
   await send('Input.dispatchMouseEvent', { type, x, y, button: 'left', buttons: type === 'mouseMoved' ? 0 : 1, clickCount: 1 });
 }
 let pass = 0, fail = 0;
+// ⚠ 陷阱（V1.8.0 修）：ev() 在页面里抛异常时返回 { __err: '...' }，而**对象恒为真值** ——
+//   旧写法 `if (ok)` 会把「求值当场就崩了」整条判成 PASS（第九轮真出现过两条这样的假通过）。
+//   现在：只要 ok 是 ev() 的异常信封，一律记 FAIL，并把异常原文打出来。
 function ck(name, ok, got) {
+  if (ok && typeof ok === 'object' && ok.__err) {
+    fail++; console.log('FAIL ' + name + '  → 页面内异常：' + ok.__err); return;
+  }
   if (ok) { pass++; console.log('PASS ' + name); }
   else { fail++; console.log('FAIL ' + name + '  → ' + JSON.stringify(got)); }
 }
@@ -68,7 +156,7 @@ async function setViewport(w, h, mobile) {
 }
 await send('Page.enable');
 await setViewport(1440, 900, false);
-await send('Page.navigate', { url: 'file:///' + FILE });
+await send('Page.navigate', { url: 'file:///' + PAGE });
 await sleep(4500);
 
 // ---- 通用：越界检查（右边界不应超过 section 的内边距）----
@@ -91,8 +179,9 @@ const overFn = `(function(){
 
 async function probe(tag, expectTwoLinePager, expectEn) {
   console.log('\n===== ' + tag + ' =====');
-  ck('章节顺序', (await ev(`[...document.querySelectorAll("section")].map(s=>s.id).join("|")`)) === 'sec-map|sec-orbits|sec-chart|sec-table|sec-launches');
-  ck('章节号 01–05', (await ev(`[...document.querySelectorAll(".sec-num")].map(s=>s.textContent).join("")`)) === '0102030405');
+  // V1.8.0（需求8）：新增 03.5「组网进度」章节（放在 03 倾角分布之后、04 卫星表格之前）
+  ck('章节顺序', (await ev(`[...document.querySelectorAll("section")].map(s=>s.id).join("|")`)) === 'sec-map|sec-orbits|sec-chart|sec-progress|sec-table|sec-launches');
+  ck('章节号 01/02/03/03.5/04/05', (await ev(`[...document.querySelectorAll(".sec-num")].map(s=>s.textContent).join("")`)) === '01020303.50405');
   // 手机上顶栏会换行变高、品牌字号也会被断点调小，这两项只在宽屏量
   if (!expectTwoLinePager) {
     ck('顶栏高度 62px（不因品牌字号变大而撑高）', (await ev(`document.querySelector(".topnav").offsetHeight`)) === 62);
@@ -101,8 +190,9 @@ async function probe(tag, expectTwoLinePager, expectEn) {
       (await ev(`getComputedStyle(document.querySelector(".brand-name")).fontFamily.split(",")[0]`)) === 'Audiowide');
     ck('字体真的加载了（离线内嵌生效）', (await ev(`document.fonts.check('32px Audiowide')`)) === true);
   }
-  ck('三个图章节各 5 个按键（＋ − ⟳ ⛶ 导出）',
-    (await ev(`[...document.querySelectorAll(".view-ctl")].map(g=>g.children.length).join(",")`)) === '5,5,5');
+  // V1.8.0（需求8）：第四张图（03.5 组网进度）同样有一对 ＋/−、⟳、⛶ 与导出键
+  ck('四个图章节各 5 个按键（＋ − ⟳ ⛶ 导出）',
+    (await ev(`[...document.querySelectorAll(".view-ctl")].map(g=>g.children.length).join(",")`)) === '5,5,5,5');
   ck('导出按键是每组最后一个',
     (await ev(`[...document.querySelectorAll(".view-ctl")].every(g=>/shot/.test(g.lastElementChild.className))`)) === true);
   ck('两个表格各有一个导出按键', (await ev(`document.querySelectorAll(".pg-shot").length`)) === 2);
@@ -122,7 +212,7 @@ async function probe(tag, expectTwoLinePager, expectEn) {
     const enTitles = `[...document.querySelectorAll('.sec-head h2')].map(function(h){
       var s = h.querySelector('span'); return (s ? s.textContent : h.textContent).trim(); }).join('|')`;
     ck('英文章节标题 Title Case',
-      (await ev(enTitles)) === 'Map|Orbits|Inclination Distribution|Satellite Table|Launch History', await ev(enTitles));
+      (await ev(enTitles)) === 'Map|Orbits|Inclination Distribution|Network Progress|Satellite Table|Launch History', await ev(enTitles));
     // V1.7.2 第七轮（需求2）：顶栏章节切换按钮已删，英文 Title Case 改到主标题下的历元行上校验
     ck('英文顶栏：章节切换按钮已移除、历元行在主标题下',
       (await ev(`document.querySelectorAll('.topnav .navlinks a').length`)) === 0 &&
@@ -143,16 +233,18 @@ async function probe(tag, expectTwoLinePager, expectEn) {
       .filter(function (t) { return getComputedStyle(t).display !== 'none'; });
     return ths.length > 0 && ths.every(function (t) { return getComputedStyle(t).textAlign === 'center'; });
   })()`));
-  ck('卫星表格：数据首列左对齐、制造方居中、数字列右对齐', await ev(`(function(){
+  // V1.8.0（需求12/13）：卫星表在「批次/组」后插入了「发射时间」列 → 制造方顺延到第 5 列（idx 4）；
+  //   同时需求13 要求「两表记录一律居中」，实际生效的是「首列左对齐（tbody td:first-child）+ 其余全居中」。
+  //   所以这里不再逐列点名 maker / 数字列，改成验这条更强的规则。
+  ck('卫星表格：首列左对齐、其余各列一律居中（V1.8.0 需求13）', await ev(`(function(){
     var tr = document.querySelector('#satTable tbody tr');
     if (!tr) return false;
     var tds = [...tr.children];
     return getComputedStyle(tds[0]).textAlign === 'left' &&
-      getComputedStyle(tds[3]).textAlign === 'center' &&
-      getComputedStyle(tds[4]).textAlign === 'right';
+      tds.slice(1).every(function (td) { return getComputedStyle(td).textAlign === 'center'; });
   })()`), await ev(`(function(){
     var tr = document.querySelector('#satTable tbody tr'); if (!tr) return 'no row';
-    return [...tr.children].slice(0, 5).map(function (t) { return getComputedStyle(t).textAlign; }).join(',');
+    return [...tr.children].map(function (t) { return getComputedStyle(t).textAlign; }).join(',');
   })()`));
   ck('发射历史：表头与数据全部居中（V1.4.7）', await ev(`(function(){
     var ths = [...document.querySelectorAll('#launchTable thead th')]
@@ -510,6 +602,291 @@ for (const w of [1440, 1080]) {
     r && r.hero != null && r.tbl != null && Math.abs(r.tbl - r.hero) <= 2,
     JSON.stringify(r));
 }
+
+// ============ V1.8.0 实测：需求9（地图章控件重排）/ 需求10（抽屉内容与宽度）============
+console.log('\n===== V1.8.0（第九轮）实测：需求9 控件重排 / 需求10 抽屉 =====');
+await setViewport(430, 932, true);
+await sleep(700);
+
+// --- 需求9：手机端「？」不得自己独占一行；「选择地面观测点」那一行仍然独立 ---
+// 逐宽度检查（含 320px 极窄）：**任何宽度下都不允许出现「一行只有 ?」**。
+//   430px 另加一条更强的要求：观测点行必须收成**一行**（用户口径的"内容上移一行"）。
+const ROW_PROBE = `(function(){
+  function rowsOf(tr){
+    var out = [];
+    [].forEach.call(tr.children, function(el){
+      var b = el.getBoundingClientRect(); if (!b.height) return;
+      var hit = null;
+      for (var i = 0; i < out.length; i++) if (Math.abs(out[i].y - b.top) <= 8) { hit = out[i]; break; }
+      var tag = el.id || (el.className || el.tagName).toString().split(' ')[0];
+      if (hit) { hit.items.push(tag); if (/help-btn/.test(el.className)) hit.help++; }
+      else out.push({ y: b.top, items: [tag], help: /help-btn/.test(el.className) ? 1 : 0 });
+    });
+    return out.map(function (g) { return { items: g.items, help: g.help, n: g.items.length }; });
+  }
+  var sec = document.getElementById('sec-map');
+  var tr = sec.querySelectorAll('.sec-head .tools-row');
+  function alone(list){ return list.filter(function(g){ return g.help > 0 && g.n === g.help; })
+                             .map(function(g){ return g.items.join('+'); }); }
+  var r1 = rowsOf(tr[0]), r2 = rowsOf(tr[1]);
+  return { rows: tr.length, r1: r1, r2: r2, alone: alone(r1).concat(alone(r2)),
+           av: Math.round(tr[1].getBoundingClientRect().width),
+           secW: Math.round(sec.getBoundingClientRect().width),
+           gap: getComputedStyle(tr[1]).columnGap,
+           hb: getComputedStyle(tr[1].querySelector('.help-btn')).cssText ? 1 : 0,
+           hbBox: (function(){ var b = tr[1].querySelector('.help-btn').getBoundingClientRect();
+                               return Math.round(b.width) + 'x' + Math.round(b.height); })() };
+})()`;
+const rowByW = {};
+for (const w of [430, 390, 360, 320]) {
+  await setViewport(w, 900, true);
+  await sleep(420);
+  rowByW[w] = await ev(ROW_PROBE);
+}
+function helpAloneIn(info) {
+  if (!info) return -1;
+  let c = 0;
+  [...(info.r1 || []), ...(info.r2 || [])].forEach(g => { if (g.help > 0 && g.n === g.help) c++; });
+  return c;
+}
+ck('V1.8.0（需求9）：320 / 360 / 390 / 430px 下「?」都不独占一行（每行都与其它控件作伴）',
+  [430, 390, 360, 320].every(w => rowByW[w] && rowByW[w].rows === 2 && helpAloneIn(rowByW[w]) === 0),
+  JSON.stringify(Object.fromEntries([430, 390, 360, 320].map(w =>
+    [w, rowByW[w] && (rowByW[w].alone || []).join('|') + ' av=' + rowByW[w].av + ' gap=' + rowByW[w].gap]))));
+ck('V1.8.0（需求9）：430px 下「选择地面观测点」行收成**一行**（内容因此整体上移一行）',
+  rowByW[430] && rowByW[430].r2.length === 1 &&
+  rowByW[430].r2[0].items.indexOf('pickBtn') >= 0 && rowByW[430].r2[0].items.indexOf('pickEps') >= 0,
+  JSON.stringify(rowByW[430] && rowByW[430].r2) + ' av=' + (rowByW[430] && rowByW[430].av));
+ck('V1.8.0（需求9）：观测点行始终独立于第一行（第一行里不出现 pickBtn / pickEps）',
+  [430, 390, 360, 320].every(w => rowByW[w] && rowByW[w].r1 &&
+    !rowByW[w].r1.some(g => g.items.indexOf('pickBtn') >= 0 || g.items.indexOf('pickEps') >= 0)),
+  JSON.stringify(rowByW[320] && rowByW[320].r1));
+
+// --- 需求10：两个有抽屉的章节（01 地图 / 02 轨道），抽屉宽度必须相同、且都不含搜索框 ---
+async function drawerProbe(secId) {
+  await setViewport(1440, 900, false);
+  await sleep(400);
+  await ev(`window.__CISTRACK__.applyPseudoFull(true, document.getElementById('${secId}'))`);
+  await sleep(500);
+  await ev(`document.querySelector('#${secId} [data-panel]').click()`);
+  await sleep(700);
+  return await ev(`(function(){
+    var sec = document.getElementById('${secId}');
+    var head = sec.querySelector('.sec-head');
+    var wrap = sec.querySelector('.sec-head .search-wrap');
+    var fsWrap = sec.querySelector('.sec-head .fs-search-wrap');
+    // 抽屉里应含本章节的完整控件：所有开关/下拉/时间条/默认设置都在 .sec-head 内
+    var ctrls = sec.querySelectorAll('.tgl, .seg, .time-ctl, [data-defsec], .help-btn');
+    var outside = 0;
+    [].forEach.call(ctrls, function (el) { if (!head.contains(el)) outside++; });
+    var w = Math.round(head.getBoundingClientRect().width);
+    var open = sec.classList.contains('panel-open');
+    return { id: '${secId}', w: w, open: open, outside: outside,
+             searchDisplay: wrap ? getComputedStyle(wrap).display : 'none',
+             hasFsSearchInDrawer: !!fsWrap,
+             x: Math.round(head.getBoundingClientRect().x) };
+  })()`);
+}
+const drMap = await drawerProbe('sec-map');
+const drOrb = await drawerProbe('sec-orbits');
+await ev(`(function(){ window.__CISTRACK__.applyPseudoFull(false, null);
+  document.getElementById('sec-map').classList.remove('panel-open');
+  document.getElementById('sec-orbits').classList.remove('panel-open'); })()`);
+await sleep(300);
+ck('V1.8.0（需求10）：两个有抽屉的章节（01 地图 / 02 轨道）抽屉宽度完全相同',
+  drMap && drOrb && drMap.open && drOrb.open && drMap.w > 120 && drMap.w === drOrb.w,
+  JSON.stringify(drMap) + ' vs ' + JSON.stringify(drOrb));
+ck('V1.8.0（需求10）：抽屉里放完整控件（本章所有开关/配色/默认设置都在抽屉内）、且不含搜索框',
+  drMap && drOrb && drMap.outside === 0 && drOrb.outside === 0 &&
+  drMap.searchDisplay === 'none' && drOrb.searchDisplay === 'none' &&
+  !drMap.hasFsSearchInDrawer && !drOrb.hasFsSearchInDrawer,
+  JSON.stringify(drMap) + ' vs ' + JSON.stringify(drOrb));
+
+// ============ V1.8.0 实测：03.5 组网进度 / 需求⑱ 裁剪 / 翻页淡出淡入 ============
+// 这一组是第九轮新增功能的"真浏览器"验证：jsdom 没有像素与动画帧，量不出这些。
+console.log('\n===== V1.8.0（第九轮）实测：03.5 / 裁剪 / 翻页动画 =====');
+await setViewport(1440, 900, false);
+await sleep(900);
+
+// 先自证「探针副本 = 发布 HTML + 恰好一段注入」—— 否则后面所有「内部量」断言都不可信。
+ck('V1.8.0：探针副本与发布 HTML 逐字节相同，仅多出那一处注入',
+  PROBE_HTML.replace(PROBE_INS + '\n', '') === SHIPPED && PROBE_HTML.length > SHIPPED.length,
+  { probe: PROBE_HTML.length, shipped: SHIPPED.length });
+ck('V1.8.0：探针出口就位（window.__CISTRACK__，版本号可读）',
+  await ev(`!!window.__CISTRACK__ && window.__CISTRACK__.version === 'V1.8.0'`),
+  await ev(`(function(){ try { return window.__CISTRACK__.version; } catch (e) { return String(e); } })()`));
+// 探针「哨兵」：注入点必须落在**主 IIFE** 里，才能看见 VERSION / clampChartView 这些内部名。
+//   这条专门拦住「注到了兄弟 IIFE 里」这种情况 —— 那时后面所有内部量断言都会 ReferenceError。
+ck('V1.8.0：探针注入点在 app 主 IIFE 作用域内（能看见 VERSION / clampChartView）',
+  await ev(`(function(){ var p = window.__CISTRACK__._probe();
+    return p.hasVersion === 'string' && p.hasClamp === 'function'; })()`),
+  await ev(`JSON.stringify(window.__CISTRACK__._probe())`));
+
+// --- 03.5 章节本体 ---
+ck('V1.8.0（需求8）：03.5 章节标题为「组网进度」且编号 03.5', await ev(`(function(){
+  var s = document.getElementById('sec-progress'); if (!s) return false;
+  var n = s.querySelector('.sec-num');
+  return !!n && n.textContent.trim() === '03.5';
+})()`));
+ck('V1.8.0（需求8）：曲线图真的画出来了（画布上有非背景像素）', await ev(`(function(){
+  var cv = document.getElementById('netCv'); if (!cv) return false;
+  var g = cv.getContext('2d'), W = cv.width, H = cv.height;
+  var d = g.getImageData(0, 0, W, H).data;
+  var bg = d[0] + ',' + d[1] + ',' + d[2];
+  var diff = 0;
+  for (var i = 0; i < d.length; i += 4 * 37) {
+    if (d[i] + ',' + d[i + 1] + ',' + d[i + 2] !== bg) diff++;
+  }
+  return diff > 200;
+})()`));
+// 需求Q5：横轴粒度按周、但**显示对应的日期**（YY/MM/DD，不是「第 XX 周」）
+ck('V1.8.0（需求8/Q5）：横轴刻度用的是「日期」（netDateLabel 输出 YY/MM/DD，不是「第 XX 周」）',
+  await ev(`/^\\d{2}\\/\\d{1,2}\\/\\d{1,2}$/.test(window.__CISTRACK__.netDateLabel(Date.now()))`),
+  await ev(`window.__CISTRACK__.netDateLabel(Date.now())`));
+ck('V1.8.0（需求8/Q5）：图例用星座名（中文 星网/千帆）+ 两端日期区间，且不出现「第 X 周」', await ev(`(function(){
+  var n = document.getElementById('netNote'); if (!n) return false;
+  var t = n.textContent;
+  return /星网/.test(t) && /千帆/.test(t)
+      && /\\d{2}\\/\\d{1,2}\\/\\d{1,2}/.test(t)
+      && !/第\\s*\\d+\\s*周/.test(t);
+})()`), await ev(`(document.getElementById('netNote')||{}).textContent`));
+ck('V1.8.0（需求Q5）：两条曲线取本页主题色（星网红 / 千帆蓝）', await ev(`(function(){
+  var nc = window.__CISTRACK__.netColors();
+  var gw = getComputedStyle(document.documentElement).getPropertyValue('--c-gw').trim();
+  var qf = getComputedStyle(document.documentElement).getPropertyValue('--c-qf').trim();
+  return !!nc && nc.gw === gw && nc.qf === qf && gw !== qf;
+})()`), await ev(`JSON.stringify(window.__CISTRACK__.netColors())`));
+
+// --- 需求⑱：图像必须在横纵坐标线上截止 ---
+// 判据：把视图扫过「默认自动视图 + 四边微平移 + 四角放大」共 9 个状态，每次都检查绘图区
+//   外侧 2~3px 的那一圈像素 —— 只允许出现**低饱和度的灰**（背景、网格线、刻度字、布局留白），
+//   不允许出现高饱和的**主题色**（那颗被裁掉一半的光点会在边界外留痕）。
+//   为什么用「饱和度」而不是「必须等于背景色」：刻度文字与网格线本来就画在附近，直接比背景会误报。
+//   绘图区矩形取的是**页面自己量好的** chartRect / netRect（CSS px），再乘 canvas._dpr 换成设备像素。
+async function clipProbe(cvId, which) {
+  return await ev(`(function(){
+    var P = window.__CISTRACK__;
+    var cv = document.getElementById('${cvId}');
+    if (!cv || !P) return 'no-canvas';
+    var isNet = '${which}' === 'net';
+    if (isNet) { P.setNetView(null); P.netAutoView(); } else { P.chartAutoView(); }
+    var b0 = isNet ? P.netView() : P.chartView();
+    if (!b0) return 'no-view';
+    var base = { x0: b0.x0, x1: b0.x1, y0: b0.y0, y1: b0.y1, auto: b0.auto };
+    function mk(o) { return { x0: o.x0, x1: o.x1, y0: o.y0, y1: o.y1, auto: o.auto }; }
+    var states = [mk(base)];
+    // 四边各微平移（每次 3% 行程）
+    [['x0','x1'], ['x1','x0'], ['y0','y1'], ['y1','y0']].forEach(function (pair) {
+      var v = mk(base);
+      var d = (base[pair[0]] - base[pair[1]]) * 0.03;
+      v[pair[0]] += d; v[pair[1]] += d;
+      states.push(v);
+    });
+    // 四角各放大一次（缩到 6% 视野，把角上的点顶到坐标线上）
+    [['x0','y0'], ['x1','y0'], ['x0','y1'], ['x1','y1']].forEach(function (c) {
+      var v = mk(base), w = (base.x1 - base.x0) * 0.06, h = (base.y1 - base.y0) * 0.06;
+      if (c[0] === 'x0') { v.x0 = base.x0; v.x1 = base.x0 + w; } else { v.x1 = base.x1; v.x0 = base.x1 - w; }
+      if (c[1] === 'y0') { v.y0 = base.y0; v.y1 = base.y0 + h; } else { v.y1 = base.y1; v.y0 = base.y1 - h; }
+      states.push(v);
+    });
+    var out = [];
+    states.forEach(function (v, si) {
+      var r;
+      if (isNet) { P.setNetView(v); P.clampNetView(P.netView()); P.drawNet(); r = P.netRect(); }
+      else { P.setChartView(P.clampChartView(v)); P.drawChart(); r = P.chartRect(); }
+      if (!r) { out.push('no-rect@' + si); return; }
+      var dpr = cv._dpr || 1;
+      var W = cv.width, H = cv.height;
+      var d = cv.getContext('2d').getImageData(0, 0, W, H).data;
+      function sat(x, y) {
+        x = Math.max(0, Math.min(W - 1, Math.round(x))); y = Math.max(0, Math.min(H - 1, Math.round(y)));
+        var i = (y * W + x) * 4;
+        return Math.max(d[i], d[i + 1], d[i + 2]) - Math.min(d[i], d[i + 1], d[i + 2]);
+      }
+      var PL = r.PL * dpr, PT = r.PT * dpr, pw = r.pw * dpr, ph = r.ph * dpr;
+      var lo = Math.ceil(PL), hi = Math.ceil(PL + pw), tp = Math.ceil(PT), bt = Math.ceil(PT + ph);
+      function scan(x0, y0, x1, y1) {
+        for (var x = x0; x <= x1; x += 2) for (var y = y0; y <= y1; y += 2) {
+          if (sat(x, y) > 40) out.push('s' + si + '@' + Math.round(x) + ',' + Math.round(y));
+        }
+      }
+      // 四条带，各扫两条线（紧贴坐标线外侧 1px 与 2~3px）；两端各内收 6px 避开刻度文字
+      scan(lo + 6, tp - 1, hi - 6, tp - 1);
+      scan(lo + 6, tp - 3, hi - 6, tp - 3);
+      scan(lo + 6, bt + 1, hi - 6, bt + 1);
+      scan(lo + 6, bt + 3, hi - 6, bt + 3);
+      scan(lo - 1, tp + 6, lo - 1, bt - 6);
+      scan(lo - 3, tp + 6, lo - 3, bt - 6);
+      scan(hi + 1, tp + 6, hi + 1, bt - 6);
+      scan(hi + 3, tp + 6, hi + 3, bt - 6);
+    });
+    return out.slice(0, 8);
+  })()`);
+}
+const clipChart = await clipProbe('chart', 'chart');
+ck('V1.8.0（需求⑱）：倾角分布 —— 9 种视图下绘图区外均无高饱和光点像素（不漏点）',
+  Array.isArray(clipChart) && clipChart.length === 0, clipChart);
+const clipNet = await clipProbe('netCv', 'net');
+ck('V1.8.0（需求⑱）：组网进度 —— 9 种视图下绘图区外均无高饱和曲线/光点像素（不漏点）',
+  Array.isArray(clipNet) && clipNet.length === 0, clipNet);
+// 复位，别影响后面的用例
+await ev(`(function(){ var P = window.__CISTRACK__;
+  P.chartAutoView(); P.drawChart(); P.setNetView(null); P.netAutoView(); P.drawNet(); })()`);
+
+// --- 03.5 全屏布局（顶栏让位）---
+await setViewport(430, 932, true);
+await sleep(600);
+// 走**真实入口** applyPseudoFull（就是真全屏被系统拒绝时页面自己用的降级路径），
+// 而不是手工往 DOM 上贴 class —— 手工贴 class 会绕过里面的 syncFsBarHeight()，
+// 量到的就是 CSS 兜底值 58px，看着像 bug 其实是白测。
+await ev(`(function(){ window.__CISTRACK__.applyPseudoFull(true, document.getElementById('sec-progress')); })()`);
+await sleep(600);
+const fsLayout = await ev(`(function(){
+  var s = document.getElementById('sec-progress');
+  var c = s.querySelector('.controls'), w = s.querySelector('.chart-wrap');
+  var cs = getComputedStyle(c);
+  // --fsbar-h 是写在 **section.style** 上的（不是 documentElement）—— 读错地方会永远得到空串
+  return { pos: cs.position, top: Math.round(c.getBoundingClientRect().top),
+           ctlH: Math.round(c.getBoundingClientRect().height),
+           pt: getComputedStyle(w).paddingTop,
+           barH: s.style.getPropertyValue('--fsbar-h').trim(),
+           cvTop: Math.round(document.getElementById('netCv').getBoundingClientRect().top) };
+})()`);
+ck('V1.8.0（需求8）：03.5 全屏时控件条固定在顶部、且实测高度已写进 --fsbar-h',
+  fsLayout && fsLayout.pos === 'fixed' && fsLayout.top === 0 && fsLayout.ctlH > 0 &&
+  parseInt(fsLayout.barH, 10) === fsLayout.ctlH, JSON.stringify(fsLayout));
+ck('V1.8.0（需求8）：03.5 全屏时画布下移量正好等于控件条实测高度（不被压住）',
+  fsLayout && Math.abs(fsLayout.cvTop - fsLayout.ctlH) <= 2 && fsLayout.pt === fsLayout.barH,
+  JSON.stringify(fsLayout));
+await ev(`(function(){ window.__CISTRACK__.applyPseudoFull(false, null); })()`);
+await sleep(300);
+
+// --- 需求Q4-④：表格翻页「淡消失 → 换内容 → 淡出现」---
+// 时间轴（TBL_FADE=260）：t=0 加 .tbl-fade-out → t=260 换内容并切 .tbl-fade-in → t=580 摘掉动画类。
+// 拆成三次独立求值 + Node 侧 sleep，避免在页面里挂 Promise（CDP 默认不 await promise，会拿到 undefined）。
+await setViewport(1440, 900, false);
+await sleep(500);
+const fadeBefore = await ev(`(function(){ var tb = document.getElementById('tbody');
+  return tb.querySelector('tr[data-idx]').getAttribute('data-idx'); })()`);
+await ev(`document.querySelector('#satPager button.pg-next').click()`);
+await sleep(70);
+const f1 = await ev(`(function(){ var tb = document.getElementById('tbody');
+  return { cls: tb.className, first: tb.querySelector('tr[data-idx]').getAttribute('data-idx') }; })()`);
+await sleep(280);   // ≈ t=350：已过 260ms 的换帧点
+const f2 = await ev(`(function(){ var tb = document.getElementById('tbody');
+  return { cls: tb.className, first: tb.querySelector('tr[data-idx]').getAttribute('data-idx') }; })()`);
+await sleep(420);   // ≈ t=770：动画早已收尾
+const f3 = await ev(`(function(){ var tb = document.getElementById('tbody');
+  return { cls: tb.className, first: tb.querySelector('tr[data-idx]').getAttribute('data-idx') }; })()`);
+ck('V1.8.0（需求Q4④）：点下一页立刻进入「淡出」态（.tbl-fade-out，内容还没换）',
+  f1 && f1.__err === undefined && /tbl-fade-out/.test(f1.cls) && f1.first === fadeBefore,
+  JSON.stringify(f1) + ' before=' + fadeBefore);
+ck('V1.8.0（需求Q4④）：淡出结束后才换内容，并转为「淡入」态（.tbl-fade-in）',
+  f2 && f2.__err === undefined && f2.first !== fadeBefore && /tbl-fade-in/.test(f2.cls),
+  JSON.stringify(f2) + ' before=' + fadeBefore);
+ck('V1.8.0（需求Q4④）：动画收尾后动画类被移除（不留残留，不干扰后续渲染）',
+  f3 && f3.__err === undefined && f3.first !== fadeBefore && !/tbl-fade/.test(f3.cls),
+  JSON.stringify(f3) + ' before=' + fadeBefore);
 
 console.log('\n--- 汇总：PASS ' + pass + ' / FAIL ' + fail);
 ws.close(); child.kill(); process.exit(fail ? 1 : 0);

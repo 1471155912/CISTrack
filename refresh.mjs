@@ -14,9 +14,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 const ROOT = path.dirname(fileURLToPath(import.meta.url));   // 脚本所在目录（发布包内任意位置可用）
-import path from 'node:path';
 
-const D = path.join(ROOT, 'data')';
+const D = path.join(ROOT, 'data');
+// V1.8.0（需求14 方案A）：把「写坏后天天静默失败」挡在入口 —— 任何顶层错误必须非零退出并落日志，
+//   计划任务才能看见（旧版 17 行有重复 import + 多余引号，语法错 → 任务天天失败无人知）。
+process.on('unhandledRejection', function (e) { console.error('[refresh] unhandledRejection', e); process.exit(1); });
 const UA = { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36' };
 const forceCat = process.argv.includes('--force-cat');
 

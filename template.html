@@ -1080,6 +1080,17 @@ html.loading, html.loading body { overflow:hidden; touch-action:none; }
 .pg-anim-out-r { animation: pgOutR var(--anim-half) var(--ease-slow-fast) forwards; }
 .pg-anim-in-l  { animation: pgInL  var(--anim-half) var(--ease-fast-slow) forwards; }
 
+/* ===== V1.8.0（需求Q4-④）：表格翻页「淡消失 → 淡出现」 =====
+   与上面同一套时长/曲线口径：淡出 260ms（先慢后快）+ 淡入 260ms（先快后慢）= --anim-t。
+   只作用于 tbody / #launchBody —— 表头与翻页行不参与，避免整个模块闪动。 */
+@keyframes tblFadeOut { from { opacity:1 } to { opacity:0 } }
+@keyframes tblFadeIn  { from { opacity:0 } to { opacity:1 } }
+.tbl-fade-out { animation: tblFadeOut var(--anim-half) var(--ease-slow-fast) forwards; }
+.tbl-fade-in  { animation: tblFadeIn  var(--anim-half) var(--ease-fast-slow) forwards; }
+@media (prefers-reduced-motion: reduce) {
+  .tbl-fade-out, .tbl-fade-in { animation: none !important; }
+}
+
 /* 星座切换：反色色块改为"滑块"（平滑非线性移动，而非直接亮灭） */
 /* V1.6.0：外框由容器统一绘制；按钮不画边框（否则会被滑块衬出黑边/白边）；
    滑块自带 1px 描边，层级在按钮之上、文字之下 */
@@ -1480,6 +1491,119 @@ section.fs-stuck .sec-head { position:fixed; z-index:44; }
 }
 @keyframes shotSpin { to { transform:rotate(360deg); } }
 .shot-toast.err i { border-top-color:var(--down); animation:none; border-color:var(--down); }
+
+/* ============================================================================
+   V1.8.0（第九轮）定版块 —— 需求2/3/5/6/13
+   ============================================================================ */
+/* ---- 需求3：主题色填充按钮（「说明」/「还原所有默认设置」）----
+   填充 = 主题色（--row-sel，星网红/千帆蓝），文字 = --fg（暗=白 / 亮=黑，需求口径）。
+   「还原所有默认设置」在页面没有任何改动时（JS 挂 .dimmed）：无填充、灰字、回 hair 边框。 */
+button.ghost.btn-accent, button.readme-btn.btn-accent {
+  background:var(--row-sel); border-color:transparent; color:var(--fg);
+}
+button.ghost.btn-accent:hover:not(:disabled), button.readme-btn.btn-accent:hover {
+  border-color:transparent; filter:brightness(1.14);
+}
+button.ghost.btn-accent.dimmed, button.ghost.btn-accent:disabled {
+  background:transparent; border-color:var(--hair); color:var(--dim); filter:none;
+}
+/* ---- 需求3：各章「默认设置」= 主题色边框（不填充）；本章无改动 → 无主题边框 + 灰字 ---- */
+button.ghost[data-defsec] { border-color:var(--row-sel); color:var(--row-sel); }
+button.ghost[data-defsec]:hover { border-color:var(--row-sel); color:var(--row-sel); filter:brightness(1.14); }
+button.ghost[data-defsec].sec-clean { border-color:var(--hair); color:var(--dim); filter:none; }
+/* ---- 需求2：呼吸态 = 主题色**填充**闪烁（逐帧 background 由 updateBreath 写入，这里只定文字色兜底）---- */
+.time-val.rt-breathe { background:var(--row-sel); color:var(--fg); }
+/* ---- 需求5：分页器跳页（当前页码可点 → 原位变输入框）---- */
+.pager .pg-cur { background:transparent; border:0; color:var(--row-sel); font:inherit; letter-spacing:inherit; cursor:pointer; padding:0; min-width:2ch; }
+.pager .pg-cur:hover { text-decoration:underline; }
+.pager .pg-in { width:5ch; background:var(--bg); border:1px solid var(--row-sel); color:var(--fg); font-family:var(--mono); font-size:11px; text-align:center; padding:1px 2px; outline:0; }
+/* ---- 需求6：卫星表格「批次/组」项加粗 + 高对比（暗=白 / 亮=黑）---- */
+.batch-link { font-weight:800; color:var(--fg); }
+/* ---- 需求13：两张表格的列标签与记录一律居中 ---- */
+.ltable th, .ltable td { text-align:center; }
+
+/* ============================================================================
+   V1.8.0（第九轮）定版块 Ⅱ —— 需求7/16/17
+   ============================================================================ */
+/* ---- 需求7：亮暗切换扩散动画卡顿根治 ----
+   动画期间临时关掉全站 backdrop-filter（毛玻璃逐帧重合成是最大开销）；
+   类由 JS 在 VT 结束时移除，时长与圆形扩散形式不变。 */
+html.vt-running * { backdrop-filter:none !important; -webkit-backdrop-filter:none !important; }
+/* ---- 需求17：全屏抽屉（01/02 章）改主页同款控件布局 + 收敛面积 ----
+   · 抽屉宽度两章统一（Q10）：min(380px, 82vw)，控件在内部自动换行，宽度不再随最宽行漂移；
+   · 高度按内容自适应，消除大片空白遮挡；
+   · 抽屉内不放搜索框（Q10：全屏顶部本来就有搜索框）。 */
+section.fs-mobile .fs-search { display:none !important; }
+section#sec-map.fs-mobile .sec-head,
+section#sec-orbits.fs-mobile .sec-head {
+  width:min(380px, 82vw) !important;
+  max-width:min(380px, 82vw) !important;
+  height:auto !important;
+  max-height:calc(100vh - 40px) !important;
+  padding:12px 14px 16px !important;
+}
+
+/* ---- 需求9（根治）：「?」不再自己占一行 ----
+   01 地图章窄屏实测（430px）：可用宽 356px；「选择地面观测点」按钮 101 + 行距 14 +
+   仰角滑杆段 230 + 行距 14 + 「?」33 = 392px → 差 36px，行尾的「?」被挤到下一行，
+   整块内容因此下移一行（用户反馈的"？莫名其妙自己占了一行"）。
+   ① HTML 里把「?」挪到 #pickEps **之前**（与它说明的按钮同行，任何宽度都不会落单）；
+   ② 窄屏把这一类仰角滑杆收窄 120 → 80px（省 40px），430px 下整行 348px 收成一行。
+   只作用于 01 地图章，不碰 02/03/03.5 的同类控件。 */
+@media (max-width: 620px) {
+  #sec-map .sec-head .zone-eps input[type=range] { width:80px; }
+}
+/* 极窄屏（≤380px，如 320/360）再收一档：第一行尾部「配色 + 默认设置 + ? + ?」这一组
+   在 320px 下差 43px，最后一个「?」仍会落单。收 gap 与内边距、并压掉「?」的左右外边距
+   （V1.7.0 需求11 给它加的 margin 是为了放大后仍不挤走相邻按钮；极窄屏下必须让位）。
+   仅作用于 01 地图章。 */
+@media (max-width: 380px) {
+  #sec-map .sec-head .tools-row { gap:10px; }
+  #sec-map .sec-head .help-btn { margin-left:2px; margin-right:2px; }
+  #sec-map .sec-head .sec-tools .ghost,
+  #sec-map .sec-head .sec-tools .seg-mini button { padding:6px 8px; }
+}
+
+/* ============================================================================
+   V1.8.0（第九轮）定版块 Ⅲ —— 需求12（发射时间列 / 任务结果列）
+   ============================================================================ */
+/* 任务结果标签：成功=绿、部分成功=黄、失败=红、无记载=灰「—」。
+   颜色按明暗两套给（暗色用亮一档，亮色用深一档），保证两种主题下都够对比度。 */
+.res { font-weight:700; white-space:nowrap; }
+.res-ok   { color:#40c057; }
+.res-part { color:#f59f00; }
+.res-fail { color:#ff6b6b; }
+.res-none { color:var(--dim); font-weight:400; }
+html[data-theme="light"] .res-ok   { color:#237a35; }
+html[data-theme="light"] .res-part { color:#b26a00; }
+html[data-theme="light"] .res-fail { color:#c72929; }
+/* 卫星表的「发射时间」列与发射历史的「任务结果」列都不换行 */
+#satTable td.ltime, #launchTable td.lres { white-space:nowrap; }
+
+/* ============================================================================
+   V1.8.0（第九轮）定版块 Ⅳ —— 需求8（新增 03.5 组网进度）
+   全屏沿用 03 章同一套「顶栏让位」机制（栏高由 JS 量进 --fsbar-h，画布据此下移），
+   但只保留自己那一行控件（口径 / 星座 / 默认设置），不搬 03 章的批次与模型控件。
+   ============================================================================ */
+#sec-progress.fs-mobile { padding:0; overflow:hidden; }
+#sec-progress.fs-mobile .sec-head { display:none; }
+#sec-progress.fs-mobile .controls {
+  display:flex; position:fixed; left:0; right:0; top:0; z-index:46; margin:0;
+  padding:6px 12px 6px calc(16px + var(--fs-ctl-h) + 12px);
+  gap:6px 14px; align-items:center; flex-wrap:wrap;
+  background:var(--nav-bg); backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
+  border-bottom:1px solid var(--hair); max-height:32vh; overflow-y:auto;
+}
+#sec-progress.fs-mobile .controls .ctl { flex-direction:row; align-items:center; gap:8px; }
+#sec-progress.fs-mobile .controls .ctl-btns { margin-left:auto; gap:8px; }
+#sec-progress.fs-mobile .controls .lbl { font-size:9px; letter-spacing:0.14em; }
+#sec-progress.fs-mobile .controls .seg button { padding:4px 10px; font-size:10px; }
+#sec-progress.fs-mobile .controls .ctl-btns .ghost { padding:4px 10px; font-size:10px; }
+#sec-progress.fs-mobile .controls .help-btn { width:20px; height:20px; font-size:12px; margin-right:6px; }
+#sec-progress.fs-mobile .chart-wrap { height:100vh; padding-top:var(--fsbar-h, 58px); }
+/* 曲线末端数值标签（画在画布上，这里只给图例色点用） */
+.net-key { display:inline-flex; align-items:center; gap:6px; margin-right:14px; font-family:var(--mono); font-size:11px; color:var(--dim); }
+.net-key i { width:10px; height:10px; border-radius:50%; display:inline-block; }
 </style>
 </head>
 <body>
@@ -1540,7 +1664,7 @@ section.fs-stuck .sec-head { position:fixed; z-index:44; }
       <div class="search-wrap" style="margin-left:auto"><input id="topSearch" type="search" data-i18n-ph="d_search_ph" placeholder="支持模糊搜索" autocomplete="off" /><button class="search-key" type="button" aria-label="搜索"><svg class="search-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.2" fill="none" stroke="currentColor" stroke-width="2.1"/><line x1="15.2" y1="15.2" x2="20.4" y2="20.4" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg></button><div class="sug-list" id="topSug"></div></div>
     </div>
     <div class="hero-reset">
-      <button class="ghost" id="resetAllBtn" type="button" data-i18n="b_reset_all" data-i18n-title="t_resetall">还原所有默认设置</button>
+      <button class="ghost btn-accent" id="resetAllBtn" type="button" data-i18n="b_reset_all" data-i18n-title="t_resetall">还原所有默认设置</button>
     </div>
   </div>
 </header>
@@ -1552,29 +1676,34 @@ section.fs-stuck .sec-head { position:fixed; z-index:44; }
   <div class="fs-clock" id="fsClockMap"><span></span></div>
   <div class="sec-head"><h2><span data-i18n="h_map">地图</span> <span class="h2-note" data-i18n="zoomable">可缩放</span></h2>
     <div class="sec-tools">
+      <!-- V1.8.0（需求16）：控件顺序对齐 02 轨道章（时间在最前 → 开关组 → 数值 → 配色 → 默认设置 → ?）；
+           「可见倾角？」与「缩放？」合并为一个（data-help="mapcov"），手机端不再各自占行/换行独占一行 -->
       <div class="tools-row">
-        <button class="ghost tgl on" id="covBtn" type="button" aria-pressed="true" data-i18n="b_cov">可见倾角</button>
-        <label class="zone-eps"><span data-i18n="l_el">最低仰角</span><input id="covEl" type="range" min="0" max="85" step="0.1" value="10" /><button class="num-box" id="covNum" type="button">10.0°</button></label>
-        <button class="help-btn" data-help="cov" type="button">?</button>
-        <button class="ghost tgl on" id="mapTracksBtn" type="button" aria-pressed="true" data-i18n="b_maptracks">显示轨道</button>
-        <button class="help-btn" data-help="zoom" type="button">?</button>
         <div class="time-ctl">
           <span class="time-lbl" data-i18n="l_time">时间</span>
           <input class="time-r" data-view="map" type="range" min="-180" max="180" step="1" value="0" />
-          <button class="time-val" data-view="map" type="button" data-i18n="b_now">此刻</button>
+          <button class="time-val" data-view="map" type="button" data-i18n="b_now">实时</button>
         </div>
+        <button class="ghost tgl on" id="covBtn" type="button" aria-pressed="true" data-i18n="b_cov">可见倾角</button>
+        <button class="ghost tgl on" id="mapTracksBtn" type="button" aria-pressed="true" data-i18n="b_maptracks">显示轨道</button>
         <button class="ghost tgl" id="mapNamesBtn" type="button" aria-pressed="false" data-i18n="b_names">显示名称</button>
+        <label class="zone-eps"><span data-i18n="l_el">最低仰角</span><input id="covEl" type="range" min="0" max="85" step="0.1" value="10" /><button class="num-box" id="covNum" type="button">10.0°</button></label>
         <div class="seg seg-mini" data-scope="map">
           <button data-color="sat" class="on" data-i18n="c_sat">按卫星</button>
           <button data-color="group" data-i18n="c_group">按批次</button>
         </div>
         <button class="ghost" data-defsec="map" type="button" data-i18n="b_default" data-i18n-title="t_defmap">默认设置</button>
+        <button class="help-btn" data-help="mapcov" type="button">?</button>
         <button class="help-btn" data-help="sel" type="button" data-i18n-title="t_selinfo">?</button>
       </div>
       <div class="tools-row">
         <button class="ghost tgl" id="pickBtn" type="button" aria-pressed="false" data-i18n="b_pick">选择地面观测点</button>
-        <label class="zone-eps disabled" id="pickEps"><span data-i18n="l_el">最低仰角</span><input id="pickEl" type="range" min="0" max="85" step="0.1" value="0" /><button class="num-box" id="pickNum" type="button">0.0°</button></label>
+        <!-- V1.8.0（需求9 根治）：这个「?」原先排在 #pickEps **后面** —— 窄屏上「观测点」按钮
+             + 仰角滑杆正好把行占满，它就被单独挤到下一行（用户反馈的"？莫名其妙自己占了一行"，
+             内容因此整体下移一行）。移到 #pickEps **前面**、紧跟它说明的按钮：任何宽度下它都不会
+             落单（至少与按钮同一行），430px 下整行还能收成一行。 -->
         <button class="help-btn" data-help="pick" type="button">?</button>
+        <label class="zone-eps disabled" id="pickEps"><span data-i18n="l_el">最低仰角</span><input id="pickEl" type="range" min="0" max="85" step="0.1" value="0" /><button class="num-box" id="pickNum" type="button">0.0°</button></label>
       </div>
       <!-- V1.7.3（需求3）：观测点提示文字的**固定槽位** —— 槽位恒在（进入/退出放置模式只填文字），
            高度 = 上下留白各 22px（D）+ 文字行高，由 layoutPickSlot() 按当前语言/宽度实测行数设定。
@@ -1612,7 +1741,7 @@ section.fs-stuck .sec-head { position:fixed; z-index:44; }
         <div class="time-ctl">
           <span class="time-lbl" data-i18n="l_time">时间</span>
           <input class="time-r" data-view="globe" type="range" min="-180" max="180" step="1" value="0" />
-          <button class="time-val" data-view="globe" type="button" data-i18n="b_now">此刻</button>
+          <button class="time-val" data-view="globe" type="button" data-i18n="b_now">实时</button>
         </div>
         <button class="ghost tgl on" id="spinBtn" type="button" aria-pressed="true" data-i18n="b_spin">自转</button>
         <button class="ghost tgl on" id="tracksBtn" type="button" aria-pressed="true" data-i18n="b_tracks">轨道</button>
@@ -1649,7 +1778,7 @@ section.fs-stuck .sec-head { position:fixed; z-index:44; }
 </section>
 
 <section id="sec-chart"><button class="fs-exit-btn" type="button" aria-label="退出全屏" data-i18n-title="t_exitfs">×</button><div class="fs-search-wrap"><input class="fs-search-input" type="text" placeholder="支持模糊搜索" data-i18n-ph="d_search_ph" /><button class="search-key" type="button" aria-label="搜索"><svg class="search-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.2" fill="none" stroke="currentColor" stroke-width="2.1"/><line x1="15.2" y1="15.2" x2="20.4" y2="20.4" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg></button><div class="sug-list fs-sug"></div></div>
-  <div class="sec-head"><h2><span data-i18n="h_dist">倾角分布<//span> <span class="h2-note" data-i18n="zoomable">可缩放</span></h2>
+  <div class="sec-head"><h2><span data-i18n="h_dist">倾角分布</span> <span class="h2-note" data-i18n="zoomable">可缩放</span></h2>
     <div class="sec-tools"><span></span></div>
     <span class="sec-num">03</span>
   </div>
@@ -1701,6 +1830,48 @@ section.fs-stuck .sec-head { position:fixed; z-index:44; }
   <div class="legend-groups" id="groupLegend"></div>
 </section>
 
+<section id="sec-progress"><button class="fs-exit-btn" type="button" aria-label="退出全屏" data-i18n-title="t_exitfs">×</button>
+  <div class="sec-head"><h2><span data-i18n="h_progress">组网进度</span> <span class="h2-note" data-i18n="zoomable">可缩放</span></h2>
+    <div class="sec-tools"><span></span></div>
+    <span class="sec-num">03.5</span>
+  </div>
+  <p class="sec-lead" data-i18n="lead_progress">两条曲线分别是星网与千帆的组网推进速度。横轴按周、标的是那一周的日期；纵轴可切换「发射量（累计）」或「在轨数量」。发射量把所有发射的颗数累加（含失败与部分成功，百科没有记载颗数的不计），在轨数量 = 已有最新轨道要素的颗数 + 已发射但尚未编目的成功批次。</p>
+
+  <div class="controls">
+    <div class="ctl">
+      <span class="lbl"><span data-i18n="l_netmode">纵轴量</span> <button class="help-btn" data-help="progress" type="button">?</button></span>
+      <div class="seg" id="netModeSeg">
+        <button data-netmode="launch" class="on" data-i18n="nm_launch">发射量（累计）</button>
+        <button data-netmode="orbit" data-i18n="nm_orbit">在轨数量</button>
+      </div>
+    </div>
+    <div class="ctl">
+      <span class="lbl" data-i18n="l_netshow">星座</span>
+      <div class="seg" id="netShowSeg">
+        <button data-net="gw" class="on" data-i18n="n_gw">星网</button>
+        <button data-net="qf" class="on" data-i18n="n_qf">千帆</button>
+      </div>
+    </div>
+    <div class="ctl ctl-btns">
+      <button class="ghost" data-defsec="progress" type="button" data-i18n="b_default" data-i18n-title="t_defprogress">默认设置</button>
+    </div>
+  </div>
+
+  <div class="chart-wrap"><canvas id="netCv"></canvas><div class="sat-info chart-info" id="netInfo"></div><div class="sat-info floatwin chart-info" id="netInfoB"></div>
+    <div class="view-ctl">
+      <!-- V1.8.0（需求8）：与前三张图**同一套**属性名（data-zoom / data-view / data-reset）——
+           走通用的 .view-ctl 处理器，因此自动获得与其他图一致的 smoothZoom(260ms) 平滑缩放，
+           不再自带一套 data-netzoom/data-netreset 的旁路绑定（那会让本图的 ＋/− 变成"瞬跳"）。 -->
+      <button data-zoom="in" data-view="progress" type="button" aria-label="放大" data-i18n-title="t_zoomin">+</button>
+      <button data-zoom="out" data-view="progress" type="button" aria-label="缩小" data-i18n-title="t_zoomout">−</button>
+      <button data-reset="progress" class="rst" type="button" aria-label="恢复原始比例" data-i18n-title="t_resetview"><svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2.4-5.7M4 4v4h4"/></svg></button>
+      <button data-fs="sec-progress" class="fs" type="button" aria-label="全屏" data-i18n-title="t_fullscr"><svg viewBox="0 0 24 24"><path d="M9 3H3v6M15 3h6v6M9 21H3v-6M15 21h6v-6"/></svg></button>
+      <button data-shot="progress" class="shot" type="button" aria-label="导出图片" data-i18n-title="t_shot"><svg viewBox="0 0 24 24"><path d="M7 9V3h10v6"/><path d="M5 19h14a2 2 0 0 0 2-2v-4a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v4a2 2 0 0 0 2 2z"/><path d="M7 15h10v6H7z"/></svg></button>
+    </div>
+  </div>
+  <p class="note" id="netNote"></p>
+</section>
+
 <section id="sec-table">
   <div class="sec-head"><h2 data-i18n="h_sattable">卫星表格</h2>
     <div class="sec-tools">
@@ -1717,6 +1888,7 @@ section.fs-stuck .sec-head { position:fixed; z-index:44; }
         <th data-key="name" class="sortable" data-i18n="t_name">卫星</th>
         <th data-key="norad" class="sortable">NORAD</th>
         <th data-key="launch" class="sortable" data-i18n="t_launch">批次/组</th>
+        <th data-key="ltime" class="sortable" data-i18n="t_ltime">发射时间 (GMT+8)</th>
         <th data-key="maker" class="sortable" data-i18n="t_maker">Manufacturer</th>
         <th data-key="sma" class="sortable" data-i18n="t_sma">半长轴, KM</th>
         <th data-key="hp" class="sortable" data-i18n="t_hp">近地点, KM</th>
@@ -1762,6 +1934,7 @@ section.fs-stuck .sec-head { position:fixed; z-index:44; }
       <th data-i18n="lt_site">发射地点</th>
       <th data-i18n="lt_inc">设计倾角</th>
       <th data-i18n="lt_ele">轨道要素</th>
+      <th data-i18n="t_result">任务结果</th>
     </tr></thead>
     <tbody id="launchBody"></tbody>
   </table></div>
@@ -1785,7 +1958,7 @@ section.fs-stuck .sec-head { position:fixed; z-index:44; }
     <span id="footData" data-i18n="foot_data">轨道数据来自 NORAD 空间目标目录</span>
     <span id="footUse" data-i18n="foot_use">本页素材可自由使用，注明来源即可</span>
   </div>
-  <button class="readme-btn" id="readmeBtn" type="button" data-i18n="b_readme">说明</button>
+  <button class="readme-btn btn-accent" id="readmeBtn" type="button" data-i18n="b_readme">说明</button>
   <div class="foot-side foot-right">
     <a id="footLink" href="https://space.bilibili.com/455972735" target="_blank" rel="noopener"></a>
   </div>

@@ -79,6 +79,33 @@ const QF_LAUNCH = {
 };
 const QF_PENDING = { '26210': 10, '26211': 8 };
 
+// ---- V1.8.0（需求12 / Q6）：逐次发射的任务结果 ---------------------------------
+// 来源：wiki_launches.json（由 scripts/fetch_launch_results.mjs 抓卫星百科「引导页:发射记录/<年>」
+//   自动更新，sat.huijiwiki.com/wiki/引导页:发射记录/2026 里末尾年份即该年全球发射记录）。
+// 结果码写到台账数组第 6 位：ok=成功 / part=部分成功 / fail=失败 / '?'=百科没写结果；
+// 第 7 位 = 卫星百科记载的该发颗数（**没写就不写** —— 页面对「没有对应数字」的批次按不加处理，见 Q5）。
+let WIKI_LAUNCHES = {};
+try {
+  WIKI_LAUNCHES = JSON.parse(fs.readFileSync(path.join(ROOT, 'wiki_launches.json'), 'utf8')).launches || {};
+} catch (e) {
+  console.warn('wiki_launches.json 读不到（' + (e.code || e.message) + '）：任务结果列只会有静态标注，' +
+    '跑一次 node scripts/fetch_launch_results.mjs 即可补上。');
+}
+function mergeResults(meta) {
+  const out = {};
+  Object.keys(meta).forEach(function (k) {
+    const v = meta[k].slice(0, 5).concat([meta[k][5] || '']);
+    const full = '20' + k.slice(0, 2) + '-' + k.slice(2);
+    const w = WIKI_LAUNCHES[full];
+    if (w && w.res && w.res !== '?') v[5] = w.res;          // 百科有明确结果 → 以百科为准
+    else if (w && w.res === '?' && !v[5]) v[5] = '?';       // 百科有这一发但没写结果
+    if (w && w.n) v.push(w.n);                              // 百科写了颗数才带上
+    out[k] = v;
+  });
+  return out;
+}
+const GW_LEDGER = mergeResults(GW_LAUNCH), QF_LEDGER = mergeResults(QF_LAUNCH);
+
 // ---- 卫星百科词条链接（URL 取自百科词条原文的链接，已核对）----
 const W = 'https://sat.huijiwiki.com/wiki/';
 const ROCKET_URL = {
@@ -354,7 +381,16 @@ console.log('pending summary qf=', JSON.stringify(qfSum));
 //  · 词条 44 个 COSPAR 前缀里有 22 个不在 CelesTrak 的 hulianwang / qianfan 分组中
 //    （星网试验星、高轨星、4 个待编目组；千帆 3 组试验星与 2 个待编目组）—— 这正是本页
 //    「有完整轨道要素、能推算位置」的卫星数少于词条在轨数的原因，不是数据错误。
-const WIKI_STAT = {
+// V1.8.0（需求14）★ 优先用 scripts/fetch_wiki.mjs 抓到的**最新**词条统计（工作区根目录 wiki.json）。
+//   旧版这里只认下面那份静态值 → 每次构建都把词条计数与日期写回"上一次人工核对的那天"，
+//   于是"每次更新都注入最新卫星百科数据"永远不成立（页面上「卫星百科更新」会一直停在旧日期）。
+//   现在：抓到新数据就用新的（静态那份降级为兜底 + 断网时的保底）。
+let WIKI_FETCHED = null;
+try {
+  const w = JSON.parse(fs.readFileSync(path.join(ROOT, 'wiki.json'), 'utf8'));
+  if (w && w.gw && w.qf && w.gw.launched && w.qf.launched) WIKI_FETCHED = w;
+} catch (e) {}
+const WIKI_STATIC = {
   gw: {
     asOf: '2026-09-30',
     article: '星网',
@@ -369,6 +405,14 @@ const WIKI_STAT = {
     inOrbit: { n: 262, zh: '试验星6，组网星256，理论值', en: 'test 6, network 256, theoretical' },
     launches: '19/19'
   }
+};
+const WIKI_CHECKED_AT = (WIKI_FETCHED && WIKI_FETCHED.checkedAt) || '';
+if (WIKI_FETCHED) console.log('词条统计：用抓取到的最新值（asOf ' + WIKI_FETCHED.asOf + '，核对 ' + (WIKI_CHECKED_AT || '未记') + '）');
+else console.warn('词条统计：没读到工作区 wiki.json，退回内置静态值（asOf ' + WIKI_STATIC.gw.asOf + '）');
+// 页面/产物统一读这份（抓取值优先，逐字段覆盖静态兜底）
+const WIKI_STAT = {
+  gw: Object.assign({}, WIKI_STATIC.gw, (WIKI_FETCHED && WIKI_FETCHED.gw) || {}),
+  qf: Object.assign({}, WIKI_STATIC.qf, (WIKI_FETCHED && WIKI_FETCHED.qf) || {})
 };
 // V1.3.7：轨道要素按批次差分打包（satdata.json 直接小掉约三分之一），页面端负责还原
 const gwPack = pack(gw), qfPack = pack(qf);
@@ -404,7 +448,7 @@ const DATA = {
   gw: {
     key: 'gw', name: '星网', en: 'SatNet / CSCN', org: '中国卫星网络集团有限公司',
     sub: '低轨互联网星座',
-    launches: GW_LAUNCH, pending: gwPend, pendingInfo: gwSum, launchCounts: gwCounts, stats: gwStats,
+    launches: GW_LEDGER, pending: gwPend, pendingInfo: gwSum, launchCounts: gwCounts, stats: gwStats,
     wiki: WIKI_STAT.gw,
     links: linkMap(GW_LAUNCH),
     makers: makerMap(GW_LAUNCH),
@@ -413,7 +457,7 @@ const DATA = {
   qf: {
     key: 'qf', name: '千帆', en: 'Qianfan / Thousand Sails (G60)', org: '上海垣信卫星科技有限公司',
     sub: '低轨互联网星座',
-    launches: QF_LAUNCH, pending: qfPend, pendingInfo: qfSum, launchCounts: qfCounts, stats: qfStats,
+    launches: QF_LEDGER, pending: qfPend, pendingInfo: qfSum, launchCounts: qfCounts, stats: qfStats,
     wiki: WIKI_STAT.qf,
     links: linkMap(QF_LAUNCH),
     makers: makerMap(QF_LAUNCH),
@@ -432,6 +476,7 @@ console.log('satdata.json bytes=', fs.statSync(path.join(ROOT, 'build', 'satdata
 const WIKI_JSON = {
   _readme: '改这里就能更新网页顶部的词条计数（launched=已发射, inOrbit=在轨, launches=发射成功/总）。改完保存，访客刷新即可看到。',
   asOf: WIKI_STAT.gw.asOf,
+  checkedAt: WIKI_CHECKED_AT,
   gw: WIKI_STAT.gw,
   qf: WIKI_STAT.qf
 };

@@ -11,7 +11,7 @@ var DAY = 86400000;
 var SGP4 = window.satellite;
 var RAW = window.SATDATA;
 var COAST = window.COAST_DATA || [];
-var VERSION = 'V1.7.3';          // 页脚版本号，后续更新在此改动
+var VERSION = 'V1.8.0';          // 页脚版本号，后续更新在此改动
 
 // ---------------------------------------------------------------- V1.3.7：TLE 分组差分解码
 // 构建脚本按发射批次（COSPAR 前缀）把「名称+两行要素」压成公共模板 + 每颗星的差异串，
@@ -50,6 +50,10 @@ var I18N = {
     'Unofficial · orbit elements from the public NORAD satellite catalog'],
   pageTitle: ['中国低轨互联网卫星在轨态势', 'China LEO Internet Constellations Live'],
   cn_gw: ['星网', 'CSCN'], cn_qf: ['千帆', 'Qianfan'],
+  // V1.8.0（需求15 i18n 审计）：03.5 组网进度章的星座名（图例 / 信息窗 / 星座开关按钮共用）。
+  //   此前这三个地方引用了 n_gw / n_qf，但表里**根本没有这两个键** —— t() 找不到键时会原样
+  //   返回键名，于是新章节会直接把「n_gw」当文字画在页面上（英文界面同样漏）。现补齐。
+  n_gw: ['星网', 'CSCN'], n_qf: ['千帆', 'Qianfan'],
   // V1.7.0 第四轮（需求5a）：英文主标题的星座名换全称/并称（只用于第0章主标题，顶栏按钮仍用 cn_gw_short）
   cn_gw_long: ['星网', 'CSCN/GW'], cn_qf_long: ['千帆', 'SpaceSail/Qianfan'],
   d_dataupd: ['TLE更新时间', 'TLE updated'],          // V1.7.2（需求7）：数据更新 → TLE更新时间
@@ -139,13 +143,14 @@ var I18N = {
   b_spin: ['自转', 'Spin'], b_tracks: ['轨道', 'Orbits'],
   // V1.3.6：按钮名精简（"显示可视锥"→"可视区域"，"显示名称"→"名称"）
   b_cone: ['可视区域', 'Coverage'],
-  b_now: ['实时', 'Now'], b_cols: ['全部列', 'All columns'],
+  b_now: ['实时', 'Now'], b_cols: ['全部列', 'All columns'], pg_jump: ['点击页码可输入跳页', 'Click the page number to jump'],
   b_maptracks: ['显示轨道', 'Orbits'],
   b_default: ['默认设置', 'Defaults'], b_reset_all: ['还原所有默认设置', 'Restore all defaults'],
   b_readme: ['说明', 'README'],
   b_reset_all_done: ['当前已是默认设置', 'Already at defaults'],
   l_el: ['最低仰角', 'Min. elevation'], l_time: ['时间', 'Time'],
-  ph_search: ['搜索卫星 / NORAD', 'Search name / NORAD'],
+  // V1.8.0（需求15 i18n 审计）：原 ph_search 键早已没有任何引用（搜索框占位符统一走
+  //   d_search_ph），属于死键 —— 清掉，避免审计里长期挂着一条"未被引用"的噪声。
   t_name: ['卫星', 'Satellite'], t_launch: ['批次/组', 'Batch / Group'], t_maker: ['Manufacturer', 'Manufacturer'], t_sma: ['半长轴, KM', 'SMA, KM'],
   t_hp: ['近地点, KM', 'Perigee, KM'], t_ha: ['远地点, KM', 'Apogee, KM'], t_inc: ['倾角, °', 'Incl., °'],
   t_period: ['周期, 分', 'Period, min'], t_raan: ['升交点, °', 'RAAN, °'], t_ecc: ['偏心率', 'Ecc.'],
@@ -154,6 +159,21 @@ var I18N = {
   lt_group: ['批次/组', 'Group'],
   lt_time: ['发射时间 (北京时间)', 'Launch time (GMT+8)'], lt_rocket: ['运载火箭', 'Launch vehicle'],
   lt_site: ['发射地点', 'Launch site'], lt_inc: ['设计倾角', 'Design incl.'], lt_ele: ['轨道要素', 'Elements'],
+  // V1.8.0（需求12）：卫星表格新增「发射时间」列（同一批次的发射时刻，北京时间）；
+  //   发射历史新增「任务结果」列，口径 = 卫星百科的记载（见 resTag）。
+  t_ltime: ['发射时间 (GMT+8)', 'Launch (GMT+8)'], t_result: ['任务结果', 'Mission result'],
+  res_ok: ['成功', 'Success'], res_part: ['部分成功', 'Partial success'], res_fail: ['失败', 'Failure'],
+  // V1.8.0（需求8）：03.5 组网进度
+  h_progress: ['组网进度', 'Network Progress'],
+  lead_progress: ['两条曲线分别是星网与千帆的组网推进速度。横轴按周、标的是那一周的日期；纵轴可切换「发射量（累计）」或「在轨数量」。发射量把所有发射的颗数累加（含失败与部分成功，百科没有记载颗数的不计），在轨数量 = 已有最新轨道要素的颗数 + 已发射但尚未编目的成功批次。',
+    'Two curves track how fast CSCN and Qianfan build their constellations. The x axis is weekly, labelled with the actual date; the y axis switches between cumulative launches and satellites in orbit. "Launches" sums every satellite sent up (including failures and partial successes when a count is on record); "In orbit" counts satellites with fresh elements plus successful batches launched but not yet catalogued.'],
+  l_netmode: ['纵轴量', 'Y axis'], nm_launch: ['发射量（累计）', 'Launches (cum.)'], nm_orbit: ['在轨数量', 'In orbit'],
+  nm_unit_launch: ['累计发射卫星数', 'Cumulative satellites launched'], nm_unit_orbit: ['在轨卫星数', 'Satellites in orbit'],
+  l_netshow: ['星座', 'Constellation'], d_x_date: ['日期', 'Date'], d_week_unit: ['（按周）', ' (weekly)'],
+  t_defprogress: ['恢复 03.5 组网进度的初始设置', 'Restore the default settings of 03.5 Network Progress'],
+  t_netinfo: ['怎么看这张图', 'How to read this chart'],
+  d_net_week: ['该周', 'Week'], d_net_batches: ['新增批次', 'New batches'],
+  d_net_span: ['数据跨度', 'Data span'],
   t_age: ['在轨日, 天', 'Days in orbit'],
   foot_data: ['轨道数据来自 NORAD 空间目标目录', 'Orbit data from the NORAD satellite catalog'],
   foot_use: ['本页素材可自由使用，注明来源即可', 'Free to use and redistribute with attribution'],
@@ -219,6 +239,11 @@ var I18N = {
   d_satpage: ['第 ', 'Page '],
 };
 function t(k) { var p = I18N[k]; if (!p) return k; return LANG === 'en' ? p[1] : p[0]; }
+// V1.8.0（需求15 i18n 审计）：中英括号。
+//   中文排版用全角「（）」且前面不留空格；英文用半角「 ()」且前面留一个空格。
+//   此前几处硬编码全角括号（顶部统计的副标签、平均高度、信息窗在轨天数）在英文界面会漏出
+//   CJK 标点 —— i18n 审计（npm run i18n）就是靠这条规则把它们抓出来的。
+function paren(s) { return LANG === 'en' ? ' (' + s + ')' : '（' + s + '）'; }
 // V1.5.3：切语言时同步刷新加载蒙层文案（它只在加载时写一次，否则切换语言后会残留旧语言）
 function refreshMaskText() {
   try {
@@ -269,7 +294,11 @@ function batchName(name) {
     // V1.7.0 第三轮（需求11）：「试验星 KL-Alpha / KL-Beta」不匹配上面任何规则 → 英文界面直接漏出中文
     .replace(/^试验星\s+(KL-[A-Za-z0-9]+)$/, 'Test Satellite $1')
     .replace(/^高轨(\d+)星$/, 'High-Orbit Sat $1')
-    .replace(/^高轨(\d+)$/, 'High-Orbit Sat $1');
+    .replace(/^高轨(\d+)$/, 'High-Orbit Sat $1')
+    // V1.8.0（需求15 i18n 审计）：千帆的低轨直连（DTC）批次名带星座前缀「千帆 DTC-01」，
+    //   上面所有规则都不匹配 → 英文界面直接漏出中文。这里按全站口径译成 Qianfan / CSCN。
+    .replace(/^千帆\s+(.+)$/, 'Qianfan $1')
+    .replace(/^星网\s+(.+)$/, 'CSCN $1');
 }
 function cnName(s) {
   var n = s.name;
@@ -377,6 +406,9 @@ function build(key) {
     var ln = (c.links && c.links[k]) || null;
     var L = {
       key: k, name: v[0], dateStr: v[1], rocket: v[2], site: v[3], inc: v[4], sats: [], pending: 0,
+      // V1.8.0（需求12）：第 6 位 = 任务结果（ok/part/fail/'?'/'fail'），第 7 位 = 该发颗数（卫星百科记载）。
+      //   mkdata 已把 wiki_launches.json 的结果合并进来；静态 'fail'（如 2025-F05 朱雀二号E 失利）作为兜底。
+      res: v[5] || '', wn: v[6] || 0,
       rseg: ln ? ln.r : null,       // 火箭分段（含卫星百科链接）
       slink: ln ? ln.s : null       // 发射场（含卫星百科链接）
     };
@@ -500,6 +532,10 @@ var S = {
   // V1.3.9：表格默认按 NORAD 从大到小（新的在前），点表头可改
   sortKey: 'norad', sortAsc: false,
   query: '',
+  // V1.8.0（需求8）：03.5 组网进度的三项设置。**不进 STATE_FIELDS** —— 那张图同时画两个星座，
+  //   按星座各存一份没有意义；它们随「默认设置 / 还原所有默认设置」还原即可。
+  netMode: 'launch',          // 'launch' = 发射量累计；'orbit' = 在轨数量
+  netGw: true, netQf: true,   // 两条曲线的显隐
   // V1.7.0（任务3）：两个星座各自记住自己的滚动位置，切页互不影响（默认都在页首）
   scrollY: { gw: 0, qf: 0 }
 };
@@ -514,6 +550,7 @@ var PREF_DEF = {
   covOn: true, covEl: 10, pickOn: false, pickEl: 0, mapTrack: true, nameMap: false,
   coneOn: true, coneEl: 10, spin: true, showTracks: true, nameGlobe: true,
   sortKey: 'norad', sortAsc: false, allCols: false,
+  netMode: 'launch', netGw: true, netQf: true,     // V1.8.0（需求8）：03.5 组网进度
   timeOffsetMap: 0, timeOffsetGlobe: 0     // V1.7.3（需求9）：两章时间条各自独立
 };
 // 「默认设置」按钮各自管哪几项（时间滑块 02/03 共用，两边都能还原）
@@ -521,6 +558,8 @@ var PREF_SEC = {
   chart: ['model', 'mode', 'launchFilter', 'cChart'],
   map: ['covOn', 'covEl', 'pickOn', 'pickEl', 'mapTrack', 'nameMap', 'cMap', 'timeOffsetMap'],
   globe: ['coneOn', 'coneEl', 'spin', 'showTracks', 'nameGlobe', 'cGlobe', 'timeOffsetGlobe'],
+  // V1.8.0（需求8）：03.5 组网进度自己那一章的默认设置
+  progress: ['netMode', 'netGw', 'netQf'],
   table: ['sortKey', 'sortAsc', 'allCols']
 };
 function prefSnap() {
@@ -532,6 +571,7 @@ function prefSnap() {
     coneOn: S.cone.on, coneEl: S.cone.el, spin: S.spin, showTracks: S.showTracks,
     nameGlobe: S.names.globe,
     sortKey: S.sortKey, sortAsc: S.sortAsc, allCols: S.allCols,
+    netMode: S.netMode, netGw: S.netGw, netQf: S.netQf,      // V1.8.0（需求8）
     // V1.7.1（需求10）：时间滑块**如实快照当前偏移**（理由见下）；V1.7.3（需求9）两章各拍各的。
     //   快照用真值、还原仍由 prefApply 强制归零（见 prefApply），两件事分开。
     timeOffsetMap: S.time.map.off,
@@ -551,6 +591,7 @@ function prefApply(p) {
   S.cone.on = p.coneOn; S.cone.el = p.coneEl;
   S.spin = p.spin; S.showTracks = p.showTracks; S.names.globe = p.nameGlobe;
   S.sortKey = p.sortKey; S.sortAsc = p.sortAsc; S.allCols = p.allCols;
+  S.netMode = p.netMode; S.netGw = !!p.netGw; S.netQf = !!p.netQf;   // V1.8.0（需求8）
   // V1.3.6：时间恒为「现在」。存档里若带着旧版本写入的偏移也一律忽略，
   // 保证打开页面时时间条上的时间就是最新的时刻。
   // V1.7.3（需求9）：两章各自归零 + 解除冻结（任何"还原默认"都等于回实时）；
@@ -611,6 +652,21 @@ function touchPrefs() {
   var j = JSON.stringify(prefSnap());
   if (j !== lastPrefJson) lastPrefJson = j;
   syncResetAllBtn();
+  syncSectionResetBtns();       // V1.8.0（需求3）：各章「默认设置」的主题边框 / 灰暗态
+}
+// V1.8.0（需求3）：各章「默认设置」按钮的可视状态 ——
+//   本章仍有偏离默认的可还原项 → 主题色边框；全都处于默认 → 灰暗（无主题边框）。
+//   判定口径与 resetSection 完全一致：只看 PREF_SEC[sec] 里那几项（它还原什么就看什么）。
+function sectionIsDefault(sec) {
+  var keys = PREF_SEC[sec] || [];
+  var p = prefSnap();
+  for (var i = 0; i < keys.length; i++) if (p[keys[i]] !== PREF_DEF[keys[i]]) return false;
+  return true;
+}
+function syncSectionResetBtns() {
+  document.querySelectorAll('[data-defsec]').forEach(function (b) {
+    b.classList.toggle('sec-clean', sectionIsDefault(b.getAttribute('data-defsec')));
+  });
 }
 ['click', 'input', 'change'].forEach(function (ev) {
   document.addEventListener(ev, function () { setTimeout(touchPrefs, 0); }, true);
@@ -645,6 +701,8 @@ function syncAllControls() {
   });
   setPick(S.pick.on);
   syncTimeUI();
+  try { syncNetControls(); } catch (e) {}   // V1.8.0（需求8）：03.5 的控件与画布
+  try { togSyncAll(); } catch (e) {}        // V1.8.0（需求Q4）：图层动画系数与 S 对齐（避免"开关关了画布还画着"）
   document.querySelectorAll('#satTable thead th').forEach(function (x) {
     x.classList.remove('sorted', 'asc');
     if (x.getAttribute('data-key') === S.sortKey) { x.classList.add('sorted'); if (S.sortAsc) x.classList.add('asc'); }
@@ -657,6 +715,8 @@ function resetSection(sec) {
   prefApply(p);
   syncAllControls();
   chartAutoView(); drawChart(); renderLegend(); renderTable();
+  if (sec === 'progress') { netAutoView(); }
+  try { drawNet(); } catch (e) {}      // V1.8.0（需求8）
   mapDirty = globeDirty = true;
   touchPrefs();
 }
@@ -721,6 +781,7 @@ function resetAllPrefs() {
   // V1.7.3（需求9）：两章**各自**归零解冻（prefApply 里其实已带出，这里显式兜底一次）。
   if (typeof setOffset === 'function') { setOffset(0, 'map'); setOffset(0, 'globe'); }
   chartAutoView(); drawChart(); renderLegend();
+  try { netAutoView(); drawNet(); } catch (e) {}      // V1.8.0（需求8）：03.5 一并回默认视图
   // V1.7.1（需求7）：jump:true 确保表格回到第一页且无残留高亮（缺省调用不翻页）
   renderTable({ jump: true }); renderLaunchTable(true);
   try { resetDragTips(); } catch (e) {}
@@ -732,9 +793,38 @@ function resetAllPrefs() {
   try { layoutNav(); } catch (e) {}
 }
 function cur() { return CONST[S.key]; }
+// V1.8.0（需求4②）：配色切换的逐帧插值状态。scope = 'chart'|'map'|'globe'，
+//   from = { 卫星 idx → 旧颜色字符串 }，k = 进度（由 colOf 按 t0 现算，保证与 animTo 同步）。
+var COLORMIX = null;
+function _c2rgb(c) {
+  c = String(c || '').trim();
+  var m = c.match(/^#([0-9a-f]{6})$/i);
+  if (m) {
+    var n = parseInt(m[1], 16);
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  }
+  m = c.match(/^rgba?\(([^)]+)\)$/i);
+  if (m) {
+    var p = m[1].split(',').map(function (x) { return parseFloat(x); });
+    return [p[0] | 0, p[1] | 0, p[2] | 0];
+  }
+  return null;
+}
+function _mix(c1, c2, k) {              // k=0 → c1，k=1 → c2
+  var a = _c2rgb(c1), b = _c2rgb(c2);
+  if (!a || !b) return k < 0.5 ? c1 : c2;
+  return 'rgb(' + Math.round(a[0] + (b[0] - a[0]) * k) + ',' +
+    Math.round(a[1] + (b[1] - a[1]) * k) + ',' + Math.round(a[2] + (b[2] - a[2]) * k) + ')';
+}
 function colOf(s, scope) {
-  if (S.colorMode[scope] === 'group') return isLight() ? s.gcolorL : s.gcolor;
-  return isLight() ? s.colorL : s.color;
+  var to = (S.colorMode[scope] === 'group') ? (isLight() ? s.gcolorL : s.gcolor) : (isLight() ? s.colorL : s.color);
+  if (COLORMIX && COLORMIX.scope === scope) {
+    var from = COLORMIX.from[s.idx];
+    var k = Math.min(1, (performance.now() - COLORMIX.t0) / ANIM.t);
+    if (k >= 1) { COLORMIX = null; return to; }
+    if (from != null) return _mix(from, to, 1 - Math.pow(1 - k, 3));   // 与 animTo 同一条 easeOutCubic
+  }
+  return to;
 }
 // V1.3.6：纵轴量只剩半长轴 / 远地点 / 近地点（倾角改作横轴，周期在表格与信息窗里看）
 var MODES = ['sma', 'ha', 'hp'];
@@ -914,15 +1004,15 @@ function touchZoom(cv, cfg) {
 // 窗口立刻"钉"在原来那颗卫星上——用户看到的就是「关掉后一动鼠标，新窗口就固定住了，像选中了新卫星」。
 // 现在：hover 其它卫星走**纯预览**（不写 S.sel、默认角落、鼠标移开立即消失），
 // 只有真的点了另一颗卫星（toggleSel / selectGroup / 搜索选中 / 换星座 / 还原默认）才解除 INFO_CLOSED。
-var INFO_HIDDEN = { chart: false, map: false, globe: false };
-var INFO_CLOSED = { chart: false, map: false, globe: false };
+var INFO_HIDDEN = { chart: false, map: false, globe: false, net: false };   // V1.8.0（需求8）：net = 03.5 组网进度
+var INFO_CLOSED = { chart: false, map: false, globe: false, net: false };
 // V1.7.2（需求4）：浮窗元素缓存。**必须定义在这里**（而不是浮窗函数旁边）——
 //   因为下面的 setupInfo 里点击 ✕ 时会调 hideFloat()，那时代码还没执行到后面的 var 赋值。
 var INFO_B = {};
 function infoClearClosed() {
   Object.keys(INFO_CLOSED).forEach(function (k) { INFO_CLOSED[k] = false; });
   // 顺带把所有浮窗收掉：换星座 / 还原默认之后不应残留上一批的悬停窗
-  ['chart', 'map', 'globe'].forEach(function (k) { try { hideFloat(k); } catch (e) {} });
+  ['chart', 'map', 'globe', 'net'].forEach(function (k) { try { hideFloat(k); } catch (e) {} });
 }
 function setupInfo(el, key) {
   if (!el) return null;
@@ -1395,6 +1485,13 @@ function drawChart() {
   }
   ctx.setLineDash([]);
 
+  // V1.8.0（需求17 / ⑱）：绘图区硬裁剪 —— 卫星光点、待编目虚影与选中标注一律裁到
+  //   横纵坐标轴围成的矩形内。此前只做了「越界点跳过」（x/y 超出 ±4px 就不画），
+  //   于是正好压在轴上或半出轴的点仍会把圆点画到轴外（低倍率/窄屏/滑动时最明显）。
+  //   现在改为 canvas 级 clip：无论屏幕比例、页面内还是全屏，图像都在坐标线上截止。
+  ctx.save();
+  ctx.beginPath(); ctx.rect(PL, PT, pw, ph); ctx.clip();
+
   // 点
   var scope = 'chart';
   pts.forEach(function (p) {
@@ -1449,6 +1546,7 @@ function drawChart() {
       ctx.fillStyle = C.fg; ctx.fillText(s.name.replace(/^HULIANWANG /, '').replace(/^QIANFAN/, 'QF'), x + 9, y);
     });
   }
+  ctx.restore();      // V1.8.0（需求17 / ⑱）：结束绘图区裁剪
 }
 function chartHit(mx, my) {
   if (!chartRect || !chartView) return null;
@@ -1485,7 +1583,7 @@ function satBlock(s, scope, extra) {
     '<div class="si-row"><span>' + t('d_row_inc') + '</span><span>' + fmtNum(s.inc, 2) + '°</span></div>' +
     '<div class="si-row"><span>' + t('d_row_period') + '</span><span>' + fmtNum(s.period, 3) + (LANG === 'en' ? ' min' : ' 分') + '</span></div>' +
     '<div class="si-row"><span>' + t('d_row_launch') + '</span><span>' + date +
-      (days === null ? '' : ' （' + days + (LANG === 'en' ? ' d' : ' 天') + '）') + '</span></div>' +
+      (days === null ? '' : paren(days + (LANG === 'en' ? ' d' : ' 天'))) + '</span></div>' +
     // V1.7.2 第七轮（需求6）：**信息窗里只保留「该星历元」这一行**。
     //   用户确认：整包口径的「TLE 更新时间」只显示在主标题下方那一处即可，
     //   所有信息窗（A 窗 / 浮窗）、以及导出图片里的卫星信息行，末尾都只留单星历元。
@@ -1722,7 +1820,8 @@ function drawMap(states, ms) {
   }
   ctx.stroke();
   // 可视覆盖区（卫星对地面）。有选中时只画选中那几颗，避免干扰
-  if (S.cov.on && !pickOn) {
+  // V1.8.0（需求4①）：整层按 TOG.covOn 淡入/淡出（开关画布同步）
+  if ((S.cov.on || TOG.covOn > 0.01) && !pickOn) {
     for (var ci = 0; ci < st.sats.length; ci++) {
       if (hasSel && S.sel.indexOf(ci) < 0) continue;
       var g0 = states[ci]; if (!g0) continue;
@@ -1731,8 +1830,8 @@ function drawMap(states, ms) {
       var colC = colOf(st.sats[ci], 'map');
       ctx.beginPath();
       circlePath(ctx, PX, PY, g0.lat, g0.lon, lam0, 40);
-      ctx.fillStyle = colC; ctx.globalAlpha = hasSel ? 0.10 : 0.05; ctx.fill();
-      ctx.strokeStyle = colC; ctx.globalAlpha = hasSel ? 0.55 : 0.32; ctx.lineWidth = 1; ctx.stroke();
+      ctx.fillStyle = colC; ctx.globalAlpha = (hasSel ? 0.10 : 0.05) * TOG.covOn; ctx.fill();
+      ctx.strokeStyle = colC; ctx.globalAlpha = (hasSel ? 0.55 : 0.32) * TOG.covOn; ctx.lineWidth = 1; ctx.stroke();
       ctx.globalAlpha = 1;
     }
   }
@@ -1741,7 +1840,7 @@ function drawMap(states, ms) {
   ctx.lineWidth = 1;
   function strokeTrack(si, alpha) {
     var seg = tracks[si]; if (!seg || !seg.length) return;
-    ctx.globalAlpha = alpha;
+    ctx.globalAlpha = alpha * TOG.mapTrack;      // V1.8.0（需求4①）：轨道层随开关淡入/淡出
     ctx.strokeStyle = colOf(st.sats[si], 'map');
     ctx.beginPath();
     for (var k2 = 0; k2 < seg.length; k2++) {
@@ -1773,9 +1872,12 @@ function drawMap(states, ms) {
   var labels = [];
   // V1.3.4：先给观测点那三行文字量好位置并占位，卫星标注会主动绕开它
   var siteLabel = null;
-  if (pickOn) {
-    var site0 = pickFixed ? S.pick
-      : (S.pick.mx !== null ? { lat: my2lat(S.pick.my), lon: mx2lon(S.pick.mx) } : null);
+  if (pickOn || (PICK_FADE && TOG.pickOn > 0.01)) {
+    var site0 = pickOn
+      ? (pickFixed ? S.pick
+        : (S.pick.mx !== null ? { lat: my2lat(S.pick.my), lon: mx2lon(S.pick.mx) } : null))
+      : (PICK_FADE.mx != null ? { lat: my2lat(PICK_FADE.my), lon: mx2lon(PICK_FADE.mx) }
+        : { lat: PICK_FADE.lat, lon: PICK_FADE.lon });   // V1.8.0（需求4③）：退出时用最后位置把标签一起淡出
     if (site0 && site0.lat >= -90 && site0.lat <= 90) {
       var visN0 = countVisible(states, site0.lat, site0.lon, S.pick.el);
       var lines0 = [
@@ -1817,7 +1919,7 @@ function drawMap(states, ms) {
     //   而 || 是短路的，于是"选中了卫星"以后无论开关是开是关，标签都会显示（关不掉）。
     //   现在：开关关 = 谁都不显示（含选中星与悬停星）；开关开 = 按原有细分规则显示
     //   （选中星、悬停星、观测点可见星；无选中时显示全部）。
-    var showLabel = S.names.map && (sel2 || mapHover === m || visHi || (!pickOn && !hasSel));
+    var showLabel = (S.names.map || TOG.nameMap > 0.01) && (sel2 || mapHover === m || visHi || (!pickOn && !hasSel));
     if (showLabel) {
       var lb = cnName(sv);
       ctx.font = '10px ' + MONO;
@@ -1845,30 +1947,37 @@ function drawMap(states, ms) {
       if (best2) {
         labels.push(best2);
         ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+        ctx.globalAlpha = TOG.nameMap;          // V1.8.0（需求4①）：标注随开关淡入/淡出
         ctx.fillStyle = C.fg; ctx.fillText(lb, best2[0], best2[1] + 6);
+        ctx.globalAlpha = 1;
       }
     }
   }
   // 观测点（跟随鼠标 / 固定）
-  if (pickOn) {
-    var site = pickFixed ? S.pick
-      : (S.pick.mx !== null ? { lat: my2lat(S.pick.my), lon: mx2lon(S.pick.mx) } : null);
+  // V1.8.0（需求4③）：进出观测点模式时整个标记淡入/淡出 —— 退出时先用 PICK_FADE 留住最后位置，
+  //   等 520ms 淡出跑完再丢掉（否则标记会"啪"地消失）。
+  var pickAlpha = TOG.pickOn;
+  var pickSrc = pickOn ? S.pick : (PICK_FADE || null);
+  if (pickSrc && pickAlpha > 0.01) {
+    var site = (pickOn ? pickFixed : true) ? pickSrc
+      : (pickSrc.mx !== null && pickSrc.mx !== undefined ? { lat: my2lat(pickSrc.my), lon: mx2lon(pickSrc.mx) } : null);
     if (site && site.lat >= -90 && site.lat <= 90) {
-      var lamS = covLambda(cur().avgAlt, S.pick.el);
+      var lamS = covLambda(cur().avgAlt, pickSrc.el || S.pick.el);
       var ox = PX(wrapLon(site.lon)), oy = PY(site.lat);
       if (lamS > 0.002) {
         ctx.beginPath();
         circlePath(ctx, PX, PY, site.lat, site.lon, lamS, 72);
         // V1.7.0 第三轮（需求2）：内部填充与虚线框统一用星座主题色（此前填充用 C.sel，颜色不一致）
-        ctx.fillStyle = C.theme; ctx.globalAlpha = 0.12; ctx.fill();
+        ctx.fillStyle = C.theme; ctx.globalAlpha = 0.12 * pickAlpha; ctx.fill();
         // 虚线框用星座主题色（星网红 / 千帆蓝）
-        ctx.strokeStyle = C.theme; ctx.globalAlpha = 0.9; ctx.setLineDash([5, 3]);
+        ctx.strokeStyle = C.theme; ctx.globalAlpha = 0.9 * pickAlpha; ctx.setLineDash([5, 3]);
         ctx.lineWidth = 1.2; ctx.stroke(); ctx.setLineDash([]);
         ctx.globalAlpha = 1;
       }
-      ctx.beginPath(); ctx.arc(ox, oy, pickFixed ? 5 : 4, 0, 6.2832);
+      ctx.globalAlpha = pickAlpha;
+      ctx.beginPath(); ctx.arc(ox, oy, pickOn && pickFixed ? 5 : 4, 0, 6.2832);
       ctx.fillStyle = C.theme; ctx.fill();
-      if (pickFixed) { ctx.lineWidth = 1.6; ctx.strokeStyle = C.fg; ctx.stroke(); }
+      if (pickOn && pickFixed) { ctx.lineWidth = 1.6; ctx.strokeStyle = C.fg; ctx.stroke(); }
       // 观测点信息：三行（观测点 / 最低仰角 / 可见卫星数），位置在前面已算好并占位
       if (siteLabel) {
         ctx.font = '10px ' + MONO;
@@ -1876,6 +1985,7 @@ function drawMap(states, ms) {
         ctx.fillStyle = C.theme;
         siteLabel.lines.forEach(function (s2, i2) { ctx.fillText(s2, siteLabel.tx, siteLabel.dy + i2 * 13); });
       }
+      ctx.globalAlpha = 1;
     }
   }
 }
@@ -1976,7 +2086,8 @@ function drawGlobe(states, ms) {
   var hasSelG = S.sel.length > 0;
   var hasSelG = S.sel.length > 0;
   // 可视锥：有选中时只画选中卫星的覆盖圈（与地图一致）
-  if (S.cone.on) {
+  // V1.8.0（需求4①）：整层按 TOG.coneOn 淡入/淡出
+  if (S.cone.on || TOG.coneOn > 0.01) {
     var stq = cur();
     for (var cq = 0; cq < stq.sats.length; cq++) {
       if (hasSelG && S.sel.indexOf(cq) < 0) continue;
@@ -2003,13 +2114,14 @@ function drawGlobe(states, ms) {
         if (prq.z <= 0) { started3 = false; continue; }
         if (!started3) { ctx.moveTo(prq.x, prq.y); started3 = true; } else ctx.lineTo(prq.x, prq.y);
       }
-      if (fullyFront) { ctx.globalAlpha = 0.06; ctx.fillStyle = colq; ctx.fill(); }
-      ctx.globalAlpha = 0.30; ctx.strokeStyle = colq; ctx.lineWidth = 1; ctx.stroke();
+      if (fullyFront) { ctx.globalAlpha = 0.06 * TOG.coneOn; ctx.fillStyle = colq; ctx.fill(); }
+      ctx.globalAlpha = 0.30 * TOG.coneOn; ctx.strokeStyle = colq; ctx.lineWidth = 1; ctx.stroke();
       ctx.globalAlpha = 1;
     }
   }
   // 轨道：有选中时只画选中的轨道，其余卫星不画
-  if (S.showTracks) {
+  // V1.8.0（需求4①）：OR 上 TOG 系数 → 关掉开关时整层淡出，而不是瞬间消失
+  if (S.showTracks || TOG.showTracks > 0.01) {
     var tracks = globeTracks(ms), stt = cur();
     ctx.lineWidth = 1;
     for (var si = 0; si < stt.sats.length; si++) {
@@ -2027,7 +2139,7 @@ function drawGlobe(states, ms) {
         curSeg.p.push(pr);
       }
       segs.forEach(function (sg2) {
-        ctx.globalAlpha = sel3 ? (sg2.z ? 0.95 : 0.32) : (sg2.z ? 0.34 : 0.12);
+        ctx.globalAlpha = (sel3 ? (sg2.z ? 0.95 : 0.32) : (sg2.z ? 0.34 : 0.12)) * TOG.showTracks;   // V1.8.0（需求4①）
         ctx.beginPath();
         for (var i2 = 0; i2 < sg2.p.length; i2++) {
           if (i2 === 0) ctx.moveTo(sg2.p[i2].x, sg2.p[i2].y); else ctx.lineTo(sg2.p[i2].x, sg2.p[i2].y);
@@ -2058,7 +2170,7 @@ function drawGlobe(states, ms) {
     if (sel4) { ctx.lineWidth = 1.4; ctx.strokeStyle = C.fg; ctx.stroke(); }
     ctx.globalAlpha = 1;
     // V1.7.2 第七轮（需求8b）：同地图 —— 开关提到最外层，选中态也受它管辖
-    if (!hidden && S.names.globe && (sel4 || G.hover === m || !hasSelG)) {
+    if (!hidden && (S.names.globe || TOG.nameGlobe > 0.01) && (sel4 || G.hover === m || !hasSelG)) {
       var lb = cnName(sv);
       ctx.font = '10px ' + MONO;
       var tw = ctx.measureText(lb).width;
@@ -2070,7 +2182,9 @@ function drawGlobe(states, ms) {
       if (!hit && pr2.x + 6 + tw < W) {
         labels.push(box);
         ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+        ctx.globalAlpha = TOG.nameGlobe;        // V1.8.0（需求4①）：标注随开关淡入/淡出
         ctx.fillStyle = C.fg; ctx.fillText(lb, pr2.x + 6, pr2.y);
+        ctx.globalAlpha = 1;
       }
     }
   }
@@ -2097,6 +2211,9 @@ function tableVals(s) {
   var mkRow = makerOf(s);
   return {
     name: cnName(s), norad: s.norad, launch: L.name,
+    // V1.8.0（需求12）：卫星表格新增「发射时间 (GMT+8)」列 —— 值取本批发射时刻（已是北京时间），
+    //   排序用毫秒值（ltime），显示用 lstr；元数据缺失的批次（无台账）显示「—」。
+    ltime: L.dateMs || 0, lstr: L.dateStr && L.dateStr !== '—' ? L.dateStr.replace('T', ' ') : '—',
     maker: mkRow ? mkRow.items.map(function (x) { return (LANG === 'en' && x.en) ? x.en : x.zh; }).join(' ') : '',  // V1.4.2/4.3：制造方（供排序/搜索）
     sma: b ? s.smaB : s.smaK, hp: b ? s.hpB : s.hpK, ha: b ? s.haB : s.haK,
     inc: s.inc, period: s.period, age: L.dateMs || -1,
@@ -2194,6 +2311,7 @@ function satRowHtml(r) {
     '<a class="sat-link" href="' + SATCAT(r.norad) + '" target="_blank" rel="noopener" title="Satcat · ' + r.norad + '">' + r.name + '</a></td>' +
     '<td>' + r.norad + '</td>' +
     '<td><span class="batch-link" data-lk="' + s.lk + '" title="' + t('d_sel_group') + '">' + batchName(r.launch) + '</span></td>' +
+    '<td class="ltime">' + r.lstr + '</td>' +
     '<td class="maker">' + makerCell(s) + '</td>' +
     '<td>' + fmtNum(r.sma, 1) + '</td>' +
     '<td>' + fmtNum(r.hp, 1) + '</td>' +
@@ -2207,6 +2325,16 @@ function satRowHtml(r) {
     '<td>' + fmtUTC(r.epoch) + '</td></tr>';
 }
 var LAST_LAUNCH_ROWS = [];              // V1.4.0：发射历史的全量行（导出多页/全页用）
+// V1.8.0（需求12 / Q6）：任务结果标签。口径 = 卫星百科的记载（逐次发射的结果来自
+//   「引导页:发射记录/<年>」，构建期由 scripts/fetch_launch_results.mjs 抓取并合进 launches[k][5]）。
+//   ok=成功 / part=部分成功 / fail=失败 / '?'=百科没写结果 / 空=没有这一发的记录 → 显示「—」（不猜）。
+function resTag(L) {
+  var r = L && L.res;
+  if (r === 'ok') return '<span class="res res-ok">' + t('res_ok') + '</span>';
+  if (r === 'part') return '<span class="res res-part">' + t('res_part') + '</span>';
+  if (r === 'fail') return '<span class="res res-fail">' + t('res_fail') + '</span>';
+  return '<span class="res res-none">—</span>';
+}
 function launchRowHtml(L) {
   var pend = L.pending > 0;
   // V1.7.0 二轮（需求2）：编目不全的批次 → 选中时用**淡黄色**框选（判据全部来自数据，随数据自动更新）。
@@ -2231,7 +2359,8 @@ function launchRowHtml(L) {
     '<td>' + ((L.count || L.sats.length) ? (L.count || L.sats.length) + (LANG === 'en' ? ' sats' : ' 颗') : '') +
     (pend ? ' <span class="tag"' + (L.pinfo ? ' title="' + pendTitle(L.pinfo) + '"' : '') +
       '>' + t('d_pending_tag') + L.pending + '</span>' : '') +
-    '</td></tr>';
+    '</td>' +
+    '<td class="lres">' + resTag(L) + '</td></tr>';
 }
 // V1.7.0（任务1）：实测每一行的真实像素高 → 换算成「行单元」（1 单元 = 41px 单行基准）。
 // 做法：把当前表里已有的一个 tbody 克隆出来做「离屏量尺」，逐行渲染再量高。
@@ -2310,7 +2439,7 @@ function renderTable(opts) {
   var _b = pageBounds(rows, S.tpage, SAT_PAGE, unitOf);
   var slice = rows.slice(_b[0], _b[1]);
   var html = slice.map(satRowHtml).join('');
-  tbody.innerHTML = html || '<tr><td colspan="14" class="empty">' + (LANG === 'en' ? 'No matching satellite' : '没有匹配的卫星') + '</td></tr>';
+  tbody.innerHTML = html || '<tr><td colspan="15" class="empty">' + (LANG === 'en' ? 'No matching satellite' : '没有匹配的卫星') + '</td></tr>';
   tableRows = {};
   Array.prototype.forEach.call(tbody.querySelectorAll('tr[data-idx]'), function (tr) {
     tableRows[tr.getAttribute('data-idx')] = tr;
@@ -2323,6 +2452,7 @@ function renderTable(opts) {
     (S.model === 'brouwer' ? t('d_tbl_bro') : t('d_tbl_kep'));
   // 分页（V1.3.6：给每个按键一个 class，窄屏好按「上一页/指示器/下一页」+「首页/尾页」两行排）
   var pg = document.getElementById('satPager');
+  SAT_PAGES = pages;                              // V1.8.0（需求5）：跳页输入框的钳制上限
   pg.innerHTML = pagerHtml(S.tpage, pages, 'spg', 'd_satpage', 'sat');
   fixTableHeight('#sec-table .table-wrap');
   // V1.7.1（需求7）：选中联动的高亮闪一下 —— 必须放在**渲染之后**，
@@ -2343,10 +2473,75 @@ function pagerHtml(page, pages, attr, boxKey, shotKey) {
     : '';
   return btn(t('d_first'), 0, page === 0, 'pg-first') +
     btn(t('d_prev'), page - 1, page === 0, 'pg-prev') +
-    '<span class="pg-box">' + t(boxKey) + (page + 1) + (LANG === 'en' ? ' of ' : '/') + pages + (LANG === 'en' ? '' : ' 页') + '</span>' +
+    // V1.8.0（需求5）：当前页码改成**可点按钮** —— 点一下变输入框，回车/失焦跳页（越界自动钳制）
+    '<span class="pg-box">' + t(boxKey) +
+      '<button class="pg-cur" data-' + attr + 'jump="1" type="button" title="' + t('pg_jump') + '" aria-label="' + t('pg_jump') + '">' + (page + 1) + '</button>' +
+      (LANG === 'en' ? ' of ' : '/') + pages + (LANG === 'en' ? '' : ' 页') + '</span>' +
     btn(t('d_next'), page + 1, page >= pages - 1, 'pg-next') +
     '<span class="pg-br"></span>' +
     btn(t('d_last'), pages - 1, page >= pages - 1, 'pg-last') + shot;
+}
+// V1.8.0（需求5）：两表的「当前页数」快照 —— 跳页输入框的越界钳制要用
+var SAT_PAGES = 1, LAUNCH_PAGES = 1;
+// V1.8.0（需求Q4-④）：表格翻页 —— 内容「淡消失 → 淡出现」非线性动画。
+//   淡出 260ms（--ease-slow-fast，先慢后快）+ 淡入 260ms（--ease-fast-slow，先快后慢）= --anim-t（520ms），
+//   与站内其它四联动效同一时长与曲线口径。只在**用户主动翻页**时触发（分页按键 / 跳页输入），
+//   选中联动自动翻页、搜索/排序重画不触发，避免把无关交互也拖慢。
+//   prefers-reduced-motion 下直接换内容；连续快点时由最后一次接管（token 机制），不会叠加两套动画。
+var TBL_FADE = 260, tblFadeToken = 0;
+function fadeTableSwap(tb, swap) {
+  if (!tb || !tb.classList) { swap(); return; }
+  var reduce = false;
+  try { reduce = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches); } catch (e) {}
+  if (reduce) { swap(); return; }
+  var my = ++tblFadeToken;
+  tb.classList.remove('tbl-fade-in');
+  void tb.offsetWidth;                 // 强制回流：同一元素连点也要能重放动画
+  tb.classList.add('tbl-fade-out');
+  setTimeout(function () {
+    if (my !== tblFadeToken) return;   // 已被更晚的一次翻页取代，交给它收尾
+    swap();                            // 内容在全透明那一帧替换，肉眼看不到跳变
+    tb.classList.remove('tbl-fade-out');
+    void tb.offsetWidth;
+    tb.classList.add('tbl-fade-in');
+    setTimeout(function () {
+      if (my !== tblFadeToken) return;
+      tb.classList.remove('tbl-fade-in');
+    }, TBL_FADE + 60);
+  }, TBL_FADE);
+}
+// V1.8.0（需求5）：分页器跳页 —— 点当前页码 → 原位变输入框 → Enter/失焦提交，Esc 取消。
+//   两张表同一套行为；无效输入不跳页、原样重画。
+function bindPagerJump(boxId, attr, getPages, goPage, rerender) {
+  document.getElementById(boxId).addEventListener('click', function (e) {
+    var btn = e.target.closest('button[data-' + attr + 'jump]');
+    if (!btn) return;
+    var pages = Math.max(1, getPages() | 0);
+    var input = document.createElement('input');
+    input.className = 'pg-in';
+    input.type = 'text';
+    input.inputMode = 'numeric';
+    input.maxLength = 4;
+    input.value = btn.textContent;
+    input.setAttribute('aria-label', t('pg_jump'));
+    btn.replaceWith(input);
+    try { input.focus(); input.select(); } catch (err) {}
+    var done = false;
+    function commit(ok) {
+      if (done) return; done = true;
+      if (!ok) { rerender(); return; }
+      var v = parseInt(input.value, 10);
+      if (!isFinite(v)) { rerender(); return; }
+      goPage(Math.max(1, Math.min(pages, v)) - 1);
+    }
+    input.addEventListener('keydown', function (ev) {
+      ev.stopPropagation();                       // 别让全局键盘处理器（方向键等）插手
+      if (ev.key === 'Enter') commit(true);
+      else if (ev.key === 'Escape') commit(false);
+    });
+    input.addEventListener('blur', function () { commit(true); });
+    input.addEventListener('click', function (ev) { ev.stopPropagation(); });
+  });
 }
 // ---------------------------------------------------------------- V1.3.7：导出图片
 // 三张图直接把画布像素另存（底下加一行出处/时间），两张表按当前页的行当场画一张 PNG。
@@ -2375,6 +2570,7 @@ var VIEW_SEG = {
   map: { zh: '地图', en: 'Map' },
   globe: { zh: '轨道', en: 'Orbit' },
   chart: { zh: '倾角分布', en: 'IncDist' },
+  progress: { zh: '组网进度', en: 'NetProgress' },   // V1.8.0（需求8）
   table: { zh: '卫星表格', en: 'SatTable' },
   launches: { zh: '发射历史', en: 'Launch' }
 };
@@ -2523,6 +2719,7 @@ function shotTimeStr(view) {
 // V1.7.0（任务16-iii）：第三章倾角分布的输出要删掉时间相关项（末尾的 [更新历元]），
 //   所以这里按 view 决定是否拼上历元；前两章与表格仍保留。
 function shotSatLines(view) {
+  if (view === 'progress') return [];        // V1.8.0（需求8）：03.5 是星座曲线图，不列选中卫星
   if (!S.sel.length) return [];
   var withEpoch = (view !== 'chart');       // 仅第三章倾角分布去掉历元
   var sats = S.sel.map(function (i) { return cur().sats[i]; }).filter(Boolean);
@@ -2734,10 +2931,10 @@ function withCanvasScale(cv, k, redraw, done) {
   }
 }
 function exportView(view) {
-  var id = view === 'chart' ? 'chart' : (view === 'map' ? 'map' : 'globe');
+  var id = view === 'chart' ? 'chart' : (view === 'map' ? 'map' : (view === 'progress' ? 'netCv' : 'globe'));
   var cv = document.getElementById(id);
   if (!cv || !cv.width) return;
-  var title = view === 'chart' ? t('h_dist') : (view === 'map' ? t('h_map') : t('h_orbits'));
+  var title = view === 'chart' ? t('h_dist') : (view === 'map' ? t('h_map') : (view === 'progress' ? t('h_progress') : t('h_orbits')));
   var satLines = shotSatLines(view);                    // V1.6.3：有选中卫星时先写卫星信息
   // V1.7.0 第三轮末修正③：导出时刻必须**带上时间条偏移**。
   // 旧版这里传的是裸 Date.now()，于是拖到 +120 分钟再导出，图上卫星位置其实还是"实时"的，
@@ -2752,6 +2949,7 @@ function exportView(view) {
     if (!fs) { try { fs = propagateAll(msNow); if (viewKey === 'globe') frameStatesGlobe = fs; else frameStatesMap = fs; } catch (e) {} }
     if (view === 'map') drawMap(fs, msNow);
     else if (view === 'globe') drawGlobe(fs, msNow);
+    else if (view === 'progress') drawNet();     // V1.8.0（需求8）：03.5 组网进度
     else drawChart();
   };
   var fname = shotFileName(view);
@@ -3029,9 +3227,22 @@ function fixTableHeight(sel) {
 document.getElementById('satPager').addEventListener('click', function (e) {
   var b = e.target.closest('button[data-spg]');
   if (!b || b.disabled) return;
-  S.tpage = +b.getAttribute('data-spg');
-  renderTable();
+  var p = +b.getAttribute('data-spg');
+  if (p === S.tpage) { renderTable(); return; }   // 点的是当前页：直绘，不做无意义的淡出
+  S.tpage = p;
+  fadeTableSwap(tbody, renderTable);              // V1.8.0（需求Q4-④）：淡消失 → 换页 → 淡出现
 });
+// V1.8.0（需求5）：两张表的分页器都支持「点当前页码 → 输入 → 跳页」
+bindPagerJump('satPager', 'spg', function () { return SAT_PAGES; },
+  function (p) {
+    if (p === S.tpage) { renderTable(); return; }
+    S.tpage = p; fadeTableSwap(tbody, renderTable);
+  }, renderTable);
+bindPagerJump('pager', 'pg', function () { return LAUNCH_PAGES; },
+  function (p) {
+    if (p === S.page) { renderLaunchTable(); return; }
+    S.page = p; fadeTableSwap(document.getElementById('launchBody'), renderLaunchTable);
+  }, renderLaunchTable);
 function linkHtml(seg) {
   // seg: {t, u?} → 有词条链接就带链接，否则纯文本
   if (!seg) return '';
@@ -3113,14 +3324,17 @@ function renderLaunchTable(jumpToSel) {
   LAST_LAUNCH_ROWS = rows;
   document.getElementById('launchBody').innerHTML = slice.map(launchRowHtml).join('');
   // 分页（与卫星表同款：宽屏一行、窄屏两行）
+  LAUNCH_PAGES = pages;                           // V1.8.0（需求5）：跳页输入框的钳制上限
   document.getElementById('pager').innerHTML = pagerHtml(S.page, pages, 'pg', 'd_page', 'launch');
   fixTableHeight('#sec-launches .table-wrap');
 }
 document.getElementById('pager').addEventListener('click', function (e) {
   var b = e.target.closest('button[data-pg]');
   if (!b || b.disabled) return;
-  S.page = +b.getAttribute('data-pg');
-  renderLaunchTable();
+  var p = +b.getAttribute('data-pg');
+  if (p === S.page) { renderLaunchTable(); return; }
+  S.page = p;
+  fadeTableSwap(document.getElementById('launchBody'), renderLaunchTable);   // V1.8.0（需求Q4-④）
 });
 // 批次表：整行可点（V1.3.4）= 选中整批，在图表 / 地图 / 地球与卫星表里联动高亮，
 // 卫星表自动翻到当前排序下该批第一颗所在的页；点链接不触发
@@ -3192,7 +3406,7 @@ function renderHeader() {
       el.textContent = (withTrack ? st.sats.length : st.launched) + ' ' + unit;
       return;
     }
-    var html = w.n + ' ' + unit + '<i class="sub2">（' + (ENSW ? w.en : w.zh) + '）</i>';
+    var html = w.n + ' ' + unit + '<i class="sub2">' + paren(ENSW ? w.en : w.zh) + '</i>';
     if (withTrack) {
       html += '<br><i class="sub">' + t('d_page_track') + st.sats.length + t('d_page_track2') +
         (st.pendingCount ? t('d_more_pending') + st.pendingCount + t('d_more_pending2') : '') + '</i>';
@@ -3215,7 +3429,7 @@ function renderHeader() {
   mGroups.textContent =
     st.launches.filter(function (L) { return L.sats.length; }).length + t('d_groups_stat') + st.launches.length + t('d_groups_total');
   mGroups.title = t('d_groups_note');
-  document.getElementById('mAlt').textContent = fmtNum(st.avgAlt, 1) + ' km（' + fmtNum(st.minAlt, 0) + '–' + fmtNum(st.maxAlt, 0) + '）';
+  document.getElementById('mAlt').textContent = fmtNum(st.avgAlt, 1) + ' km' + paren(fmtNum(st.minAlt, 0) + '–' + fmtNum(st.maxAlt, 0));
   document.getElementById('mInc').textContent = st.incList.map(function (v) { return v.toFixed(1) + '°'; }).join(' / ');
   document.getElementById('mFirst').textContent = isFinite(st.firstMs)
     ? new Date(st.firstMs).toISOString().slice(0, 10) + t('d_bjtime') : '—';
@@ -3260,6 +3474,7 @@ function rebuild() {
   buildChartPoints(); chartAutoView();
   renderHeader(); renderTable(); renderLaunchTable(); renderLegend();
   fillGroupSelect(); drawChart();
+  try { netInvalidate(); drawNet(); } catch (e) {}   // V1.8.0（需求8）：曲线颜色随星座主题色 → 重建时重画
   mapTrackCache.key = null; globeTrackCache.key = null;
 }
 function fillGroupSelect() {
@@ -3535,6 +3750,9 @@ function syncControlsFromS() {
 }
 function afterConstelSwap() {
   syncControlsFromS();                                   // ★ 让控件显示的确实是本星座的设置
+  // V1.8.0（需求Q4）：换星座 = 换了一套图层开关状态 → 动画系数必须**瞬间**对齐，
+  //   否则新星座的画布会沿用上一星座的 TOG（表现为"刚切过去某图层先淡入一次"）。
+  try { togSyncAll(); } catch (e) {}
   // ★ 图表缩放/平移：rebuild 已经把它重置成「自动」，这里把本星座自己那份放回去
   if (pendingChartView) { chartView = clampChartView(pendingChartView); pendingChartView = null; }   // V1.7.0 第四轮（需求3）
   try { syncResetAllBtn(); } catch (e) {}
@@ -3674,14 +3892,22 @@ function setTheme(light) {
 document.getElementById('themeBtn').addEventListener('click', function () {
   var light = document.documentElement.getAttribute('data-theme') === 'light';
   var done = false;
+  // V1.8.0（需求7）：卡顿根治（时长 520ms 与圆形扩散形式都不动）——
+  //   ① VT 回调里只做「换主题 + 重绘画布 + 图例」（都是廉价操作）；
+  //      全表 DOM 重建（renderTable）挪到动画结束后 —— 它是扩散动画掉帧的主因；
+  //   ② 动画期间给 <html> 挂 .vt-running，临时关掉全站 backdrop-filter（毛玻璃逐帧重合成）；
+  //   ③ 旧版 120ms 兜底会再跑一遍完整重绘 —— 现在只兜「主题确实切换」，重绘只发生在收尾一次。
   var apply = function () {
-    if (done) return;                 // 幂等：VT 回调与兜底只会生效一次
-    done = true;
+    if (done) return; done = true;
     setTheme(!light);
-    drawChart(); renderTable(); renderLegend();
+    drawChart(); renderLegend();
+    try { drawNet(); } catch (e) {}      // V1.8.0（需求8）：03.5 的曲线/网格随主题重画
   };
-  // V1.6.0：从右上角主题按钮扩散的圆形遮罩；时长与缓动同"语言/星座"一套
-  if (typeof document.startViewTransition !== 'function') { apply(); return; }
+  var finishHeavy = function () {
+    document.documentElement.classList.remove('vt-running');
+    try { renderTable(); } catch (e) {}
+  };
+  if (typeof document.startViewTransition !== 'function') { apply(); finishHeavy(); return; }
   var r = this.getBoundingClientRect();
   var root = document.documentElement;
   root.style.setProperty('--vt-x', Math.round(r.left + r.width / 2) + 'px');
@@ -3689,8 +3915,12 @@ document.getElementById('themeBtn').addEventListener('click', function () {
   var dx = Math.max(r.left + r.width / 2, window.innerWidth - (r.left + r.width / 2));
   var dy = Math.max(r.top + r.height / 2, window.innerHeight - (r.top + r.height / 2));
   root.style.setProperty('--vt-r', Math.ceil(Math.sqrt(dx * dx + dy * dy)) + 'px');
-  try { document.startViewTransition(apply); } catch (e) { apply(); }
-  setTimeout(apply, 120);           // 兜底：VT 不可用或回调未触发时保证主题确实切换
+  root.classList.add('vt-running');
+  var vt = null;
+  try { vt = document.startViewTransition(apply); } catch (e) { vt = null; }
+  if (vt && vt.finished && vt.finished.then) vt.finished.then(finishHeavy, finishHeavy);
+  else { if (!done) { done = true; setTheme(!light); } setTimeout(finishHeavy, 40); }
+  setTimeout(function () { if (!done) { done = true; setTheme(!light); } }, 120);   // 兜底：VT 回调未触发也保证切主题
 });
 // 图表控制
 document.getElementById('modeSeg').addEventListener('click', function (e) {
@@ -3713,9 +3943,23 @@ if (_rz) _rz.addEventListener('click', function () { chartAutoView(); drawChart(
 document.querySelectorAll('.seg[data-scope]').forEach(function (seg) {
   seg.addEventListener('click', function (e) {
     var b = e.target.closest('button[data-color]'); if (!b) return;
-    S.colorMode[seg.getAttribute('data-scope')] = b.getAttribute('data-color');
+    var sc = seg.getAttribute('data-scope'), nm = b.getAttribute('data-color');
+    // V1.8.0（需求4②）：配色插值 —— 先把旧色板每颗星的颜色记下来，改完开关后
+    //   在 520ms 内从旧色插值到新色（colOf 每帧现算），而不是整片光点"闪"一下变过来。
+    if (S.colorMode[sc] !== nm) {
+      var fromCol = {};
+      cur().sats.forEach(function (s) { fromCol[s.idx] = colOf(s, sc); });
+      (function (scope, table) {
+        var t0 = performance.now();
+        animTo(ANIM.t, function () {
+          COLORMIX = { scope: scope, from: table, t0: t0, k: 0 };
+          if (scope === 'chart') drawChart(); else { mapDirty = globeDirty = true; }
+        });
+      })(sc, fromCol);
+    }
+    S.colorMode[sc] = nm;
     seg.querySelectorAll('button').forEach(function (x) { x.classList.toggle('on', x === b); });
-    if (seg.getAttribute('data-scope') === 'chart') { drawChart(); renderLegend(); }
+    if (sc === 'chart') { drawChart(); renderLegend(); }
     else renderTable();
   });
 });
@@ -3750,9 +3994,18 @@ var HELP = {
     zh: '<b>缩放</b>：触屏双指捏合，或鼠标滚轮；放大后可拖动平移，双击复位。',
     en: '<b>Zoom</b>: pinch on touch, or the scroll wheel; drag to pan once zoomed, double-click to reset.'
   },
+  // V1.8.0（需求16）：地图章「可见倾角？」与「缩放？」合并为一个 —— 内容两段拼接
+  mapcov: {
+    zh: '<b>可见倾角</b>：每颗卫星实时对地面的可视覆盖区。仰角滑块调最小仰角；选中某颗后只画它的覆盖区。<br><b>缩放</b>：触屏双指捏合，或鼠标滚轮；放大后可拖动平移，双击复位。',
+    en: '<b>Coverage</b>: the footprint each satellite can see right now. The slider sets the minimum elevation; once a satellite is selected only its footprint is drawn.<br><b>Zoom</b>: pinch on touch, or the scroll wheel; drag to pan once zoomed, double-click to reset.'
+  },
+  // V1.8.0（需求8）：03.5 组网进度的图例说明
+  progress: {
+    zh: '<b>怎么看这张图</b>：每个点是一周（周一起算），横轴标的是那一周的日期。<br><b>发射量</b>＝这一周结束时两个星座累计发射了多少颗（含失败与部分成功，百科没有记载颗数的不计）。<br><b>在轨数量</b>＝已有最新轨道要素的颗数 ＋ 已发射但尚未编目的成功批次。<br><b>操作</b>：滚轮/双指缩放，拖动平移，双击复位，点某一周看当周新增的批次。',
+    en: '<b>How to read it</b>: each point is one week (starting Monday); the x axis is labelled with the actual date.<br><b>Launches</b>: cumulative satellites launched by the end of that week (failures and partial successes count when a number is on record).<br><b>In orbit</b>: satellites with fresh elements plus successful batches launched but not yet catalogued.<br><b>Controls</b>: wheel/pinch to zoom, drag to pan, double-click to reset, click a week to see the batches launched in it.'
+  },
   // 三个章节共用的「选中 / 聚焦 / 信息窗」说明（V1.3.6 精简）
-  sel: {
-    zh: '<b>选中后一直看得见。</b>点光点或表格任一行即可选中（Ctrl / ⌘ + 点加选），信息窗<b>锁定显示</b>且可拖走：电脑按住拖，手机长按约半秒再拖，可以拖到画布外面。✕ 只关窗、不取消选中；点空白处才取消。<br><br><b>整批选中后可聚焦。</b>点某一批会选中整批，再点其中一颗 = 聚焦它（其余高亮保留），点空白才取消整批。',
+  sel: {    zh: '<b>选中后一直看得见。</b>点光点或表格任一行即可选中（Ctrl / ⌘ + 点加选），信息窗<b>锁定显示</b>且可拖走：电脑按住拖，手机长按约半秒再拖，可以拖到画布外面。✕ 只关窗、不取消选中；点空白处才取消。<br><br><b>整批选中后可聚焦。</b>点某一批会选中整批，再点其中一颗 = 聚焦它（其余高亮保留），点空白才取消整批。',
     en: '<b>Once selected, it stays visible.</b> Click a dot or any table row to select (Ctrl / ⌘ + click adds). The info panel <b>stays pinned</b> and can be dragged — grab it on desktop, press and hold ~0.5 s on touch — even outside the canvas. ✕ closes only the panel; click empty space to clear.<br><br><b>Focus inside a group.</b> Clicking a group selects the whole batch, then clicking one satellite focuses it (the rest stay highlighted); only empty space clears the group.'
   }
 };
@@ -4251,11 +4504,19 @@ covBtn.addEventListener('click', function () {
   S.cov.on = !S.cov.on;
   this.classList.toggle('on', S.cov.on);
   this.setAttribute('aria-pressed', String(S.cov.on));
+  togAnim('covOn', S.cov.on);          // V1.8.0（需求4①）：覆盖区淡入/淡出
 });
 document.getElementById('covEl').addEventListener('input', function () { S.cov.el = +this.value; });
 var pickBtn = document.getElementById('pickBtn');
 function setPick(on) {
+  var wasOn = S.pick.on;
   S.pick.on = on;
+  // V1.8.0（需求4③）：退出观测点模式时留住最后的落点，让标记与标签淡出而不是瞬间消失
+  if (wasOn && !on) {
+    PICK_FADE = { lat: S.pick.lat, lon: S.pick.lon, el: S.pick.el, mx: S.pick.mx, my: S.pick.my };
+    setTimeout(function () { PICK_FADE = null; mapDirty = true; }, ANIM.t + 80);
+  } else if (on) { PICK_FADE = null; }
+  togAnim('pickOn', on);
   if (!on) { S.pick.fixed = false; S.pick.mx = null; S.pick.my = null; hideInfo(mapInfo, 'map'); }
   // 未进入观测点模式时，仰角滑条不可用且为 0
   var eps = document.getElementById('pickEps');
@@ -4340,11 +4601,13 @@ document.getElementById('mapNamesBtn').addEventListener('click', function () {
   S.names.map = !S.names.map;
   this.classList.toggle('on', S.names.map);
   this.setAttribute('aria-pressed', String(S.names.map));
+  togAnim('nameMap', S.names.map);     // V1.8.0（需求4①）
 });
 document.getElementById('mapTracksBtn').addEventListener('click', function () {
   S.mapTrack = !S.mapTrack;
   this.classList.toggle('on', S.mapTrack);
   this.setAttribute('aria-pressed', String(S.mapTrack));
+  togAnim('mapTrack', S.mapTrack);     // V1.8.0（需求4①）
 });
 // 任何控件交互都让三幅图重画一次（配合按需绘制，避免每帧空转）
 document.addEventListener('click', function () { mapDirty = true; globeDirty = true; }, true);
@@ -4360,16 +4623,19 @@ document.getElementById('tracksBtn').addEventListener('click', function () {
   S.showTracks = !S.showTracks;
   this.classList.toggle('on', S.showTracks);
   this.setAttribute('aria-pressed', String(S.showTracks));
+  togAnim('showTracks', S.showTracks);   // V1.8.0（需求4①）
 });
 document.getElementById('globeNamesBtn').addEventListener('click', function () {
   S.names.globe = !S.names.globe;
   this.classList.toggle('on', S.names.globe);
   this.setAttribute('aria-pressed', String(S.names.globe));
+  togAnim('nameGlobe', S.names.globe);   // V1.8.0（需求4①）
 });
 document.getElementById('coneBtn').addEventListener('click', function () {
   S.cone.on = !S.cone.on;
   this.classList.toggle('on', S.cone.on);
   this.setAttribute('aria-pressed', String(S.cone.on));
+  togAnim('coneOn', S.cone.on);          // V1.8.0（需求4①）
 });
 document.getElementById('coneEl');   // coneEl 的接线在下方 NUMB 循环里（V1.7.3 起走 attachSliderAnim）
 // 时间滑块 —— V1.7.3（需求9）：两章时间状态**各自独立**；星座维度由 STORE 快照（S.time 在
@@ -4981,7 +5247,9 @@ var README_EN = [
   '',
   '1. **Touch**: pinch with two fingers; drag with one finger afterwards — pan the map, rotate the globe, pan the chart;',
   '2. **Mouse**: wheel to zoom, drag to pan once zoomed, double-click to reset;',
-  'The lower right carries, top to bottom: **＋ zoom in**, **− zoom out**, **⟳ reset to the original scale**, **⛶ fullscreen** and **🖨 save image**.',
+  // V1.8.0（需求15 i18n 审计）：这里的加号改用半角 `+` —— 原文是全角「＋」（U+FF0B），
+  //   属 CJK 标点，英文界面漏出会被审计抓出来。中文那一份（README_ZH）保留全角。
+  'The lower right carries, top to bottom: **+ zoom in**, **− zoom out**, **⟳ reset to the original scale**, **⛶ fullscreen** and **🖨 save image**.',
   '',
   '> Map zoom range 1–8×; globe zoom ≈0.5–2.8× of the base radius; the chart can zoom down to roughly a one-day time span. "Reset" returns instantly to the default unzoomed view.',
   '',
@@ -5161,14 +5429,14 @@ function updateBreath() {
         tv.classList.add('frozen');
         tv.classList.remove('rt-breathe');
         tv.style.opacity = ''; tv.style.color = ''; tv.style.borderColor = ''; tv.style.background = '';
-      } else {                                 // 实时：主题色呼吸
+      } else {                                 // 实时：主题色呼吸 —— V1.8.0（需求2）：改**填充呼吸**
         tv.classList.remove('frozen');
         tv.classList.add('rt-breathe');        // 关掉 CSS 过渡，逐帧内联样式不被 .2s 过渡拖慢
         var c = cssVar('--row-sel', '#ff6b6b');
-        tv.style.color = c;
-        tv.style.borderColor = c;
-        tv.style.background = 'transparent';
-        tv.style.opacity = (BREATH_FLOOR + (1 - BREATH_FLOOR) * b).toFixed(3);
+        tv.style.color = 'var(--fg)';          // 文字恒 --fg：暗色=白 / 亮色=黑（需求2 口径）
+        tv.style.borderColor = '';             // 边框不再参与呼吸
+        tv.style.opacity = '';                 // 整体透明度不再参与呼吸
+        tv.style.background = hexToRgba(c, BREATH_FLOOR + (1 - BREATH_FLOOR) * b);
       }
     }
     var fc = document.getElementById(v === 'map' ? 'fsClockMap' : 'fsClockGlobe');
@@ -5251,6 +5519,10 @@ document.querySelectorAll('.view-ctl button[data-zoom]').forEach(function (b) {
       smoothZoom(function (f) { zoomMapAt(mapCv._w / 2, mapCv._h / 2, f); mapDirty = true; }, dir, 260);
     } else if (view === 'globe') {
       smoothZoom(function (f) { globeZoomBy(f); }, dir, 260);
+    } else if (view === 'progress') {
+      // V1.8.0（需求8）：03.5 组网进度 —— 与地图/地球同向（factor>1 = 放大），
+      //   同样走 smoothZoom，使四张图的 ＋/− 手感与时长完全一致。
+      smoothZoom(function (f) { zoomNetBy(f); }, dir, 260);
     }
   });
 });
@@ -5341,6 +5613,7 @@ function resetView(view) {
   if (view === 'chart') { chartAutoView(); drawChart(); }
   else if (view === 'map') { S.mz = { k: 1, tx: 0, ty: 0 }; mapDirty = true; }
   else if (view === 'globe') { G.zoom = 1; globeDirty = true; }
+  else if (view === 'progress') { netView = null; netAutoView(); drawNet(); }   // V1.8.0（需求8）
 }
 document.querySelectorAll('.view-ctl button[data-reset]').forEach(function (b) {
   b.addEventListener('click', function (e) {
@@ -5353,18 +5626,23 @@ document.querySelectorAll('.view-ctl button[data-fs]').forEach(function (b) {
     e.stopPropagation();
     var sec = document.getElementById(b.getAttribute('data-fs'));
     if (!sec) return;
-    if (document.fullscreenElement) { document.exitFullscreen(); return; }
+    // V1.8.0（D2）：补 webkit 全屏（iOS Safari 只有 webkit 前缀或根本没有）
+    var fsEl = document.fullscreenElement || document.webkitFullscreenElement;
+    if (fsEl) { (document.exitFullscreen || document.webkitExitFullscreen).call(document); return; }
     window.__fsScrollY = window.scrollY || 0;   // V1.5.1：进入前那一刻记录，退出时精确回到这里
-    if (sec.requestFullscreen) {
-      // V1.7.0 二轮（需求6）：全屏被系统拒绝时不再"点了没反应"——
-      // 退化成伪全屏（CSS 满屏）并给一次提示，用户就知道是被浏览器挡了，而不是按钮坏了。
-      var p = null;
-      try { p = sec.requestFullscreen(); } catch (e) {}
-      if (p && p.catch) p.catch(function () { applyPseudoFull(true); notifyFsFallback(); });
+    // V1.8.0（D2）：iOS 等浏览器没有 requestFullscreen（至多只有 webkit 前缀）——
+    //   旧版 `if (sec.requestFullscreen)` 直接整段跳过 = 按钮点了没反应、无降级无提示。
+    //   现在：标准 API → webkit 前缀 → 都没有就走伪全屏降级并提示一次，绝不静默。
+    var req = sec.requestFullscreen || sec.webkitRequestFullscreen;
+    var p = null;
+    if (req) {
+      try { p = req.call(sec); } catch (err) {}
+      if (p && p.catch) p.catch(function () { applyPseudoFull(true, sec); notifyFsFallback(); });
       setTimeout(function () {
-        if (!document.fullscreenElement) { applyPseudoFull(true); notifyFsFallback(); }
+        if (!document.fullscreenElement && !document.webkitFullscreenElement) { applyPseudoFull(true, sec); notifyFsFallback(); }
       }, 500);
-      // V1.5.2：横屏锁定改到 fullscreenchange（全屏真正生效后才有效，此处调用必失败）
+    } else {
+      applyPseudoFull(true, sec); notifyFsFallback();
     }
   });
 });
@@ -5380,12 +5658,17 @@ function notifyFsFallback() {
 // 全屏左上角「恢复默认视图」：与页面里 #resetZoom 是同一个动作（图表回到自动视野，地图/地球回到 1×）
 // 01 章节全屏顶栏的实际高度（窄屏会换行变高）→ 写进 --fsbar-h，画布据此让位
 function syncFsBarHeight() {
-  var sec = document.getElementById('sec-chart');
-  var c = sec && sec.querySelector('.controls');
-  if (!c) return;
-  var h = sec.classList.contains('fs-mobile') ? Math.ceil(c.getBoundingClientRect().height) : 0;
-  sec.style.setProperty('--fsbar-h', (h || 58) + 'px');
+  // V1.8.0（需求8）：03.5 组网进度沿用同一套「全屏顶栏让位」机制 → 两章各量各的
+  ['sec-chart', 'sec-progress'].forEach(function (id) {
+    var sec = document.getElementById(id);
+    if (!sec) return;
+    var c = sec.querySelector('.controls');
+    if (!c) return;
+    var h = sec.classList.contains('fs-mobile') ? Math.ceil(c.getBoundingClientRect().height) : 0;
+    sec.style.setProperty('--fsbar-h', (h || 58) + 'px');
+  });
 }
+// （V1.8.0 需求8 已把上面那个函数改成两章通用；旧的单章实现删除，避免死代码。）
 
 function renderFsSug(el, q) {
   if (!el) return;
@@ -5429,7 +5712,19 @@ document.querySelectorAll('.search-key').forEach(function (k) {
 document.querySelectorAll('.fs-exit-btn').forEach(function (b) {
   b.addEventListener('click', function (e) {
     e.stopPropagation();
-    if (document.fullscreenElement) document.exitFullscreen();
+    var fsEl = document.fullscreenElement || document.webkitFullscreenElement;
+    if (fsEl) { (document.exitFullscreen || document.webkitExitFullscreen).call(document); return; }
+    // V1.8.0（D3）：伪全屏降级态下没有 fullscreenElement，旧版 × 点了完全没反应 ——
+    //   这里补上降级态的退出：摘 fs-mobile/pseudo-full、恢复滚动、回到进入前位置。
+    var sec = b.closest ? b.closest('section') : null;
+    if (sec) sec.classList.remove('fs-mobile', 'panel-open');
+    document.querySelectorAll('section.fs-mobile').forEach(function (x) { x.classList.remove('fs-mobile', 'panel-open'); });
+    document.documentElement.classList.remove('pseudo-full');
+    document.documentElement.style.overflow = '';
+    try { if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock(); } catch (e2) {}
+    var y = (typeof preFsScrollY === 'number') ? preFsScrollY : (window.__fsScrollY || 0);
+    try { window.scrollTo(0, y); } catch (e3) {}
+    try { if (ORI_HINT_ON) orientHint(false); } catch (e4) {}
   });
 });
 // V1.4.9：全屏期间保持屏幕常亮（Wake Lock）。手机端「熄屏后全屏自动退出」是移动浏览器的
@@ -5487,9 +5782,25 @@ var preFsScrollY = 0;
 // V1.6.3：手机熄屏/切到别的应用再回来，浏览器会退出全屏 —— 回来时自动重新进入，
 // 若浏览器要求用户手势而拒绝，则退化为"伪全屏"（CSS 满屏，页面与视图保持不变，时间照常走）。
 var wasFullscreen = false, pseudoFull = false;
-function applyPseudoFull(on) {
+function applyPseudoFull(on, sec) {
   pseudoFull = on;
   document.documentElement.classList.toggle('pseudo-full', on);
+  // V1.8.0（D3）：全屏布局选择器是 `section.fs-mobile:fullscreen, html.pseudo-full section.fs-mobile`
+  //   —— 两个条件都要求 fs-mobile，而它此前只在 fullscreenchange 里添加。降级时若不挂上，
+  //   画布不铺满、× 退出键 / 时钟 / 抽屉 / 全屏搜索框全部不出现，还锁死滚动 = "假全屏卡死"。
+  //   现在：进入伪全屏时把 fs-mobile 挂到目标章节；退出（on=false）时全部摘除。
+  document.querySelectorAll('section').forEach(function (s) {
+    var onSec = !!on && !!sec && s === sec;
+    s.classList.toggle('fs-mobile', onSec);
+    if (!onSec) s.classList.remove('panel-open');
+  });
+  if (on) {
+    try { window.scrollTo(0, 0); } catch (e) {}
+    try { syncFsBarHeight(); } catch (e) {}
+    try { applyMapFsSize(); } catch (e) {}
+    try { drawChart(); } catch (e) {}
+    mapDirty = true; globeDirty = true;
+  }
 }
 // V1.7.0 第三轮（需求8）：熄屏/切后台再回来 —— 重新进入全屏，失败则走章节级降级。
 // 【原来的问题】熄屏时浏览器已强制退出全屏；解锁后 requestFullscreen() 没有用户手势通常被拒 →
@@ -5502,7 +5813,12 @@ function fsStuckClear() {
   if (fsStuckTimer) { clearTimeout(fsStuckTimer); fsStuckTimer = null; }
   try {
     document.querySelectorAll('section.fs-stuck').forEach(function (x) { x.classList.remove('fs-stuck'); });
-    if (!document.fullscreenElement) document.documentElement.classList.remove('pseudo-full');
+    // V1.8.0（D3）：伪全屏可能给章节挂了 fs-mobile —— 复位时一并摘除（真全屏路径会在
+    //   fullscreenchange 里重新按 fsEl 挂回，先摘后挂幂等）。
+    if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+      document.querySelectorAll('section.fs-mobile').forEach(function (x) { x.classList.remove('fs-mobile'); });
+      document.documentElement.classList.remove('pseudo-full');
+    }
   } catch (e) {}
 }
 function fsStuckEnter(sec) {
@@ -5638,8 +5954,9 @@ document.addEventListener('fullscreenchange', function () {
       try { applyMapFsSize(); } catch (e) {}
       try { syncFsBarHeight(); } catch (e) {}
       try { drawChart(); mapDirty = globeDirty = true; } catch (e) {}
+      try { drawNet(); } catch (e) {}          // V1.8.0（需求8）：03.5 一并按新尺寸重画
     }, 60);
-    setTimeout(function () { try { applyMapFsSize(); } catch (e) {} try { drawChart(); } catch (e) {} }, 320);
+    setTimeout(function () { try { applyMapFsSize(); } catch (e) {} try { drawChart(); } catch (e) {} try { drawNet(); } catch (e) {} }, 320);
   }
   // V1.7.0（任务17）：全屏锁横屏、退出全屏锁回竖屏（不再 unlock 放任自由旋转）。
   // 全屏是异步过渡，立刻 lock 常被拒 → 稍后重试几次，确保真的锁上。
@@ -6280,12 +6597,13 @@ document.querySelectorAll('[data-panel]').forEach(function (b) {
 // V1.4.9：字母改成三列 [id, 英文, 中文] —— 中文界面显示「图轨角星箭」（图=地图 轨=轨道
 // 角=轨道分布 星=卫星表格 箭=发射历史），英文界面仍用 MOISL；中文字号稍大便于辨认，
 // 但按钮 26×24 尺寸固定，药丸条本身不变。
-var JUMP = [['top', '↑', '↑'], ['sec-map', 'M', '图'], ['sec-orbits', 'O', '轨'], ['sec-chart', 'I', '角'], ['sec-table', 'S', '星'], ['sec-launches', 'L', '箭'], ['bottom', '↓', '↓']];
+var JUMP = [['top', '↑', '↑'], ['sec-map', 'M', '图'], ['sec-orbits', 'O', '轨'], ['sec-chart', 'I', '角'], ['sec-progress', 'N', '网'], ['sec-table', 'S', '星'], ['sec-launches', 'L', '箭'], ['bottom', '↓', '↓']];
 var JUMP_TITLE = {
   top: { zh: '回到顶部', en: 'Back to top' },
   'sec-map': { zh: '01 地图', en: '01 Map' },
   'sec-orbits': { zh: '02 轨道', en: '02 Orbits' },
   'sec-chart': { zh: '03 倾角分布', en: '03 Inclination Distribution' },
+  'sec-progress': { zh: '03.5 组网进度', en: '03.5 Network progress' },
   'sec-table': { zh: '04 卫星表格', en: '04 Satellite table' },
   'sec-launches': { zh: '05 发射历史', en: '05 Launch history' },
   bottom: { zh: '到页面底部', en: 'Go to bottom' }
@@ -6737,7 +7055,7 @@ function loop() {
 }
 // V1.4.5：resize 不再把地球缩放清零（改用倍数存储，见 globeRadNow），
 // 也不再清 frameStates —— 推算结果与画布尺寸无关，清掉只是白算一次全量 SGP4。
-window.addEventListener('resize', function () { drawChart(); });
+window.addEventListener('resize', function () { drawChart(); try { drawNet(); } catch (e) {} });
 
 // ---------------------------------------------------------------- 页脚 / 侧边导航 / 关于
 function renderChrome() {
@@ -7039,6 +7357,386 @@ renderChrome();
 // （旧版存过 cistrack.store.v1 / cistrack.prefs.v1，不清理的话老用户刷新仍会带回旧状态），
 // 然后按出厂默认初始化两星座快照（initStore + applyConstel，不再 storeLoad）。
 try { localStorage.removeItem(STORE_KEY); localStorage.removeItem(PREF_KEY); } catch (e) {}
+// ================================================================ V1.8.0（需求4）：520ms 非线性动画四件套
+//   ① 开关画布同步：开关某个图层时，该图层在画布上淡入/淡出，而不是"啪"地出现/消失；
+//   ② 配色插值：切换「按卫星 / 按批次」时，光点颜色在两套色板之间逐帧插值；
+//   ③ 观测点进出：进入/退出观测点模式时，观测点标记与标签淡入/淡出；
+//   ④ 表格翻页：换页时整表淡出 → 换内容 → 淡入（非线性 cubic-bezier，见 CSS 的 .tbl-fade-out/.tbl-fade-in）。
+// 一律走 animTo（easeOutCubic，520ms），与站内其它动画同一套时长与曲线。
+var TOG = { covOn: 1, mapTrack: 1, nameMap: 1, coneOn: 1, showTracks: 1, nameGlobe: 1, pickOn: 0 };
+function togAnim(key, on) {
+  var to = on ? 1 : 0;
+  var from = (typeof TOG[key] === 'number') ? TOG[key] : to;
+  TOG[key] = from;
+  if (Math.abs(from - to) < 0.001) { TOG[key] = to; mapDirty = globeDirty = true; return; }
+  animTo(ANIM.t, function (k) {
+    TOG[key] = (k >= 1) ? to : (from + (to - from) * k);
+    mapDirty = globeDirty = true;
+  });
+}
+// 「还原默认 / 换星座 / 首帧」这些强制把状态拨回去的场合：动画系数必须与状态对齐，
+// 否则会出现「开关是关的、画布上却还画着」（TOG 停在 1）这种自相矛盾。
+function togSyncAll() {
+  TOG.covOn = S.cov.on ? 1 : 0;
+  TOG.mapTrack = S.mapTrack ? 1 : 0;
+  TOG.nameMap = S.names.map ? 1 : 0;
+  TOG.coneOn = S.cone.on ? 1 : 0;
+  TOG.showTracks = S.showTracks ? 1 : 0;
+  TOG.nameGlobe = S.names.globe ? 1 : 0;
+  TOG.pickOn = S.pick.on ? 1 : 0;
+}
+// 退出观测点模式时，标记要淡出而不是瞬间消失 → 先把最后位置记下来，动画结束再丢
+var PICK_FADE = null;
+
+// 需求原文：新增一章折线图，画两个星座的组网推进速度。
+// 决定口径（Q5）：
+//   · 粒度**按周**，横轴不写「第 XX 周」，直接**标出对应的日期**；
+//   · 纵轴「发射量」= 所有发射的颗数累加（含发射失败与部分成功的；**没有对应数字就不加**）；
+//   · 纵轴「在轨数量」= 有最新 TLE 的颗数 + 已发射未编目、且发射记录为成功的颗数
+//     （例：最近成功发射 8 颗未编目 → 在现有 TLE 数目上 +8）；
+//   · 曲线颜色用本页页面主题色：星网红 / 千帆蓝。
+// 数据来源：构建期写进 satdata 的 launches（含第 6 位任务结果、第 7 位百科记载颗数）+
+//   launchCounts（目录里数出来的颗数）+ pending（待编目颗数）。访客端零请求，离线可用。
+var netCv = document.getElementById('netCv');
+var netInfo = document.getElementById('netInfo');
+var netRect = null, netView = null, netHoverIdx = null, NET = null;
+var NET_WK = 7 * 86400000;
+
+function netMonday(ms) {                      // 该时刻所在周的周一 00:00（本地时区）
+  var d = new Date(ms);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime() - ((d.getDay() + 6) % 7) * 86400000;
+}
+// 单次发射在某个口径下记多少颗
+function netCountOf(L, mode) {
+  if (mode === 'orbit') {
+    // 在轨 = 已有 TLE 的颗数 + 成功但尚未编目的颗数（失利批次不补，因为它根本没进轨道）
+    return L.sats.length + ((L.pending > 0 && L.res !== 'fail') ? L.pending : 0);
+  }
+  // 发射量：优先用目录里数出来的颗数（launchCounts，最全）；目录里数不出来（如失利的那一发、
+  // 或还没有任何编目对象的批次）才用卫星百科记载的颗数；两者都没有 → 这一发不计（Q5 明确要求）
+  if (L.count > 0) return L.count;
+  return L.wn > 0 ? L.wn : 0;
+}
+function netBuild() {
+  var mode = S.netMode, now = Date.now();
+  var evs = [], minMs = Infinity, maxMs = 0;
+  ['gw', 'qf'].forEach(function (key) {
+    CONST[key].launches.forEach(function (L) {
+      if (!isFinite(L.dateMs)) return;
+      evs.push({ ms: L.dateMs, key: key, n: netCountOf(L, mode), name: L.name,
+        res: L.res, pend: L.pending || 0, cnt: L.count || 0, wn: L.wn || 0 });
+      if (L.dateMs < minMs) minMs = L.dateMs;
+      if (L.dateMs > maxMs) maxMs = L.dateMs;
+    });
+  });
+  if (!isFinite(minMs)) minMs = now - 4 * NET_WK;
+  var last = Math.max(maxMs, now);
+  var w0 = netMonday(minMs), w1 = netMonday(last);
+  var weeks = [];
+  for (var t = w0; t <= w1; t += NET_WK) weeks.push(t);
+  if (weeks.length < 2) { weeks.push(weeks[0] + NET_WK); }
+  var series = { gw: [], qf: [] }, delta = { gw: [], qf: [] }, lastN = { gw: 0, qf: 0 };
+  ['gw', 'qf'].forEach(function (key) {
+    var list = evs.filter(function (e) { return e.key === key; }).sort(function (a, b) { return a.ms - b.ms; });
+    var cum = 0, i = 0;
+    weeks.forEach(function (w) {
+      var end = w + NET_WK, add = 0, items = [];
+      while (i < list.length && list[i].ms < end) {
+        cum += list[i].n; add += list[i].n;
+        items.push(list[i]);
+        i++;
+      }
+      series[key].push(cum);
+      delta[key].push({ add: add, items: items });
+    });
+    lastN[key] = cum;
+  });
+  return { mode: mode, weeks: weeks, series: series, delta: delta, lastN: lastN, now: now };
+}
+function netData() {
+  if (!NET || NET.mode !== S.netMode) NET = netBuild();
+  return NET;
+}
+function netInvalidate() { NET = null; }
+function netAutoView() {
+  var d = netData();
+  var x0 = d.weeks[0], x1 = d.weeks[d.weeks.length - 1] + NET_WK;
+  var hi = Math.max(S.netGw ? d.lastN.gw : 0, S.netQf ? d.lastN.qf : 0, 1);
+  var top = hi * 1.10;
+  netView = clampNetView({ x0: x0, x1: x1, y0: 0, y1: top, auto: hi });
+}
+function clampNetView(v) {
+  if (!v) return v;
+  var d = netData();
+  var fullX = (d.weeks[d.weeks.length - 1] + NET_WK) - d.weeks[0];
+  if (v.x1 - v.x0 >= fullX) { v.x0 = d.weeks[0]; v.x1 = d.weeks[d.weeks.length - 1] + NET_WK; }
+  var topMost = Math.max(v.auto || 0, d.lastN.gw, d.lastN.qf, 1) * 1.35;
+  if (v.y1 - v.y0 >= topMost * 1.6 || v.y1 - v.y0 >= topMost) {
+    // 放到最大范围时钉住 0 下界（不会出现负的颗数）
+    v.y1 = Math.min(topMost, v.y1); v.y0 = Math.max(0, v.y1 - (topMost));
+    v.y0 = Math.max(0, v.y0);
+  }
+  if (v.x0 < d.weeks[0]) { v.x1 += d.weeks[0] - v.x0; v.x0 = d.weeks[0]; }
+  if (v.x1 > d.weeks[d.weeks.length - 1] + NET_WK) { v.x0 -= v.x1 - (d.weeks[d.weeks.length - 1] + NET_WK); v.x1 = d.weeks[d.weeks.length - 1] + NET_WK; }
+  if (v.x0 < d.weeks[0]) { v.x0 = d.weeks[0]; }
+  if (v.y0 < 0) { v.y1 += -v.y0; v.y0 = 0; }
+  if (v.y1 > topMost) { v.y0 -= v.y1 - topMost; v.y1 = topMost; if (v.y0 < 0) { v.y1 -= v.y0; v.y0 = 0; } }
+  if (v.y1 - v.y0 < 4) { v.y1 = v.y0 + 4; }
+  return v;
+}
+// 日期标签：2025-12-29 → 25/12/29（窄屏只留 MM-DD 由调用方决定）
+function netDateLabel(ms) {
+  var d = new Date(ms);
+  return pad(d.getFullYear() % 100) + '/' + pad(d.getMonth() + 1) + '/' + pad(d.getDate());
+}
+function netColors() {
+  return { gw: cssVar('--c-gw', '#ff6b6b'), qf: cssVar('--c-qf', '#4dabf7') };
+}
+function drawNet() {
+  if (!netCv) return;
+  var f = fitCanvas(netCv), ctx = f.ctx, W = f.w, H = f.h, C = themeColors();
+  var narrow = window.innerWidth < 760;
+  var PL = narrow ? 46 : 62, PR = narrow ? 30 : 18, PT = 16, PB = 40;
+  var pw = W - PL - PR, ph = H - PT - PB;
+  netRect = { PL: PL, PT: PT, pw: pw, ph: ph };
+  ctx.clearRect(0, 0, W, H);
+  var d = netData();
+  if (!netView) netAutoView();
+  var v = netView;
+  var X = function (ms) { return PL + (ms - v.x0) / (v.x1 - v.x0) * pw; };
+  var Y = function (n) { return PT + ph - (n - v.y0) / (v.y1 - v.y0) * ph; };
+  var NC = netColors();
+  var wkStep = NET_WK;
+
+  // 网格 + 纵轴刻度
+  ctx.font = '11px ' + MONO; ctx.lineWidth = 1;
+  ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+  niceTicks(v.y0, v.y1, 6).forEach(function (t) {
+    var y = Y(t);
+    if (y < PT - 2 || y > PT + ph + 2) return;
+    if (t < 0) return;
+    ctx.strokeStyle = C.gridY; ctx.beginPath(); ctx.moveTo(PL, y); ctx.lineTo(PL + pw, y); ctx.stroke();
+    ctx.fillStyle = C.tick; ctx.fillText(Math.round(t), PL - 8, y);
+  });
+  // 横轴：按周取刻度（约 6 个），标对应的日期；年初另画一条竖向分隔线 + 年份
+  var nWeeks = d.weeks.length;
+  var tcount = narrow ? 4 : 6;
+  var stride = Math.max(1, Math.round((nWeeks - 1) / tcount));
+  ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  for (var i = 0; i < nWeeks; i += stride) {
+    var x = X(d.weeks[i]);
+    if (x < PL - 2 || x > PL + pw + 2) continue;
+    ctx.strokeStyle = C.gridX; ctx.beginPath(); ctx.moveTo(x, PT); ctx.lineTo(x, PT + ph); ctx.stroke();
+    ctx.fillStyle = C.tick;
+    ctx.fillText(netDateLabel(d.weeks[i]), x, PT + ph + 9);
+  }
+  ctx.save();
+  for (var j = 0; j < nWeeks; j++) {
+    var wj = d.weeks[j];
+    var dj = new Date(wj);
+    if (dj.getMonth() === 0 && dj.getDate() <= 7 && j > 0) {
+      var xy = X(wj);
+      if (xy >= PL && xy <= PL + pw) {
+        ctx.setLineDash([4, 4]); ctx.strokeStyle = C.dim; ctx.globalAlpha = 0.7;
+        ctx.beginPath(); ctx.moveTo(xy, PT); ctx.lineTo(xy, PT + ph); ctx.stroke();
+        ctx.setLineDash([]); ctx.globalAlpha = 1;
+        ctx.fillStyle = C.dim; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+        ctx.fillText(String(dj.getFullYear()), xy + 3, PT + 3);
+      }
+    }
+  }
+  ctx.restore();
+  // 轴
+  ctx.strokeStyle = C.dim; ctx.beginPath();
+  ctx.moveTo(PL, PT); ctx.lineTo(PL, PT + ph); ctx.lineTo(PL + pw, PT + ph); ctx.stroke();
+  ctx.save();
+  ctx.translate(13, PT + ph / 2); ctx.rotate(-Math.PI / 2);
+  ctx.fillStyle = C.dim; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.font = '10px ' + MONO;
+  ctx.fillText(t(S.netMode === 'orbit' ? 'nm_unit_orbit' : 'nm_unit_launch'), 0, 0);
+  ctx.restore();
+  ctx.font = '10px ' + MONO; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  ctx.fillStyle = C.dim;
+  ctx.fillText(t('d_x_date') + t('d_week_unit'), PL + pw / 2, PT + ph + 24);
+
+  // 曲线：V1.8.0（需求17 / ⑱）同样裁剪到绘图区 —— 端点数值标签也不会跑到坐标线外
+  ctx.save();
+  ctx.beginPath(); ctx.rect(PL, PT, pw, ph); ctx.clip();
+  ['gw', 'qf'].forEach(function (key) {
+    if (!(key === 'gw' ? S.netGw : S.netQf)) return;
+    var arr = d.series[key], col = NC[key];
+    ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.lineJoin = 'round';
+    ctx.beginPath();
+    for (var k = 0; k < arr.length; k++) {
+      var px = X(d.weeks[k] + NET_WK / 2), py = Y(arr[k]);
+      if (k === 0) ctx.moveTo(X(d.weeks[k]), py); else ctx.lineTo(px, py);
+    }
+    ctx.stroke();
+    // 周节点：点太密时只画最后一个 + 悬停那个
+    var sparse = arr.length <= 90;
+    for (var m = 0; m < arr.length; m++) {
+      if (!sparse && m !== arr.length - 1 && m !== netHoverIdx) continue;
+      if (arr[m] === 0 && m < arr.length - 1 && !sparse) continue;
+      ctx.beginPath(); ctx.arc(X(d.weeks[m] + NET_WK / 2), Y(arr[m]), m === netHoverIdx ? 4 : 2.2, 0, 6.2832);
+      ctx.fillStyle = col; ctx.fill();
+    }
+    // 末端数值
+    var li = arr.length - 1;
+    ctx.font = '11px ' + MONO; ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
+    ctx.fillStyle = col;
+    ctx.fillText(String(arr[li]), X(d.weeks[li] + NET_WK / 2) - 4, Y(arr[li]) - 4);
+  });
+  ctx.restore();
+
+  // 悬停十字
+  if (netHoverIdx != null && d.weeks[netHoverIdx] != null) {
+    var hx = X(d.weeks[netHoverIdx] + NET_WK / 2);
+    if (hx >= PL && hx <= PL + pw) {
+      ctx.save();
+      ctx.strokeStyle = C.dim; ctx.setLineDash([3, 3]); ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(hx, PT); ctx.lineTo(hx, PT + ph); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.restore();
+    }
+  }
+  // 底部图例（画在画布外的 DOM 里，见 netNote）
+  var note = document.getElementById('netNote');
+  if (note) {
+    var keys = [];
+    if (S.netGw) keys.push('<span class="net-key"><i style="background:' + NC.gw + '"></i>' + t('n_gw') + ' ' + d.lastN.gw + '</span>');
+    if (S.netQf) keys.push('<span class="net-key"><i style="background:' + NC.qf + '"></i>' + t('n_qf') + ' ' + d.lastN.qf + '</span>');
+    note.innerHTML = keys.join('') + '<span class="net-key">' + t('d_net_span') + ' ' + netDateLabel(d.weeks[0]) + ' – ' + netDateLabel(d.now) + '</span>';
+  }
+}
+function netWeekAt(mx) {
+  if (!netRect || !netView) return null;
+  var d = netData(), v = netView, r = netRect;
+  var ms = v.x0 + (mx - r.PL) / r.pw * (v.x1 - v.x0) - NET_WK / 2;
+  var best = -1, bd = Infinity;
+  for (var i = 0; i < d.weeks.length; i++) {
+    var dd = Math.abs(d.weeks[i] - ms);
+    if (dd < bd && d.weeks[i] + NET_WK > v.x0 && d.weeks[i] < v.x1) { bd = dd; best = i; }
+  }
+  return best >= 0 ? best : null;
+}
+function netShowInfoAt(i) {
+  if (i == null || !netInfo) return;
+  var d = netData();
+  var w = d.weeks[i];
+  if (w == null) return;
+  var en = LANG === 'en';
+  var endStr = netDateLabel(w + NET_WK - 86400000);
+  var rows = ['<div class="si-row"><span>' + t('d_net_week') + '</span><span>' + netDateLabel(w) + ' – ' + endStr + '</span></div>'];
+  ['gw', 'qf'].forEach(function (key) {
+    if (!(key === 'gw' ? S.netGw : S.netQf)) return;
+    var dd = d.delta[key][i] || { add: 0, items: [] };
+    rows.push('<div class="si-row"><span>' + t(key === 'gw' ? 'n_gw' : 'n_qf') + '</span><span>' +
+      (d.series[key][i] || 0) + (en ? ' cum.' : ' 累计') + (dd.add ? (en ? ' (+' : '（+') + dd.add + (en ? ')' : '）') : '') + '</span></div>');
+    if (dd.items.length) {
+      rows.push('<div class="si-row"><span>' + t('d_net_batches') + '</span><span>' +
+        dd.items.map(function (e) { return batchName(e.name) + '×' + e.n; }).join(en ? ', ' : '、') + '</span></div>');
+    }
+  });
+  showInfo(netInfo, 'net', rows.join(''), 'net-' + i);
+  var el = document.getElementById('netCv');
+  if (el) placeInfoCorner(netInfo, 'net');
+  netHoverIdx = i;
+}
+function netHit(x, y) {
+  var i = netWeekAt(x);
+  return i;
+}
+function syncNetControls() {
+  document.querySelectorAll('#netModeSeg button').forEach(function (b) {
+    b.classList.toggle('on', b.getAttribute('data-netmode') === S.netMode);
+  });
+  document.querySelectorAll('#netShowSeg button').forEach(function (b) {
+    var k = b.getAttribute('data-net');
+    b.classList.toggle('on', k === 'gw' ? S.netGw : S.netQf);
+    b.setAttribute('aria-pressed', String(k === 'gw' ? S.netGw : S.netQf));
+  });
+}
+function netSetMode(m) {
+  S.netMode = m;
+  syncNetControls();
+  netAutoView(); drawNet();
+  touchPrefs();
+}
+function zoomNetAt(fx, fy, factor) {
+  var v = netView, r = netRect;
+  if (!v || !r) return;
+  var px = v.x0 + (fx - r.PL) / r.pw * (v.x1 - v.x0);
+  var py = v.y0 + (r.PT + r.ph - fy) / r.ph * (v.y1 - v.y0);
+  v.x0 = px - (px - v.x0) / factor; v.x1 = px + (v.x1 - px) / factor;
+  v.y0 = py - (py - v.y0) / factor; v.y1 = py + (v.y1 - py) / factor;
+  clampNetView(v);
+  drawNet();
+}
+function zoomNetBy(factor) {
+  var r = netRect;
+  if (!r) return;
+  zoomNetAt(r.PL + r.pw / 2, r.PT + r.ph / 2, factor);
+}
+function netInit() {
+  if (!netCv) return;
+  netAutoView();
+  drawNet();
+  var segM = document.getElementById('netModeSeg');
+  if (segM) segM.addEventListener('click', function (e) {
+    var b = e.target.closest('button[data-netmode]');
+    if (!b) return;
+    netSetMode(b.getAttribute('data-netmode'));
+  });
+  var segS = document.getElementById('netShowSeg');
+  if (segS) segS.addEventListener('click', function (e) {
+    var b = e.target.closest('button[data-net]');
+    if (!b) return;
+    if (b.getAttribute('data-net') === 'gw') S.netGw = !S.netGw; else S.netQf = !S.netQf;
+    if (!S.netGw && !S.netQf) { S.netGw = S.netQf = true; }     // 两条都关掉没有意义 → 至少留一条
+    syncNetControls();
+    netView = null; netAutoView(); drawNet();
+    touchPrefs();
+    syncSectionResetBtns();
+  });
+  // V1.8.0（需求8）：＋/− 与「恢复原始比例」不再在此绑定 —— 已统一改用
+  //   .view-ctl button[data-zoom|data-reset] 的通用处理器（见 resetView / 画布控件一节），
+  //   与地图/轨道/倾角分布三张图共享同一份逻辑与同一条 smoothZoom 曲线。
+  netCv.addEventListener('wheel', function (e) {
+    e.preventDefault();
+    var r = netCv.getBoundingClientRect();
+    zoomNetAt(e.clientX - r.left, e.clientY - r.top, e.deltaY < 0 ? 1.12 : 1 / 1.12);
+  }, { passive: false });
+  netCv.addEventListener('dblclick', function () { netView = null; netAutoView(); drawNet(); });
+  netCv.addEventListener('mousemove', function (e) {
+    var r = netCv.getBoundingClientRect();
+    var i = netWeekAt(e.clientX - r.left);
+    if (i !== netHoverIdx) { netHoverIdx = i; drawNet(); }
+  });
+  netCv.addEventListener('mouseleave', function () {
+    if (netHoverIdx != null) { netHoverIdx = null; drawNet(); }
+    if (netInfo) hideInfo(netInfo, 'net');
+  });
+  netCv.addEventListener('click', function (e) {
+    var r = netCv.getBoundingClientRect();
+    var i = netWeekAt(e.clientX - r.left);
+    if (i != null) netShowInfoAt(i);
+  });
+  touchZoom(netCv, {
+    active: function () { return true; },
+    pan: function (dx, dy) {
+      if (!netView) return;
+      var r = netRect;
+      netView.x0 -= dx / r.pw * (netView.x1 - netView.x0);
+      netView.x1 -= dx / r.pw * (netView.x1 - netView.x0);
+      netView.y0 += dy / r.ph * (netView.y1 - netView.y0);
+      netView.y1 += dy / r.ph * (netView.y1 - netView.y0);
+      clampNetView(netView); drawNet();
+    },
+    pinch: function (k, x, y) { zoomNetAt(x, y, k); },
+    tap: function (x, y) { var i = netHit(x, y); if (i != null) netShowInfoAt(i); }
+  });
+}
 try { initStore(); applyConstel(); } catch (e) {}
 rebuild();
 try { afterConstelSwap(); } catch (e) {}
@@ -7051,6 +7749,7 @@ setLoadEpoch(t('d_epoch') + ' ' + fmtUTC(cur().epochMax) + ' UTC');
 // prefSnap / PREF_DEF / PREF_SEC 仍然保留，供「默认设置」按钮还原使用。
 syncAllControls();
 syncResetAllBtn();
+syncSectionResetBtns();       // V1.8.0（需求3）：首帧就按「是否有改动」定各章默认设置按钮的边框态
 syncTimeUI();
 layoutNav();
 layoutPickSlot();                    // V1.7.3（需求3）：首帧布局定稿后再量一次槽高（首次 layoutNav 后字体/宽度才稳定）
@@ -7060,6 +7759,7 @@ setPick(S.pick.on);
 setupInfo(chartInfo, 'chart');
 setupInfo(mapInfo, 'map');
 setupInfo(globeInfo, 'globe');
+netInit();                           // V1.8.0（需求8）：03.5 组网进度
 loop();
 
 // 各章节的「默认设置」：只还原该章节那几项

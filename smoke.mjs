@@ -9,7 +9,9 @@ const require = createRequire(import.meta.url);
 const { JSDOM, VirtualConsole } = require('jsdom');
 
 const B = fileURLToPath(new URL('.', import.meta.url));
-const FILE = B + '/星网与千帆在轨追踪.html';
+// V1.8.0：允许用环境变量指向别的产物 —— 便于「拿旧版跑同一套断言」做 FAIL 归因
+// （旧版也 FAIL 的 = 过期断言；只有新版 FAIL 的 = 本次改动引入的真回归）。
+const FILE = process.env.SMOKE_HTML || (B + '/星网与千帆在轨追踪.html');
 const html = fs.readFileSync(FILE, 'utf8');
 
 const errors = [];
@@ -78,12 +80,14 @@ const RAW = w.SATDATA;
 console.log('--- 基础 ---');
 assert('页面无脚本错误', errors.length === 0, errors.slice(0, 3).join(' | ') || 'none');
 assert('卫星表已渲染 9~10 行（按行单元分页）', rows() >= 9 && rows() <= 10, rows());
-assert('版本号 V1.7.2', /var VERSION = 'V1\.7\.2'/.test(appSrc));
-assert('页脚显示 CISTrack + 版本号', /CISTrack/.test($('#footCopy').textContent) && /V1\.7\.2/.test($('#footCopy').textContent), $('#footCopy').textContent);
+assert('版本号 V1.8.0', /var VERSION = 'V1\.8\.0'/.test(appSrc));
+assert('页脚显示 CISTrack + 版本号', /CISTrack/.test($('#footCopy').textContent) && /V1\.8\.0/.test($('#footCopy').textContent), $('#footCopy').textContent);
 assert('页脚 B 站链接是橙色主题', /#footLink/.test(tpl) && /#ff8c1a/.test(tpl));
 
 console.log('--- 数据层 ---');
-assert('星网 186 颗 / 千帆 238 颗', RAW.gw.sats.length === 186 && RAW.qf.sats.length === 238,
+// V1.8.0：TLE 每次刷新都可能多出在轨卫星（186 → 198），把「恰好等于」改成「不少于」，
+//   否则数据一更新守卫就误报。真正的意义是"目录里确实有足量在轨卫星"，用下界表达更准确。
+assert('星网 ≥186 颗 / 千帆 ≥238 颗（TLE 可随刷新增长）', RAW.gw.sats.length >= 186 && RAW.qf.sats.length >= 238,
   RAW.gw.sats.length + ' / ' + RAW.qf.sats.length);
 assert('词条口径：星网 248 发射 / 244 在轨 / 40-41 次',
   RAW.gw.wiki.launched.n === 248 && RAW.gw.wiki.inOrbit.n === 244 && RAW.gw.wiki.launches === '40/41');
@@ -106,9 +110,10 @@ assert('待编目批次数：星网 4 批 / 千帆 2 批',
   Object.keys(RAW.gw.pending).length + ' / ' + Object.keys(RAW.qf.pending).length);
 
 console.log('--- 章节与导航 ---');
-assert('章节顺序 = 地图/轨道/轨道分布/卫星表格/发射历史',
-  [...d.querySelectorAll('section')].map(s => s.id).join('|') === 'sec-map|sec-orbits|sec-chart|sec-table|sec-launches');
-assert('章节号 01–05', [...d.querySelectorAll('.sec-num')].map(s => s.textContent).join('') === '0102030405');
+// V1.8.0（需求8）：新增 03.5「组网进度」章节（插在 03 倾角分布之后、04 卫星表格之前）
+assert('章节顺序 = 地图/轨道/倾角分布/组网进度/卫星表格/发射历史',
+  [...d.querySelectorAll('section')].map(s => s.id).join('|') === 'sec-map|sec-orbits|sec-chart|sec-progress|sec-table|sec-launches');
+assert('章节号 01/02/03/03.5/04/05', [...d.querySelectorAll('.sec-num')].map(s => s.textContent).join('') === '01020303.50405');
 // V1.7.2 第七轮（需求2）：顶栏章节切换按钮（.navlinks）与「更新历元」那行（.nav-updated）
 // 已**有意删除**（与右下悬浮药丸功能重合）。这里改成反向守卫：一旦被加回来就报警。
 assert('顶栏章节切换按钮已移除（.navlinks 不得存在）', !d.querySelector('.navlinks'),
@@ -116,8 +121,9 @@ assert('顶栏章节切换按钮已移除（.navlinks 不得存在）', !d.query
 assert('顶栏「更新历元」那行已移除（.nav-updated / #navUpdated 不得存在）',
   !d.querySelector('.nav-updated') && !d.querySelector('#navUpdated'));
 assert('顶栏右侧空容器 .nav-right 仍在（layoutNav 读它的计算宽度）', !!d.querySelector('.nav-right'));
-assert('档位条：中文=图轨角星箭 / 英文=MOISL（V1.4.9）',
-  [...d.querySelectorAll('#jumpPill button')].map(b => b.textContent).join('') === '↑图轨角星箭↓');
+// V1.8.0（需求8）：档位条插入「网 / N」（组网进度），位置在「角 / I」与「星 / S」之间
+assert('档位条：中文=图轨角网星箭 / 英文=MOISLN（V1.4.9 / V1.8.0）',
+  [...d.querySelectorAll('#jumpPill button')].map(b => b.textContent).join('') === '↑图轨角网星箭↓');
 
 console.log('--- 表格 ---');
 assert('默认按 NORAD 从大到小',
@@ -179,8 +185,9 @@ if (shotBtn && numBox) {
 }
 
 console.log('--- 导出底栏（V1.4.0）---');
+// V1.7.3（需求9）：时间偏移改为**两章各存一份**（S.time.map/globe.off），导出底栏走 simMs(view)
 assert('底栏时间用「模拟时间」而不是按快门时间',
-  /function shotClock\(\)/.test(appSrc) && /S\.timeOffset \|\| 0\) \* 60000/.test(appSrc));
+  /function shotClock\(view\)/.test(appSrc) && /simMs\(view\)/.test(appSrc));
 assert('底栏时间格式 GMT …（+偏移 本地时间）',
   /'GMT ' \+ dstr\(u\) \+ '_' \+ tstr\(u\)/.test(appSrc) && /br\[0\]/.test(appSrc));
 assert('底栏右侧有免责声明', /d_shot_disc: \['非官方项目，模拟基于开源 TLE 数据，不代表实际情况'/.test(appSrc));
@@ -215,18 +222,21 @@ assert('V1.7.2（需求4）：hover 移开画布只收浮窗，A 窗常驻不动
 assert('信息窗自动避让指针 + 拖动锁宽',
   /function placeInfoCorner/.test(appSrc) && /width:max-content/.test(tpl));
 assert('地球自转按时间（与帧率解耦）', /var SPIN_RATE = 0\.028/.test(appSrc) && !/G\.yaw \+= 0\.0008/.test(appSrc));
-assert('三个图章节各有一对 ＋/− 与导出键',
-  d.querySelectorAll('.view-ctl button[data-zoom]').length === 6 &&
-  d.querySelectorAll('.view-ctl button[data-shot]').length === 3);
+// V1.8.0（需求8）：四张坐标图（地图/轨道/倾角分布/组网进度）各一对 ＋/− 与一个导出键
+assert('四个图章节各有一对 ＋/− 与导出键',
+  d.querySelectorAll('.view-ctl button[data-zoom]').length === 8 &&
+  d.querySelectorAll('.view-ctl button[data-shot]').length === 4);
 assert('导出键排在按键组最后', [...d.querySelectorAll('.view-ctl')].every(g => /shot/.test(g.lastElementChild.className)));
 // V1.7.1（需求7）：gotoSatInTable 已删除（两套翻页逻辑并存 → 页号错位）。
 //   联动现在由 afterSelection() → renderTable({jump:true}) + hitTableRow() 承担。
 assert('图→表联动函数在（V1.7.1：统一走 renderTable({jump:true}) + hitTableRow）',
   !/function gotoSatInTable/.test(appSrc) && /function hitTableRow/.test(appSrc) &&
   /LAST_ROWS = rows/.test(appSrc));
+// V1.8.0：窗口放宽到 400 字 —— 原 200 字的窗太紧，V1.7.3 在 mapBlockHtml 里加一行
+//   「地图章缓存」注释就把跨度顶出 200，属于断言脆弱而非代码回归。
 assert('信息窗三处都有空值保护（V1.7.2：map/globe 改为 block 生成函数返回 null）',
-  /function mapBlockHtml\(idx\)[\s\S]{0,200}if \(!g \|\| !s\) return null;/.test(appSrc) &&
-  /function globeBlockHtml\(best\)[\s\S]{0,160}if \(!s \|\| !g2\) return null;/.test(appSrc) &&
+  /function mapBlockHtml\(idx\)[\s\S]{0,400}?if \(!g \|\| !s\) return null;/.test(appSrc) &&
+  /function globeBlockHtml\(best\)[\s\S]{0,400}?if \(!s \|\| !g2\) return null;/.test(appSrc) &&
   /pts = pts\.filter\(function \(p\) \{ return p && p\.sat; \}\)/.test(appSrc));
 
 console.log('--- 字体与字号 ---');
@@ -287,7 +297,9 @@ assert('主题不再读 localStorage（每次打开都是暗色）',
   !/localStorage\.getItem\('theme'\)/.test(tpl) && /removeAttribute\('data-theme'\)/.test(tpl));
 assert('偏好不再读取 / 不再落盘（每次打开都是默认配置）',
   !/prefApply\(prefLoad\(\)\)/.test(appSrc) && !/lastPrefJson = j; prefSave\(\)/.test(appSrc) && /不再落盘/.test(appSrc));
-assert('时间条不落盘（每次打开都是实时时刻）', /timeOffset: 0/.test(appSrc) && /S\.timeOffset = 0/.test(appSrc));
+// V1.7.3（需求9）：时间偏移改为两章各存一份（timeOffsetMap / timeOffsetGlobe，默认 0）
+assert('时间条不落盘（每次打开都是实时时刻）',
+  /timeOffsetMap: 0, timeOffsetGlobe: 0/.test(appSrc) && /off: 0, frozen: null/.test(appSrc));
 assert('主题切换按钮仍在（本次会话内可切）', /themeBtn/.test(tpl) && /function refreshTheme/.test(appSrc));
 assert('顶栏毛玻璃：补 -webkit- 前缀 + 更大模糊 + 较低不透明度',
   /-webkit-backdrop-filter:blur\(20px\) saturate\(160%\)/.test(tpl) &&
@@ -302,9 +314,10 @@ assert('存在 CHANGELOG.md', fs.existsSync(B + '/CHANGELOG.md'),
 
 console.log('--- V1.4.2 ---');
 // ④ Manufacturer列
-assert('批次列改名为「批次/组」并在其后插入「Manufacturer」',
-  [...d.querySelectorAll('#satTable thead th')].slice(0, 4).map(t => t.getAttribute('data-key')).join('|') === 'name|norad|launch|maker',
-  [...d.querySelectorAll('#satTable thead th')].slice(0, 4).map(t => t.getAttribute('data-key')).join('|'));
+// V1.8.0（需求6）：在「批次/组」之后插入「发射时间」列（ltime），Manufacturer 顺延到第 5 列
+assert('表头前四列 = 名称/NORAD/批次·组/发射时间，第 5 列才是 Manufacturer',
+  [...d.querySelectorAll('#satTable thead th')].slice(0, 5).map(t => t.getAttribute('data-key')).join('|') === 'name|norad|launch|ltime|maker',
+  [...d.querySelectorAll('#satTable thead th')].slice(0, 5).map(t => t.getAttribute('data-key')).join('|'));
 assert('表头文案「批次/组」「Manufacturer」', /t_launch: \['批次\/组'/.test(appSrc) && /t_maker: \['Manufacturer'/.test(appSrc));
 assert('Manufacturer数据已注入（星网 ≥38 批 / 千帆 ≥18 批）',
   Object.keys(RAW.gw.makers || {}).length >= 38 && Object.keys(RAW.qf.makers || {}).length >= 18,
@@ -427,8 +440,9 @@ console.log('--- V1.4.5 ---');
 assert('地球缩放改存倍数（G.zoom），不再存绝对像素半径 G.R',
   /function globeRadNow\(\)/.test(appSrc) && /G\.zoom = Math\.max\(0\.5, Math\.min\(2\.8/.test(appSrc) &&
   /zoom: 1, dragging: false/.test(appSrc) && !/\bG\.R\b/.test(appSrc));
+// V1.8.0（需求8）：resize 时新增的曲线图也要跟着重画（多一个 drawNet，其余不动）
 assert('resize 不再清零缩放、也不再清 frameStates',
-  /window\.addEventListener\('resize', function \(\) \{ drawChart\(\); \}\);/.test(appSrc) &&
+  /window\.addEventListener\('resize', function \(\) \{ drawChart\(\); try \{ drawNet\(\); \} catch \(e\) \{\} \}\);/.test(appSrc) &&
   !/resize[\s\S]{0,80}frameStates = null/.test(appSrc) && !/resize[\s\S]{0,80}G\.R = 0/.test(appSrc));
 assert('双击与「恢复原比例」都把倍数归 1', /dblclick[\s\S]{0,120}G\.zoom = 1/.test(appSrc) &&
   /view === 'globe'\) \{ G\.zoom = 1/.test(appSrc));
@@ -588,9 +602,12 @@ assert('任务18：触屏用 tap（TAP_SLOP，非长按定时器）选中发光�
   /if \(far <= slop && cfg\.tap\)/.test(appSrc) &&
   !/pressTimer|longPressTimer|holdTimer/i.test(appSrc));
 // 任务10：拖动中的信息窗层级必须低于顶栏（topnav z=50），全屏下低于右侧按钮列（52）
+// V1.7.3（需求6）：全屏按钮列的 bottom 合并为 --fs-ctl-bottom，选择器也并成一组
+//   （section.fs-mobile .view-ctl, section.fs-stuck .view-ctl { ... z-index:52 }），
+//   守卫改为在合并后的块里找 z-index:52。
 assert('任务10：拖动中信息窗低于顶栏（z<50），全屏下低于右侧按钮列',
   /\.sat-info\.moving\s*\{[^}]*z-index:\s*48/.test(tpl) &&
-  /section\.fs-mobile \.view-ctl\s*\{[^}]*z-index:\s*52/.test(tpl));
+  /section\.fs-mobile \.view-ctl,\s*\n\s*section\.fs-stuck \.view-ctl\s*\{[^}]*z-index:\s*52/.test(tpl));
 // 任务5：页内联想区层级必须低于右下角章节药丸（75），否则药丸点不到
 assert('任务5：页内联想区 z-index:62 < 右下角药丸 75（药丸永远可点）',
   /\.sug-list\s*\{\s*z-index:62\s*!important/.test(tpl) &&
@@ -711,9 +728,11 @@ assert('需求6：「还原所有默认设置」= 完全还原（三图视图/�
   /STORE\.gw = null; STORE\.qf = null;/.test(appSrc) &&
   /renderTable\(\); renderLaunchTable\(\);/.test(appSrc));
 // 需求2：主题色缓存随星座失效
+// V1.8.0（需求4③）：观测点整体透明度抽成 pickAlpha（= TOG.pickOn，进出模式时 0→1 淡入淡出），
+//   底色仍必须是 C.theme —— 即 0.12 只是被乘上 pickAlpha，主题色口径没变。
 assert('需求2：切换星座后主题色缓存失效（TC），观测点虚线框与填充都用 C.theme',
   /setProperty\('--row-sel'[\s\S]{0,200}refreshTheme\(\);/.test(appSrc) &&
-  /ctx\.fillStyle = C\.theme; ctx\.globalAlpha = 0\.12; ctx\.fill\(\);/.test(appSrc));
+  /ctx\.fillStyle = C\.theme; ctx\.globalAlpha = 0\.12 \* pickAlpha; ctx\.fill\(\);/.test(appSrc));
 // 需求5：键盘
 assert('需求5：选中联想项与拖动信息窗前都会让输入框失焦',
   /function blurSearchInputs/.test(appSrc) &&
@@ -743,11 +762,12 @@ assert('需求10：导出倍率自适应（按画布尺寸反推最高档）+ 12
   /function shotStepsFor/.test(appSrc) && /CANVAS_MAX_SIDE \/ Math\.max\(w, h\)/.test(appSrc) &&
   /function withCanvasScale/.test(appSrc) && /function blobBytes/.test(appSrc) &&
   /n <= SHOT_MAX_BYTES/.test(appSrc));
+// V1.7.3（需求9）：导出时刻按**章**取模拟时刻（simMs(viewKey)），缓存变量也拆成 Map/Globe 两份
 assert('需求10：导出时刻带上时间条偏移（图文一致）+ 进度提示',
-  /var msNow = Date\.now\(\) \+ \(S\.timeOffset \|\| 0\) \* 60000/.test(appSrc) &&
+  /var msNow = simMs\(viewKey\)/.test(appSrc) &&
   /drawMap\(fs, msNow\)/.test(appSrc) && /drawGlobe\(fs, msNow\)/.test(appSrc) &&
-  /function shotToastStart/.test(appSrc) && /function shotToastEnd/.test(appSrc) &&
-  /frameStates = fs; \} catch \(e\) \{\}/.test(appSrc));
+  /frameStatesGlobe = fs; else frameStatesMap = fs; \} catch \(e\) \{\}/.test(appSrc) &&
+  /function shotToastStart/.test(appSrc) && /function shotToastEnd/.test(appSrc));
 // 需求6：第 0 章四段间距统一
 assert('需求6：第 0 章四段间距统一（hero-search / hero-reset 取消额外 margin，hero 下内边距收到 23px）',
   /\.hero-search \{ margin-top:0;/.test(tpl) && /\.hero-reset \{[^}]*margin-top:0;/.test(tpl) &&
@@ -779,9 +799,11 @@ assert('顶栏星座滑块按当前选中项取主题色（兄弟选择器 + 淡
   /\.constel button\[data-c="qf"\]\.on ~ \.seg-slider \{ background:var\(--c-qf-tint\)/.test(tpl) &&
   /--c-gw-tint:/.test(tpl) && /--c-qf-tint:/.test(tpl) &&
   /seg\.appendChild\(sl\)/.test(appSrc));   // 滑块必须排在两个按钮之后，兄弟选择器才成立
-assert('设置分离：时间条切星座后必须回写（不再只写一个不存在的 #sec-chart .time-r）',
-  /if \(typeof setOffset === \u0027function\u0027\) setOffset\(S\.timeOffset\)/.test(appSrc) &&
-  !/querySelector\(\u0027#sec-chart \.time-r\u0027\)/.test(appSrc) &&
+// V1.7.3（需求9）：时间偏移改两章各存一份 → 回写走 syncTimeUI()（内部按章刷两条滑条/文案/高亮），
+//   旧的 setOffset(S.timeOffset) 单值写法已随字段一起废弃。
+assert('设置分离：时间条切星座后必须回写（走 syncTimeUI，不再只写一个不存在的 #sec-chart .time-r）',
+  /if \(typeof syncTimeUI === 'function'\) syncTimeUI\(\);/.test(appSrc) &&
+  !/querySelector\('#sec-chart \.time-r'\)/.test(appSrc) &&
   (appSrc.match(/afterConstelSwap\(\);/g) || []).length === 2);   // 定义外仅两处：启动 + 切换
 assert('设置分离：图表缩放/平移也按星座各存一份（rebuild 之后再落回）',
   /chartView: chartView \? cloneVal\(chartView\) : null/.test(appSrc) &&
@@ -902,9 +924,12 @@ assert('需求5b：千帆简介新文案（千帆星座/G60星链/SpaceSail 加�
   /\u201c<b class="c-qf">SpaceSail Constellation<\/b>\u201d or \u201c<b class="c-qf">G60 Starlink<\/b>\u201d/.test(appSrc) &&
   /Operator: <b>Shanghai Spacecom Satellite Technology \(SPACESAIL\)<\/b>/.test(appSrc));
 // 需求7：顶栏按钮视觉居中
-assert('需求7：顶栏星座按钮视觉居中（padding-bottom 抬 1px + letter-spacing 负 margin 抵消）',
-  /\.nav-actions \.seg\.constel button \{ height:32px; display:inline-flex; align-items:center; padding:0 15px 2px; \}/.test(tpl) &&
-  /\.seg\.constel button \.cn \{ margin-right:-0\.16em; \}/.test(tpl));
+// V1.7.3（需求5）：视觉居中改了实现 —— 几何居中交给 justify-content:center（原来靠 padding-bottom:2px
+//   的 hack，实测只差 0.5px 且与 CJK 光学重心无关），真正的竖向微调改成显式光学常数
+//   translateY(-1.5px)；横向仍用 letter-spacing 的负 margin 抵消。ink 精度由 visual.mjs 守卫。
+assert('需求7：顶栏星座按钮视觉居中（justify-content 几何居中 + .cn 光学常数 translateY(-1.5px)）',
+  /\.nav-actions \.seg\.constel button \{ height:30px; display:inline-flex; align-items:center; justify-content:center; padding:0 8px; \}/.test(tpl) &&
+  /\.seg\.constel button \.cn \{ margin-right:-0\.16em; transform:translateY\(-1\.5px\); \}/.test(tpl));
 
 // ==================== V1.7.1 回归守卫 ====================
 console.log('--- V1.7.1 第五轮回归守卫 ---');
@@ -917,8 +942,9 @@ assert('需求1：pointerdown 先做可视矩形命中测试（溢出到窗外�
   /var rr = el\.getBoundingClientRect\(\);/.test(appCode) &&
   /e\.clientX < rr\.left - 1 \|\| e\.clientX > rr\.right \+ 1/.test(appCode));
 // 需求2：关闭后 hover 只能出预览、不许钉住
+// V1.8.0（需求8）：新增 03.5 组网进度章节，它的信息窗也要纳入「已关闭」标记
 assert('V1.7.2（需求4）：INFO_HIDDEN / INFO_CLOSED / INFO_B（浮窗）三态并存，INFO_PREVIEW 已删',
-  /var INFO_CLOSED = \{ chart: false, map: false, globe: false \};/.test(appCode) &&
+  /var INFO_CLOSED = \{ chart: false, map: false, globe: false, net: false \};/.test(appCode) &&
   /var INFO_B = \{\};/.test(appCode) &&
   /function infoClearClosed\(\)/.test(appCode) &&
   !/INFO_PREVIEW/.test(appCode));
@@ -989,8 +1015,9 @@ assert('需求4：还原默认强制回星网 + 中文（用户明确不豁免�
 assert('需求4：还原默认绕过切换动画（不调playNetSwitch / playLangSwitch）',
   !/function resetAllPrefs\(\)[\s\S]{0,2600}?playNetSwitch/.test(appCode) &&
   !/function resetAllPrefs\(\)[\s\S]{0,2600}?playLangSwitch/.test(appCode));
-assert('需求10：还原默认走 setOffset(0)（时间条滑块/文案/shifted 一起回退）',
-  /function resetAllPrefs\(\)[\s\S]{0,2600}?if \(typeof setOffset === 'function'\) setOffset\(0\);/.test(appCode));
+// V1.7.3（需求9）：两章时间条各自归零（旧版单值 setOffset(0) 已随字段一起废弃）
+assert('需求10：还原默认把两章时间条各自归零 setOffset(0,map/globe)（滑块/文案/shifted 一起回退）',
+  /function resetAllPrefs\(\)[\s\S]{0,2600}?if \(typeof setOffset === 'function'\) \{ setOffset\(0, 'map'\); setOffset\(0, 'globe'\); \}/.test(appCode));
 assert('需求10：「此刻」按钮文案已改为「实时」（英文 Now 不变）',
   /b_now: \['实时', 'Now'\]/.test(appCode) && /d_now_btn: \['实时', 'Now'\]/.test(appCode) &&
   !/点「此刻」回到当前时间/.test(appCode));
@@ -1189,10 +1216,15 @@ assert('V1.7.2r7（需求7）：SWIPE_BLANK_SEL 已移出 .sec-head / .hero（�
     return !/\.sec-head/.test(m[1]) && !/\.hero\b/.test(m[1]) && /\.controls/.test(m[1]);
   })());
 // 需求8b：名称开关提到最外层短路之前
+// ★ V1.8.0（需求4①）修订：开关的淡入/淡出需要「开关已关、但动画系数还没归零」的这 520ms 里
+//   继续绘制（否则根本画不出淡出，标注会「啪」地消失）。因此最外层条件由 `S.names.map`
+//   扩成 `S.names.map || TOG.nameMap > 0.01`。TOG 走 animTo(easeOutCubic, 520ms)，末帧被
+//   赋成**精确的 0**，所以动画结束后两者的布尔结果逐字等价 —— 守卫要保的语义
+//   （关掉开关＝标注必然消失）没有松动，只是过程由瞬变改为淡出。
 assert('V1.7.2r7（需求8b）：地图标签把 S.names.map 提到最外层（选中星也能关掉）',
-  /var showLabel = S\.names\.map && \(sel2 \|\| mapHover === m \|\| visHi \|\| \(!pickOn && !hasSel\)\);/.test(appCode));
+  /var showLabel = \(S\.names\.map \|\| TOG\.nameMap > 0\.01\) && \(sel2 \|\| mapHover === m \|\| visHi \|\| \(!pickOn && !hasSel\)\);/.test(appCode));
 assert('V1.7.2r7（需求8b）：地球标签同样以 S.names.globe 为最外层条件',
-  /if \(!hidden && S\.names\.globe && \(sel4 \|\| G\.hover === m \|\| !hasSelG\)\) \{/.test(appCode));
+  /if \(!hidden && \(S\.names\.globe \|\| TOG\.nameGlobe > 0\.01\) && \(sel4 \|\| G\.hover === m \|\| !hasSelG\)\) \{/.test(appCode));
 // 需求8c：选星时两章名称开关同步打开、关闭各自独立
 assert('V1.7.2r7（需求8c）：选星（选中集/焦点变化）时两章名称开关同步打开',
   /var LAST_SEL_SIG = null;/.test(appCode) &&
@@ -1231,7 +1263,105 @@ assert('V1.7.2r7（体检）：playLangSwitch 不含滚动还原补偿（该"缺
 assert('V1.7.2r7（体检）：playLangSwitch 保留"已排除的疑点"记录注释（防止后人再走一遍弯路）',
   /已排除的疑点，记录备查/.test(appSrc) && /#loadMask/.test(appSrc) && /不做任何补偿代码/.test(appSrc));
 
+// ==================== V1.8.0（第九轮）回归守卫 ====================
+// 这一轮改动量最大（新章节 + 两条新列 + 四联动效 + i18n 审计），所以逐条上守卫，
+// 目的：任何一个被改回去都会在这里立刻报警，而不是等到用户肉眼在某个尺寸下发现。
+console.log('--- V1.8.0（第九轮）回归守卫 ---');
+
+// 需求⑱（根治项）：两张坐标图的图像必须在横纵坐标线上截止 —— canvas 级 clip，而不是「越界点跳过」
+assert('V1.8.0（需求⑱）：drawChart / drawNet 都在绘图区矩形上做 canvas 级裁剪',
+  (appCode.match(/ctx\.rect\(PL, PT, pw, ph\); ctx\.clip\(\);/g) || []).length >= 2 &&
+  /V1\.8\.0（需求17 \/ ⑱）：绘图区硬裁剪/.test(appSrc) &&
+  /需求17 \/ ⑱）同样裁剪到绘图区/.test(appSrc));
+
+// 需求Q4-①：开关画布同步（图层随开关淡入淡出）
+assert('V1.8.0（需求Q4①）：图层开关动画系数 TOG + togAnim / togSyncAll 齐备',
+  /var TOG = \{ covOn: 1, mapTrack: 1, nameMap: 1, coneOn: 1, showTracks: 1, nameGlobe: 1, pickOn: 0 \};/.test(appCode) &&
+  /function togAnim\(key, on\) \{/.test(appCode) &&
+  /function togSyncAll\(\) \{/.test(appCode) &&
+  (appCode.match(/togAnim\('/g) || []).length >= 6 &&           // 六个开关各接一次
+  /try \{ togSyncAll\(\); \} catch \(e\) \{\}/.test(appCode));    // 还原 / 换星座时系数归位
+
+// 需求Q4-②：配色插值（按卫星 ⇄ 按批次 之间逐帧过渡）
+assert('V1.8.0（需求Q4②）：配色插值 COLORMIX + _mix，colOf 在过渡期返回中间色',
+  /var COLORMIX = null;/.test(appCode) && /function _mix\(c1, c2, k\)/.test(appCode) &&
+  /if \(COLORMIX && COLORMIX\.scope === scope\)/.test(appCode) &&
+  /return _mix\(from, to, 1 - Math\.pow\(1 - k, 3\)\);/.test(appCode));
+
+// 需求Q4-③：观测点进出（标记与标签淡入淡出）
+assert('V1.8.0（需求Q4③）：观测点进出用 PICK_FADE + TOG.pickOn 淡入淡出',
+  /var PICK_FADE = null;/.test(appCode) && /pickAlpha = TOG\.pickOn/.test(appCode) &&
+  /ctx\.globalAlpha = 0\.12 \* pickAlpha/.test(appCode) && /ctx\.globalAlpha = pickAlpha/.test(appCode));
+
+// 需求Q4-④：表格翻页「淡消失 → 淡出现」（非线性，只作用于 tbody）
+assert('V1.8.0（需求Q4④）：两张表翻页都走 fadeTableSwap（淡出 260ms + 淡入 260ms）',
+  /function fadeTableSwap\(tb, swap\) \{/.test(appCode) &&
+  /var TBL_FADE = 260, tblFadeToken = 0;/.test(appCode) &&
+  (appCode.match(/fadeTableSwap\(/g) || []).length >= 5 &&      // 定义 + 4 个调用点（两表各自的按钮与跳页）
+  /@keyframes tblFadeOut/.test(tplCode) && /@keyframes tblFadeIn/.test(tplCode) &&
+  /\.tbl-fade-out \{ animation: tblFadeOut var\(--anim-half\) var\(--ease-slow-fast\) forwards; \}/.test(tplCode) &&
+  /\.tbl-fade-in  \{ animation: tblFadeIn  var\(--anim-half\) var\(--ease-fast-slow\) forwards; \}/.test(tplCode));
+
+// 需求8：新增 03.5「组网进度」章节
+assert('V1.8.0（需求8）：03.5 组网进度章节存在且走「顶栏让位」全屏布局',
+  /<section id="sec-progress">/.test(tplCode) && /<canvas id="netCv">/.test(tplCode) &&
+  /#sec-progress\.fs-mobile \.chart-wrap \{ height:100vh; padding-top:var\(--fsbar-h, 58px\); \}/.test(tplCode) &&
+  /#sec-progress\.fs-mobile \.controls \{[\s\S]{0,400}?position:fixed/.test(tplCode));
+assert('V1.8.0（需求8）：组网进度的口径 / 星座开关进入偏好系统（按星座各存一份）',
+  /netMode: 'launch', netGw: true, netQf: true/.test(appCode) &&
+  /progress: \['netMode', 'netGw', 'netQf'\]/.test(appCode) &&
+  /function netCountOf\(L, mode\)/.test(appCode) &&
+  // 「在轨数量」= 有 TLE 的颗数 + 已发射未编目且**发射记录为成功**的颗数
+  /L\.pending > 0 && L\.res !== 'fail'/.test(appCode));
+assert('V1.8.0（需求8）：四张图的缩放/复位走同一套通用通路（03.5 不再有 data-netzoom 旁路）',
+  !/data-netzoom/.test(appCode) && !/data-netzoom/.test(tplCode) && !/data-netreset/.test(tplCode) &&
+  /view === 'progress'\) \{[\s\S]{0,260}?smoothZoom\(function \(f\) \{ zoomNetBy\(f\); \}, dir, 260\);/.test(appCode) &&
+  /else if \(view === 'progress'\) \{ netView = null; netAutoView\(\); drawNet\(\); \}/.test(appCode) &&
+  /data-zoom="in" data-view="progress"/.test(tplCode));
+
+// 需求5/6/12：发射历史的任务结果列 + 卫星表的发射时间列
+assert('V1.8.0（需求6）：launches 台账第 6 位=任务结果、第 7 位=百科记载颗数',
+  Object.values(RAW.gw.launches).filter(v => v.length >= 6).length >= Math.floor(Object.keys(RAW.gw.launches).length * 0.9) &&
+  Object.values(RAW.qf.launches).every(v => v.length >= 6) &&
+  ['ok', 'part', 'fail', '?'].includes(Object.values(RAW.gw.launches).find(v => v[0] === '试验星07组')[5]));
+assert('V1.8.0（需求12）：卫星表插入「发射时间」列、发射历史插入「任务结果」列',
+  /t_ltime: /.test(appCode) && /t_result: /.test(appCode) &&
+  /res_ok: /.test(appCode) && /res_part: /.test(appCode) && /res_fail: /.test(appCode) &&
+  /function resTag\(L\)/.test(appCode) &&
+  [...d.querySelectorAll('#satTable thead th')].map(t => t.getAttribute('data-key')).indexOf('ltime') === 3 &&
+  [...d.querySelectorAll('#launchTable thead th')].some(t => /t_result/.test(t.getAttribute('data-i18n') || '')));
+assert('V1.8.0（需求12）：任务结果按百科记载如实标注（成功/部分成功/失败，没写就不猜）',
+  /if \(r === 'ok'\) return '<span class="res res-ok">'/.test(appCode) &&
+  /if \(r === 'part'\) return '<span class="res res-part">'/.test(appCode) &&
+  /if \(r === 'fail'\) return '<span class="res res-fail">'/.test(appCode) &&
+  /\.res-none \{ color:var\(--dim\); font-weight:400; \}/.test(tplCode));
+
+// 需求2/3/13：呼吸填充、主题色填充按钮、两表居中
+assert('V1.8.0（需求2）：实时按钮呼吸态 = 主题色填充 + 文字用 --fg（暗白 / 亮黑）',
+  /\.time-val\.rt-breathe \{ background:var\(--row-sel\); color:var\(--fg\); \}/.test(tplCode));
+assert('V1.8.0（需求3）：说明 / 还原所有默认设置 = 主题色填充；各章默认设置 = 主题色边框',
+  /button\.ghost\.btn-accent, button\.readme-btn\.btn-accent \{[\s\S]{0,160}?background:var\(--row-sel\); border-color:transparent; color:var\(--fg\);/.test(tplCode) &&
+  /button\.ghost\[data-defsec\] \{ border-color:var\(--row-sel\); color:var\(--row-sel\); \}/.test(tplCode) &&
+  /button\.ghost\[data-defsec\]\.sec-clean \{ border-color:var\(--hair\); color:var\(--dim\); filter:none; \}/.test(tplCode) &&
+  /button\.ghost\.btn-accent\.dimmed/.test(tplCode) &&
+  /function sectionIsDefault\(sec\)/.test(appCode));
+assert('V1.8.0（需求13）：两张表格的记录一律居中（首列左对齐由 tbody td:first-child 保留）',
+  /\.ltable th, \.ltable td \{ text-align:center; \}/.test(tplCode) &&
+  /tbody td:first-child \{ text-align:left; \}/.test(tplCode));
+
+// 需求15：i18n 审计暴露的真缺陷 —— 这三个守卫各自对应一个"页面上真的漏出过中文"的点
+assert('V1.8.0（需求15）：03.5 章的 n_gw / n_qf 两个键已补进 I18N（此前会把键名当文字画出来）',
+  /n_gw: \['星网', 'CSCN'\], n_qf: \['千帆', 'Qianfan'\],/.test(appCode));
+assert('V1.8.0（需求15）：中英括号分制（paren 助手；英文界面不得漏出全角「（）」）',
+  /function paren\(s\) \{ return LANG === 'en' \? ' \(' \+ s \+ '\)' : '（' \+ s \+ '）'; \}/.test(appCode) &&
+  /' km' \+ paren\(fmtNum\(st\.minAlt, 0\)/.test(appCode) &&
+  !/km（' \+ fmtNum\(st\.minAlt/.test(appCode));
+assert('V1.8.0（需求15）：批次名英文侧补「千帆 / 星网」前缀规则（DTC 批次此前漏出中文）',
+  /\.replace\(\/\^千帆\\s\+\(\.\+\)\$\/, 'Qianfan \$1'\)/.test(appCode) &&
+  /\.replace\(\/\^星网\\s\+\(\.\+\)\$\/, 'CSCN \$1'\)/.test(appCode));
+
 $('#themeBtn').dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
+
 
 await new Promise(r => setTimeout(r, 400));
 console.log('--- 汇总');

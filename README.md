@@ -7,8 +7,8 @@
 
 一个**单文件、纯离线、零后端**的网页，用真实的公开轨道数据（NORAD 目录 / TLE）实时推算并可视化中国两个低轨互联网星座：
 
-- **星网 / 星网（CSCN，CSCN）**
-- **千帆星座（Qianfan / Thousand Sails，SpaceSail / G60）**
+- **星网（GuoWang / SatNet，官方代号 CSCN）**—— 中国卫星网络集团
+- **千帆星座（Qianfan / Thousand Sails，SpaceSail / G60）**—— 上海垣信卫星
 
 打开一个 HTML 文件即可，不需要服务器、不需要联网（联网时会自动拉取最新轨道要素）。
 

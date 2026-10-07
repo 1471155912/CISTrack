@@ -21,6 +21,16 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const OUT = path.join(ROOT, 'wiki.json');
+// V1.8.0：无头浏览器的用户数据目录默认落在 os.tmpdir()，本机 C 盘长期紧张 →
+//   优先用 D 盘（环境变量 CISTRACK_TMP 可覆盖；都没有再回落到系统临时目录）。
+const TMPROOT = (function () {
+  const cands = [process.env.CISTRACK_TMP, 'D:/workbuddyproject/_tmp', 'D:/Temp'];
+  for (const c of cands) {
+    if (!c) continue;
+    try { fs.mkdirSync(c, { recursive: true }); return c; } catch (e) {}
+  }
+  return os.tmpdir();
+})();
 const PAGES = [
   ['gw', 'https://sat.huijiwiki.com/wiki/%E6%98%9F%E7%BD%91', '星网'],
   ['qf', 'https://sat.huijiwiki.com/wiki/%E5%8D%83%E5%B8%86%E6%98%9F%E5%BA%A7', '千帆星座'],
@@ -73,7 +83,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function fetchArticle(url, { timeoutMs = 90000, pollMs = 2000 } = {}) {
   const exe = findBrowser();
   if (!exe) throw new Error('找不到 Edge/Chrome，请用 EDGE_PATH 环境变量指定可执行文件');
-  const udd = fs.mkdtempSync(path.join(os.tmpdir(), 'cistrack-wiki-'));
+  const udd = fs.mkdtempSync(path.join(TMPROOT, 'cistrack-wiki-'));
   const portFile = path.join(udd, 'DevToolsActivePort');
   const child = spawn(exe, [
     '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
