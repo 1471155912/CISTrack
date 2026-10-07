@@ -309,6 +309,18 @@ assert('地图合规表述换成新句子且为粗体（中英）',
   /\*\*地图仅为粗略的地球大陆海岸线轮廓示意图，不能准确代表实际投影情况。\*\*/.test(appSrc) &&
   /\*\*The map is only a rough outline of continental coastlines/.test(appSrc));
 assert('仓库 README 同步用新表述', /\*\*地图仅为粗略的地球大陆海岸线轮廓示意图/.test(fs.readFileSync(B + '/README.md', 'utf8')));
+// V1.8.0 收尾：CHANGELOG 里承诺过「末尾署名与页内说明**对齐**」，但上一轮只改了 README.md，
+//   app.js 里 README_ZH 的那句漏了结尾的「与布局。」→ 页内说明与 README 字面不一致。
+//   这里补一条守卫，防止两边以后再各自漂移。
+{
+  const zhBody = (appSrc.match(/var README_ZH = \[([\s\S]*?)\]\.join\('\\n'\)/) || [])[1] || '';
+  const zhLast = (zhBody.match(/'([^']*本页面由[^']*)'\s*$/) || [])[1] || '';
+  const rd = fs.readFileSync(B + '/README.md', 'utf8');
+  assert('页内「说明」的末段与 README 里的同一段一字不差',
+    !!zhLast && rd.includes(zhLast),
+    zhLast ? (rd.includes(zhLast) ? '一致（共 ' + zhLast.length + ' 字）' : 'README 里找不到页内末段：…' + zhLast.slice(-30))
+      : '没从 app.js 的 README_ZH 里抓到末段');
+}
 assert('存在 CHANGELOG.md', fs.existsSync(B + '/CHANGELOG.md'),
   fs.existsSync(B + '/CHANGELOG.md') ? fs.statSync(B + '/CHANGELOG.md').size + ' bytes' : '缺');
 
@@ -1359,6 +1371,29 @@ assert('V1.8.0（需求15）：中英括号分制（paren 助手；英文界面�
 assert('V1.8.0（需求15）：批次名英文侧补「千帆 / 星网」前缀规则（DTC 批次此前漏出中文）',
   /\.replace\(\/\^千帆\\s\+\(\.\+\)\$\/, 'Qianfan \$1'\)/.test(appCode) &&
   /\.replace\(\/\^星网\\s\+\(\.\+\)\$\/, 'CSCN \$1'\)/.test(appCode));
+
+// 需求16「恢复默认增强」：章节「默认设置」要与「还原所有默认设置」同口径（三条一起）
+// ★ 前两条守卫对应**实测踩过的两个真坑**（曾让补间完全不生效，逐帧抓到的轨迹是 [30,0,0,…]）：
+//   ① 起跳偏移必须在 `(PREF_SEC[sec]||[]).forEach(…)` **之前**取出 —— timeOffsetMap /
+//      timeOffsetGlobe 本身就在 PREF_SEC 里，forEach 会把它们覆写成 PREF_DEF 的 0，
+//      之后再读 p.* 恒为 0 → `if (off0)` 永远不成立，补间分支根本进不去；
+//   ② animateTo 的起跳点必须重取 el.value —— syncTimeUI() 直接写 el.value 而不经 applyV，
+//      闭包里的 shown 会停在旧值，于是 from===target → 第一句就 applyV(0) 变瞬跳。
+const _resetSecSrc = (appCode.match(/function resetSection\(sec\) \{[\s\S]*?\n\}/) || [''])[0];
+const _prefSecIdx = _resetSecSrc.indexOf('(PREF_SEC[sec] || []).forEach');
+const _offFromIdx = _resetSecSrc.indexOf('var offFrom =');
+assert('V1.8.0（需求16）：章节「默认设置」的起跳偏移在 PREF_SEC 覆写**之前**取出（否则恒为 0，补间永不触发）',
+  _offFromIdx >= 0 && _prefSecIdx >= 0 && _offFromIdx < _prefSecIdx,
+  'offFrom@' + _offFromIdx + ' < forEach@' + _prefSecIdx);
+assert('V1.8.0（需求16）：章节「默认设置」把时间条**补间**回实时（setOffset 归位 → __animateTo(0)）',
+  /setOffset\(off0, tvTween\);\s*\n\s*tr\.__animateTo\(0\);/.test(appCode));
+assert('V1.8.0（需求16）：animateTo 起跳点重取滑条真实值（防 syncTimeUI 直写 value 造成的瞬跳）',
+  /if \(!tween\) shown = \+el\.value;/.test(appCode));
+assert('V1.8.0（需求16）：章节「默认设置」把观测点整组摆回出厂（退出模式 + 解除固定 + 位置/仰角归零）',
+  /S\.pick = \{ on: false, fixed: false, lat: 30, lon: 116, el: 0, mx: null, my: null \};/.test(appCode) &&
+  /S\.mz = \{ k: 1, tx: 0, ty: 0 \};/.test(appCode));
+assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂（地图缩放平移 / 地球姿态与缩放）',
+  /if \(sec === 'globe'\) \{ G\.yaw = 100 \* RAD; G\.pitch = 22 \* RAD; G\.zoom = 1; \}/.test(appCode));
 
 $('#themeBtn').dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
 

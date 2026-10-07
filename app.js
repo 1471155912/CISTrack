@@ -711,14 +711,49 @@ function syncAllControls() {
 }
 function resetSection(sec) {
   var p = prefSnap();
+  // ★ 起跳偏移必须**在覆写 p 之前**取出来：下面 forEach 会把 p.timeOffsetMap / p.timeOffsetGlobe
+  //   直接改成 PREF_DEF 的 0（这两键本来就在 PREF_SEC 里），之后再读 p.* 恒为 0
+  //   → 补间分支永远进不去，实测逐帧抓到的正是 [30, 0, 0, …]。
+  var tvTween = (sec === 'map') ? 'map' : (sec === 'globe') ? 'globe' : null;
+  var offFrom = tvTween === 'map' ? p.timeOffsetMap : tvTween === 'globe' ? p.timeOffsetGlobe : 0;
   (PREF_SEC[sec] || []).forEach(function (k) { p[k] = PREF_DEF[k]; });
   prefApply(p);
+  // V1.8.0（需求16「恢复默认增强」）：章节「默认设置」原先只把本章控件变量改回去，现在与
+  //   「还原所有默认设置」**同口径**：
+  //   ① 时间条**补间**回实时（复用 __animateTo(0)，520ms 非线性）—— 只改变量会让滑块停在原处、
+  //      按钮还写着「+X 分」、.shifted 高亮与全屏药丸黄框都不退，看上去像"没生效"；
+  //   ② 观测点整组回出厂（退出模式 + 解除固定 + 位置/仰角归零），而不是只把开关关掉；
+  //   ③ 本章视图回出厂（地图缩放平移 / 地球姿态与缩放），与全局还原一致。
+  if (sec === 'map') {
+    // 观测点：在 syncAllControls 之前把整组状态摆回出厂，setPick(false) 负责 UI
+    S.pick = { on: false, fixed: false, lat: 30, lon: 116, el: 0, mx: null, my: null };
+    S.mz = { k: 1, tx: 0, ty: 0 };                       // 地图缩放平移归零（同全局还原）
+  }
+  if (sec === 'globe') { G.yaw = 100 * RAD; G.pitch = 22 * RAD; G.zoom = 1; }
   syncAllControls();
   chartAutoView(); drawChart(); renderLegend(); renderTable();
   if (sec === 'progress') { netAutoView(); }
   try { drawNet(); } catch (e) {}      // V1.8.0（需求8）
   mapDirty = globeDirty = true;
   touchPrefs();
+  // ① 时间条补间**必须放在所有重活之后**：上面 canvas 重绘 + 表格重建要几十到上百毫秒，
+  //   而 animateTo 的时长按距离算只有 max(120, …)ms —— 第一帧若落在 dur 之后，k 会直接等于 1
+  //   → 变成瞬跳（实测逐帧抓到的就是 [30, 0, 0, …]）。放到最后，第一帧就落在 ~16ms。
+  //   起点：先让滑块与状态回到"重置前的位置"（这一帧不重绘），再从那里非线性滑回 0。
+  var off0 = offFrom;
+  if (tvTween && off0) {
+    try {
+      var tr = document.querySelector('.time-r[data-view="' + tvTween + '"]');
+      if (tr && tr.__animateTo) {
+        // 先把状态与滑块摆回**重置前的位置**（setOffset → syncTimeUI 会同步 el.value，
+        // 而 animateTo 现在以 el.value 为起跳点），再从那里非线性滑回实时。
+        setOffset(off0, tvTween);
+        tr.__animateTo(0);
+      } else {
+        setOffset(0, tvTween);
+      }
+    } catch (e) {}
+  }
 }
 // V1.7.0 第四轮（需求6）：「还原所有默认设置」升级为**完全还原** ——
 //   旧版只还原 PREF 里那几项设置；现在连 三图视图（地图缩放平移 / 地球姿态缩放 / 图表自动视图）、
@@ -4681,6 +4716,11 @@ function attachSliderAnim(el, apply) {
   function cancel() { if (tween) { cancelAnimationFrame(tween.raf); tween = null; } }
   function animateTo(target) {
     cancel();
+    // V1.8.0（需求16）：起跳点以**滑条真实值**为准 —— 外部经 setOffset()/syncTimeUI() 改过偏移时，
+    //   shown 仍停在旧值（syncTimeUI 直接写 el.value，不走 applyV），会出现 from===target
+    //   → 第一句就 applyV(target) 瞬间到位。章节「默认设置」的补间就是死在这里。
+    //   补间进行中 el.value 每帧由 step() 写入且与 shown 同步，故 tween 非空时不重取。
+    if (!tween) shown = +el.value;
     var from = shown, dur = sliderDur(el, from, target), t0 = performance.now();
     if (target === from) { applyV(target); return; }
     function step(now) {
@@ -5162,7 +5202,7 @@ var README_ZH = [
   '',
   '---',
   '',
-  '本页面由 [小橙子的宇宙Jackoraniverse](https://space.bilibili.com/455972735) 使用 AI 工具生成，灵感与最初版本来自于 [Где «Рассветы»](https://findrassvet.ru/)（Bureau 1440）的页面风格'
+  '本页面由 [小橙子的宇宙Jackoraniverse](https://space.bilibili.com/455972735) 使用 AI 工具生成，灵感与最初版本来自于 [Где «Рассветы»](https://findrassvet.ru/)（Bureau 1440）的页面风格与布局。'
 ].join('\n');
 var README_EN = [
   '# 🛰️ CSCN & Qianfan Live Tracker',
@@ -5338,7 +5378,7 @@ var README_EN = [
   '',
   '---',
   '',
-  'This page was created by [小橙子的宇宙Jackoraniverse](https://space.bilibili.com/455972735) using AI tools, inspired by and originally based on [Где «Рассветы»](https://findrassvet.ru/) by Bureau 1440'
+  'This page was created by [小橙子的宇宙Jackoraniverse](https://space.bilibili.com/455972735) using AI tools, inspired by and originally based on [Где «Рассветы»](https://findrassvet.ru/) by Bureau 1440.'
 ].join('\n');
 var readmeOpen = false;
 function renderReadme() {

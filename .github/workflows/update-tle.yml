@@ -1,0 +1,80 @@
+name: Update TLE data
+
+# V1.8.0（需求14 / Q7 方案 B）：把 **TLE 链路**搬上 GitHub Actions，每 12 小时一次。
+#
+# 为什么可以搬：CelesTrak 不拦数据中心 IP（实测 Actions 上能正常拉到 TLE 与 satcat.csv）。
+# 为什么只搬这一半：卫星百科（wiki.json / wiki_launches.json）在 Cloudflare 后面，
+#   数据中心 IP 过不去 WAF —— 那部分仍由本机 Windows 计划任务负责（家用 IP 可过）。
+#
+# 两条链路的分工：
+#   本工作流（云端，每 12h）：refresh.mjs → mkdata.mjs → build.mjs → release.mjs
+#     产出 = data/ct_*.tle 快照 + 重新打包的 CISTrack.html / CISTrack_v<版本>.html
+#   本机任务（update_tle.bat / update_wiki.bat）：同样的链路，外加卫星百科的抓取
+#
+# 注意：访客打开页面时本来就会自己现拉最新 TLE（多路查询 + 代理兜底）。
+#   本任务修的是另一件事：**离线兜底快照**的老化 —— 大陆网络到不了 CelesTrak 的访客
+#   会回落到内置快照，以前那份快照可能停在很多天前，现在最多旧半天。
+#
+# 与本地任务共存：两边都会 push，所以先 commit 再 pull --rebase 再 push，并重试一次。
+# 定时任务有几分钟调度延迟属正常。
+
+on:
+  schedule:
+    - cron: '0 8 * * *'    # 北京时间 16:00
+    - cron: '0 20 * * *'   # 北京时间次日 04:00
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: tle-update
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 刷新 TLE 并重新打包单文件
+        env:
+          # 无头浏览器的用户数据目录默认落在系统临时目录；这里显式指到 runner 的临时区
+          CISTRACK_TMP: ${{ runner.temp }}
+          # 跳过构建前的"一次性产物清理"（CI 里没有那些东西，也没必要搬进 junk/）
+          CISTRACK_NO_CLEAN: '1'
+        run: |
+          set -e
+          node refresh.mjs
+          node mkdata.mjs
+          node build.mjs
+          node release.mjs
+          # 构建成功判据：产物必须存在且含布局占位符已全部替换
+          test -s CISTrack.html
+          node -e "const s=require('fs').readFileSync('CISTrack.html','utf8'); if(!s.includes('CISTrack')) throw new Error('产物异常'); console.log('产物字节', s.length)"
+
+      - name: 有变化才提交并推送
+        run: |
+          set -e
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "无变化，跳过提交"
+            exit 0
+          fi
+          git commit -m "data: TLE 自动刷新（$(date -u +'%Y-%m-%d %H:%M UTC')）"
+          # 本机任务可能刚推过 → 先 rebase 再推；仍失败就整体重试一次
+          if ! git pull --rebase --autostash origin ${GITHUB_REF_NAME} || ! git push origin HEAD:${GITHUB_REF_NAME}; then
+            echo "首次推送失败，重试一次…"
+            git pull --rebase --autostash origin ${GITHUB_REF_NAME}
+            git push origin HEAD:${GITHUB_REF_NAME}
+          fi
+          echo "已推送"

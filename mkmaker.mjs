@@ -6,12 +6,36 @@ import http from 'node:http';
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 const ROOT = path.dirname(fileURLToPath(import.meta.url));   // 脚本所在目录（发布包内任意位置可用）
 const require = createRequire('file:///x.js');
 const { WebSocket } = require('ws');
 const B = ROOT;
+
+// V1.8.0 收尾：浏览器可执行文件与 profile 目录都改成**环境变量驱动**。
+//   原来这里写死了本机的 `C:/Program Files (x86)/Microsoft/Edge/...` 与 `D:/tmp/...`，
+//   换台机器就跑不起来，而且会把本机路径带进发布仓。
+const EDGE = (function () {
+  const cands = [
+    process.env.CISTRACK_EDGE, process.env.EDGE_PATH,
+    'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
+    'C:/Program Files/Microsoft/Edge/Application/msedge.exe',
+    '/usr/bin/microsoft-edge',
+    '/usr/bin/google-chrome',
+  ].filter(Boolean);
+  for (const c of cands) { try { if (fs.existsSync(c)) return c; } catch (e) {} }
+  return 'msedge.exe';
+})();
+const TMPROOT = (function () {
+  const cands = [process.env.CISTRACK_TMP, process.env.TEMP, process.env.TMP];
+  for (const c of cands) {
+    if (!c) continue;
+    try { fs.mkdirSync(c, { recursive: true }); return c; } catch (e) {}
+  }
+  return os.tmpdir();
+})();
 const OUT = B + '/data/makers.json';
 const PORT = 9482;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -23,10 +47,10 @@ if (fs.existsSync(OUT) && !process.argv.includes('--force')) {
   process.exit(0);
 }
 
-const ch = spawn('C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
+const ch = spawn(EDGE,
   ['--headless=new', '--disable-gpu', '--no-first-run', '--disable-blink-features=AutomationControlled',
     '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-    '--user-data-dir=D:/tmp/edge-profile-mkmaker',
+    '--user-data-dir=' + path.join(TMPROOT, 'edge-profile-mkmaker'),
     '--remote-debugging-port=' + PORT, '--window-size=1600,1200', 'about:blank'], { stdio: 'ignore' });
 async function wsUrl() {
   for (let i = 0; i < 60; i++) {

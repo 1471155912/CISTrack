@@ -13,9 +13,34 @@ import { fileURLToPath } from 'node:url';
 const B = fileURLToPath(new URL('.', import.meta.url));
 
 const FILE = process.argv[2] || B + '/星网与千帆在轨追踪.html';
-const EDGE = 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe';
 const PORT = 9415;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+// V1.8.0：浏览器可执行文件改为**动态探测**。
+//   以前这里把某个固定安装位置写死成唯一路径 —— 换台机器（或 Edge 装在别处）就跑不起来。
+//   顺序：环境变量 CISTRACK_EDGE（兼容旧名 EDGE_PATH）→ 各平台常见安装位置 → PATH 里找。
+const EDGE = (function () {
+  const cands = [
+    process.env.CISTRACK_EDGE, process.env.EDGE_PATH,
+    'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
+    'C:/Program Files/Microsoft/Edge/Application/msedge.exe',
+    '/usr/bin/microsoft-edge',
+    '/usr/bin/microsoft-edge-stable',
+    '/usr/bin/google-chrome',
+    '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
+  ].filter(Boolean);
+  for (const c of cands) { try { if (fs.existsSync(c)) return c; } catch (e) {} }
+  const names = process.platform === 'win32'
+    ? ['msedge.exe', 'chrome.exe'] : ['microsoft-edge', 'google-chrome', 'chromium'];
+  for (const d of (process.env.PATH || '').split(path.delimiter)) {
+    if (!d) continue;
+    for (const n of names) {
+      try { if (fs.existsSync(path.join(d, n))) return path.join(d, n); } catch (e) {}
+    }
+  }
+  return null;
+})();
+
 let WebSocket;
 try {
   const require = createRequire(import.meta.url);
@@ -24,13 +49,14 @@ try {
   console.log('本机没有 ws 模块，跳过视觉实测（不影响 smoke.mjs）');
   process.exit(0);
 }
+if (!EDGE) { console.log('本机找不到 Edge / Chromium，跳过视觉实测（不影响 smoke.mjs）'); process.exit(0); }
 if (!fs.existsSync(FILE)) { console.log('找不到 HTML:', FILE); process.exit(1); }
 
-// V1.8.0：Edge 的 profile 目录一律放 D 盘（见下 spawn 里的 --user-data-dir）。
-//   顺序：环境变量 CISTRACK_TMP → D:/workbuddyproject/_tmp → D:/Temp → 系统临时目录。
-//   取值时逐个探测可写性，避免在只读/不存在的盘上建目录。
+// 无头浏览器的 profile 与探针副本一律放「非系统盘」优先的临时目录。
+//   顺序：环境变量 CISTRACK_TMP → 系统 TEMP/TMP → os.tmpdir()。取值时逐个探测可写性，
+//   避免在只读/不存在的盘上建目录。（本机把 TEMP 指到 D: 用环境变量控制，脚本不再写死盘符。）
 const TMPROOT = (function () {
-  const cands = [process.env.CISTRACK_TMP, 'D:/workbuddyproject/_tmp', 'D:/Temp', os.tmpdir()].filter(Boolean);
+  const cands = [process.env.CISTRACK_TMP, process.env.TEMP, process.env.TMP, os.tmpdir()].filter(Boolean);
   for (const c of cands) {
     try { fs.mkdirSync(c, { recursive: true }); fs.accessSync(c, fs.constants.W_OK); return c; } catch (e) {}
   }
@@ -79,6 +105,9 @@ window.__CISTRACK__ = (function () {
     netColors: function () { return netColors(); },
     applyPseudoFull: function (on, sec) { return applyPseudoFull(on, sec); },
     syncFsBarHeight: function () { return syncFsBarHeight(); },
+    timeOff: function () { return { map: S.time.map.off, globe: S.time.globe.off }; },
+    pick: function () { return { on: S.pick.on, fixed: S.pick.fixed, el: S.pick.el }; },
+    mz: function () { return { k: S.mz.k, tx: S.mz.tx, ty: S.mz.ty }; },
     _probe: function () { return { hasVersion: typeof VERSION, hasClamp: typeof clampChartView }; }
   };
 })();`;
@@ -160,17 +189,31 @@ await send('Page.navigate', { url: 'file:///' + PAGE });
 await sleep(4500);
 
 // ---- 通用：越界检查（右边界不应超过 section 的内边距）----
-// 注意：.bleed 的画布是「故意」出血到画面边缘的（负 margin），不算越界，跳过它和它的子节点
+// 三处「设计如此」与两处「不可见」要排除，否则全是假阳性（V1.8.0 矩阵扫出来的经验）：
+//   ① .bleed —— 画布故意出血到画面边缘（负 margin）；
+//   ② .canvas-wrap.wide —— width:92vw 居中近满幅（与 .bleed 同一套设计，V1.8.0 才知道要跳）；
+//   ③ .table-wrap 的子节点 —— 宽表格在里面横向滚动，只量 wrap 本身；
+//   ④ display:none / visibility:hidden 的元素 —— 量不到就不会被看到；
+//   ⑤ 整体停在视口外的元素 —— 关掉的信息窗（.sat-info）常被"停在屏幕右侧等着淡入"，
+//      它此刻 display 仍是 block、真有盒子，但对用户不可见，不该算越界。
 const overFn = `(function(){
   var vw = window.innerWidth, out = [];
   document.querySelectorAll('section').forEach(function(sec){
     var limit = vw - parseFloat(getComputedStyle(sec).paddingRight);
     sec.querySelectorAll('*').forEach(function(el){
-      if (el.closest('.bleed')) return;
-      // 宽表格在 .table-wrap 里横向滚动，列超出容器是设计如此，只量 wrap 本身
+      if (el.closest('.bleed') || el.closest('.canvas-wrap.wide')) return;
       if (el.parentElement && el.parentElement.closest('.table-wrap')) return;
+//   ⑥ 被用户摆过位置的信息窗/浮窗（内联 left/top）及其**整棵子树** ——「可拖出屏幕边缘」是
+//      V1.7.2 需求11 明确要求的行为，所以它一旦有了内联定位就不再受"章节右边界"约束。
+//      注意只在**有内联 left/top** 时才跳过：默认（未拖动）布局仍要受约束，不能一放了之。
+      var si = el.closest('.sat-info');
+      if (si && (si.style.left || si.style.top)) return;   // 整棵子树都不再受约束
+      var cs = getComputedStyle(el);
+      if (cs.display === 'none' || cs.visibility === 'hidden') return;
+      if (el.checkVisibility && !el.checkVisibility({ opacityProperty: true, visibilityProperty: true })) return;
       var r = el.getBoundingClientRect();
       if (r.width === 0 || r.height === 0) return;
+      if (r.left >= vw || r.right <= 0) return;      // 整体在视口外（停放态）
       if (r.right > limit + 1.5) out.push(sec.id + '|' + (el.id || el.className || el.tagName) + '|' + r.right.toFixed(1) + '>' + limit.toFixed(1));
     });
   });
@@ -325,7 +368,7 @@ async function clearSelection(canvasId) {
   }
   return !(await focused());
 }
-async function findPoint(canvasId, infoId, cornerOnly) {
+async function findPoint(canvasId, infoId, cornerOnly, onlyZone) {
   // V1.3.8：选中后信息窗会一直留着，先把它复位隐藏，否则「窗口是否显示」这个判据会一直为真
   // V1.7.2（需求4）：hover 命中现在显示在**浮窗**（#*InfoB）上，A 窗只服务选中态。
   //   所以复位时 A 窗与浮窗一起收，判据也改成看浮窗。
@@ -340,16 +383,28 @@ async function findPoint(canvasId, infoId, cornerOnly) {
   await ev(`document.getElementById('${canvasId}').scrollIntoView({block:'center'})`);
   await sleep(900);
   const r = await ev(`(function(){var c=document.getElementById('${canvasId}').getBoundingClientRect();return {x:c.x,y:c.y,w:c.width,h:c.height};})()`);
-  for (let iy = 1; iy < 12; iy++) {
-    for (let ix = 1; ix < 16; ix++) {
-      if (cornerOnly && (ix > 4 || iy > 4)) continue;
-      const x = r.x + r.w * ix / 16, y = r.y + r.h * iy / 12;
-      await mouse('mouseMoved', x, y);
-      // V1.4.3 起悬停命中检测节流到 ~30Hz，测试里两次移动之间要留够间隔，
-      // 否则会被节流吃掉、误判成「扫描不到点」
-      await sleep(38);
-      const dd = await ev(`getComputedStyle(document.getElementById('${infoId}B')).display`);
-      if (dd && dd !== 'none') return { x, y };
+  // V1.8.0 收尾：`cornerOnly` 不再死锁在左上角 —— 按「左上角 → 左上大半 → 全画布」逐级放大。
+  //   原因（2026-10-08 实测）：星网倾角 50°、千帆 89°，等距投影下**高纬带本来就可能整条没有卫星**，
+  //   那一刻左上角恰好空着 → 旧版直接判 FAIL（map 挂了 3 条，后 2 条还是级联）。
+  //   但同一循环里的「干净点击能选中」「手抖 8px 仍能选中」都是 PASS（全画布扫描），
+  //   说明命中检测与点选都正常 —— 这是**断言选点问题，不是产品回归**。
+  //   现在返回实际落点所在的 zone，由调用方如实写进提示里，且只有**整块画布**都扫不到才算真问题。
+  const ZONES = [[4, 4, '左上角'], [8, 6, '左上大半'], [15, 11, '全画布']];
+  const zones = cornerOnly
+    ? (onlyZone ? [ZONES.find(z => z[2] === onlyZone) || ZONES[2]] : ZONES)
+    : [ZONES[2]];
+  for (const [ixMax, iyMax, name] of zones) {
+    for (let iy = 1; iy < 12; iy++) {
+      for (let ix = 1; ix < 16; ix++) {
+        if (ix > ixMax || iy > iyMax) continue;
+        const x = r.x + r.w * ix / 16, y = r.y + r.h * iy / 12;
+        await mouse('mouseMoved', x, y);
+        // V1.4.3 起悬停命中检测节流到 ~30Hz，测试里两次移动之间要留够间隔，
+        // 否则会被节流吃掉、误判成「扫描不到点」
+        await sleep(38);
+        const dd = await ev(`getComputedStyle(document.getElementById('${infoId}B')).display`);
+        if (dd && dd !== 'none') return { x, y, zone: name };
+      }
     }
   }
   return null;
@@ -385,6 +440,9 @@ async function findStablePoint(canvasId, infoId, p) {
 //   旧版用 `if (pc) {...}` 把失败整段跳过、把条数差异伪装成"通过"，现已改成明确 FAIL。
 //   这里在点击类测试开始前**关掉自转**，让扫点与点击落在同一时刻的同一位置 —— 测试要可重复。
 console.log('\n===== 点击选中（三张图 × 三种手况）=====');
+// V1.8.0 收尾：把三张图**实际用到的落点区域**打出来当证据 —— 否则「逐级放大到底放到了哪一级」
+//   只藏在 PASS 里看不见（ck 只在 FAIL 时打详情），下一轮又得靠推理。
+const zoneLog = [];
 try {
   await ev(`(function(){var b=document.getElementById('spinBtn');
     if (b && b.classList.contains('on')) b.click();})()`);
@@ -393,6 +451,13 @@ try {
 for (const [cid, iid] of [['globe', 'globeInfo'], ['map', 'mapInfo'], ['chart', 'chartInfo']]) {
   await ev(`(function(){var b=document.getElementById('resetAllBtn'); if(b) b.click();})()`);
   await sleep(600);
+  // ⚠ V1.8.0 补：上面那次循环外的「关自转」会被这里的 resetAllBtn **撤销**（自转默认就是 ON，
+  //   而"还原所有默认设置"按需求口径要把它还原成 ON）→ 扫点与点击之间卫星又被自转带偏，
+  //   这正是「左上角也能选中」在 globe 上时而 FAIL 时而 SKIP 的根源。
+  //   所以每次还原之后必须**再关一次**，这条断言才可重复。
+  await ev(`(function(){var b=document.getElementById('spinBtn');
+    if (b && b.classList.contains('on')) b.click();})()`);
+  await sleep(320);
   let p = await findPoint(cid, iid, false);
   if (!p) { ck(cid + ' 能悬停到卫星', false, '扫描不到点'); continue; }
   await clearSelection(cid);
@@ -432,30 +497,30 @@ for (const [cid, iid] of [['globe', 'globeInfo'], ['map', 'mapInfo'], ['chart', 
   ck(cid + ' 按下后手抖 8px 仍能选中', !!b2, b2);
   await clearSelection(cid);
   const pc = await findPoint(cid, iid, true);
-  // V1.7.2（需求13）：原来这里是 `if (pc) {...}` —— 扫不到点就整段跳过，
-  // 于是断言条数会随运行情况变化（实测 83 vs 86），"扫描不到"被伪装成"通过"。
-  // 现在扫不到点直接判FAIL，让问题暴露出来。
+  // V1.8.0 收尾：这条断言的核心语义是「**悬停浮窗不会挡住点击**」，落点在哪一角并不重要。
+  //   旧版把扫描范围死锁在「画布左上 4/16 × 4/12」，于是当那一刻左上角恰好没有卫星光点时
+  //   就被判成 FAIL（2026-10-08 实测：map 挂 3 条，其中 2 条还是级联失败）。
+  //   那既不是回归，也不可复现 —— findPoint 现在按「左上角 → 左上大半 → 全画布」逐级放大，
+  //   并在提示里如实写出实际落点。注意：绝不退回 `if (pc) {...}` 那种静默跳过 ——
+  //   那会把「扫描不到」伪装成「通过」（条数实测 83 vs 86 来回变，V1.7.2 需求13 已废止该写法）。
+  //   只有**整块画布**都扫不到光点才是真问题，此时明确判 FAIL。
+  const t0 = await ev(`(function(){
+    var c = document.getElementById('${cid}').getBoundingClientRect();
+    var topEl = document.elementFromPoint(c.x + 14, c.y + 14);
+    return topEl ? (topEl.id || topEl.className || topEl.tagName) : 'null';
+  })()`);
+  ck(cid + ' 左上角不被信息窗遮挡', String(t0).indexOf('Info') < 0, '最上层=' + t0);
   if (!pc) {
-    // globe 是地球投影，卫星集中在少数经度带，**左上角（西北方向）本来就没有卫星光点** ——
-    //   这不是回归，是这条断言在 globe 上不适用。旧版靠 `if (pc)` 静默跳过把它掩盖了。
-    //   该断言真正要验证的"信息窗不挡点击"已由下面 `elementFromPoint` 返回 'globe' 这一点覆盖。
-    skip(cid + ' 左上角也能选中（信息窗不挡点击）',
-         cid === 'globe' ? 'globe 左上角无卫星光点，该场景不适用' : '左上角扫描不到可点光点');
-    // 仍然把"浮窗不挡点击"这条核心语义显式验一次
-    const t0 = await ev(`(function(){
-      var c = document.getElementById('${cid}').getBoundingClientRect();
-      var topEl = document.elementFromPoint(c.x + 14, c.y + 14);
-      return topEl ? (topEl.id || topEl.className || topEl.tagName) : 'null';
-    })()`);
-    ck(cid + ' 左上角不被信息窗遮挡', String(t0).indexOf('Info') < 0, '最上层=' + t0);
+    ck(cid + ' 图内光点可选中（悬停浮窗不挡点击）', false, '整块画布都扫不到可点光点');
   } else {
     // V1.7.2（需求13）：原来这里是「findPoint → clearSelection → 再 findPoint → 点第一个 pc」，
     //   点的是**第一次扫到的旧坐标** ——中间隔着 clearSelection（鼠标扫四角）与第二轮扫描，
     //   低轨卫星每秒移动约 0.8px，加上 hover 30Hz 节流，落到点击时那个点可能已经移开，
-    //   于是「左上角也能选中」在 map 上偶发失败（同一份代码 84/0FAIL 与 83/1FAIL 交替）。
-    // 现在：清完选中**紧接着重扫一次并直接用这一次的坐标**，点完再立刻确认选中。
+    //   于是这条断言在 map 上偶发失败（同一份代码 84/0FAIL 与 83/1FAIL 交替）。
+    // 现在：清完选中**紧接着在同一个 zone 里重扫一次并直接用这一次的坐标**，点完再立刻确认选中。
     await clearSelection(cid);
-    const pcFresh = await findPoint(cid, iid, true);
+    const pcFresh = await findPoint(cid, iid, true, pc.zone);
+    zoneLog.push(cid + '=' + pc.zone);
     const px = pcFresh ? pcFresh.x : pc.x, py = pcFresh ? pcFresh.y : pc.y;
     const top = await ev(`(function(){var e=document.elementFromPoint(${px},${py});return e?(e.id||e.className||e.tagName):'null';})()`);
     await mouse('mouseMoved', px, py);
@@ -463,7 +528,8 @@ for (const [cid, iid] of [['globe', 'globeInfo'], ['map', 'mapInfo'], ['chart', 
     await mouse('mousePressed', px, py); await mouse('mouseReleased', px, py);
     await sleep(450);
     const c2 = await focused();
-    ck(cid + ' 左上角也能选中（信息窗不挡点击）', !!c2, c2 + ' | 最上层=' + top + (pcFresh ? '' : ' | 重扫未命中，用了旧坐标'));
+    ck(cid + ' 图内光点可选中（悬停浮窗不挡点击）', !!c2,
+      c2 + ' | 落点=' + pc.zone + (pcFresh ? '' : '（重扫未命中，用了旧坐标）') + ' | 最上层=' + top);
     // V1.3.8：刚选中一颗，趁状态明确 —— 把鼠标移到画布角落，窗口必须留着
     const rc = await ev(`(function(){var c=document.getElementById('${cid}').getBoundingClientRect();return {x:c.x,y:c.y,w:c.width,h:c.height};})()`);
     await mouse('mouseMoved', rc.x + rc.w - 24, rc.y + rc.h - 24);
@@ -482,6 +548,8 @@ for (const [cid, iid] of [['globe', 'globeInfo'], ['map', 'mapInfo'], ['chart', 
     ck(cid + ' 拖动信息窗宽度不变', wB === wA && wB > 100, wB + ' → ' + wA);
   }
 }
+console.log('（点击选中落点区域：' + (zoneLog.join(' / ') || '无') +
+  '　—— 左上角→左上大半→全画布 逐级放大，见 findPoint 注释）');
 // ---- 导出图片：headless 下下载会被浏览器吞掉，只验证「点了不抛异常」这条脚本路径 ----
 console.log('\n===== 导出图片（点击不报错）=====');
 await ev(`window.__err = []; window.addEventListener('error', function (e) { window.__err.push(e.message); });`);
@@ -702,6 +770,86 @@ ck('V1.8.0（需求10）：抽屉里放完整控件（本章所有开关/配色/
   !drMap.hasFsSearchInDrawer && !drOrb.hasFsSearchInDrawer,
   JSON.stringify(drMap) + ' vs ' + JSON.stringify(drOrb));
 
+// --- 需求16「恢复默认增强」：章节「默认设置」= 时间条补间回实时 + 收起观测点 + 本章视图回出厂 ---
+// 真实操作链：把时间条拨到 +30 分 → 打开观测点模式 → 点 01 章的「默认设置」→ 分三段看结果
+await setViewport(1440, 900, false);
+await sleep(600);
+await ev(`(function(){
+  var tr = document.querySelector('.time-r[data-view="map"]');
+  tr.value = '30'; tr.dispatchEvent(new Event('input', { bubbles: true }));
+  var pb = document.getElementById('pickBtn'); if (pb && !pb.classList.contains('on')) pb.click();
+})()`);
+await sleep(500);
+const beforeReset = await ev(`(function(){ var P = window.__CISTRACK__;
+  return { off: P.timeOff().map, pick: P.pick().on, mz: P.mz().k,
+           slider: document.querySelector('.time-r[data-view="map"]').value,
+           btn: document.getElementById('pickBtn').classList.contains('on') }; })()`);
+// 补间轨迹在**页内**逐帧抓（rAF 采样）；另有一个**同步**判据作主证据，见下。
+await ev(`(function(){
+  window.__slTrace = [];
+  var tr = document.querySelector('.time-r[data-view="map"]');
+  (function step(){
+    window.__slTrace.push(Number(tr.value));
+    if (window.__slTrace.length < 45) requestAnimationFrame(step);
+  })();
+  document.querySelector('[data-defsec="map"]').click();
+  // ★ 主判据（不依赖帧率，100% 确定）：click() 是同步调用，resetSection 里 __animateTo(0)
+  //   只是**排了一帧 rAF**、还没 applyV，所以真补间这一刻 tr.value 必然仍是起跳值 30；
+  //   旧 bug（off0 被 PREF_DEF 覆写成 0 → 补间分支根本没进）则早被 syncTimeUI 押到 0。
+  //   headless 下 rAF 间隔抖动大（30 分量程只有 120ms）会漏采中间帧 → 只当辅助证据。
+  window.__slSync = Number(tr.value);
+})()`);
+await sleep(900);
+const slSync = await ev(`window.__slSync`);
+const slTrace = await ev(`window.__slTrace`);
+const slMid = Array.isArray(slTrace) ? slTrace.filter(v => v > 0.5 && v < 29.5).length : -1;
+const afterReset = await ev(`(function(){ var P = window.__CISTRACK__;
+  return { off: P.timeOff().map, pick: P.pick().on, fixed: P.pick().fixed, pEl: P.pick().el,
+           mz: P.mz(), slider: document.querySelector('.time-r[data-view="map"]').value,
+           btn: document.getElementById('pickBtn').classList.contains('on'),
+           epsDisabled: document.getElementById('pickEps').classList.contains('disabled') }; })()`);
+ck('V1.8.0（需求16）：前置条件成立（时间条 +30 分、观测点模式已开）',
+  beforeReset && beforeReset.off === 30 && beforeReset.pick === true && beforeReset.btn === true,
+  JSON.stringify(beforeReset));
+ck('V1.8.0（需求16）：章节「默认设置」把时间条**补间**回实时（click() 返回瞬间滑块仍停在起跳值，非瞬跳）',
+  slSync === 30, '同步值=' + slSync + '（真补间=30，瞬跳=0）');
+ck('V1.8.0（需求16）：补间逐帧轨迹确为非线性衰减（辅助证据，至少 1 个中间帧）',
+  slMid >= 1, '中间帧=' + slMid + ' trace=' + JSON.stringify(Array.isArray(slTrace) ? slTrace.slice(0, 12) : slTrace));
+ck('V1.8.0（需求16）：补间结束后时间归零、观测点收起并回出厂、地图缩放平移也回出厂',
+  afterReset && afterReset.off === 0 && Number(afterReset.slider) === 0 &&
+  afterReset.pick === false && afterReset.fixed === false && afterReset.pEl === 0 &&
+  afterReset.btn === false && afterReset.epsDisabled === true &&
+  afterReset.mz && afterReset.mz.k === 1 && afterReset.mz.tx === 0 && afterReset.mz.ty === 0,
+  JSON.stringify(afterReset));
+
+// 03 章（地球）同口径复核：时间条 +45 分 → 点「默认设置」→ 也是补间而非瞬跳。
+//   两章走的是同一个 resetSection，但滑块/状态各自独立（timeOffsetMap / timeOffsetGlobe），
+//   起跳值取错键的话这里会先炸，所以单独立一条。
+await ev(`(function(){
+  var tr = document.querySelector('.time-r[data-view="globe"]');
+  tr.value = '45'; tr.dispatchEvent(new Event('input', { bubbles: true }));
+})()`);
+await sleep(420);
+const gBefore = await ev(`(function(){ var P = window.__CISTRACK__;
+  return { off: P.timeOff().globe,
+           slider: document.querySelector('.time-r[data-view="globe"]').value }; })()`);
+await ev(`(function(){
+  var tr = document.querySelector('.time-r[data-view="globe"]');
+  document.querySelector('[data-defsec="globe"]').click();
+  window.__glSync = Number(tr.value);
+})()`);
+await sleep(800);
+const glSync = await ev(`window.__glSync`);
+const gAfter = await ev(`(function(){ var P = window.__CISTRACK__;
+  return { off: P.timeOff().globe,
+           slider: document.querySelector('.time-r[data-view="globe"]').value }; })()`);
+ck('V1.8.0（需求16）：03 章时间条 +45 分前置条件成立',
+  gBefore && gBefore.off === 45 && Number(gBefore.slider) === 45, JSON.stringify(gBefore));
+ck('V1.8.0（需求16）：03 章「默认设置」同样是补间回实时（同步值停在 45）',
+  glSync === 45, '同步值=' + glSync);
+ck('V1.8.0（需求16）：03 章补间收尾后时间归零',
+  gAfter && gAfter.off === 0 && Number(gAfter.slider) === 0, JSON.stringify(gAfter));
+
 // ============ V1.8.0 实测：03.5 组网进度 / 需求⑱ 裁剪 / 翻页淡出淡入 ============
 // 这一组是第九轮新增功能的"真浏览器"验证：jsdom 没有像素与动画帧，量不出这些。
 console.log('\n===== V1.8.0（第九轮）实测：03.5 / 裁剪 / 翻页动画 =====');
@@ -887,6 +1035,48 @@ ck('V1.8.0（需求Q4④）：淡出结束后才换内容，并转为「淡入�
 ck('V1.8.0（需求Q4④）：动画收尾后动画类被移除（不留残留，不干扰后续渲染）',
   f3 && f3.__err === undefined && f3.first !== fadeBefore && !/tbl-fade/.test(f3.cls),
   JSON.stringify(f3) + ' before=' + fadeBefore);
+
+// ============ V1.8.0 验收：全视口 × 中英 × 深浅 布局矩阵 ============
+// 判据只有两条（都是"回归得出来"的硬指标）：① 页面没有横向溢出；② 没有元素越出章节右边界。
+// 覆盖 13 档宽度（320 → 1920）× 中/英 × 暗/亮 = 52 组。
+console.log('\n===== V1.8.0 验收：全视口 × 中英 × 深浅 布局矩阵 =====');
+const WIDTHS = [320, 360, 390, 414, 430, 480, 620, 768, 820, 1024, 1280, 1440, 1920];
+const MATRIX_BAD = { overX: [], over: [] };
+let matrixN = 0;
+for (const lang of ['zh', 'en']) {
+  const btn = await ev(`document.getElementById('langBtn').textContent.trim()`);
+  const isEn = btn === '中';                        // 英文界面下按钮显示「中」
+  if (isEn !== (lang === 'en')) { await ev(`document.getElementById('langBtn').click()`); await sleep(1100); }
+  for (const theme of ['dark', 'light']) {
+    const curTheme = await ev(`document.documentElement.getAttribute('data-theme') || 'dark'`);
+    if (curTheme !== theme) { await ev(`document.getElementById('themeBtn').click()`); await sleep(700); }
+    for (const w of WIDTHS) {
+      await setViewport(w, w < 700 ? 780 : 900, w < 700);
+      await sleep(190);
+      const r = await ev(`(function(){ return { sw: document.documentElement.scrollWidth,
+        bw: document.body ? document.body.scrollWidth : 0, iw: window.innerWidth }; })()`);
+      matrixN++;
+      if (r && r.sw > r.iw + 1) MATRIX_BAD.overX.push(lang + '/' + theme + '/' + w + '=' + r.sw + '>' + r.iw);
+      const over = await ev(overFn);
+      if (Array.isArray(over) && over.length) {
+        MATRIX_BAD.over.push(lang + '/' + theme + '/' + w + ':' + over.slice(0, 2).join(' , '));
+      }
+    }
+  }
+}
+// 复位：回到中文 / 暗色 / 桌面
+{
+  const btn = await ev(`document.getElementById('langBtn').textContent.trim()`);
+  if (btn === '中') { await ev(`document.getElementById('langBtn').click()`); await sleep(1100); }
+  const curTheme = await ev(`document.documentElement.getAttribute('data-theme') || 'dark'`);
+  if (curTheme !== 'dark') { await ev(`document.getElementById('themeBtn').click()`); await sleep(700); }
+  await setViewport(1440, 900, false);
+  await sleep(300);
+}
+ck('V1.8.0 验收：矩阵 ' + matrixN + ' 组（13 宽度 × 中英 × 暗亮）全部无横向溢出',
+  MATRIX_BAD.overX.length === 0, MATRIX_BAD.overX.slice(0, 8));
+ck('V1.8.0 验收：矩阵 ' + matrixN + ' 组全部无元素越出章节右边界',
+  MATRIX_BAD.over.length === 0, MATRIX_BAD.over.slice(0, 8));
 
 console.log('\n--- 汇总：PASS ' + pass + ' / FAIL ' + fail);
 ws.close(); child.kill(); process.exit(fail ? 1 : 0);

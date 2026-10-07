@@ -1,5 +1,11 @@
 # CISTrack · 星网与千帆在轨追踪
 
+![version](https://img.shields.io/badge/version-1.8.0-ff6b6b?style=flat-square)
+![license](https://img.shields.io/badge/license-MIT-4dabf7?style=flat-square)
+![single file](https://img.shields.io/badge/single--file-offline-4dabf7?style=flat-square)
+![星网](https://img.shields.io/badge/%E6%98%9F%E7%BD%91-CSCN-ff6b6b?style=flat-square)
+![千帆](https://img.shields.io/badge/%E5%8D%83%E5%B8%86-G60-4dabf7?style=flat-square)
+
 > **项目主页**：https://github.com/1471155912/CISTrack
 > **固定在线地址**：https://1471155912.github.io/CISTrack/CISTrack.html （不带版本号，更新后不变）
 > 顶栏左上角的 **CISTrack** 标志可直接点击跳转到项目主页。
@@ -7,12 +13,24 @@
 
 一个**单文件、纯离线、零后端**的网页，用真实的公开轨道数据（NORAD 目录 / TLE）实时推算并可视化中国两个低轨互联网星座：
 
-- **星网（GuoWang / SatNet，官方代号 CSCN）**—— 中国卫星网络集团
-- **千帆星座（Qianfan / Thousand Sails，SpaceSail / G60）**—— 上海垣信卫星
+- **星网（国网 / GW / GuoWang / SatNet，代号 CSCN）** —— 中国卫星网络集团
+- **千帆星座（千帆 / Qianfan / Thousand Sails / SpaceSail，G60）** —— 上海垣信卫星
 
 打开一个 HTML 文件即可，不需要服务器、不需要联网（联网时会自动拉取最新轨道要素）。
 
 > 非官方项目。数据来自公开的 NORAD 空间目标目录与卫星百科，仅用于科普与观测参考，**不适用于轨道预报、工程或研究用途**。
+
+---
+
+A **single-file, fully offline, zero-backend** web page that uses real public orbit data (the NORAD catalogue / TLEs) to compute and visualise, in real time, two Chinese low-Earth-orbit internet constellations:
+
+- **GuoWang / SatNet (CSCN)** — China Satellite Network Group
+- **Qianfan / Thousand Sails (SpaceSail, G60)** — Shanghai Yuanxin Satellite
+
+Just open the HTML file — no server, no network needed (when online it fetches the latest orbital elements by itself).
+
+> Unofficial project. Data comes from the public NORAD space-object catalogue and the satellite wiki; it is intended for outreach and observation reference only and **must not be used for orbit prediction, engineering, or research**.
+
 
 ![顶栏与简介](shots/v139_top.jpg)
 
@@ -23,10 +41,11 @@
 | **01 地图** | 每颗卫星此刻的星下点、对地可视覆盖区（最低仰角可调）、前后各半圈地面轨迹，支持固定地面观测点并高亮可见卫星 |
 | **02 轨道** | 3D 地球：轨道倾角、可视区域、不同批次轨道面的分离一眼可见（高度按 2.4× 夸张显示以便区分壳层） |
 | **03 倾角分布** | 横轴 = 轨道倾角，纵轴 = 半长轴 / 远地点 / 近地点；一张图看清星座分布在哪些轨道面 |
+| **03.5 组网进度** | 两条累计曲线随时间（横轴按周、标注为对应日期）看星座建设节奏：**发射量** = 累计发射颗数（含发射失败与部分成功，页面没写数字的不计入），**在轨数量** = 已有 TLE 的颗数 ＋ 已发射未编目且发射记录为成功的颗数 |
 | **04 卫星表格** | 全量在轨卫星的轨道要素（批次/组、制造方、半长轴、近远地点、倾角、周期、在轨天数、RAAN、偏心率、历元），可排序、可搜索、可导出图片。制造方取自卫星百科词条，收成简称并可点击跳转 |
-| **05 发射历史** | 逐次发射的批次 / 运载火箭 / 发射时间 / 发射地点 / 设计倾角，火箭与场地可跳转卫星百科，卫星名可跳转 satcat.com |
+| **05 发射历史** | 逐次发射的批次 / 运载火箭 / 发射时间 / 发射地点 / 设计倾角 / 任务结果，火箭与场地可跳转卫星百科，卫星名可跳转 satcat.com |
 
-其它：中英双语、深浅主题、全屏（手机端自动横屏 + 常亮）、时间轴回放（±180 分钟，地图 / 轨道两章 × 星网 / 千帆四个组合各自独立，支持非线性平滑动画，实时态呼吸主题色状态灯、调过时间固定黄色状态灯）、图→表联动、PNG 导出（带模拟时间与免责声明的底栏）。
+其它：中英双语、深浅主题、全屏（手机端自动横屏 + 常亮）、时间轴回放（±180 分钟，地图 / 轨道两章 × 星网 / 千帆四个组合各自独立，支持非线性平滑动画；实时态下「实时」按钮用**主题色填充并呼吸闪烁**、文字取主题前景色，被推离实时后转为**固定黄色状态灯**）、图→表联动、PNG 导出（带模拟时间与免责声明的底栏）。
 
 ## 🔎 搜索（V1.5.0 起）
 
@@ -47,7 +66,7 @@
 
 ## 🚀 快速开始
 
-1. 下载 `CISTrack_v1.7.3.html`（或 Release 里的同名附件；仓库内的 `index.html` 会自动跳到最新版）
+1. 下载 `CISTrack_v1.8.0.html`（或 Release 里的同名附件；仓库内的 `index.html` 会自动跳到最新版）
 2. 双击用浏览器打开（Chrome / Edge / Firefox / Safari 均可）
 
 就这两步。首次打开会尝试联网拉取最新 TLE，失败则用内置快照，功能完全不受影响。
@@ -77,7 +96,7 @@ node scripts/fetch_wiki.mjs        # 起一个本机 Edge/Chrome 过 WAF → 解
 
 - **零依赖**：只用 Node 自带能力（`child_process` + 内置 `fetch` + 内置 `WebSocket` 走 CDP），
   不再需要 `playwright`——所以在本机计划任务那种没有 `node_modules` 的环境里也能跑。
-- 浏览器可执行文件自动在常见路径里找；找不到时用环境变量 `EDGE_PATH` 指定。
+- 浏览器可执行文件自动在常见路径里找；也可以用环境变量 `CISTRACK_EDGE` 指定（兼容旧名 `EDGE_PATH`）。
 - 数字没变化时**不写文件**（便于 `git` 判断是否要提交）。
 - 抓不到（WAF 不过 / 解析失败）会以**非零退出码**结束，方便计划任务与 CI 标红。
 - **隐私**：只访问 `sat.huijiwiki.com` 的两个公开词条页，用的是通用桌面 Chrome UA，
@@ -102,30 +121,53 @@ node visual.mjs         # 可选：真浏览器布局与交互实测（需要本
 
 ## 🔄 数据从哪来 · 怎么更新
 
-> **GitHub Pages 没有数据库** —— 它只是把仓库里的文件原样发出去。所以"网站数据更新"只有两条路。
+**一句话结论**：轨道要素（TLE）由**访客自己的浏览器**在打开页面时现拉，所以在线访客看到的永远是最新；其余数据（卫星百科的统计与元数据、逐次发射的任务结果、海岸线、SGP4 实现）都在**构建时**抓取或打包进单文件。GitHub Pages 没有数据库，只能把仓库里的文件原样发出去，所以"网站数据更新"只有这两条路。
 
 | 数据源 | 用来做什么 | 怎么更新 | 需要本地任务吗 |
 |---|---|---|---|
-| **CelesTrak / NORAD 轨道要素（TLE）** | 卫星此刻位置、地面覆盖、轨道形状 | **访客打开页面时在他自己浏览器里现拉**（多路查询 + 公共代理兜底 + 30 分钟会话缓存） | **不需要** —— 在线访客看到的永远是最新 |
-| **卫星百科「星网 / 千帆星座」词条** | 批次名/时间/火箭/发射场、待编目批次、页面顶部三个统计数字 | 顶部数字 → `wiki.json`，可用计划任务定时运行 `scripts/fetch_wiki.mjs`（零依赖）自动抓取并提交；其余元数据构建时抓一次打包 | 可选（只针对顶部数字） |
+| **CelesTrak / NORAD 轨道要素（TLE）** | 卫星此刻位置、地面覆盖、轨道形状 | **访客打开页面时在他自己浏览器里现拉**（多路查询 + 公共代理兜底 + 30 分钟会话缓存） | **不需要**（在线访客永远是最新） |
+| **卫星百科「星网 / 千帆星座」词条** | 页面顶部三个统计数字（已发射 / 在轨 / 发射成功） | 构建时抓一次打包；另可用计划任务定时运行 `scripts/fetch_wiki.mjs`（零依赖）自动抓取并提交 | 可选（只针对顶部数字） |
+| **卫星百科「引导页:发射记录」年度页** | 发射历史章的「任务结果」列、03.5 组网进度的纵向口径 | 构建时运行 `scripts/fetch_launch_results.mjs` 抓取，写入 `wiki_launches.json` 后由 `mkdata.mjs` 合并 | 可选（建议与 TLE 任务一起跑） |
 | **Natural Earth 海岸线** | 地图陆地轮廓 | 构建时下载并打包 | 不需要 |
 | **satellite-js（SGP4）** | 从 TLE 推算位置 | 构建时打包 | 不需要 |
 
-`data/ct_*.tle` 只是**离线兜底快照**，可以用 `refresh.mjs` 定期刷新（可挂计划任务，带 `git.lock` 防与 wiki 任务冲突）。
+`data/ct_*.tle` 只是**离线兜底快照**，可以用 `refresh.mjs` 定期刷新。
+
+**自动化（V1.8.0 起采用 A＋B 双轨）**
+
+- **A · 本机计划任务**：`update_tle.bat` / `update_wiki.bat` 负责 `refresh → mkdata → build → build_release → git push`。
+  - 每一步都查退出码，**失败自动重试最多 3 次**（间隔 90 s），全过程追加到 `logs/tle_refresh.log` / `logs/wiki_refresh.log`；
+  - 两个任务**共用 `logs/git.lock` 互斥**（都在 00:00 与 12:00 触发），避免同时提交打架；锁超过 5 分钟视为陈旧并自动清除；
+  - 推送前先 `git pull --rebase --autostash`（云端可能刚推过）；
+  - 任务本身设了「错过就尽快补跑」，并把超时放宽到 TLE 2 h / 卫星百科 45 min，避免重试途中被硬杀。
+- **B · TLE 链路搬上 GitHub Actions**（`.github/workflows/update-tle.yml`）：每 12 小时在云端跑一次
+  TLE 刷新与重新打包（CelesTrak 不拦数据中心 IP）。**卫星百科那部分仍留在本机** —— 它要过
+  Cloudflare 的 WAF，数据中心 IP 拿不到（`update-wiki.yml` 因此只保留手动触发）。
+- 这样即使本机长时间关机，在线页面仍能拿到较新的 TLE；而词条统计与发射任务结果由本机补全。
+- 访客打开页面时本来就会自己现拉最新 TLE，所以这两条链路保障的是**离线兜底快照**的新鲜度
+  （最多旧半天），而不是在线访客所看到的。
+
 
 ## ⭐ 两个星座各自保存状态
 
 切到另一个星座再切回来，**你在这个星座里选中的卫星、各章节的开关与倾角、观测点、时间进度、
 地图/轨道的缩放与平移、表格页码都会原样还在**；两个星座互不干扰、也各自持久化。
 
-## ✨ 非线性动效（V1.6.1）
+## ✨ 非线性动效（V1.6.1 起）
 
 - **切换星座**：反色块平滑滑动 + 页面内容水平顶出 + 顶栏主题色扫过 + 章节药丸边框先灭后亮，
   四者同时开始、同时结束（520ms）。
 - **切换语言**：顶栏整体「向上收起 → 向下展开」，页面自下而上擦除后又长出，两者同步（620ms）。
 - **切换明暗**：从右上角按钮扩散的圆形遮罩（560ms，与语言同款缓动）。
 - **联想区**：展开与收起都是非线性过渡；点空白、再点输入框或失焦都会收起。
-- **时间条**：点击 / 键盘 / 「此刻」跳转按距离做 120–520ms 非线性补间；拖拽即时跟手（V1.7.3）。
+- **时间条**：点击 / 键盘跳转 / 「实时」归位按距离做 120–520ms 非线性补间（含章节「默认设置」把时间条补间回实时）；拖拽即时跟手（V1.7.3）。
+- **开关与画布同步**（V1.8.0）：显示名称 / 显示轨道 / 可视锥 / 可见倾角四个开关切换瞬间，
+  画布侧对应元素做 520ms 透明度补间，按钮底色同步过渡，同一时间常数起止。
+- **配色模式插值**（V1.8.0）：在「按星座 / 按批次 / 按倾角」之间切换时，点的颜色逐帧插值过渡，
+  而不是整块跳变。
+- **观测点进出**（V1.8.0）：进入 / 退出观测点模式时，覆盖区与可见卫星做淡入淡出。
+- **表格翻页**（V1.8.0）：切换页码时旧内容先「淡消失」、换页完成后再「淡出现」（260ms），
+  而不是内容瞬间替换。
 - 缓动："先慢后快" `cubic-bezier(.92,.02,.98,.46)`；"先快后慢" `cubic-bezier(.02,.72,.16,1)`。
 
 ## 📱 全屏与手势（V1.5.3）
@@ -185,7 +227,7 @@ build.mjs       # 把上面几块注入 template → 单文件 HTML
 
 ---
 
-Made by [小橙子的宇宙Jackoraniverse](https://space.bilibili.com/455972735)，视觉风格参考 [Где «Рассветы»](https://findrassvet.ru/) by Bureau 1440。
+本页面由 [小橙子的宇宙Jackoraniverse](https://space.bilibili.com/455972735) 使用 AI 工具生成，灵感与最初版本来自于 [Где «Рассветы»](https://findrassvet.ru/)（Bureau 1440）的页面风格与布局。
 
 
 ## 仓库结构
@@ -193,17 +235,27 @@ Made by [小橙子的宇宙Jackoraniverse](https://space.bilibili.com/455972735)
 ```
 CISTrack.html           ★ 最新版（不带版本号）—— 固定链接就用它：
                           https://1471155912.github.io/CISTrack/CISTrack.html
-CISTrack_v1.7.3.html    带版本号的快照（回滚 / 对照用）
-CISTrack_v1.7.0.html    更早的快照（回滚 / 对照用）
-CISTrack_v1.5.3.html    早期稳定版（回滚 / 对照用）
+CISTrack_v1.8.0.html    当前版本快照（回滚 / 对照用）
+CISTrack_v1.5.2 … v1.7.3.html
+                        更早的历史快照（v1.5.2 / v1.5.3 / v1.6.3 / v1.7.0 /
+                        v1.7.1 / v1.7.2 / v1.7.3，同样用于回滚与对照）
 index.html              入口页（自动跳转到 CISTrack.html）
 app.js / template.html  源码（单文件产物 = 这两者 + data/ 由 build.mjs 打包）
 data/                   卫星数据（含制造商研发机构、离线兜底的 TLE 快照）
-wiki.json               卫星百科统计缓存（顶部「发射 / 在轨 / 发射次数」的来源）
-scripts/fetch_wiki.mjs  抓取并更新 wiki.json（零依赖，详见「更新数据」）
+wiki.json               卫星百科统计缓存（顶部「发射 / 在轨 / 发射次数」的来源；页面运行时读它）
+wiki_launches.json      星网/千帆逐次发射的任务结果（发射历史「任务结果」列 + 03.5 组网进度口径）
+scripts/fetch_wiki.mjs          抓取并更新 wiki.json（零依赖，详见「更新数据」）
+scripts/fetch_launch_results.mjs 抓取卫星百科年度发射记录页 → wiki_launches.json（零依赖）
 smoke.mjs / visual.mjs  测试：逻辑与源码断言 / 真实浏览器布局实测
+i18n.mjs                中英文案审计（静态四查 + 运行时四遍）
 build.mjs / mk*.mjs     构建脚本（把源码打包成单文件 HTML）
+release.mjs             路径无关的产物同步（CISTrack.html + CISTrack_v<版本>.html + package.json 版本）
+.github/workflows/      云端自动化：update-tle.yml 每 12 小时刷新 TLE 并重新打包
 ```
+
+> **不进仓库的文件**（见 `.gitignore`）：`PROCESS.md` 与逐轮的「任务清单 / 验收检查清单」属内部过程
+> 文档（含本机路径与工作笔记）；`archive/` 是本地版本快照；`build/`、`data/satcat.csv`、
+> `data/wiki_cache/` 属可再生的中间产物；`junk/` 是一次性产物暂存区。
 
 > **关于链接**：GitHub Pages 的地址规则是 `https://<用户名>.github.io/<仓库>/<文件名>`，
 > 所以只要仓库里有一份 **`CISTrack.html`**，链接就永远是
