@@ -111,9 +111,10 @@ assert('待编目批次数：星网 4 批 / 千帆 2 批',
 
 console.log('--- 章节与导航 ---');
 // V1.8.0（需求8）：新增 03.5「组网进度」章节（插在 03 倾角分布之后、04 卫星表格之前）
-assert('章节顺序 = 地图/轨道/倾角分布/组网进度/卫星表格/发射历史',
-  [...d.querySelectorAll('section')].map(s => s.id).join('|') === 'sec-map|sec-orbits|sec-chart|sec-progress|sec-table|sec-launches');
-assert('章节号 01/02/03/03.5/04/05', [...d.querySelectorAll('.sec-num')].map(s => s.textContent).join('') === '01020303.50405');
+// V1.9.0（R17）：新增 05 章「升轨情况」并把组网进度从 03.5 提到 04、其后顺延为 06 / 07
+assert('章节顺序 = 地图/轨道/倾角分布/组网进度/升轨情况/卫星表格/发射历史',
+  [...d.querySelectorAll('section')].map(s => s.id).join('|') === 'sec-map|sec-orbits|sec-chart|sec-progress|sec-climb|sec-table|sec-launches');
+assert('章节号 01/02/03/04/05/06/07', [...d.querySelectorAll('.sec-num')].map(s => s.textContent).join('') === '01020304050607');
 // V1.7.2 第七轮（需求2）：顶栏章节切换按钮（.navlinks）与「更新历元」那行（.nav-updated）
 // 已**有意删除**（与右下悬浮药丸功能重合）。这里改成反向守卫：一旦被加回来就报警。
 assert('顶栏章节切换按钮已移除（.navlinks 不得存在）', !d.querySelector('.navlinks'),
@@ -121,9 +122,10 @@ assert('顶栏章节切换按钮已移除（.navlinks 不得存在）', !d.query
 assert('顶栏「更新历元」那行已移除（.nav-updated / #navUpdated 不得存在）',
   !d.querySelector('.nav-updated') && !d.querySelector('#navUpdated'));
 assert('顶栏右侧空容器 .nav-right 仍在（layoutNav 读它的计算宽度）', !!d.querySelector('.nav-right'));
-// V1.8.0（需求8）：档位条插入「网 / N」（组网进度），位置在「角 / I」与「星 / S」之间
-assert('档位条：中文=图轨角网星箭 / 英文=MOISLN（V1.4.9 / V1.8.0）',
-  [...d.querySelectorAll('#jumpPill button')].map(b => b.textContent).join('') === '↑图轨角网星箭↓');
+// V1.9.0（需求15）：组网进度的短标签 网/N → 进/P
+// V1.9.0（R17）：药丸新增 05 章「升 / C」，插在「进 / P」与「星 / S」之间
+assert('档位条：中文=图轨角进升星箭 / 英文=MOIPCSL（V1.4.9 / V1.8.0 / V1.9.0）',
+  [...d.querySelectorAll('#jumpPill button')].map(b => b.textContent).join('') === '↑图轨角进升星箭↓');
 
 console.log('--- 表格 ---');
 assert('默认按 NORAD 从大到小',
@@ -223,9 +225,10 @@ assert('信息窗自动避让指针 + 拖动锁宽',
   /function placeInfoCorner/.test(appSrc) && /width:max-content/.test(tpl));
 assert('地球自转按时间（与帧率解耦）', /var SPIN_RATE = 0\.028/.test(appSrc) && !/G\.yaw \+= 0\.0008/.test(appSrc));
 // V1.8.0（需求8）：四张坐标图（地图/轨道/倾角分布/组网进度）各一对 ＋/− 与一个导出键
-assert('四个图章节各有一对 ＋/− 与导出键',
-  d.querySelectorAll('.view-ctl button[data-zoom]').length === 8 &&
-  d.querySelectorAll('.view-ctl button[data-shot]').length === 4);
+// V1.9.0（R17）：图章节由 4 个（map/globe/chart/progress）增加到 5 个（+climb）
+assert('五个图章节各有一对 ＋/− 与导出键',
+  d.querySelectorAll('.view-ctl button[data-zoom]').length === 10 &&
+  d.querySelectorAll('.view-ctl button[data-shot]').length === 5);
 assert('导出键排在按键组最后', [...d.querySelectorAll('.view-ctl')].every(g => /shot/.test(g.lastElementChild.className)));
 // V1.7.1（需求7）：gotoSatInTable 已删除（两套翻页逻辑并存 → 页号错位）。
 //   联动现在由 afterSelection() → renderTable({jump:true}) + hitTableRow() 承担。
@@ -728,16 +731,19 @@ assert('需求6：状态不再跨会话持久化（storeSave/storeLoad 已废，
 // 但那个键从来没被读过 → 纯冗余，且与"设置不落盘"矛盾）。只允许 removeItem 做残留清理。
 assert('需求6：app.js 里不再有任何 localStorage 写入（只保留 removeItem 清理残留）',
   !/localStorage\.setItem/.test(appSrc));
-assert('需求6：主题也随「还原所有默认设置」回到暗色（三种还原路径结果一致）',
+// V1.9.0（需求1）：**修正 V1.7.1 的旧决议** —— 顶栏三项（星座 / 语言 / 亮暗）不参与还原。
+assert('需求1（V1.9.0）：还原所有默认设置**不再**把主题拨回暗色（顶栏三项不参与还原）',
   /function setTheme\(light\)/.test(appSrc) &&
-  /function resetAllPrefs[\s\S]{0,1500}setTheme\(false\);/.test(appSrc) &&
+  !/function resetAllPrefs[\s\S]{0,1500}setTheme\(false\);/.test(appSrc) &&
   /setTheme\(!light\);/.test(appSrc));
-assert('需求6：「还原所有默认设置」= 完全还原（三图视图/选中/页码/搜索框/观测点/两星座快照）',
+assert('需求1（V1.9.0）：还原所有默认设置仍是完全还原，但**只清本星座**（星网 / 千帆互相独立）',
   /function resetAllPrefs[\s\S]{0,400}S\.sel = \[\]; S\.selGroup = null; S\.focusIdx = null;/.test(appSrc) &&
-  /SEARCH_TEXT\.gw = ''; SEARCH_TEXT\.qf = '';/.test(appSrc) &&
+  /SEARCH_TEXT\[S\.key\] = '';/.test(appSrc) &&
+  /S\.scrollY\[S\.key\] = 0;/.test(appSrc) &&
   /S\.mz = \{ k: 1, tx: 0, ty: 0 \};/.test(appSrc) &&
   /G\.yaw = 100 \* RAD; G\.pitch = 22 \* RAD; G\.zoom = 1;/.test(appSrc) &&
-  /STORE\.gw = null; STORE\.qf = null;/.test(appSrc) &&
+  /STORE\[S\.key\] = null;/.test(appSrc) &&
+  !/STORE\.gw = null; STORE\.qf = null;/.test(appSrc) &&
   /renderTable\(\); renderLaunchTable\(\);/.test(appSrc));
 // 需求2：主题色缓存随星座失效
 // V1.8.0（需求4③）：观测点整体透明度抽成 pickAlpha（= TOG.pickOn，进出模式时 0→1 淡入淡出），
@@ -764,7 +770,8 @@ assert('需求8：全屏降级用章节级 fs-stuck（不锁 html/body）+ 看�
 assert('需求10：导出文件名含星座/章节/时间标签，英文用独立 ASCII 映射',
   /function shotFileName/.test(appSrc) && /FILE_SEG/.test(appSrc) && /VIEW_SEG/.test(appSrc) &&
   /function shotTimeTagName/.test(appSrc) && /'Live' : '实时'/.test(appSrc) &&
-  /en: 'CS'/.test(appSrc) && /en: 'SS'/.test(appSrc) && /en: 'IncDist'/.test(appSrc) &&
+// V1.9.0（需求18/Q22）：英文文件名与导出底栏改 CSCN / SpaceSail —— 断言同步更新
+  /en: 'CSCN'/.test(appSrc) && /en: 'SpaceSail'/.test(appSrc) && /en: 'IncDist'/.test(appSrc) &&
   !/＋|－/.test(appSrc.match(/function shotTimeTagName[\s\S]{0,400}/)[0]));
 assert('需求10：时间标签的正号不会被一元 + 转成 NaN（曾导出「…_NaN分.png」）',
   !/\+String\.fromCharCode/.test(appSrc) &&
@@ -1019,14 +1026,16 @@ assert('V1.7.2（需求5/9）：layoutNav 合并为**唯一一份**（重复声�
 assert('需求3：顶栏左右内边距统一 24px（亮暗键到右边 = CISTrack 到左边）',
   /flex-wrap:nowrap; gap:10px 14px; padding:8px 24px;/.test(tplCode));
 // 需求4 + 需求10：完全还原
-assert('需求4：还原默认强制回星网 + 中文（用户明确不豁免）',
-  /var needConstel = \(S\.key !== 'gw'\);/.test(appCode) &&
-  /var needLang = \(LANG !== 'zh'\);/.test(appCode) &&
-  /function resetAllPrefs\(\)[\s\S]{0,2600}?S\.key = 'gw';/.test(appCode) &&
-  /function resetAllPrefs\(\)[\s\S]{0,2600}?LANG = 'zh';/.test(appCode));
-assert('需求4：还原默认绕过切换动画（不调playNetSwitch / playLangSwitch）',
-  !/function resetAllPrefs\(\)[\s\S]{0,2600}?playNetSwitch/.test(appCode) &&
-  !/function resetAllPrefs\(\)[\s\S]{0,2600}?playLangSwitch/.test(appCode));
+assert('需求1（V1.9.0）：还原默认**不再**回星网 / 回中文（反转 V1.7.1 的"不豁免"决议）',
+  !/var needConstel = \(S\.key !== 'gw'\);/.test(appCode) &&
+  !/var needLang = \(LANG !== 'zh'\);/.test(appCode) &&
+  !/function resetAllPrefs\(\)[\s\S]{0,2600}?S\.key = 'gw';/.test(appCode) &&
+  !/function resetAllPrefs\(\)[\s\S]{0,2600}?LANG = 'zh';/.test(appCode));
+assert('需求1（V1.9.0）：还原默认改走**通用过场** playCurtain（与语言切换同款 620ms；语言切换也走它）',
+  /resetAllBtn'\)\.addEventListener\('click', function \(\) \{[\s\S]{0,80}playCurtain\(function \(\) \{ resetAllPrefs\(\); \}\)/.test(appCode) &&
+  /function playCurtain\(updateFn\)/.test(appCode) &&
+  /function playLangSwitch\(dir, updateFn\) \{ playCurtain\(updateFn\); \}/.test(appCode) &&
+  !/function resetAllPrefs\(\)[\s\S]{0,2600}?playNetSwitch/.test(appCode));
 // V1.7.3（需求9）：两章时间条各自归零（旧版单值 setOffset(0) 已随字段一起废弃）
 assert('需求10：还原默认把两章时间条各自归零 setOffset(0,map/globe)（滑块/文案/shifted 一起回退）',
   /function resetAllPrefs\(\)[\s\S]{0,2600}?if \(typeof setOffset === 'function'\) \{ setOffset\(0, 'map'\); setOffset\(0, 'globe'\); \}/.test(appCode));
@@ -1245,18 +1254,21 @@ assert('V1.7.2r7（需求8c）：syncNameBtns 只负责把按钮态对齐状态�
   /function syncNameBtns\(\) \{/.test(appCode) &&
   /b\.classList\.toggle\('on', p\[1\]\);/.test(appCode));
 // 需求8a：轨道开关管住选中星/悬停星的轨道
-assert('V1.7.2r7（需求8a）：选中星(0.9)与悬停星(0.75)的轨道绘制被包进同一个 S.mapTrack 块',
-  /if \(S\.mapTrack\) \{[\s\S]{0,800}?strokeTrack\(sj, 0\.9\);[\s\S]{0,400}?strokeTrack\(mapHover, 0\.75\);[\s\S]{0,40}?\n  \}/.test(appCode));
-assert('V1.7.2r7（需求8a）：drawMap 里不存在游离在 S.mapTrack 块之外的 strokeTrack 调用',
+// V1.9.0（需求3）：门禁由「布尔 S.mapTrack」改为「补间系数 TOG.mapTrack > 0.001」——
+//   否则关掉开关时整块被立刻跳过，TOG.mapTrack 的淡出动画根本没机会播（R3 下半的根因）。
+//   断言的门禁字面同步更新，**"三处调用必须在同一个门禁块内"这个原意保持不变**。
+assert('V1.9.0（需求3）：选中星(0.9)与悬停星(0.75)的轨道绘制被包进同一个 TOG.mapTrack 门禁块',
+  /if \(TOG\.mapTrack > 0\.001\) \{[\s\S]{0,800}?strokeTrack\(sj, 0\.9\);[\s\S]{0,400}?strokeTrack\(mapHover, 0\.75\);[\s\S]{0,40}?\n  \}/.test(appCode));
+assert('V1.9.0（需求3）：drawMap 里不存在游离在 TOG.mapTrack 门禁块之外的 strokeTrack 调用',
   (function () {
     // strokeTrack 是 drawMap 内部的局部函数，全项目只有 3 处调用（全部轨道/选中 0.9/悬停 0.75），
-    // 这 3 处必须都被同一个 `if (S.mapTrack) {` 块包住 —— 用花括号配对数出该块的真实跨度。
+    // 这 3 处必须都被同一个 `if (TOG.mapTrack > 0.001) {` 块包住 —— 用花括号配对数出该块的真实跨度。
     const lines = appCode.split('\n');
     const calls = [];
     lines.forEach(function (l, i) {
       if (/strokeTrack\(/.test(l) && !/function strokeTrack/.test(l)) calls.push(i);
     });
-    const open = lines.findIndex(function (l) { return /^\s*if \(S\.mapTrack\) \{$/.test(l); });
+    const open = lines.findIndex(function (l) { return /^\s*if \(TOG\.mapTrack > 0\.001\) \{$/.test(l); });
     if (open < 0 || calls.length !== 3) return false;
     let depth = 0, close = -1;
     for (let i = open; i < lines.length; i++) {
@@ -1294,11 +1306,13 @@ assert('V1.8.0（需求Q4①）：图层开关动画系数 TOG + togAnim / togSy
   (appCode.match(/togAnim\('/g) || []).length >= 6 &&           // 六个开关各接一次
   /try \{ togSyncAll\(\); \} catch \(e\) \{\}/.test(appCode));    // 还原 / 换星座时系数归位
 
-// 需求Q4-②：配色插值（按卫星 ⇄ 按批次 之间逐帧过渡）
-assert('V1.8.0（需求Q4②）：配色插值 COLORMIX + _mix，colOf 在过渡期返回中间色',
-  /var COLORMIX = null;/.test(appCode) && /function _mix\(c1, c2, k\)/.test(appCode) &&
+// 需求Q4-② → V1.9.0（需求3）：配色切换从"旧色→新色 插值"改成**两段式**（先整体褪去、再染上）
+assert('V1.9.0（需求3）：配色切换为**两段式** —— 前半程旧配色淡出、后半程新配色淡入（不再是 A→B 插值）',
+  /var COLORMIX = null;/.test(appCode) && /function _fade\(c, alpha\)/.test(appCode) &&
   /if \(COLORMIX && COLORMIX\.scope === scope\)/.test(appCode) &&
-  /return _mix\(from, to, 1 - Math\.pow\(1 - k, 3\)\);/.test(appCode));
+  /if \(k < 0\.5\) return _fade\(from, 1 - \(1 - Math\.pow\(1 - k \* 2, 3\)\)\);/.test(appCode) &&
+  /return _fade\(to, Math\.pow\(\(k - 0\.5\) \* 2, 3\)\);/.test(appCode) &&
+  !/return _mix\(from, to, 1 - Math\.pow\(1 - k, 3\)\);/.test(appCode));
 
 // 需求Q4-③：观测点进出（标记与标签淡入淡出）
 assert('V1.8.0（需求Q4③）：观测点进出用 PICK_FADE + TOG.pickOn 淡入淡出',
@@ -1319,9 +1333,15 @@ assert('V1.8.0（需求8）：03.5 组网进度章节存在且走「顶栏让位
   /<section id="sec-progress">/.test(tplCode) && /<canvas id="netCv">/.test(tplCode) &&
   /#sec-progress\.fs-mobile \.chart-wrap \{ height:100vh; padding-top:var\(--fsbar-h, 58px\); \}/.test(tplCode) &&
   /#sec-progress\.fs-mobile \.controls \{[\s\S]{0,400}?position:fixed/.test(tplCode));
-assert('V1.8.0（需求8）：组网进度的口径 / 星座开关进入偏好系统（按星座各存一份）',
-  /netMode: 'launch', netGw: true, netQf: true/.test(appCode) &&
-  /progress: \['netMode', 'netGw', 'netQf'\]/.test(appCode) &&
+// V1.9.0（需求3）：显示星网/显示千帆从"全局偏好"改为**按星座各存一份的会话状态**，
+//   出厂默认 = 只看本页星座；且纳入本章「默认设置」与「还原所有默认设置」的还原范围。
+assert('V1.9.0（需求3）：组网进度的口径进偏好系统；显示星网/千帆**按星座各存一份**且默认只看本页星座',
+  /netMode: 'launch',/.test(appCode) && /progress: \['netMode'\]/.test(appCode) &&
+  /'netGw', 'netQf'\];/.test(appCode) &&                       // 在 STATE_FIELDS 里 → 随星座快照
+  /function applyNetShowDefault\(key\)/.test(appCode) &&
+  /applyNetShowDefault\(k\);/.test(appCode) &&                 // initStore 里逐星座赋默认
+  /if \(sec === 'progress'\) applyNetShowDefault\(\);/.test(appCode) &&   // 本章默认设置
+  /function resetAllPrefs\(\)[\s\S]{0,600}?applyNetShowDefault\(\);/.test(appCode) &&   // 还原所有默认设置
   /function netCountOf\(L, mode\)/.test(appCode) &&
   // 「在轨数量」= 有 TLE 的颗数 + 已发射未编目且**发射记录为成功**的颗数
   /L\.pending > 0 && L\.res !== 'fail'/.test(appCode));

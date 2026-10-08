@@ -227,7 +227,7 @@ build.mjs       # 把上面几块注入 template → 单文件 HTML
 
 ---
 
-本页面由 [小橙子的宇宙Jackoraniverse](https://space.bilibili.com/455972735) 使用 AI 工具生成，灵感与最初版本来自于 [Где «Рассветы»](https://findrassvet.ru/)（Bureau 1440）的页面风格与布局。
+本页面由 [小橙子的宇宙Jackoraniverse](https://space.bilibili.com/455972735) 使用 AI 工具生成，灵感与最初版本来自于跟踪俄罗斯**[「黎明」星座](https://sat.huijiwiki.com/wiki/%E9%BB%8E%E6%98%8E%E6%98%9F%E5%BA%A7)**（Rassvet）态势的网站**[findrassvet.ru](https://findrassvet.ru/)**。
 
 
 ## 仓库结构

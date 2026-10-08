@@ -223,8 +223,8 @@ const overFn = `(function(){
 async function probe(tag, expectTwoLinePager, expectEn) {
   console.log('\n===== ' + tag + ' =====');
   // V1.8.0（需求8）：新增 03.5「组网进度」章节（放在 03 倾角分布之后、04 卫星表格之前）
-  ck('章节顺序', (await ev(`[...document.querySelectorAll("section")].map(s=>s.id).join("|")`)) === 'sec-map|sec-orbits|sec-chart|sec-progress|sec-table|sec-launches');
-  ck('章节号 01/02/03/03.5/04/05', (await ev(`[...document.querySelectorAll(".sec-num")].map(s=>s.textContent).join("")`)) === '01020303.50405');
+  ck('章节顺序', (await ev(`[...document.querySelectorAll("section")].map(s=>s.id).join("|")`)) === 'sec-map|sec-orbits|sec-chart|sec-progress|sec-climb|sec-table|sec-launches');
+  ck('章节号 01/02/03/04/05/06/07', (await ev(`[...document.querySelectorAll(".sec-num")].map(s=>s.textContent).join("")`)) === '01020304050607');
   // 手机上顶栏会换行变高、品牌字号也会被断点调小，这两项只在宽屏量
   if (!expectTwoLinePager) {
     ck('顶栏高度 62px（不因品牌字号变大而撑高）', (await ev(`document.querySelector(".topnav").offsetHeight`)) === 62);
@@ -234,8 +234,8 @@ async function probe(tag, expectTwoLinePager, expectEn) {
     ck('字体真的加载了（离线内嵌生效）', (await ev(`document.fonts.check('32px Audiowide')`)) === true);
   }
   // V1.8.0（需求8）：第四张图（03.5 组网进度）同样有一对 ＋/−、⟳、⛶ 与导出键
-  ck('四个图章节各 5 个按键（＋ − ⟳ ⛶ 导出）',
-    (await ev(`[...document.querySelectorAll(".view-ctl")].map(g=>g.children.length).join(",")`)) === '5,5,5,5');
+  ck('五个图章节各 5 个按键（＋ − ⟳ ⛶ 导出）',
+    (await ev(`[...document.querySelectorAll(".view-ctl")].map(g=>g.children.length).join(",")`)) === '5,5,5,5,5');
   ck('导出按键是每组最后一个',
     (await ev(`[...document.querySelectorAll(".view-ctl")].every(g=>/shot/.test(g.lastElementChild.className))`)) === true);
   ck('两个表格各有一个导出按键', (await ev(`document.querySelectorAll(".pg-shot").length`)) === 2);
@@ -255,7 +255,7 @@ async function probe(tag, expectTwoLinePager, expectEn) {
     const enTitles = `[...document.querySelectorAll('.sec-head h2')].map(function(h){
       var s = h.querySelector('span'); return (s ? s.textContent : h.textContent).trim(); }).join('|')`;
     ck('英文章节标题 Title Case',
-      (await ev(enTitles)) === 'Map|Orbits|Inclination Distribution|Network Progress|Satellite Table|Launch History', await ev(enTitles));
+      (await ev(enTitles)) === 'Map|Orbits|Inclination Distribution|Network Progress|Orbits Raising Status|Satellite Table|Launch History', await ev(enTitles));
     // V1.7.2 第七轮（需求2）：顶栏章节切换按钮已删，英文 Title Case 改到主标题下的历元行上校验
     ck('英文顶栏：章节切换按钮已移除、历元行在主标题下',
       (await ev(`document.querySelectorAll('.topnav .navlinks a').length`)) === 0 &&
@@ -680,9 +680,17 @@ await sleep(700);
 // 逐宽度检查（含 320px 极窄）：**任何宽度下都不允许出现「一行只有 ?」**。
 //   430px 另加一条更强的要求：观测点行必须收成**一行**（用户口径的"内容上移一行"）。
 const ROW_PROBE = `(function(){
+  // V1.9.0（需求5）：01/02 章的「默认设置 + ？」被 .def-help 包成一个整体，若只遍历 .tools-row 的
+  //   直接子元素，里头的「？」就数不到了 —— 这条断言会**空转通过**（比失败更糟）。所以这里下探一层，
+  //   把 .def-help 的子元素摊平上来，保证「？」仍然被当作一个独立控件参与"是否落单"的判定。
   function rowsOf(tr){
     var out = [];
+    var els = [];
     [].forEach.call(tr.children, function(el){
+      if (/def-help/.test(el.className)) [].forEach.call(el.children, function(c){ els.push(c); });
+      else els.push(el);
+    });
+    [].forEach.call(els, function(el){
       var b = el.getBoundingClientRect(); if (!b.height) return;
       var hit = null;
       for (var i = 0; i < out.length; i++) if (Math.abs(out[i].y - b.top) <= 8) { hit = out[i]; break; }
@@ -717,13 +725,20 @@ function helpAloneIn(info) {
   [...(info.r1 || []), ...(info.r2 || [])].forEach(g => { if (g.help > 0 && g.n === g.help) c++; });
   return c;
 }
-ck('V1.8.0（需求9）：320 / 360 / 390 / 430px 下「?」都不独占一行（每行都与其它控件作伴）',
-  [430, 390, 360, 320].every(w => rowByW[w] && rowByW[w].rows === 2 && helpAloneIn(rowByW[w]) === 0),
+// V1.9.0：R5 把 01/02 章并列的多个「？」合并成了一个，行内控件数减少 → 这一行**可能只占一行**
+//   （比原来更好）。所以这里不再写死 `rows === 2`，只保留真正的意图：**任何一行都不许出现"只有 ？"**。
+ck('V1.8.0（需求9 / V1.9.0 需求5）：320 / 360 / 390 / 430px 下「?」都不独占一行（每行都与其它控件作伴）',
+  [430, 390, 360, 320].every(w => rowByW[w] && rowByW[w].rows >= 1 && helpAloneIn(rowByW[w]) === 0),
   JSON.stringify(Object.fromEntries([430, 390, 360, 320].map(w =>
-    [w, rowByW[w] && (rowByW[w].alone || []).join('|') + ' av=' + rowByW[w].av + ' gap=' + rowByW[w].gap]))));
-ck('V1.8.0（需求9）：430px 下「选择地面观测点」行收成**一行**（内容因此整体上移一行）',
-  rowByW[430] && rowByW[430].r2.length === 1 &&
-  rowByW[430].r2[0].items.indexOf('pickBtn') >= 0 && rowByW[430].r2[0].items.indexOf('pickEps') >= 0,
+    [w, rowByW[w] && (rowByW[w].alone || []).join('|') + ' rows=' + (rowByW[w] && rowByW[w].rows) + ' av=' + rowByW[w].av + ' gap=' + rowByW[w].gap]))));
+// V1.9.0（需求19）**取舍说明**：原先这条要求「430px 下观测点行收成一行」。R19 要求所有滑条统一加长
+//   （--slider-w 38vw，430px 时 163px，比过去那条 80px 的局部收窄长了约一倍），而观测点那一行是
+//   [选择地面观测点][？][最低仰角标题][滑条][数据框] **五个**元素的组合 —— 滑条加长后它在 430px 下
+//   必然占两行。两者在数学上无法同时成立（要收成一行需 W ≤ 102px，等于把滑条砍回旧值、违背 R19）。
+//   所以断言改成保留**真正要防的那件事**：观测点的「？」必须与按钮同行（不落单）+ 观测点行独立于第一行。
+ck('V1.9.0（需求19 取舍）：430px 下观测点行的「？」与「选择地面观测点」按钮同行（不落单），且观测点行独立',
+  rowByW[430] && rowByW[430].r2.some(g => g.items.indexOf('pickBtn') >= 0 && g.help > 0) &&
+  rowByW[430].r2.some(g => g.items.indexOf('pickEps') >= 0),
   JSON.stringify(rowByW[430] && rowByW[430].r2) + ' av=' + (rowByW[430] && rowByW[430].av));
 ck('V1.8.0（需求9）：观测点行始终独立于第一行（第一行里不出现 pickBtn / pickEps）',
   [430, 390, 360, 320].every(w => rowByW[w] && rowByW[w].r1 &&
@@ -871,10 +886,11 @@ ck('V1.8.0：探针注入点在 app 主 IIFE 作用域内（能看见 VERSION / 
   await ev(`JSON.stringify(window.__CISTRACK__._probe())`));
 
 // --- 03.5 章节本体 ---
-ck('V1.8.0（需求8）：03.5 章节标题为「组网进度」且编号 03.5', await ev(`(function(){
+// V1.9.0（R17）：组网进度已从 03.5 提到 **04**（05 让给新的「升轨情况」章）
+ck('V1.9.0（R17）：04 章节标题为「组网进度」且编号 04', await ev(`(function(){
   var s = document.getElementById('sec-progress'); if (!s) return false;
   var n = s.querySelector('.sec-num');
-  return !!n && n.textContent.trim() === '03.5';
+  return !!n && n.textContent.trim() === '04';
 })()`));
 ck('V1.8.0（需求8）：曲线图真的画出来了（画布上有非背景像素）', await ev(`(function(){
   var cv = document.getElementById('netCv'); if (!cv) return false;
@@ -891,10 +907,17 @@ ck('V1.8.0（需求8）：曲线图真的画出来了（画布上有非背景像
 ck('V1.8.0（需求8/Q5）：横轴刻度用的是「日期」（netDateLabel 输出 YY/MM/DD，不是「第 XX 周」）',
   await ev(`/^\\d{2}\\/\\d{1,2}\\/\\d{1,2}$/.test(window.__CISTRACK__.netDateLabel(Date.now()))`),
   await ev(`window.__CISTRACK__.netDateLabel(Date.now())`));
-ck('V1.8.0（需求8/Q5）：图例用星座名（中文 星网/千帆）+ 两端日期区间，且不出现「第 X 周」', await ev(`(function(){
+// V1.9.0（需求3）改口径：04 章默认**只看本页星座**，所以图例里通常只出现**一个**星座名 ——
+//   原来的"必须同时出现星网与千帆"已不成立。新判据（更强）：
+//   ① 必须出现**至少一个**星座名；② 且必须是**当前语言**的写法（中文界面不得漏出 CSCN/Qianfan，
+//      英文界面不得漏出中文）；③ 必须有数据跨度日期；④ 不得出现「第 X 周」。
+ck('V1.8.0（需求8/Q5 / V1.9.0 需求3）：图例用**当前语言**的星座名 + 两端日期区间，且不出现「第 X 周」', await ev(`(function(){
   var n = document.getElementById('netNote'); if (!n) return false;
   var t = n.textContent;
-  return /星网/.test(t) && /千帆/.test(t)
+  var zh = document.documentElement.getAttribute('lang') !== 'en';
+  var hasAny = zh ? (/星网/.test(t) || /千帆/.test(t)) : (/CSCN/.test(t) || /Qianfan/.test(t));
+  var wrongLang = zh ? (/CSCN|Qianfan/.test(t)) : (/星网|千帆/.test(t));
+  return hasAny && !wrongLang
       && /\\d{2}\\/\\d{1,2}\\/\\d{1,2}/.test(t)
       && !/第\\s*\\d+\\s*周/.test(t);
 })()`), await ev(`(document.getElementById('netNote')||{}).textContent`));

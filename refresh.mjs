@@ -22,6 +22,12 @@ process.on('unhandledRejection', function (e) { console.error('[refresh] unhandl
 const UA = { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36' };
 const forceCat = process.argv.includes('--force-cat');
 
+// V1.9.0：6 位编目号对象的 OMM 通路（见下方 S5）—— 占位号 → 真号的映射，落 data/omm_norad.json
+import { tleFromOmm, fromCelesTrakOmm, PH } from './scripts/omm.mjs';
+const OMM_IDS_PATH = path.join(D, 'omm_norad.json');
+let OMM_IDS = {};
+try { OMM_IDS = JSON.parse(fs.readFileSync(OMM_IDS_PATH, 'utf8')); } catch (e) { OMM_IDS = {}; }
+
 const GROUPS = { gw: 'hulianwang', qf: 'qianfan' };
 // 名称前缀（CelesTrak NAME= 是前缀模糊匹配；目录里的写法并不统一，所以两边都列全）
 const NAMES = {
@@ -176,6 +182,44 @@ for (const key of ['gw', 'qf']) {
   }
   if (still.length) console.log(key, 'S4 备源   → 待补', still.length, '颗，补到', from.alt, '颗');
 
+  // ---- S5 OMM（V1.9.0 修复的真缺陷）：6 位编目号的对象 ----
+  //   CelesTrak 自 2026-07-11 起新对象一律 6 位（100000+），而**经典 TLE 的编目号字段只有 5 列**，
+  //   于是它们的 GP 数据不再以 TLE 格式提供 —— 旧版三路全用 FORMAT=tle，所以永远拿不到
+  //   （实测 missing 全为 6 位：gw 36 条、qf 19 条）。
+  //   这里改用 FORMAT=json（OMM）取，再用 scripts/omm.mjs 转成"TLE 形状"文本：
+  //   **编目号字段填占位 5 位（真号后 5 位）**，真号记进 data/omm_norad.json 由 mkdata 写回前端。
+  //   （转换器自带往返自检：node scripts/omm.mjs --selftest，436 样本 0 失败。）
+  const ommTodo = [];
+  Object.keys(catByPrefix[key] || {}).forEach(p => {
+    (catByPrefix[key][p] || []).forEach(o => {
+      if (o.type !== 'PAY' || o.decay) return;
+      if (o.norad < 100000) return;                    // 5 位的走上面四路，这里只管 6 位
+      if (merged.has(Number(PH(o.norad)))) return;      // 已按占位号收过
+      ommTodo.push(o);
+    });
+  });
+  for (const o of ommTodo.slice(0, 80)) {
+    r = await get(`https://celestrak.org/NORAD/elements/gp.php?CATNR=${o.norad}&FORMAT=json`);
+    if (r.ok) {
+      try {
+        const arr = JSON.parse(r.text);
+        const om = Array.isArray(arr) ? arr[0] : arr;
+        if (om && om.MEAN_MOTION) {
+          const ph = PH(o.norad);
+          const t = fromCelesTrakOmm(om);
+          const [l1s, l2s] = tleFromOmm(t, ph);
+          // 直接按占位号塞进 merged（名称沿用目录里的写法，便于下面的 MATCH 过滤）
+          merged.set(Number(ph), { name: o.name, l1: l1s, l2: l2s,
+            epoch: t.EPOCH_Y2 * 1000 + t.EPOCH_DOY, cospar: (om.OBJECT_ID || o.cospar).trim() });
+          OMM_IDS[ph] = o.norad;
+          from.omm = (from.omm || 0) + 1;
+        }
+      } catch (e) { /* 不是 JSON / 字段不全：跳过这一颗 */ }
+    }
+    await sleep(120);
+  }
+  if (ommTodo.length) console.log(key, 'S5 OMM    → 6 位待补', ommTodo.length, '颗，补到', from.omm || 0, '颗');
+
   // 只保留名字能对上的（避免 NAME=GW- 这类前缀误伤其它星座的卫星）
   const out = new Map();
   [...merged.values()].forEach(s => { if (MATCH[key].test(s.name)) out.set(parseInt(s.l1.slice(2, 7), 10), s); });
@@ -195,4 +239,6 @@ for (const key of ['gw', 'qf']) {
   console.log(key, '最终', out.size, '颗（原', before, '）｜仍缺轨道要素', miss.length, '颗');
 }
 fs.writeFileSync(path.join(D, 'refresh_report.json'), JSON.stringify(report, null, 1), 'utf8');
-console.log('\n报告已写入 data/refresh_report.json');
+// V1.9.0：把「占位号 → 真号」的映射落盘，供 mkdata.mjs 把真号写回前端 id（前端代码零改动）
+fs.writeFileSync(OMM_IDS_PATH, JSON.stringify(OMM_IDS, null, 1), 'utf8');
+console.log('\n报告已写入 data/refresh_report.json（OMM 映射 ' + Object.keys(OMM_IDS).length + ' 条 → data/omm_norad.json）');

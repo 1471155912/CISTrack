@@ -54,6 +54,13 @@ var I18N = {
   //   此前这三个地方引用了 n_gw / n_qf，但表里**根本没有这两个键** —— t() 找不到键时会原样
   //   返回键名，于是新章节会直接把「n_gw」当文字画在页面上（英文界面同样漏）。现补齐。
   n_gw: ['星网', 'CSCN'], n_qf: ['千帆', 'Qianfan'],
+  // V1.9.0（需求9）：选中提示语 —— 批次/组全选、单颗选中、跨星座三种
+  d_sel_all: ['已全选', 'All selected'],
+  d_sel_one: ['已选择', 'Selected'],
+  d_sel_cross: ['已全选，请切换星座页面查看', 'All selected — switch constellation to view'],
+  // V1.9.0（需求18）：**导出图片**底栏 CISTrack 行里的星座名 —— 英文必须用 CSCN / SpaceSail，
+  //   此前那行用的是 st.name（星座对象自带的中文名），所以英文图里一直漏出「星网 / 千帆」。
+  shot_gw: ['星网', 'CSCN'], shot_qf: ['千帆', 'SpaceSail'],
   // V1.7.0 第四轮（需求5a）：英文主标题的星座名换全称/并称（只用于第0章主标题，顶栏按钮仍用 cn_gw_short）
   cn_gw_long: ['星网', 'CSCN/GW'], cn_qf_long: ['千帆', 'SpaceSail/Qianfan'],
   d_dataupd: ['TLE更新时间', 'TLE updated'],          // V1.7.2（需求7）：数据更新 → TLE更新时间
@@ -96,7 +103,7 @@ var I18N = {
   d_x_inc: ['轨道倾角', 'Inclination'],   // V1.3.6：分布图横轴标题
   md_bro: ['布劳威尔', 'Brouwer'], md_kep: ['开普勒', 'Kepler'],
   c_sat: ['按卫星', 'By satellite'], c_group: ['按批次', 'By group'],
-  b_reset: ['重置视图', 'Reset view'], b_cov: ['可见倾角', 'Coverage'],
+  b_reset: ['重置视图', 'Reset view'], b_cov: ['可见区域', 'Coverage'],
   b_shot: ['导出图片', 'Save image'],          // V1.3.7
   // V1.4.0：导出弹窗与导出图底栏
   shot_cur: ['导出当前页', 'Save This Page'],
@@ -142,9 +149,9 @@ var I18N = {
   b_pick: ['选择地面观测点', 'Pick ground site'], b_names: ['名称', 'Names'],
   b_spin: ['自转', 'Spin'], b_tracks: ['轨道', 'Orbits'],
   // V1.3.6：按钮名精简（"显示可视锥"→"可视区域"，"显示名称"→"名称"）
-  b_cone: ['可视区域', 'Coverage'],
+  b_cone: ['可见区域', 'Coverage'],
   b_now: ['实时', 'Now'], b_cols: ['全部列', 'All columns'], pg_jump: ['点击页码可输入跳页', 'Click the page number to jump'],
-  b_maptracks: ['显示轨道', 'Orbits'],
+  b_maptracks: ['轨道', 'Orbits'],
   b_default: ['默认设置', 'Defaults'], b_reset_all: ['还原所有默认设置', 'Restore all defaults'],
   b_readme: ['说明', 'README'],
   b_reset_all_done: ['当前已是默认设置', 'Already at defaults'],
@@ -169,10 +176,18 @@ var I18N = {
     'Two curves track how fast CSCN and Qianfan build their constellations. The x axis is weekly, labelled with the actual date; the y axis switches between cumulative launches and satellites in orbit. "Launches" sums every satellite sent up (including failures and partial successes when a count is on record); "In orbit" counts satellites with fresh elements plus successful batches launched but not yet catalogued.'],
   l_netmode: ['纵轴量', 'Y axis'], nm_launch: ['发射量（累计）', 'Launches (cum.)'], nm_orbit: ['在轨数量', 'In orbit'],
   nm_unit_launch: ['累计发射卫星数', 'Cumulative satellites launched'], nm_unit_orbit: ['在轨卫星数', 'Satellites in orbit'],
-  l_netshow: ['星座', 'Constellation'], d_x_date: ['日期', 'Date'], d_week_unit: ['（按周）', ' (weekly)'],
-  t_defprogress: ['恢复 03.5 组网进度的初始设置', 'Restore the default settings of 03.5 Network Progress'],
+  l_netshow: ['星座', 'Constellation'], d_x_date: ['日期', 'Date'],
+  // V1.9.0（R17）05 章「升轨情况」：英文标题按定稿用 Orbits Raising Status
+  h_climb: ['升轨情况', 'Orbits Raising Status'],
+  lead_climb: ['选定一颗卫星或一个批次/组，画出它们的轨道半长轴随时间的变化 —— 刚入轨时低、随后被发动机一点点抬到工作高度的那段"爬坡"。',
+    'Pick one satellite or one batch/group and see how its orbital semi-major axis changes over time — the climb from a low initial altitude up to the working height.'],
+  climb_pick: ['对象', 'Object'], climb_take: ['纵轴量', 'Y axis'], climb_rate: ['升轨速度', 'Climb rate'],
+  t_defclimb: ['恢复 05 升轨情况的初始设置', 'Restore the default settings of 05 Orbits Raising Status'],
+  // ↑↑ V1.9.0（R17）：05 章的三段式 i18n（标题/说明/选择器），其中「升轨速度」的算法口径见 climbNote
+  t_defprogress: ['恢复 04 组网进度的初始设置', 'Restore the default settings of 04 Network Progress'],
   t_netinfo: ['怎么看这张图', 'How to read this chart'],
-  d_net_week: ['该周', 'Week'], d_net_batches: ['新增批次', 'New batches'],
+  // V1.9.0（需求8）：改名「新增批次」→「新增卫星」（内容也确实是新增的卫星/批次组）
+  d_net_week: ['该周', 'Week'], d_net_batches: ['新增卫星', 'New satellites'],
   d_net_span: ['数据跨度', 'Data span'],
   t_age: ['在轨日, 天', 'Days in orbit'],
   foot_data: ['轨道数据来自 NORAD 空间目标目录', 'Orbit data from the NORAD satellite catalog'],
@@ -550,7 +565,9 @@ var PREF_DEF = {
   covOn: true, covEl: 10, pickOn: false, pickEl: 0, mapTrack: true, nameMap: false,
   coneOn: true, coneEl: 10, spin: true, showTracks: true, nameGlobe: true,
   sortKey: 'norad', sortAsc: false, allCols: false,
-  netMode: 'launch', netGw: true, netQf: true,     // V1.8.0（需求8）：03.5 组网进度
+  netMode: 'launch',                              // V1.8.0（需求8）：03.5 组网进度
+  // V1.9.0（需求3）：netGw / netQf **不再放这里** —— 它们改为按星座各存一份（见 STATE_FIELDS），
+  //   出厂默认 = 只看本页星座（星网页面只显示星网、千帆页面只显示千帆），两个页面互不联动。
   timeOffsetMap: 0, timeOffsetGlobe: 0     // V1.7.3（需求9）：两章时间条各自独立
 };
 // 「默认设置」按钮各自管哪几项（时间滑块 02/03 共用，两边都能还原）
@@ -559,9 +576,17 @@ var PREF_SEC = {
   map: ['covOn', 'covEl', 'pickOn', 'pickEl', 'mapTrack', 'nameMap', 'cMap', 'timeOffsetMap'],
   globe: ['coneOn', 'coneEl', 'spin', 'showTracks', 'nameGlobe', 'cGlobe', 'timeOffsetGlobe'],
   // V1.8.0（需求8）：03.5 组网进度自己那一章的默认设置
-  progress: ['netMode', 'netGw', 'netQf'],
+  progress: ['netMode'],
   table: ['sortKey', 'sortAsc', 'allCols']
 };
+// V1.9.0（需求3）：03.5 组网进度的「显示星网 / 显示千帆」**按星座各存一份**（见 STATE_FIELDS），
+//   出厂默认 = **只看本页星座**：星网页面只显示星网、千帆页面只显示千帆；两边互不联动，
+//   且本页的「默认设置 / 还原所有默认设置」都把它算进还原范围（见 resetSection / resetAllPrefs）。
+function applyNetShowDefault(key) {
+  var k = key || S.key;
+  S.netGw = (k === 'gw');
+  S.netQf = (k === 'qf');
+}
 function prefSnap() {
   return {
     model: S.model, mode: S.mode, launchFilter: S.launchFilter,
@@ -717,6 +742,8 @@ function resetSection(sec) {
   var tvTween = (sec === 'map') ? 'map' : (sec === 'globe') ? 'globe' : null;
   var offFrom = tvTween === 'map' ? p.timeOffsetMap : tvTween === 'globe' ? p.timeOffsetGlobe : 0;
   (PREF_SEC[sec] || []).forEach(function (k) { p[k] = PREF_DEF[k]; });
+  // V1.9.0（需求3）：04 章本章的「默认设置」同样把它还原成"只看本页星座"（只影响本页）。
+  if (sec === 'progress') applyNetShowDefault();
   prefApply(p);
   // V1.8.0（需求16「恢复默认增强」）：章节「默认设置」原先只把本章控件变量改回去，现在与
   //   「还原所有默认设置」**同口径**：
@@ -755,24 +782,25 @@ function resetSection(sec) {
     } catch (e) {}
   }
 }
-// V1.7.0 第四轮（需求6）：「还原所有默认设置」升级为**完全还原** ——
-//   旧版只还原 PREF 里那几项设置；现在连 三图视图（地图缩放平移 / 地球姿态缩放 / 图表自动视图）、
-//   选中与批次选中、表格与发射历史的页码、搜索框与联想区、观测点、时间偏移 一起归零，
-//   并且把**两个星座**的会话快照都扔回出厂（否则切到另一个星座又把旧状态带回来）。
-// V1.7.1（需求4 + 需求10）：用户明确「不豁免还原」—— 出厂状态 = **星网 + 中文 + 暗色 + 全部默认**，
-//   所以还要把**星座**和**语言**一并拨回中文星网，且**不走切换动画**
-//   （还原是纠错动作，用户要的是立刻看到干净状态；放 0.5s 动画反而像"还没生效"）。
-//   时间条原来只靠 prefApply 内部的 S.timeOffset=0，两条滑条的 value / 按钮文案 /
-//   .shifted 高亮 / 全屏药丸的黄色呼吸边框都不会跟着回退 → 现在显式走 setOffset(0)。
+// V1.9.0（需求1，**修正 V1.7.1 的旧决议**）：用户明确「顶栏三项**不**参与还原」——
+//   出厂态不再包含 星座 / 语言 / 亮暗，这三项保持用户当前选择。还原只作用于
+//   「页面内的设置项 + 三张图的视图位置 + 表格翻页 + 时间条 + 选中 / 搜索 / 滚动」。
+//   并且**星网与千帆各自独立**：在星网页面按还原不会影响千帆页面的状态（只清本星座的会话快照）。
+//   （旧的「不豁免还原 / 出厂 = 星网 + 中文 + 暗色」随之作废 —— 那段注释与代码一并删掉。）
+// V1.7.0 第四轮（需求6）保留：本函数仍是「完全还原」，即把 三图视图（地图缩放平移 /
+//   地球姿态缩放 / 图表自动视图）、选中与批次选中、表格与发射历史的页码、搜索框与联想区、
+//   观测点、时间偏移 一起归零；时间条必须显式走 setOffset(0)，否则滑条 value / 按钮文案 /
+//   .shifted 高亮 / 全屏药丸的黄色边框都不会跟着回退。
 function resetAllPrefs() {
-  var needConstel = (S.key !== 'gw');        // 记在改状态之前
-  var needLang = (LANG !== 'zh');
   prefApply(Object.assign({}, PREF_DEF));
-  // 选中 / 页码 / 搜索 / 滚动位置
+  // V1.9.0（需求3）：04 章的「显示星网 / 显示千帆」也纳入还原范围 —— 还原成"只看本页星座"。
+  //   因为它是**按星座各存一份**的，所以在本页点还原只影响本页，另一个星座完全不受影响。
+  applyNetShowDefault();
+  // 选中 / 页码 / 搜索 / 滚动位置（滚动位置按星座各存一份 → 只归零本星座）
   S.sel = []; S.selGroup = null; S.focusIdx = null; S.hover = null;
   S.query = ''; S.tpage = 0; S.page = 0;
-  S.scrollY = { gw: 0, qf: 0 };
-  SEARCH_TEXT.gw = ''; SEARCH_TEXT.qf = '';
+  S.scrollY[S.key] = 0;
+  SEARCH_TEXT[S.key] = '';             // V1.9.0（需求1）：搜索词也按星座各存 → 只清本页
   SEARCH_BOXES.forEach(function (b) {
     var el = document.getElementById(b.input); if (el) el.value = '';
     var sg = document.getElementById(b.sug); if (sg) { sg.classList.remove('open'); sg.innerHTML = ''; }
@@ -782,32 +810,11 @@ function resetAllPrefs() {
   // 三图视图：地图缩放平移归零 / 地球回到出厂姿态 / 图表自动视图
   S.mz = { k: 1, tx: 0, ty: 0 };
   G.yaw = 100 * RAD; G.pitch = 22 * RAD; G.zoom = 1;
-  // 主题回暗色（出厂默认；与刷新 / 重进链接一致，见 setTheme 的注释）
-  setTheme(false);
-  // 两个星座的会话快照一并扔回出厂
-  STORE.gw = null; STORE.qf = null;
-  // ★ 星座回星网：直接改状态 + 重载，**绕过 playNetSwitch**（不播动画）
-  if (needConstel) {
-    S.key = 'gw';
-    try { moveConstelSlider('gw', false); } catch (e) {}
-    var seg = document.getElementById('constelSeg');
-    if (seg) seg.querySelectorAll('button').forEach(function (x) {
-      x.classList.toggle('on', x.getAttribute('data-c') === 'gw');
-    });
-    try { applyConstel(); } catch (e) {}
-  }
-  // ★ 语言回中文：同样绕过 playLangSwitch，直接刷文案
-  if (needLang) {
-    LANG = 'zh';
-    try { applyStaticLang(); } catch (e) {}
-    try { refreshMaskText(); } catch (e) {}
-    try { renderChrome(); } catch (e) {}
-    try { refreshJumpTitles(); } catch (e) {}
-  }
+  // V1.9.0（需求1）：**不再** setTheme(false) / 回星网 / 回中文 —— 顶栏三项不参与还原。
+  //   只把**本星座**的会话快照扔回出厂；另一个星座完全不受影响。
+  STORE[S.key] = null;
   // V1.7.1（需求2）：还原默认也要清掉「用户已关闭信息窗」的标记，否则还原后信息窗死活不出来
   infoClearClosed();
-  // 星座或语言变了 → 数据/文案都要重建
-  if (needConstel || needLang) { try { rebuild(); } catch (e) {} }
   syncAllControls();
   syncControlsFromS();
   // V1.7.1（需求10）：时间条必须走 setOffset(0) —— prefApply 只改了变量本身，
@@ -857,9 +864,24 @@ function colOf(s, scope) {
     var from = COLORMIX.from[s.idx];
     var k = Math.min(1, (performance.now() - COLORMIX.t0) / ANIM.t);
     if (k >= 1) { COLORMIX = null; return to; }
-    if (from != null) return _mix(from, to, 1 - Math.pow(1 - k, 3));   // 与 animTo 同一条 easeOutCubic
+    if (from != null) {
+      // V1.9.0（需求3，两段式根治）：旧版这里是 `_mix(from, to, ease)` —— **A 色直接插值到 B 色**，
+      //   所以看上去是"颜色慢慢变色"，而不是你要的"**先整体褪去、再染上**"。
+      //   现在改成：前半程（0→0.5）把旧配色**整体淡出**（alpha 1→0），后半程（0.5→1）把新配色
+      //   **淡入**（alpha 0→1）。曲线仍用 easeOutCubic（与全站 520ms 非线性动画同一族），
+      //   因此观感 = 全图染色逐渐非线性褪去 → 非线性染上新色。
+      if (k < 0.5) return _fade(from, 1 - (1 - Math.pow(1 - k * 2, 3)));
+      return _fade(to, Math.pow((k - 0.5) * 2, 3));
+    }
   }
   return to;
+}
+// 把任意颜色字符串换成带 alpha 的 rgba（画布 fillStyle/strokeStyle 与 HTML background 都吃）
+function _fade(c, alpha) {
+  var a = _c2rgb(c);
+  if (!a) return c;                    // 解析不了就原样返回 —— 宁可不动，也不要出错
+  var v = Math.max(0, Math.min(1, alpha));
+  return 'rgba(' + a[0] + ',' + a[1] + ',' + a[2] + ',' + v.toFixed(3) + ')';
 }
 // V1.3.6：纵轴量只剩半长轴 / 远地点 / 近地点（倾角改作横轴，周期在表格与信息窗里看）
 var MODES = ['sma', 'ha', 'hp'];
@@ -1893,7 +1915,15 @@ function drawMap(states, ms) {
   //   被选定的卫星和鼠标掠过的卫星仍旧画着自己的轨道。
   //   用户要求的语义与第二章（地球）完全一致：关闭 = 谁都不画（含选中与悬停）；
   //   开启 = 全部 + 选中 + 悬停一起画（各用原来的 alpha）。
-  if (S.mapTrack) {
+  // V1.9.0（需求3，R3 下半根治）：**门禁改用补间系数，而不是布尔值**。
+  //   旧写法是 `if (S.mapTrack) { ... }` —— 开关一关，整块绘制被**立刻跳过**，
+  //   于是上面 strokeTrack 里那句 `alpha * TOG.mapTrack` 形同虚设：淡出动画根本没机会播，
+  //   轨道是"啪"地一下消失的（这正是你反馈"第 1 章轨道开关没有第 2 章那种非线性消失/出现"的真因）。
+  //   改成按 TOG.mapTrack（520ms 补间系数）判断后：
+  //     · 关 → 系数从 1 平滑降到 0，期间一直在画（alpha 越来越小）= 非线性淡出；
+  //     · 开 → 系数从 0 升到 1，第一帧之后即进入绘制并逐渐加浓 = 非线性淡入；
+  //     · 补间结束系数为 0 → 跳过整块，**性能与旧版一致**（不白画）。
+  if (TOG.mapTrack > 0.001) {
     if (!pickOn && !hasSel) {
       for (var si = 0; si < st.sats.length; si++) strokeTrack(si, 0.3);
     }
@@ -2228,7 +2258,10 @@ function drawGlobe(states, ms) {
 // ---------------------------------------------------------------- 表 04
 var tbody = document.getElementById('tbody');
 var tableRows = {};
-var SAT_PAGE = 10;
+// V1.9.0（翻页等高根治）：SAT_PAGE 的单位从「标准单行数」改成「**1/4 行**」——
+//   10 个标准行 = 40 个 1/4 行格。配合 measureRowUnits 的 ceil，任何一页总高都不会超过
+//   10 × 41 = 410px，放不满的差额由下方留白补齐 → **翻页控件位置恒定**。
+var SAT_PAGE = 40;
 function ageText(ms0) {
   if (!isFinite(ms0)) return '—';
   var now = new Date();
@@ -2340,12 +2373,23 @@ function makerCell(s) {
 // 导出其它页时不必真的翻页渲染（避免闪屏）。
 function satRowHtml(r) {
   var s = r._s, sel = S.sel.indexOf(s.idx) >= 0;
+  // V1.9.0（需求9b）：**不属于任何批次/组**的卫星 —— 判据（用户口径）：
+  //   ① 它所在的那次发射**只送了 1 颗**（单星发射，谈不上"批次/组"）；
+  //   ② 这次发射在卫星百科里查不到元数据（L.name 回落成 COSPAR 前缀）—— 给未来"不明归属"的卫星兜底。
+  //   这类卫星的「批次/组」列显示为**居中、加粗、无下划线**的「−」(U+2212)，且不再是可点链接。
+  //   注：s.launch 就是 build() 里挂上去的发射对象（含 count / sats / key / name）。
+  var L = s.launch;
+  var lone = !L ||
+    (L.name && L.key && L.name === L.key) ||
+    ((L.count > 0 ? L.count : (L.sats ? L.sats.length : 0)) <= 1);
   // V1.3.6：卫星名染主题色 + 下划线，点击跳到 satcat.com 的对应条目（按 NORAD 编号）
   return '<tr data-idx="' + s.idx + '" class="' + (sel ? 'focused' : '') + '">' +
     '<td class="lname"><span class="swatch" style="background:' + colOf(s, 'chart') + ';margin-right:6px"></span>' +
     '<a class="sat-link" href="' + SATCAT(r.norad) + '" target="_blank" rel="noopener" title="Satcat · ' + r.norad + '">' + r.name + '</a></td>' +
     '<td>' + r.norad + '</td>' +
-    '<td><span class="batch-link" data-lk="' + s.lk + '" title="' + t('d_sel_group') + '">' + batchName(r.launch) + '</span></td>' +
+    '<td>' + (lone
+      ? '<span class="batch-none">\u2212</span>'
+      : '<span class="batch-link" data-lk="' + s.lk + '" title="' + t('d_sel_group') + '">' + batchName(r.launch) + '</span>') + '</td>' +
     '<td class="ltime">' + r.lstr + '</td>' +
     '<td class="maker">' + makerCell(s) + '</td>' +
     '<td>' + fmtNum(r.sma, 1) + '</td>' +
@@ -2419,16 +2463,24 @@ function measureRowUnits(rows) {
     tb.innerHTML = rows.map(satRowHtml).join('');
     var trs = tb.children;
     var STD = 41;
+    // V1.9.0（翻页等高根治）：**这里原本是 Math.round(h / STD)，就是"多行制造商的那页被顶高"的病根** ——
+    //   双行制造商的行高约 58px，58 / 41 = 1.41 → round 成 **1** 个单元，于是 10 行这样的行照样被当成
+    //   10 个"标准单行"，整页 580px 远超 10 × 41 = 410px 的预留高度，翻页控件因此被顶下去。
+    //   现在两点一起改：
+    //   ① 改成 **ceil**（宁可多算，绝不少算）—— 任何一页的总高都不会超过 410px；
+    //   ② 单元粒度从「1 行」细化到「1/4 行」（见 SAT_PAGE = 40），避免"只高一点点就翻倍占格"，
+    //      从而使每页尽量填满（例：58px 的行占 6/4 格 → 一页放 6 行 = 348px，填到 85%），
+    //      放不满的差额由表格下方留白补齐，**翻页控件的位置因此恒定**。
     for (var i = 0; i < rows.length && i < trs.length; i++) {
       var h = trs[i].getBoundingClientRect().height || STD;
-      map[rows[i]._s.idx] = Math.max(1, Math.round(h / STD));
+      map[rows[i]._s.idx] = Math.max(1, Math.ceil(h / (STD / 4)));
     }
     document.body.removeChild(box);
   } catch (e) {
-    // 量尺失败时退化为「按文本长度估算」，保证功能不中断
+    // 量尺失败时退化为「按文本长度估算」，保证功能不中断（同样按 1/4 行粒度返回）
     rows.forEach(function (r) {
       var a = String(r.maker || '').length, b = String(r.name || '').length;
-      map[r._s.idx] = Math.max(1, Math.ceil(a / 12), Math.ceil(b / 30));
+      map[r._s.idx] = Math.max(4, Math.ceil(a / 12) * 4, Math.ceil(b / 30) * 4);
     });
   }
   _rowUnitCache = { sig: sig, map: map };
@@ -2598,8 +2650,8 @@ function savePng(cv, name) {
 // ---------------------------------------------------------------- V1.7.0 第三轮（需求10）：导出命名与倍率
 // 文件名片段：中文用星座/章节中文名，英文一律用独立 ASCII 映射（不取 i18n 标题，避免残留非 ASCII）。
 var FILE_SEG = {
-  gw: { zh: '星网', en: 'CS' },
-  qf: { zh: '千帆', en: 'SS' }
+  gw: { zh: '星网', en: 'CSCN' },          // V1.9.0（需求18/Q22）：英文文件名也改用 CSCN / SpaceSail
+  qf: { zh: '千帆', en: 'SpaceSail' }
 };
 var VIEW_SEG = {
   map: { zh: '地图', en: 'Map' },
@@ -2627,7 +2679,7 @@ function safeName(s) {
 function shotFileName(view, extra) {
   var seg = FILE_SEG[S.key] || FILE_SEG.gw;
   var vs = VIEW_SEG[view] || VIEW_SEG.map;
-  var name = (S.key === 'qf' ? seg.zh : seg.zh) + '_' + vs.zh;
+  var name = (LANG === 'en' ? seg.en : seg.zh) + '_' + vs.zh;   // V1.9.0：清掉恒等三元（原两支同为 seg.zh，是笔误级死分支）
   if (LANG === 'en') name = seg.en + '_' + vs.en;
   if (extra) name += '_' + extra;
   return 'CISTrack_' + safeName(name) + '_' + fileStamp() + '_' + safeName(shotTimeTagName(view)) + '.png';
@@ -2679,8 +2731,7 @@ function drawShotFooter(ctx, W, y, left, dpr) {
 }
 // 底栏左侧那串：CISTrack <版本> · 星座 · 章节 · GMT …（版本号与页面同步）
 function shotLeft(title) {
-  var st = cur();
-  return 'CISTrack ' + VERSION + ' · ' + st.name + ' · ' + title + ' · ' + shotClock();
+  return 'CISTrack ' + VERSION + ' · ' + t('shot_' + S.key) + ' · ' + title + ' · ' + shotClock();
 }
 function monoFont(px, bold) {
   return (bold ? '700 ' : '') + px + 'px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
@@ -3130,7 +3181,7 @@ function exportTable(opts) {
   var bw2 = ctx.measureText('CISTrack').width;
   ctx.fillText('CISTrack', bx, by);
   bx += bw2 + 6 * dpr;
-  var restTxt = [VERSION, st.name, shotTitle, shotDateOnly(), pagesTxt2].join(' | ');
+  var restTxt = [VERSION, t('shot_' + S.key), shotTitle, shotDateOnly(), pagesTxt2].join(' | ');
   ctx.font = monoFont(11 * dpr);
   ctx.fillStyle = shotInk();
   ctx.fillText(restTxt, bx, by);
@@ -3671,7 +3722,8 @@ function playNetSwitch(fromKey, toKey, updateFn) {
 //   · 表格页码跨星座要 clamp（两星座行数不同）。
 var STATE_FIELDS = ['selGroup', 'focusIdx', 'colorMode', 'model', 'mode', 'launchFilter',
   'time', 'names', 'cov', 'pick', 'cone', 'mz', 'mapTrack', 'page', 'tpage',
-  'spin', 'showTracks', 'allCols', 'sortKey', 'sortAsc'];   // 'time'：V1.7.3 需求9，随星座快照各存一份
+  'spin', 'showTracks', 'allCols', 'sortKey', 'sortAsc',
+  'netGw', 'netQf'];   // V1.9.0（需求3）：04 章的「显示星网/显示千帆」改为按星座各存一份   // 'time'：V1.7.3 需求9，随星座快照各存一份
 var STORE = { gw: null, qf: null };   // 每个星座一份快照；null = 还没建过
 // ★ V1.7.0 第三轮末修正⑤：图表的缩放/平移（chartView）也要各星座独立。
 //   它不在 STATE_FIELDS 里（不是 S 的字段，而是一个独立的模块变量），
@@ -3723,10 +3775,14 @@ function initStore() {
   if (STORE_DEF) return;
   STORE_DEF = { gw: null, qf: null };
   ['gw', 'qf'].forEach(function (k) {
-    var sk = S.key; S.key = k;
+    var sk = S.key, sg = S.netGw, sq = S.netQf;
+    S.key = k;
+    // V1.9.0（需求3）：本页出厂默认 = **只看本星座** —— 必须在这个"逐星座快照"的循环里按 k 赋值，
+    //   这样 STORE_DEF.gw / STORE_DEF.qf 各自记下"只看自己"，两个页面从此天然独立、互不联动。
+    applyNetShowDefault(k);
     STORE_DEF[k] = { selNorad: [], globe: { yaw: G.yaw, pitch: G.pitch, zoom: 1 }, scrollY: 0 };
     STATE_FIELDS.forEach(function (f) { STORE_DEF[k][f] = cloneVal(S[f]); });
-    S.key = sk;
+    S.key = sk; S.netGw = sg; S.netQf = sq;
   });
 }
 // ---------------------------------------------------------------- V1.7.0 第三轮末
@@ -3940,6 +3996,9 @@ document.getElementById('themeBtn').addEventListener('click', function () {
   };
   var finishHeavy = function () {
     document.documentElement.classList.remove('vt-running');
+    // V1.9.0（需求14/A）：主循环在扩散期间被暂停过，恢复时把两张大画布标记为脏 ——
+    //   否则若"秒"没跳变，地图/地球不会重画，主题色就停留在旧值上。
+    mapDirty = globeDirty = true;
     try { renderTable(); } catch (e) {}
   };
   if (typeof document.startViewTransition !== 'function') { apply(); finishHeavy(); return; }
@@ -3958,17 +4017,37 @@ document.getElementById('themeBtn').addEventListener('click', function () {
   setTimeout(function () { if (!done) { done = true; setTheme(!light); } }, 120);   // 兜底：VT 回调未触发也保证切主题
 });
 // 图表控制
+// V1.9.0（需求4）：第 3 章「纵轴量 / 模型」的切换 = **按钮反色块平滑过渡 + 坐标图先褪去再出现**。
+//   按钮层：给 .seg button 的底色/文字色加过渡（CSS），点下去立刻平滑变色；
+//   画布层：260ms 淡出 → 半程换模式并重绘 → 260ms 淡入（与"轨道 / 可见区域"开关同一条曲线、同一时长），
+//   所以坐标图不会"啪"地跳到新纵轴量/新模型，而是先褪去、再以新内容浮现。
+function chartSwap(apply) {
+  var cv = document.getElementById('chart');
+  var wrap = cv && cv.parentNode;
+  if (!wrap) { try { apply(); } catch (e) {} return; }
+  wrap.classList.add('chart-out');
+  setTimeout(function () {
+    try { apply(); } catch (e) {}
+    wrap.classList.remove('chart-out');
+  }, ANIM.half);
+}
 document.getElementById('modeSeg').addEventListener('click', function (e) {
   var b = e.target.closest('button[data-mode]'); if (!b) return;
-  S.mode = b.getAttribute('data-mode');
+  if (b.classList.contains('on')) return;          // 点的是当前档：不做无意义的过场
   this.querySelectorAll('button').forEach(function (x) { x.classList.toggle('on', x === b); });
-  buildChartPoints(); chartAutoView(); drawChart(); renderHeader();
+  chartSwap(function () {
+    S.mode = b.getAttribute('data-mode');
+    buildChartPoints(); chartAutoView(); drawChart(); renderHeader();
+  });
 });
 document.getElementById('modelSeg').addEventListener('click', function (e) {
   var b = e.target.closest('button[data-model]'); if (!b) return;
-  S.model = b.getAttribute('data-model');
+  if (b.classList.contains('on')) return;
   this.querySelectorAll('button').forEach(function (x) { x.classList.toggle('on', x === b); });
-  buildChartPoints(); chartAutoView(); drawChart(); renderTable();
+  chartSwap(function () {
+    S.model = b.getAttribute('data-model');
+    buildChartPoints(); chartAutoView(); drawChart(); renderTable();
+  });
 });
 document.getElementById('groupSel').addEventListener('change', function () {
   S.launchFilter = this.value; chartAutoView(); drawChart();
@@ -4029,7 +4108,20 @@ var HELP = {
     zh: '<b>缩放</b>：触屏双指捏合，或鼠标滚轮；放大后可拖动平移，双击复位。',
     en: '<b>Zoom</b>: pinch on touch, or the scroll wheel; drag to pan once zoomed, double-click to reset.'
   },
+  // V1.9.0（需求5）：01 / 02 章的「？」合并成一个 —— 可见区域 + 缩放 + 选中/聚焦（三段拼接）。
+  //   其中「缩放 + 选中/聚焦」两段与 03 章的 zoomsel **逐字相同**（需求5 要求三个弹窗保持一致）。
+  //   （旧的 mapcov / cone / zoom / sel 四个键中，sel 仍被 04 章以外的老引用保留，其余不再被引用。）
+  covsel: {
+    zh: '<b>可见区域</b>：每颗卫星实时对地面的可视覆盖区（地图章）或球面覆盖圈（轨道章）。仰角滑块调最小仰角；选中某颗后只画它的覆盖区。<br><b>缩放</b>：触屏双指捏合，或鼠标滚轮；放大后可拖动平移，双击复位。<br><br><b>选中后一直看得见。</b>点光点或表格任一行即可选中（Ctrl / ⌘ + 点加选），信息窗<b>锁定显示</b>且可拖走：电脑按住拖，手机长按约半秒再拖，可以拖到画布外面。✕ 只关窗、不取消选中；点空白处才取消。<br><br><b>整批选中后可聚焦。</b>点某一批会选中整批，再点其中一颗 = 聚焦它（其余高亮保留），点空白才取消整批。',
+    en: '<b>Coverage</b>: the footprint each satellite can see right now (map) or its ground circle on the globe. The slider sets the minimum elevation; once a satellite is selected only its footprint is drawn.<br><b>Zoom</b>: pinch on touch, or the scroll wheel; drag to pan once zoomed, double-click to reset.<br><br><b>Once selected, it stays visible.</b> Click a dot or any table row to select (Ctrl / ⌘ + click adds). The info panel <b>stays pinned</b> and can be dragged — grab it on desktop, press and hold ~0.5 s on touch — even outside the canvas. ✕ closes only the panel; click empty space to clear.<br><br><b>Focus inside a group.</b> Clicking a group selects the whole batch, then clicking one satellite focuses it (the rest stay highlighted); only empty space clears the group.'
+  },
+  // V1.9.0（需求5）：03 章的「？」= 缩放 + 选中/聚焦（**不含**可见区域 —— 这一章没有覆盖区）。
+  zoomsel: {
+    zh: '<b>缩放</b>：触屏双指捏合，或鼠标滚轮；放大后可拖动平移，双击复位。<br><br><b>选中后一直看得见。</b>点光点或表格任一行即可选中（Ctrl / ⌘ + 点加选），信息窗<b>锁定显示</b>且可拖走：电脑按住拖，手机长按约半秒再拖，可以拖到画布外面。✕ 只关窗、不取消选中；点空白处才取消。<br><br><b>整批选中后可聚焦。</b>点某一批会选中整批，再点其中一颗 = 聚焦它（其余高亮保留），点空白才取消整批。',
+    en: '<b>Zoom</b>: pinch on touch, or the scroll wheel; drag to pan once zoomed, double-click to reset.<br><br><b>Once selected, it stays visible.</b> Click a dot or any table row to select (Ctrl / ⌘ + click adds). The info panel <b>stays pinned</b> and can be dragged — grab it on desktop, press and hold ~0.5 s on touch — even outside the canvas. ✕ closes only the panel; click empty space to clear.<br><br><b>Focus inside a group.</b> Clicking a group selects the whole batch, then clicking one satellite focuses it (the rest stay highlighted); only empty space clears the group.'
+  },
   // V1.8.0（需求16）：地图章「可见倾角？」与「缩放？」合并为一个 —— 内容两段拼接
+  //   （V1.9.0 起该按钮已被 covsel 取代，本键保留仅为兼容；下同 cone / zoom 两个键。）
   mapcov: {
     zh: '<b>可见倾角</b>：每颗卫星实时对地面的可视覆盖区。仰角滑块调最小仰角；选中某颗后只画它的覆盖区。<br><b>缩放</b>：触屏双指捏合，或鼠标滚轮；放大后可拖动平移，双击复位。',
     en: '<b>Coverage</b>: the footprint each satellite can see right now. The slider sets the minimum elevation; once a satellite is selected only its footprint is drawn.<br><b>Zoom</b>: pinch on touch, or the scroll wheel; drag to pan once zoomed, double-click to reset.'
@@ -4978,6 +5070,20 @@ document.getElementById('tableSearch').addEventListener('input', function () {
     });
   }, { rootMargin: '0px 0px -6% 0px', threshold: 0.04 });
   Array.prototype.forEach.call(els, function (el) { io.observe(el); });
+  // V1.9.0 加固（用户报的"刷新偶尔整页黑屏、切一下星座就好"）：
+  //   `.reveal` 的初始态是 opacity:0，只有 IntersectionObserver 回调**成功跑过一次**才会被加上 .in。
+  //   一旦那一刻因为竞态没触发（观察器回调延迟、元素在 rebuild 期间被替换、页面首帧尚未布局…），
+  //   这些元素就会**永远停在 opacity:0** —— 表现出来就是"整页黑屏，但顶栏/药丸还在"（它们是固定定位、
+  //   且不在 .reveal 名单里），而切星座会重建 DOM 顺带把它们揭开，所以"切一下就好"。
+  //   这里加一道**兜底**：2.5 秒后如果全页**一个** .reveal.in 都没有（说明观察器确实没工作），
+  //   就强制揭示全部 —— 正常路径完全不受影响（有 in 时什么都不做），只在灾难情形下兜住。
+  setTimeout(function () {
+    try {
+      if (document.querySelectorAll('.reveal.in').length === 0) {
+        Array.prototype.forEach.call(els, function (el) { el.classList.add('in'); });
+      }
+    } catch (e) {}
+  }, 2500);
 })();
 
 // ---------------------------------------------------------------- README 弹窗（Markdown）
@@ -5202,7 +5308,7 @@ var README_ZH = [
   '',
   '---',
   '',
-  '本页面由 [小橙子的宇宙Jackoraniverse](https://space.bilibili.com/455972735) 使用 AI 工具生成，灵感与最初版本来自于 [Где «Рассветы»](https://findrassvet.ru/)（Bureau 1440）的页面风格与布局。'
+  '本页面由 [小橙子的宇宙Jackoraniverse](https://space.bilibili.com/455972735) 使用 AI 工具生成，灵感与最初版本来自于跟踪俄罗斯**[「黎明」星座](https://sat.huijiwiki.com/wiki/%E9%BB%8E%E6%98%8E%E6%98%9F%E5%BA%A7)**（Rassvet）态势的网站**[findrassvet.ru](https://findrassvet.ru/)**。'
 ].join('\n');
 var README_EN = [
   '# 🛰️ CSCN & Qianfan Live Tracker',
@@ -5378,7 +5484,7 @@ var README_EN = [
   '',
   '---',
   '',
-  'This page was created by [小橙子的宇宙Jackoraniverse](https://space.bilibili.com/455972735) using AI tools, inspired by and originally based on [Где «Рассветы»](https://findrassvet.ru/) by Bureau 1440.'
+  'This page was created by [小橙子的宇宙Jackoraniverse](https://space.bilibili.com/455972735) using AI tools, inspired by **[findrassvet.ru](https://findrassvet.ru/)**, a site tracking Russia\'s **[Rassvet Constellation](https://sat.huijiwiki.com/wiki/%E9%BB%8E%E6%98%8E%E6%98%9F%E5%BA%A7)**.'
 ].join('\n');
 var readmeOpen = false;
 function renderReadme() {
@@ -5764,7 +5870,9 @@ document.querySelectorAll('.fs-exit-btn').forEach(function (b) {
     try { if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock(); } catch (e2) {}
     var y = (typeof preFsScrollY === 'number') ? preFsScrollY : (window.__fsScrollY || 0);
     try { window.scrollTo(0, y); } catch (e3) {}
-    try { if (ORI_HINT_ON) orientHint(false); } catch (e4) {}
+    // V1.9.0（需求11）：这里原来是 `if (ORI_HINT_ON) orientHint(false);` —— 随"删掉方向提示遮罩"
+    //   一起作废（orientHint 与 ORI_HINT_ON 都已删除）。**留着会是一句悬空引用**：
+    //   虽然被 try/catch 吞掉、表现上无害，但属于死代码，且会掩盖真正的错误。故整行移除。
   });
 });
 // V1.4.9：全屏期间保持屏幕常亮（Wake Lock）。手机端「熄屏后全屏自动退出」是移动浏览器的
@@ -5931,23 +6039,8 @@ document.addEventListener('visibilitychange', function () {
 //   ① 能锁就锁（全屏时锁横屏、退出锁回竖屏，带重试）；
 //   ② 锁不住就**提示**：主页在横屏时显示"请竖屏浏览"的遮罩；全屏在竖屏时显示"请横屏观看"的遮罩；
 //   ③ 任何状态切换都重新校正一次（orientationchange 时再跑一遍）。
-var ORI_HINT_ON = false;
-function orientHint(on, text) {
-  try {
-    var el = document.getElementById('oriHint');
-    if (!el) {
-      el = document.createElement('div');
-      el.id = 'oriHint';
-      el.style.cssText = 'position:fixed;left:0;right:0;bottom:0;z-index:500;display:none;' +
-        'padding:14px 16px;background:var(--panel);border-top:1px solid var(--hair);' +
-        'color:var(--fg);font:13px/1.6 var(--sans);text-align:center';
-      document.body.appendChild(el);
-    }
-    el.textContent = text || '';
-    el.style.display = on ? 'block' : 'none';
-    ORI_HINT_ON = !!on;
-  } catch (e) {}
-}
+// V1.9.0（需求11）：**去掉"请竖屏/请横屏"的提示遮罩** —— 用户明确「不用提示遮罩，维持老版本
+//   只做 lock 和 unlock」。旧的 orientHint() 与 ORI_HINT_ON 一并删除（保留 lockOrientation/unlock）。
 function lockOrientation(mode, tries) {
   try {
     if (!isTouch()) return;
@@ -5958,16 +6051,10 @@ function lockOrientation(mode, tries) {
     });
   } catch (e) {}
 }
-// 统一的"当前应该是什么方向"检查：全屏 → 横屏；非全屏 → 竖屏
+// 统一的"当前应该是什么方向"检查：全屏 → 横屏；非全屏 → 竖屏。只锁方向，不打扰用户。
 function enforceOrientation() {
   if (!isTouch()) return;
   var want = document.fullscreenElement ? 'landscape' : 'portrait';
-  var isLandscape = window.innerWidth > window.innerHeight;
-  var wrong = (want === 'landscape') ? !isLandscape : isLandscape;
-  // 锁不住时给提示（不阻断操作，只提示）
-  if (wrong && document.fullscreenElement) orientHint(true, LANG === 'en' ? 'Please rotate your phone to landscape for the full-screen view.' : '请把手机横过来观看全屏模式。');
-  else if (wrong) orientHint(true, LANG === 'en' ? 'Please rotate your phone back to portrait to browse.' : '请把手机竖过来浏览主页。');
-  else { if (ORI_HINT_ON) orientHint(false); }
   lockOrientation(want, 0);
 }
 document.addEventListener('fullscreenchange', function () {
@@ -6067,6 +6154,47 @@ Object.keys(NUMB).forEach(function (kind) {
   });
 });
 
+// ------------------------------------------------------------------ V1.9.0（需求9）选中提示
+// 「已全选」绿色提示：位置在**顶部时间药丸的正下方、水平居中**（运行时按药丸的实际底边定位，
+//   所以任何语言/宽度/是否全屏都贴着它），与药丸同层悬浮于页面内容之上；1.8s 后淡出。
+var toastEl = null, toastTimer = 0;
+function showToast(txt, isCross) {
+  try {
+    if (!toastEl) {
+      toastEl = document.createElement('div');
+      toastEl.id = 'selToast';
+      document.body.appendChild(toastEl);
+    }
+    toastEl.textContent = txt;
+    toastEl.classList.toggle('cross', !!isCross);
+    var pill = document.getElementById('clockPill');
+    if (pill) {
+      var r = pill.getBoundingClientRect();
+      toastEl.style.top = Math.round(r.bottom + 10) + 'px';
+    }
+    clearTimeout(toastTimer);
+    toastEl.classList.remove('show');
+    void toastEl.offsetWidth;               // 强制回流：保证连续触发时也能重新淡入
+    toastEl.classList.add('show');
+    toastTimer = setTimeout(function () { toastEl.classList.remove('show'); }, 1800);
+  } catch (e) {}
+}
+// 跨星座全选：把"全选"写进**另一个星座的会话快照**（STORE[other].selNorad + selGroup）。
+//   这样用户切过去时 applyConstel() 会自然恢复出"五个章节都选中该批次"的状态 —— 全程不需要切页面。
+function selCrossConstel(otherKey, lk) {
+  try {
+    var other = CONST[otherKey];
+    if (!other) return false;
+    var ids = other.sats.filter(function (s) { return s.lk === lk; }).map(function (s) { return s.norad; });
+    if (!ids.length) return false;
+    var o = STORE[otherKey] || (STORE_DEF ? cloneVal(STORE_DEF[otherKey]) : null);
+    if (!o) return false;
+    o.selNorad = ids;
+    o.selGroup = lk;
+    STORE[otherKey] = o;
+    return true;
+  } catch (e) { return false; }
+}
 // ---- 选择：整批选中 / 全局退出 / 自动跳页
 function selectGroup(lk) {
   var st = cur(), idxs = [];
@@ -6074,6 +6202,14 @@ function selectGroup(lk) {
   // V1.7.1（需求2）：整批选中也是「用户主动选了东西」→ 解除信息窗的关闭标记
   infoClearClosed();
   if (!idxs.length) {
+    // V1.9.0（需求9）：先看是不是"**另一个星座**的批次" —— 是的话在那边全选并提示切页
+    var otherKey = (S.key === 'gw') ? 'qf' : 'gw';
+    if (selCrossConstel(otherKey, lk)) {
+      showToast(t('d_sel_cross'), true);
+      S.selGroup = null; S.sel = [];
+      afterSelection();
+      return;
+    }
     // V1.6.3：该批次暂无入轨卫星（待编目 / 尚无 TLE）—— 仍给出行级选中反馈，不再毫无反应
     S.selGroup = (S.selGroup === lk) ? null : lk;
     S.sel = [];
@@ -6085,6 +6221,8 @@ function selectGroup(lk) {
   S.focusIdx = null;
   var allSel = idxs.every(function (i) { return S.sel.indexOf(i) >= 0; });
   S.sel = allSel ? [] : idxs;      // 再次点击同一批次 = 取消
+  // V1.9.0（需求9）：只有"真的全选了"才提示；再点一次是取消，不该说"已全选"
+  if (!allSel) showToast(t('d_sel_all'), false);
   afterSelection();
 }
 function afterSelection() {
@@ -6637,13 +6775,14 @@ document.querySelectorAll('[data-panel]').forEach(function (b) {
 // V1.4.9：字母改成三列 [id, 英文, 中文] —— 中文界面显示「图轨角星箭」（图=地图 轨=轨道
 // 角=轨道分布 星=卫星表格 箭=发射历史），英文界面仍用 MOISL；中文字号稍大便于辨认，
 // 但按钮 26×24 尺寸固定，药丸条本身不变。
-var JUMP = [['top', '↑', '↑'], ['sec-map', 'M', '图'], ['sec-orbits', 'O', '轨'], ['sec-chart', 'I', '角'], ['sec-progress', 'N', '网'], ['sec-table', 'S', '星'], ['sec-launches', 'L', '箭'], ['bottom', '↓', '↓']];
+var JUMP = [['top', '↑', '↑'], ['sec-map', 'M', '图'], ['sec-orbits', 'O', '轨'], ['sec-chart', 'I', '角'], ['sec-progress', 'P', '进'], ['sec-climb', 'C', '升'], ['sec-table', 'S', '星'], ['sec-launches', 'L', '箭'], ['bottom', '↓', '↓']];
 var JUMP_TITLE = {
   top: { zh: '回到顶部', en: 'Back to top' },
   'sec-map': { zh: '01 地图', en: '01 Map' },
   'sec-orbits': { zh: '02 轨道', en: '02 Orbits' },
   'sec-chart': { zh: '03 倾角分布', en: '03 Inclination Distribution' },
-  'sec-progress': { zh: '03.5 组网进度', en: '03.5 Network progress' },
+  'sec-progress': { zh: '04 组网进度', en: '04 Network progress' },
+  'sec-climb': { zh: '05 升轨情况', en: '05 Orbits Raising Status' },
   'sec-table': { zh: '04 卫星表格', en: '04 Satellite table' },
   'sec-launches': { zh: '05 发射历史', en: '05 Launch history' },
   bottom: { zh: '到页面底部', en: 'Go to bottom' }
@@ -6909,14 +7048,32 @@ function layoutTitleGap() {
   pt.style.paddingTop = '0px';
   var navH = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--nav-h'));
   if (!isFinite(navH) || navH <= 0) navH = nav.getBoundingClientRect().height || 0;
+  // ★ V1.9.0 加固：顶栏高度的**量级兜底**。正常只有几十像素；一旦上游（navHeight / --nav-h）
+  //   在启动那一瞬读出异常值，会把下面的 need 顶成几百像素 → 页面顶部出现一大段空白。
+  if (!isFinite(navH) || navH <= 0) navH = 0;
+  if (navH > 200) navH = 0;
   var navBottomVP = nav.getBoundingClientRect().bottom;
   var pr = pill.getBoundingClientRect();
   var pillGap = pr.top - navBottomVP;                    // 药丸上端 → 顶栏下边缘（= 10px）
   var target = navH + pillGap + pr.height + pillGap;     // 标题字形上端应有的文档坐标
   var glyphDoc = titleGlyphTop(pt) + (window.pageYOffset || 0);
   var need = Math.round(target - glyphDoc);
-  pt.style.paddingTop = (need > 0 ? need : 0) + 'px';
+  // ★ 关键安全网：本函数算出的是「标题上方该留多少空白」，正常值只有 **几十像素**。
+  //   一旦算成几百上千像素，页面顶部就会出现**超长空白**（内容被整体顶下去），
+  //   而切换星座会因为重跑本函数而"自愈" —— 这正是那个怪现象的完整成因链。
+  //   因此这里做**双向钳制**：非数/负数 → 0；超过上限 → 0（宁可间距不准，也绝不允许出现空白）。
+  if (!isFinite(need) || need <= 0) need = 0;
+  if (need > 160) need = 0;
+  pt.style.paddingTop = need + 'px';
 }
+// ★ 启动后再复算一次：启动那一瞬的测量可能落在字体/布局未稳的时机上，
+//   复算一次即可把任何误测量纠正回来（幂等，代价可忽略）。
+try {
+  window.addEventListener('load', function () { setTimeout(layoutTitleGap, 0); });
+  if (document.fonts && document.fonts.ready && document.fonts.ready.then) {
+    document.fonts.ready.then(function () { setTimeout(layoutTitleGap, 0); }).catch(function () {});
+  }
+} catch (e) {}
 window.addEventListener('resize', function () { layoutNav(); syncFsBarHeight(); layoutPickSlot(); try { fixPillWidths(); } catch (e) {} });
 // V1.7.2（需求9）：resize 事件在某些环境下不触发或只触发一次
 //   （实测：CDP 的 Emulation.setDeviceMetricsOverride 就不触发 resize，导致极窄屏下
@@ -6976,7 +7133,13 @@ function langBlocks() {
   return Array.prototype.slice.call(document.querySelectorAll('section, footer, .hero'));
 }
 // 编排：擦除（先快后慢）→ 半程替换语言 → 长出（先快后慢），总时长 = --anim-t
-function playLangSwitch(dir, updateFn) {
+// V1.9.0（需求1/6）：本函数已升格为**通用过场** —— 语言切换、还原所有默认设置、章级默认设置
+//   三处共用同一套曲线与时长（620ms、--ease-slow-fast），保证观感完全一致。
+//   `dir` 形参已废（函数体里本来就没用到），改由 playLangSwitch 这个薄包装承接旧调用。
+var curtainBusy = false;                 // V1.9.0：动画进行中再点无效（防连点叠加）
+function playCurtain(updateFn) {
+  if (curtainBusy) return;               // V1.9.0：过场闸门
+  curtainBusy = true;
   // V1.6.3：主内容用"亮度降到黑/白 → 换文案 → 逐渐显出"，与顶栏"上收→下拉"同时开始、同时结束，
   // 两段互为镜像、均为「先慢后快」。覆盖层(z-index:78)同时盖住顶部药丸与右下角章节药丸，
   // 使它们也一并参与动画（此前它们完全不动）。
@@ -7038,8 +7201,11 @@ function playLangSwitch(dir, updateFn) {
     //   顶部间距的校准必须在顶栏归位后重做，否则会留下一个错误的 padding。
     try { moveConstelSlider(S.key, false); } catch (e) {}
     try { layoutTitleGap(); } catch (e) {}
+    curtainBusy = false;                 // V1.9.0：过场收尾，解除闸门
   }, ANIM.lang + 60);
 }
+// V1.9.0（需求1/6）：语言切换 = 通用过场 + 切换语言本身（外观与还原默认完全同款）。
+function playLangSwitch(dir, updateFn) { playCurtain(updateFn); }
 document.getElementById('langBtn').addEventListener('click', function () {
   var newLang = LANG === 'en' ? 'zh' : 'en';
   var dir = (LANG === 'zh' && newLang === 'en') ? 1 : -1;   // V1.6.0：中→英 自下而上，英→中 对称
@@ -7061,6 +7227,12 @@ document.getElementById('langBtn').addEventListener('click', function () {
 var frameStatesMap = null, frameStatesGlobe = null, lastSecMap = 0, lastSecGlobe = 0, lastGlobeDraw = 0;
 function loop() {
   requestAnimationFrame(loop);
+  // V1.9.0（需求14，A 方案的性能部分）：主题切换（View Transition 圆形扩散）期间**暂停主循环**。
+  //   扩散动画的每一帧都在与"卫星推算 + 画布重绘"抢主线程，这是卡顿的主要来源之一；
+  //   暂停 520ms 对画面无影响（卫星位置与秒针在半秒内看不出差别），但掉帧会明显减少。
+  //   ★ 效果与时长**一律不动**（用户明确要求）：这里只改"谁在什么时候干活"，不碰任何视觉参数。
+  //   vt-running 由主题按钮在动画开始时挂上、结束时摘下（见 finishHeavy），摘掉后本循环自然恢复。
+  if (document.documentElement.classList.contains('vt-running')) return;
   var now = performance.now();
   // V1.7.3（需求9）：两章时间**各自独立** —— 各自的模拟时刻、各自的 SGP4 推算缓存。
   //   实时章跟墙钟每秒一推；冻结章的 simMs 恒定 → sec 不再变化 → 不重复推算（顺带省电）。
@@ -7439,6 +7611,18 @@ var PICK_FADE = null;
 //   launchCounts（目录里数出来的颗数）+ pending（待编目颗数）。访客端零请求，离线可用。
 var netCv = document.getElementById('netCv');
 var netInfo = document.getElementById('netInfo');
+// V1.9.0（修复问题2）：「信息窗是否已被点击固定」—— 固定后 mouseleave 不再把它收走，
+//   于是它既能停住被阅读，也能被拖动（旧版一移开鼠标就没了，两个症状是同一个根因）。
+var netPinned = false;
+// V1.9.0（需求8）：04 章信息窗里「新增卫星」的批次/组链接 —— 点击 = 全选该批次（与卫星表格里的
+//   批次链接同款行为，走同一个 selectGroup）。用事件委托，避免每次重绘信息窗都要重新绑定。
+//   阻止冒泡，免得被画布的空白点击当成"取消选择"。
+if (netInfo) netInfo.addEventListener('click', function (e) {
+  var a = e.target.closest ? e.target.closest('[data-lk]') : null;
+  if (!a) return;
+  e.preventDefault(); e.stopPropagation();
+  selectGroup(a.getAttribute('data-lk'));
+});
 var netRect = null, netView = null, netHoverIdx = null, NET = null;
 var NET_WK = 7 * 86400000;
 
@@ -7464,7 +7648,9 @@ function netBuild() {
   ['gw', 'qf'].forEach(function (key) {
     CONST[key].launches.forEach(function (L) {
       if (!isFinite(L.dateMs)) return;
-      evs.push({ ms: L.dateMs, key: key, n: netCountOf(L, mode), name: L.name,
+      // V1.9.0（需求8）：把批次 key（5 位发射编号）一并带上 —— 信息窗里「新增卫星」的批次/组名
+      //   要能点击 = 全选该批次（与表格里的批次链接同款行为），而旧版这里只带了 name。
+      evs.push({ ms: L.dateMs, key: key, n: netCountOf(L, mode), name: L.name, lk: L.key,
         res: L.res, pend: L.pending || 0, cnt: L.count || 0, wn: L.wn || 0 });
       if (L.dateMs < minMs) minMs = L.dateMs;
       if (L.dateMs > maxMs) maxMs = L.dateMs;
@@ -7559,17 +7745,32 @@ function drawNet() {
     ctx.strokeStyle = C.gridY; ctx.beginPath(); ctx.moveTo(PL, y); ctx.lineTo(PL + pw, y); ctx.stroke();
     ctx.fillStyle = C.tick; ctx.fillText(Math.round(t), PL - 8, y);
   });
-  // 横轴：按周取刻度（约 6 个），标对应的日期；年初另画一条竖向分隔线 + 年份
-  var nWeeks = d.weeks.length;
-  var tcount = narrow ? 4 : 6;
-  var stride = Math.max(1, Math.round((nWeeks - 1) / tcount));
+  // 横轴刻度：**随缩放自适应**（V1.9.0 需求16 根治）。
+  //   旧版是 `stride = round((nWeeks-1)/tcount)` 的固定步长、tcount 固定 4/6 —— 于是无论怎么放大，
+  //   横轴永远只有那 6 条刻度（纵轴用 niceTicks 会随缩放变细，两者观感不一致）。
+  //   现在按**当前可视时间跨度**从"档位梯"里挑步长（1/2/3 天 → 周 → 双周 → 4 周 → 季 → 半年 → 年 …），
+  //   并保证**至少 3 个刻度**（避免放大后只剩孤零零一条）；刻度对齐到步长边界（如整周、整月起点）。
+  var spanD = (v.x1 - v.x0) / 86400000;
+  var nWeeks = d.weeks.length;          // 下方"年初分隔线"那一段仍要用到它（别删）
+  var LADDER = [1, 2, 3, 7, 14, 28, 56, 91, 182, 365, 730, 1825];
+  // ⚠️ 搜索方向必须是**从粗到细**：取"仍能满足目标刻度数的最小步长"。
+  //   上一版我写成从细到粗（`spanD / LADDER[li] >= 3` 就 break）→ 一上来就命中 1 天，
+  //   于是最大尺度下几百条刻度糊成一片灰（用户当场看到的现象）。现在按目标刻度数挑，
+  //   与倾角分布章的 niceTicks 同一种思路：任何缩放档位下都是大约 4–6 条刻度，
+  //   放大 → 自动换到更细的档，缩小 → 自动换回更粗的档。
+  var want = narrow ? 4 : 6;
+  var stepD = LADDER[LADDER.length - 1];
+  for (var li = LADDER.length - 1; li >= 0; li--) {
+    if (spanD / LADDER[li] >= want) { stepD = LADDER[li]; break; }
+  }
+  var stepMs = stepD * 86400000;
   ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-  for (var i = 0; i < nWeeks; i += stride) {
-    var x = X(d.weeks[i]);
+  for (var tm = Math.ceil(v.x0 / stepMs) * stepMs; tm <= v.x1; tm += stepMs) {
+    var x = X(tm);
     if (x < PL - 2 || x > PL + pw + 2) continue;
     ctx.strokeStyle = C.gridX; ctx.beginPath(); ctx.moveTo(x, PT); ctx.lineTo(x, PT + ph); ctx.stroke();
     ctx.fillStyle = C.tick;
-    ctx.fillText(netDateLabel(d.weeks[i]), x, PT + ph + 9);
+    ctx.fillText(netDateLabel(tm), x, PT + ph + 9);
   }
   ctx.save();
   for (var j = 0; j < nWeeks; j++) {
@@ -7598,7 +7799,9 @@ function drawNet() {
   ctx.restore();
   ctx.font = '10px ' + MONO; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
   ctx.fillStyle = C.dim;
-  ctx.fillText(t('d_x_date') + t('d_week_unit'), PL + pw / 2, PT + ph + 24);
+  // V1.9.0（小修改）：横轴标题由「日期（按周）」改为**「日期」** —— 刻度现在随缩放自适应
+  //   （可能是天/周/月/季），再写「（按周）」就不准了。（d_week_unit 这个键随之删除。）
+  ctx.fillText(t('d_x_date'), PL + pw / 2, PT + ph + 24);
 
   // 曲线：V1.8.0（需求17 / ⑱）同样裁剪到绘图区 —— 端点数值标签也不会跑到坐标线外
   ctx.save();
@@ -7668,17 +7871,39 @@ function netShowInfoAt(i) {
   var en = LANG === 'en';
   var endStr = netDateLabel(w + NET_WK - 86400000);
   var rows = ['<div class="si-row"><span>' + t('d_net_week') + '</span><span>' + netDateLabel(w) + ' – ' + endStr + '</span></div>'];
+  // V1.9.0（需求8）：**固定顺序 = 该周 → 星网 → 千帆 → 新增卫星**。
+  //   旧版把「新增批次」写在 forEach 循环体内，于是星网那一格的新增批次正好夹在星网行与千帆行**中间**
+  //   （用户看到的"新增卫星跑到星网行和千帆行中间去了"）。现在拆成两趟：先两行累计，再一整块新增卫星。
+  var ddOf = {};
   ['gw', 'qf'].forEach(function (key) {
-    if (!(key === 'gw' ? S.netGw : S.netQf)) return;
     var dd = d.delta[key][i] || { add: 0, items: [] };
+    ddOf[key] = dd;
+    if (!(key === 'gw' ? S.netGw : S.netQf)) return;
     rows.push('<div class="si-row"><span>' + t(key === 'gw' ? 'n_gw' : 'n_qf') + '</span><span>' +
       (d.series[key][i] || 0) + (en ? ' cum.' : ' 累计') + (dd.add ? (en ? ' (+' : '（+') + dd.add + (en ? ')' : '）') : '') + '</span></div>');
-    if (dd.items.length) {
-      rows.push('<div class="si-row"><span>' + t('d_net_batches') + '</span><span>' +
-        dd.items.map(function (e) { return batchName(e.name) + '×' + e.n; }).join(en ? ', ' : '、') + '</span></div>');
-    }
   });
-  showInfo(netInfo, 'net', rows.join(''), 'net-' + i);
+  // 「新增卫星」：**星网一行 / 千帆一行，上下两部分**；某一行过长时由它自己换行（不挤到另一行去）。
+  //   批次/组名染该星座的主题色 + 下划线 + 可点击（点击 = 全选该批次）；**「×N」不染色不下划线**。
+  var addLines = [];
+  ['gw', 'qf'].forEach(function (key) {
+    if (!(key === 'gw' ? S.netGw : S.netQf)) return;
+    var dd = ddOf[key];
+    if (!dd.items.length) return;
+    var sep = en ? ', ' : '、';
+    addLines.push('<div class="net-add-line">' + dd.items.map(function (e) {
+      return '<a class="batch-link net-add-' + key + '" data-lk="' + e.lk + '" href="javascript:void(0)" title="' + t('d_sel_group') + '">' +
+        batchName(e.name) + '</a><span class="net-add-n">×' + e.n + '</span>';
+    }).join(sep) + '</div>');
+  });
+  if (addLines.length) {
+    rows.push('<div class="si-row net-add"><span class="net-add-lbl">' + t('d_net_batches') + '</span>' +
+      '<div class="net-add-body">' + addLines.join('') + '</div></div>');
+  }
+  // V1.9.0（需求7）：**这是 04 章信息窗"看起来是透的"的根因** —— 前三章的内容都由 satBlock() 包在
+  //   `.si-block` 里（不透明底 --info-bg + 1px 边框 + 内边距），而这一章原先把 si-row 直接塞进
+  //   `.si-body`，压根没有那一层。补上 .si-block 后，它与前三章的不透明背景、边框、拖动时的主题色
+  //   边框（.sat-info.moving .si-body）以及右上角 ✕ 就完全一致了。
+  showInfo(netInfo, 'net', '<div class="si-block">' + rows.join('') + '</div>', 'net-' + i);
   var el = document.getElementById('netCv');
   if (el) placeInfoCorner(netInfo, 'net');
   netHoverIdx = i;
@@ -7742,6 +7967,35 @@ function netInit() {
   // V1.8.0（需求8）：＋/− 与「恢复原始比例」不再在此绑定 —— 已统一改用
   //   .view-ctl button[data-zoom|data-reset] 的通用处理器（见 resetView / 画布控件一节），
   //   与地图/轨道/倾角分布三张图共享同一份逻辑与同一条 smoothZoom 曲线。
+  // V1.9.0（修复问题2）：补两件缺的东西 ——
+  //   ① **信息窗固定**：`netPinned`。旧版 mouseleave 无条件 hideInfo，于是点一下之后鼠标一移开
+  //      （或者想去拖动它时）窗口就没了 —— 表现出来就是"点不住、更拖不了"。现在点击 = 固定，
+  //      点空白处才取消固定并收起。
+  //   ② **鼠标拖动平移**：原先只有滚轮缩放 + 触摸的 touchZoom，鼠标按着拖**没有任何反应**。
+  var netDrag = null, netDragMoved = false;
+  netCv.addEventListener('pointerdown', function (e) {
+    if (e.pointerType === 'touch') return;              // 触摸走 touchZoom，别抢
+    netDrag = { x: e.clientX, y: e.clientY };
+    netDragMoved = false;
+    try { netCv.setPointerCapture(e.pointerId); } catch (err) {}
+  });
+  netCv.addEventListener('pointermove', function (e) {
+    if (!netDrag || e.pointerType === 'touch') return;
+    var dx = e.clientX - netDrag.x, dy = e.clientY - netDrag.y;
+    if (!netDragMoved && Math.abs(dx) + Math.abs(dy) < 3) return;   // 3px 以内不算拖，留给点击
+    netDragMoved = true;
+    netDrag.x = e.clientX; netDrag.y = e.clientY;
+    if (!netView) netAutoView();
+    var r2 = netRect; if (!r2 || !netView) return;
+    netView.x0 -= dx / r2.pw * (netView.x1 - netView.x0);
+    netView.x1 -= dx / r2.pw * (netView.x1 - netView.x0);
+    netView.y0 += dy / r2.ph * (netView.y1 - netView.y0);
+    netView.y1 += dy / r2.ph * (netView.y1 - netView.y0);
+    clampNetView(netView); drawNet();
+  });
+  function netDragEnd() { netDrag = null; }
+  netCv.addEventListener('pointerup', netDragEnd);
+  netCv.addEventListener('pointercancel', netDragEnd);
   netCv.addEventListener('wheel', function (e) {
     e.preventDefault();
     var r = netCv.getBoundingClientRect();
@@ -7755,12 +8009,14 @@ function netInit() {
   });
   netCv.addEventListener('mouseleave', function () {
     if (netHoverIdx != null) { netHoverIdx = null; drawNet(); }
-    if (netInfo) hideInfo(netInfo, 'net');
+    if (netInfo && !netPinned) hideInfo(netInfo, 'net');   // V1.9.0：已固定的窗口不再被移开鼠标收走
   });
   netCv.addEventListener('click', function (e) {
+    if (netDragMoved) { netDragMoved = false; return; }    // 刚才那下是拖动，不当作点击
     var r = netCv.getBoundingClientRect();
     var i = netWeekAt(e.clientX - r.left);
-    if (i != null) netShowInfoAt(i);
+    if (i != null) { netPinned = true; netShowInfoAt(i); }                 // 点击 = 固定
+    else { netPinned = false; if (netInfo) hideInfo(netInfo, 'net'); }     // 点空白 = 取消固定
   });
   touchZoom(netCv, {
     active: function () { return true; },
@@ -7803,11 +8059,38 @@ netInit();                           // V1.8.0（需求8）：03.5 组网进度
 loop();
 
 // 各章节的「默认设置」：只还原该章节那几项
+// V1.9.0（需求6）：章级「默认设置」的过场 —— 与「还原所有默认设置」**同一套观感**
+//   （本章内容先非线性消失 → 在半程换成已还原的设置 → 再非线性出现），但**作用域限定在本章**：
+//   不动顶栏、也完全不动其他章节。章节标题与编号（.sec-head）按要求**保持不动**。
+//   实现上只在动画期间给子元素挂 transition（.sf-anim），避免影响页面上其它动画。
+var SF_SEC = { map: 'sec-map', globe: 'sec-orbits', chart: 'sec-chart',
+  progress: 'sec-progress', table: 'sec-table', launches: 'sec-launches' };
+function playSectionCurtain(sec, updateFn) {
+  var el = document.getElementById(SF_SEC[sec] || ('sec-' + sec));
+  if (!el) { try { updateFn(); } catch (e) {} return; }
+  var T = ANIM.half;
+  el.classList.add('sf-anim');
+  void el.offsetWidth;                 // 强制回流，保证下一帧的 opacity 变化能触发过渡
+  el.classList.add('sf-out');
+  setTimeout(function () {
+    try { updateFn(); } catch (e) {}
+    el.classList.remove('sf-out');
+    setTimeout(function () { el.classList.remove('sf-anim'); }, T + 40);
+  }, T);
+}
 document.querySelectorAll('[data-defsec]').forEach(function (b) {
-  b.addEventListener('click', function () { resetSection(b.getAttribute('data-defsec')); });
+  b.addEventListener('click', function () {
+    var sec = b.getAttribute('data-defsec');
+    playSectionCurtain(sec, function () { resetSection(sec); });
+  });
 });
 // 「还原所有默认设置」：01–04 全部回到初始配置
-document.getElementById('resetAllBtn').addEventListener('click', function () { resetAllPrefs(); });
+// V1.9.0（需求1）：还原所有默认设置改用**通用过场**（620ms，与语言切换一模一样的顶栏上收/下拉），
+//   关键点：还原发生在**遮罩全黑的那一帧**（半程回调里），所以页面内各项不会当着用户的面跳变 ——
+//   用户看到的是「旧页面 → 渐暗 → 新页面直接浮现」，符合"由非线性动画分成两部分、不突兀"的要求。
+document.getElementById('resetAllBtn').addEventListener('click', function () {
+  playCurtain(function () { resetAllPrefs(); });
+});
 
 })();
 

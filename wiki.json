@@ -1,6 +1,9 @@
 {
+ "_readme": "改这里就能更新网页顶部的词条计数（launched=已发射, inOrbit=在轨, launches=发射成功/总）。改完保存，访客刷新即可看到。",
+ "asOf": "2026-10-07",
+ "checkedAt": "2026-10-07 10:57",
  "gw": {
-  "asOf": "2026-10-08",
+  "asOf": "2026-10-07",
   "article": "星网",
   "launched": {
    "n": 248,
@@ -15,7 +18,7 @@
   "launches": "40/41"
  },
  "qf": {
-  "asOf": "2026-10-08",
+  "asOf": "2026-10-07",
   "article": "千帆星座",
   "launched": {
    "n": 262,
@@ -28,8 +31,5 @@
    "en": "test 6, network 256, theoretical"
   },
   "launches": "19/19"
- },
- "_readme": "改这里就能更新网页顶部的词条计数（launched=已发射, inOrbit=在轨, launches=发射成功/总）。改完保存，访客刷新即可看到。",
- "asOf": "2026-10-08",
- "checkedAt": "2026-10-08 16:04"
+ }
 }

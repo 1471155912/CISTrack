@@ -238,6 +238,12 @@ function pack(sats) {
   return { tpls: tpls, sats: out.filter(Boolean) };
 }
 
+// V1.9.0：6 位编目号对象的"占位号 → 真号"映射（由 refresh.mjs 落盘）。
+//   为什么要它：经典 TLE 的编目号字段只有 5 列，装不下 6 位号，所以 6 位对象是**用占位号**写进
+//   .tle 的（见 scripts/omm.mjs）；这里把真号写回 `id`，前端照旧用自己的 id 字段显示，**零改动**。
+const OMM_IDS = (() => {
+  try { return JSON.parse(fs.readFileSync(`${D}/omm_norad.json`, 'utf8')); } catch (e) { return {}; }
+})();
 function parse(file) {
   const lines = fs.readFileSync(`${D}/${file}`, 'utf8').split('\n').map(l => l.trim()).filter(l => l);
   const out = [];
@@ -245,7 +251,8 @@ function parse(file) {
     const name = lines[i].trim();
     const l1 = lines[i + 1], l2 = lines[i + 2];
     if (!l1.startsWith('1 ') || !l2.startsWith('2 ')) continue;
-    out.push({ name, id: parseInt(l1.slice(2, 7), 10), c: l1.slice(9, 17).trim(), l1, l2 });
+    const raw = l1.slice(2, 7);
+    out.push({ name, id: OMM_IDS[raw] || parseInt(raw, 10), c: l1.slice(9, 17).trim(), l1, l2 });
   }
   return out;
 }
