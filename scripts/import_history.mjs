@@ -49,6 +49,21 @@ const DAY = 86400000;
 const N_TAKE = 2;                 // 每天最多留几条要素
 const sleepMs = (ms) => new Promise(r => setTimeout(r, ms));
 const RE = 6378.135, MU = 398600.4418, J2 = 1.08262668e-3;
+// ★ V1.9.1 常量说明（三个数各有用途，别混）：
+//   · `RE = 6378.135`（WGS-72 平均半径）—— 是 **SGP4 物理常数**，参与布劳威尔 J2 项的推导
+//     （satellite.js 内部用的也是 6378.135）。**不要改成 6378.137**。
+//   · `densify()` 返回的是**离地高度**（半长轴 − RE）。
+//   · 而**源库/页面的存储契约是半长轴**，页面算离地高度时减的是自己的 `CLIMB_RE = 6378.137`。
+//     → 所以**写库前**必须 `高度 + 6378.137`（见文件末尾的 histSmaOf 与 fetch_history.mjs 同款注释），
+//       这样与页面"减 6378.137"恰好抵消，存进去再取出来的就是原始高度。
+const HIST_RE = 6378.137;                    // 存储契约常数：与 app.js 的 CLIMB_RE 必须一致
+const histSmaOf = (altKm) => Math.round((altKm + HIST_RE) * 100) / 100;
+// ⚠️ 6 位编目号对象在 .tle 里是**占位号**（真号后 5 位）—— 必须经 sidecar 还原真号，
+//   否则会把历史写到**另一颗卫星**名下（编号 203 是真实存在的另一颗星）。
+const OMM_IDS = (() => {
+  try { return JSON.parse(fs.readFileSync(path.join(DATA, 'omm_norad.json'), 'utf8')); } catch (e) { return {}; }
+})();
+const realNorad = (raw5) => OMM_IDS[raw5] || Number(raw5);
 
 /** 由 OMM 的平均运动算**布劳威尔半长轴高度**（与页面/SGP4 同一口径：剥掉 J2 长期项） */
 export function brouwerAltKm(nRad) {
@@ -237,7 +252,7 @@ if (isMain && !process.argv.includes('--selftest')) {
     for (let i = 0; i + 2 < lines.length; i += 3) {
       const l1 = lines[i + 1];
       if (!/^1 /.test(l1)) continue;
-      sats.push({ norad: Number(l1.slice(2, 7)), lk: l1.slice(9, 14).trim(), name: lines[i] });
+      sats.push({ norad: realNorad(l1.slice(2, 7)), lk: l1.slice(9, 14).trim(), name: lines[i] });
     }
   }
   const uniq = [...new Map(sats.map(s => [s.norad, s])).values()].sort((a, b) => a.norad - b.norad);
@@ -289,7 +304,13 @@ if (isMain && !process.argv.includes('--selftest')) {
   const batches = new Map();
   let got = 0, empty = 0;
   todo.forEach(s => {
-    const recs = densify(perSat.get(s.norad) || [], s.norad, N_TAKE);
+    // ★ V1.9.1：densify 给的是**离地高度**，写库前必须换成**半长轴**。
+    //   旧代码直接把 densify 的输出写进库 → 这一条通路（正式取数通路）存的是高度（约 500），
+    //   而 fetch_history / refresh 存的是半长轴（约 6878）—— **同一份库里混装两种单位**。
+    //   后果：走这条路补进去的卫星，曲线会比同批其他卫星低 6378 km（直接掉出纵轴范围），
+    //   而"按批次混装"让它时有时无，极难定位。
+    const recs = densify(perSat.get(s.norad) || [], s.norad, N_TAKE)
+      .map(([n, ms, alt]) => [n, ms, histSmaOf(alt)]);
     if (recs.length) got++; else empty++;
     if (!batches.has(s.lk)) batches.set(s.lk, []);
     batches.get(s.lk).push(...recs);

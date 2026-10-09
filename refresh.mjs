@@ -359,7 +359,10 @@ for (const key of ['gw', 'qf']) {
       const norad = OMM_IDS[raw5] || parseInt(raw5, 10);
       if (!norad) continue;
       if (!byLk.has(lk)) byLk.set(lk, []);
-      byLk.get(lk).push([norad, ms, Math.round((alt + 6378.135) * 100) / 100]);   // 存**半长轴**（= 高度 + 地球半径）
+      // ★ V1.9.1 常量统一：回加的地球半径必须与**页面端 CLIMB_RE 一致**（见 scripts/fetch_history.mjs
+      //   同一处的长注释）。两个写库方（refresh 与 fetch_history）用不同常量，会让同一天的
+      //   "半长轴"出现 2 m 级的分叉 —— 虽小，但属"存量与增量口径不一致"的隐患。
+      byLk.get(lk).push([norad, ms, Math.round((alt + 6378.137) * 100) / 100]);   // 存**半长轴**（= 高度 + 地球半径）
     }
     let st = { shards: 0, added: 0, pruned: 0 };
     for (const [lk, recs] of byLk) {

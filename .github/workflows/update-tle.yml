@@ -98,6 +98,29 @@ jobs:
             console.log(f, n, "颗：定宽 OK + 数值列体检 OK");
           }
           '
+          # V1.9.1：历史源库体检 —— 半长轴必须落在真实 LEO 量级。
+          #   背景：`scripts/fetch_history.mjs` 的 tle2omm 曾把偏心率从 l1 行读出来（读到历元小数，
+          #   e≈0.96）→ 高度被算成几千 km，实测源库最大 **476,736 km**、345 条越界，
+          #   表现为「升轨曲线莫名其妙的尖峰」。这类值**长度/结构全对**，只有量级离谱，
+          #   所以必须显式盯值域。区间取宽（6000–20000）以免误伤未来更高轨道的目标。
+          node --input-type=module -e '
+          import fs from "node:fs";
+          const dir = "data/history";
+          let n = 0, bad = 0, max = 0, min = Infinity, worst = "";
+          for (const f of fs.readdirSync(dir)) {
+            if (!f.endsWith(".json") || f.endsWith(".bak")) continue;
+            let a; try { a = JSON.parse(fs.readFileSync(dir + "/" + f, "utf8")); } catch (e) { continue; }
+            for (const r of (Array.isArray(a) ? a : [])) {
+              const v = +r[2]; n++;
+              if (v > max) { max = v; worst = f + " norad=" + r[0]; }
+              if (v < min) min = v;
+              if (v < 6000 || v > 20000) bad++;
+            }
+          }
+          if (bad) throw new Error("历史源库有 " + bad + " 条越界半长轴（最大 " + max + " km，" + worst + "）—— 曲线会出现尖峰");
+          if (!(n > 1000)) throw new Error("历史源库只有 " + n + " 条记录，疑似重建失败");
+          console.log("历史源库体检 OK：" + n + " 条 / 范围 " + min.toFixed(2) + " ~ " + max.toFixed(2) + " km");
+          '
 
       - name: 有变化才提交并推送
         run: |

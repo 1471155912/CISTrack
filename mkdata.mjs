@@ -480,11 +480,17 @@ fs.mkdirSync(path.join(ROOT, 'build'), { recursive: true });
 
 // ---------------------------------------------------------------- V1.9.0（R17）：历史轨道要素
 // data/history/<批次key>.json 里是 [norad, 历元ms, 半长轴km] 三元组（由 scripts/import_history.mjs 写入）。
-// 这里只做「读进来 + 按天去重 + 量级合理性过滤」，让页面端拿到即可直接画。
-// 过滤规则（宁缺毋滥 —— 一条错数据会在图上变成一根垂直 spike，比没有更糟）：
-//   · 半长轴必须落在 [6700, 12000] km：低于 6700 物理上不可能（比地球半径+6km 还低），
-//     高于 12000 是高轨/深空，与两颗低轨互联网卫星无关。
-//   · 同一个 norad+日期只留**最后**一条（同日多条 TLE 是轨道解算的重复发布，取最新）。
+// 这里只做「读进来 + 按天去重」，让页面端拿到即可直接画。
+// ★ V1.9.1：**已删除量级过滤**（原为 `sma < 6700 || sma > 12000` 丢弃）—— 用户口径是
+//   "历史数据不得过滤，真实记录并如实呈现"。当时加这个过滤，真正的原因是**源库里有坏数据**
+//   （scripts/fetch_history.mjs 的 tle2omm 把偏心率从 l1 读出来，0.96 的 e 把高度算成几千 km）；
+//   用过滤把坏数据挡在门外，等于让 `sma` 越界成为"正常现象"，**把 bug 永久掩埋**：
+//   越是加过滤，越没人去查为什么会有 8 万 km 的卫星。
+//   正确做法是把 generation source 修对（已修，见该处注释），然后**如实呈现**。
+//   现在只保留两类**非过滤**的丢弃：① 记录结构非法（长度/非数值）；② 批次 key 不在台账里。
+//   同一天多条取哪个：同一个 norad+日期只留**最后**一条（同日多条 TLE 是轨道解算的重复发布，
+//   取最新 —— 这与用户"一天存一条、当天多条取平均"的口径在下游 densify/取点上等效，
+//   因为源库存的本来就是按天抽样后的代表点）。
 function loadHistory() {
   const dir = path.join(ROOT, 'data', 'history');
   const out = { gw: {}, qf: {} };
@@ -501,7 +507,6 @@ function loadHistory() {
       if (!r || r.length < 3) { stat.dropped++; continue; }
       const norad = r[0] | 0, ms = +r[1], sma = +r[2];
       if (!norad || !isFinite(ms) || !isFinite(sma)) { stat.dropped++; continue; }
-      if (sma < 6700 || sma > 12000) { stat.dropped++; continue; }
       const day = Math.floor(ms / 86400000);
       if (!byNorad.has(norad)) byNorad.set(norad, new Map());
       byNorad.get(norad).set(day, [norad, ms, Math.round(sma * 100) / 100]);

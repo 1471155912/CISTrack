@@ -1455,8 +1455,12 @@ assert('V1.9.0（R17）：i18n 三段式键位齐备（缺一个就会把键名�
 assert('V1.9.0（R17）：信息窗复用**已有**键名（不得凭空造 d_name / d_launch —— 表里没有）',
   /t\('t_name'\)/.test(appCode) && /t\('d_row_batch'\)/.test(appCode) &&
   /t\('d_row_epoch_sat'\)/.test(appCode) && !/t\('d_name'\)/.test(appCode) && !/t\('d_launch'\)/.test(appCode));
-assert('V1.9.0（R17）：构建期把 data/history/*.json 汇进 satdata，并做量级过滤',
-  /function loadHistory\(\)/.test(mkCode) && /sma < 6700 \|\| sma > 12000/.test(mkCode) &&
+// V1.9.1 改写：这条断言原本要求 mkdata **存在** `sma < 6700 || sma > 12000` 的量级过滤。
+//   按用户口径「历史数据不得过滤，真实记录并如实呈现」，该过滤已**删除**（它当时是在
+//   掩盖源库的 ec 解析 bug：过滤把越界值挡在门外，反而让 bug 永久无人追查）。
+//   所以断言方向反过来：**过滤必须不存在**，且 loadHistory 的汇入/兜底赋值仍在。
+assert('V1.9.0（R17）：构建期把 data/history/*.json 汇进 satdata（V1.9.1 起**不再做量级过滤**）',
+  /function loadHistory\(\)/.test(mkCode) && !/if \(sma < 6700 \|\| sma > 12000\)/.test(mkCode) &&
   // ⚠️ 外挂改造后这里不再是 HIST.out.* 直接赋值，而是**精简兜底** histLite（见下一条）
   /DATA\.gw\.hist = histLite\.gw;/.test(mkCode) && /DATA\.qf\.hist = histLite\.qf;/.test(mkCode));
 
@@ -1578,6 +1582,51 @@ assert('V1.9.0（R17）：升轨速率算法在页面端与构建期**同一口�
   const stBad = st.filter(x => !x.ok).map(x => x.name);
   assert('V1.9.1：OMM 通路自检全绿（占位/定宽/校验位/收编/真号还原/高度量级，共 ' + st.length + ' 条）',
     stBad.length === 0, stBad.join(' | '));
+}
+
+// ==================== V1.9.1（第十一轮）回归守卫：历史库链路（执行顺序 1.2）====================
+// 背景：升轨曲线"莫名其妙尖峰"的**唯一真身**是 scripts/fetch_history.mjs 的 tle2omm 把
+//   偏心率从 l1 行读出来（读到的是历元小数的数字，e≈0.96）→ 高度从 ~500 km 被算成几千 km。
+//   实测源库最大半长轴 **476,736 km**（真实约 6825–7550），345 条越界；修好后越界 **0** 条。
+//   这一组把"解析 / 常量 / 单位 / 过滤"四处钉死，防复发。
+{
+  const fh = fs.readFileSync(B + '/scripts/fetch_history.mjs', 'utf8');
+  const ih = fs.readFileSync(B + '/scripts/import_history.mjs', 'utf8');
+  const md = fs.readFileSync(B + '/mkdata.mjs', 'utf8');
+  const rf = fs.readFileSync(B + '/refresh.mjs', 'utf8');
+  assert('V1.9.1：tle2omm 的偏心率取自 l2（取自 l1 会读到历元小数 → e≈0.96 → 高度算成几千 km）',
+    /l2\.slice\(26, 33\)\.trim\(\)\) \|\| 0/.test(fh) && !/parseFloat\('0\.' \+ l1\.slice\(26, 33\)/.test(fh));
+  assert('V1.9.1：parse3le 循环上界为 i+1（i+2 会静默丢掉每个缓存文件的最后一对）',
+    /for \(let i = 0; i \+ 1 < lines\.length; i\+\+\)/.test(fh));
+  assert('V1.9.1：mkdata 已删除半长轴量级过滤（"历史数据不得过滤"；过滤会永久掩埋源库 bug）',
+    // 用 `if (sma < …` 这个**代码形态**判据，避免匹配到解释这段历史的注释本身
+    !/if \(sma < 6700 \|\| sma > 12000\)/.test(md));
+  assert('V1.9.1：写库常量与页面 CLIMB_RE 一致（6378.137；两侧不同会让"存进去再取出来"差 2 m）',
+    /a \+ 6378\.137/.test(fh) && /alt \+ 6378\.137/.test(rf) &&
+    !/a \+ 6378\.135/.test(fh) && !/alt \+ 6378\.135/.test(rf));
+  assert('V1.9.1：import_history 写库前把"高度"换算成"半长轴"（旧版直写 densify 输出 → 同库混装两种单位）',
+    /histSmaOf\(alt\)/.test(ih) && /const HIST_RE = 6378\.137/.test(ih));
+  assert('V1.9.1：两个写库脚本都用 sidecar 把占位号还原成真号（否则历史写到别的卫星名下）',
+    /realNorad\(/.test(fh) && /realNorad\(/.test(ih));
+  assert('V1.9.1：离线重建按 NORAD 匹配（分块下标会随卫星清单变化整体错位 → 静默丢数据）',
+    /const NET = process\.argv\.includes\('--net'\)/.test(fh) && /const lk = lkOf\.get\(r\.norad\)/.test(fh));
+  const hs = (function () {
+    let bad = 0, max = 0, min = Infinity;
+    const dir = B + '/data/history';
+    for (const f of fs.readdirSync(dir)) {
+      if (!f.endsWith('.json') || f.endsWith('.bak')) continue;
+      let a; try { a = JSON.parse(fs.readFileSync(dir + '/' + f, 'utf8')); } catch (e) { continue; }
+      for (const r of (Array.isArray(a) ? a : [])) {
+        const v = +r[2]; if (v > max) max = v; if (v < min) min = v; if (v < 6000 || v > 20000) bad++;
+      }
+    }
+    return { bad: bad, max: max, min: min, n: fs.readdirSync(dir).filter(f => f.endsWith('.json') && !f.endsWith('.bak')).length };
+  })();
+  assert('V1.9.1：历史源库无越界半长轴（真实 LEO 约 6600–8000；修复前曾出现 476,736 km）',
+    hs.bad === 0 && hs.max < 20000 && hs.min > 6000,
+    hs.n + ' 片 / 范围 ' + hs.min.toFixed(2) + ' ~ ' + hs.max.toFixed(2) + ' km / 越界 ' + hs.bad + ' 条');
+  assert('V1.9.1：新入编的 6 位号批次在历史源库里有分片（离线重建覆盖不到，靠 refresh 日常归档）',
+    ['26176', '26187', '26210', '26211', '26213', '26221'].every(k => fs.existsSync(B + '/data/history/' + k + '.json')));
 }
 
 assert('V1.8.0（需求6）：launches 台账第 6 位=任务结果、第 7 位=百科记载颗数',
