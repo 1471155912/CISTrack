@@ -316,14 +316,37 @@ for (const key of ['gw', 'qf']) {
       try {
         const j = JSON.parse(r.text);
         if (j && j.line1 && j.line2) {
-          parseTLE((j.name || o.name) + '\n' + j.line1 + '\n' + j.line2 + '\n', merged);
-          from.alt++;
+          // ★ V1.9.1（1.4-D）：备源结果的**三道校验**（旧版一道都没有，于是"补到"可以是假的）：
+          //   ① **norad 必须一致** —— 备源按 NORAD 查，理论上返回的就是这颗；
+          //      但不校验的话，一旦它返回缓存/邻近对象的数据，我们就会**张冠李戴**地
+          //      把别星的轨道写进这颗名下（而且历元看着还挺新，极难发现）。
+          //   ② **名字用目录里的 `o.name`**（权威、且已被 MATCH 认可）—— 备源的 `j.name`
+          //      可能是占位名或旧名，用它会被下游的星座过滤丢掉。
+          //      实测（CI run 37960887451）：已再入的 63428「S4 号称补到 1 颗」，
+          //      但最终仍缺 —— 正是因为下落的名字过不了星座过滤。
+          //   ③ **计数以"真的进了 merged"为准** —— 旧版只要 line1/line2 存在就 +1，
+          //      于是"补到 N 颗"与"库里真有 N 颗"可以互相矛盾（假阳性计数）。
+          const got = parseInt(String(j.line1).slice(2, 7), 10);
+          if (got === o.norad) {
+            const szBefore = merged.size;
+            parseTLE((o.name || j.name) + '\n' + j.line1 + '\n' + j.line2 + '\n', merged);
+            if (merged.size > szBefore) from.alt++;
+            else { from.altSkip = (from.altSkip || 0) + 1; }        // 解析成功但没入账（同名同历元被跳过）
+          } else {
+            from.altBad = (from.altBad || 0) + 1;
+            if (!from.altBadMsg) from.altBadMsg = [];
+            if (from.altBadMsg.length < 3) from.altBadMsg.push(o.norad + ' ← 备源给了 norad=' + got);
+          }
         }
       } catch (e) { /* 不是 JSON：忽略 */ }
     }
     await sleep(120);
   }
-  if (still.length) console.log(key, 'S4 备源   → 待补', still.length, '颗，补到', from.alt, '颗');
+  if (still.length) {
+    console.log(key, 'S4 备源   → 待补', still.length, '颗，补到', from.alt, '颗' +
+      (from.altBad ? '｜⚠️ norad 不匹配 ' + from.altBad + ' 颗（' + (from.altBadMsg || []).join('；') + '）' : '') +
+      (from.altSkip ? '｜未入账 ' + from.altSkip + ' 颗' : ''));
+  }
 
   // ---- S5 OMM：**兜底通路**（任何 S1–S4 没拿到的对象都在这里试） ----
   //   为什么需要它：CelesTrak 自 2026-07-11 起**新对象一律 6 位编目号**（100000+），
