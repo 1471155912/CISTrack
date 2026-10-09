@@ -169,6 +169,10 @@ var I18N = {
   // V1.8.0（需求12）：卫星表格新增「发射时间」列（同一批次的发射时刻，北京时间）；
   //   发射历史新增「任务结果」列，口径 = 卫星百科的记载（见 resTag）。
   t_ltime: ['发射时间 (GMT+8)', 'Launch (GMT+8)'], t_result: ['任务结果', 'Mission result'],
+  // V1.9.1（1.4-D）：卫星表格新增「在轨状态」列 —— 用户要求已再入卫星也能在列表里看得出来。
+  //   两态取值：在轨（绿）/ 已再入（红，带再入日期）。数据来源 satcat 的 DECAY_DATE（见 mkdata.mjs）。
+  t_status: ['在轨状态', 'Status'], st_orbit: ['在轨', 'In orbit'], st_gone: ['已再入', 'Re-entered'],
+  st_gone_tip: ['已再入，再入日期：', 'Re-entered on '],
   res_ok: ['成功', 'Success'], res_part: ['部分成功', 'Partial success'], res_fail: ['失败', 'Failure'],
   // V1.8.0（需求8）：03.5 组网进度
   h_progress: ['组网进度', 'Network Progress'],
@@ -2313,6 +2317,9 @@ function tableVals(s) {
   var mkRow = makerOf(s);
   return {
     name: cnName(s), norad: s.norad, launch: L.name,
+    // V1.9.1（1.4-D）：「在轨状态」列 —— 0=在轨 / 1=已再入（排序用数值：在轨排前面）。
+    //   已再入的卫星在 mkdata 里带了 `st:'r'` 与 `dt`（再入日期，来自 satcat 的 DECAY_DATE）。
+    status: s.st === 'r' ? 1 : 0, gone: s.st === 'r', deadOn: s.dt || '',
     // V1.8.0（需求12）：卫星表格新增「发射时间 (GMT+8)」列 —— 值取本批发射时刻（已是北京时间），
     //   排序用毫秒值（ltime），显示用 lstr；元数据缺失的批次（无台账）显示「—」。
     ltime: L.dateMs || 0, lstr: L.dateStr && L.dateStr !== '—' ? L.dateStr.replace('T', ' ') : '—',
@@ -2320,9 +2327,11 @@ function tableVals(s) {
     sma: b ? s.smaB : s.smaK, hp: b ? s.hpB : s.hpK, ha: b ? s.haB : s.haK,
     inc: s.inc, period: s.period, age: L.dateMs || -1,
     raan: s.raan0, ecc: s.ecc, bstar: s.bstar, epoch: s.epochMs,
-    // 混合搜索用：中英卫星名、目录名、NORAD、批次名（中英）、COSPAR
+    // 混合搜索用：中英卫星名、目录名、NORAD、批次名（中英）、COSPAR、在轨状态
+    //   （V1.9.1 / 1.4-D：把"已再入"也纳入搜索 —— 用户口径是"已再入的不可联动但可搜索"）
     q: [s.name, nameVariants(s), String(s.norad),
         L.name, batchVariants(L.name), s.cospar,
+        s.st === 'r' ? (t('st_gone') + ' ' + t('t_status')) : t('st_orbit'),
         mkRow ? mkRow.items.map(function (x) { return x.zh + ' ' + x.en + ' ' + x.full; }).join(' ') : '',
         mkRow ? mkRow.full : ''].join(' ').toLowerCase(),
     _s: s
@@ -2417,10 +2426,15 @@ function satRowHtml(r) {
     (L.name && L.key && L.name === L.key) ||
     ((L.count > 0 ? L.count : (L.sats ? L.sats.length : 0)) <= 1);
   // V1.3.6：卫星名染主题色 + 下划线，点击跳到 satcat.com 的对应条目（按 NORAD 编号）
-  return '<tr data-idx="' + s.idx + '" class="' + (sel ? 'focused' : '') + '">' +
+  // V1.9.1（1.4-D）：已再入的整行加 `.gone` 类（供样式与联动控制识别）。
+  return '<tr data-idx="' + s.idx + '" class="' + (sel ? 'focused' : '') + (r.gone ? ' gone' : '') + '">' +
     '<td class="lname"><span class="swatch" style="background:' + colOf(s, 'chart') + ';margin-right:6px"></span>' +
     '<a class="sat-link" href="' + SATCAT(r.norad) + '" target="_blank" rel="noopener" title="Satcat · ' + r.norad + '">' + r.name + '</a></td>' +
     '<td>' + r.norad + '</td>' +
+    // V1.9.1（1.4-D）：「在轨状态」列 —— 在轨绿 / 已再入红（带再入日期 tooltip）
+    '<td class="stcell ' + (r.gone ? 'st-gone' : 'st-orbit') + '"' +
+      (r.gone && r.deadOn ? ' title="' + t('st_gone_tip') + r.deadOn + '"' : '') + '>' +
+      (r.gone ? t('st_gone') : t('st_orbit')) + '</td>' +
     '<td>' + (lone
       ? '<span class="batch-none">\u2212</span>'
       : '<span class="batch-link" data-lk="' + s.lk + '" title="' + t('d_sel_group') + '">' + batchName(r.launch) + '</span>') + '</td>' +
@@ -2560,7 +2574,7 @@ function renderTable(opts) {
   var _b = pageBounds(rows, S.tpage, SAT_PAGE, unitOf);
   var slice = rows.slice(_b[0], _b[1]);
   var html = slice.map(satRowHtml).join('');
-  tbody.innerHTML = html || '<tr><td colspan="15" class="empty">' + (LANG === 'en' ? 'No matching satellite' : '没有匹配的卫星') + '</td></tr>';
+  tbody.innerHTML = html || '<tr><td colspan="16" class="empty">' + (LANG === 'en' ? 'No matching satellite' : '没有匹配的卫星') + '</td></tr>';
   tableRows = {};
   Array.prototype.forEach.call(tbody.querySelectorAll('tr[data-idx]'), function (tr) {
     tableRows[tr.getAttribute('data-idx')] = tr;

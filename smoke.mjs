@@ -351,10 +351,25 @@ assert('存在 CHANGELOG.md', fs.existsSync(B + '/CHANGELOG.md'),
 console.log('--- V1.4.2 ---');
 // ④ Manufacturer列
 // V1.8.0（需求6）：在「批次/组」之后插入「发射时间」列（ltime），Manufacturer 顺延到第 5 列
-assert('表头前四列 = 名称/NORAD/批次·组/发射时间，第 5 列才是 Manufacturer',
-  [...d.querySelectorAll('#satTable thead th')].slice(0, 5).map(t => t.getAttribute('data-key')).join('|') === 'name|norad|launch|ltime|maker',
-  [...d.querySelectorAll('#satTable thead th')].slice(0, 5).map(t => t.getAttribute('data-key')).join('|'));
+// V1.9.1（1.4-D）：卫星表在 NORAD 之后插入了「在轨状态」列（status），列序整体后移一位。
+assert('表头前五列 = 名称/NORAD/在轨状态/批次·组/发射时间，第 6 列才是 Manufacturer',
+  [...d.querySelectorAll('#satTable thead th')].slice(0, 6).map(t => t.getAttribute('data-key')).join('|') === 'name|norad|status|launch|ltime|maker',
+  [...d.querySelectorAll('#satTable thead th')].slice(0, 6).map(t => t.getAttribute('data-key')).join('|'));
 assert('表头文案「批次/组」「Manufacturer」', /t_launch: \['批次\/组'/.test(appSrc) && /t_maker: \['Manufacturer'/.test(appSrc));
+// V1.9.1（1.4-D）：在轨状态列 —— 用户要求已再入卫星能在卫星列表里呈现。
+assert('V1.9.1（1.4-D）：卫星表有「在轨状态」列，当前页每个单元格都渲染了在轨/已再入',
+  (function () {
+    const hasTh = [...d.querySelectorAll('#satTable thead th')].some(t => t.getAttribute('data-key') === 'status');
+    const cells = [...d.querySelectorAll('#satTable tbody td.stcell')];
+    return hasTh && cells.length > 0 && cells.every(c => /在轨|已再入/.test(c.textContent.trim()));
+  })(), (function () {
+    const cells = [...d.querySelectorAll('#satTable tbody td.stcell')];
+    return cells.length + ' 个单元格：' + cells.slice(0, 3).map(c => c.textContent.trim()).join('/');
+  })());
+assert('V1.9.1（1.4-D）：已再入的整行带 .gone 类（供样式与联动控制识别）',
+  /r\.gone \? ' gone' : ''/.test(appSrc) && /tbody tr\.gone td \{ opacity/.test(tpl));
+assert('V1.9.1（1.4-D）：「已再入」纳入搜索词（用户口径：不可联动但可搜索）',
+  /s\.st === 'r' \? \(t\('st_gone'\)/.test(appSrc));
 assert('Manufacturer数据已注入（星网 ≥38 批 / 千帆 ≥18 批）',
   Object.keys(RAW.gw.makers || {}).length >= 38 && Object.keys(RAW.qf.makers || {}).length >= 18,
   Object.keys(RAW.gw.makers || {}).length + ' / ' + Object.keys(RAW.qf.makers || {}).length);
@@ -1728,7 +1743,8 @@ assert('V1.8.0（需求12）：卫星表插入「发射时间」列、发射历�
   /t_ltime: /.test(appCode) && /t_result: /.test(appCode) &&
   /res_ok: /.test(appCode) && /res_part: /.test(appCode) && /res_fail: /.test(appCode) &&
   /function resTag\(L\)/.test(appCode) &&
-  [...d.querySelectorAll('#satTable thead th')].map(t => t.getAttribute('data-key')).indexOf('ltime') === 3 &&
+  // V1.9.1（1.4-D）：卫星表新增「在轨状态」列后，ltime 从第 4 列（idx 3）后移到 idx 4。
+  [...d.querySelectorAll('#satTable thead th')].map(t => t.getAttribute('data-key')).indexOf('ltime') === 4 &&
   [...d.querySelectorAll('#launchTable thead th')].some(t => /t_result/.test(t.getAttribute('data-i18n') || '')));
 assert('V1.8.0（需求12）：任务结果按百科记载如实标注（成功/部分成功/失败，没写就不猜）',
   /if \(r === 'ok'\) return '<span class="res res-ok">'/.test(appCode) &&

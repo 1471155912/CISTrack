@@ -1692,6 +1692,17 @@ html[data-theme="light"] .res-part { color:#b26a00; }
 html[data-theme="light"] .res-fail { color:#c72929; }
 /* 卫星表的「发射时间」列与发射历史的「任务结果」列都不换行 */
 #satTable td.ltime, #launchTable td.lres { white-space:nowrap; }
+/* V1.9.1（1.4-D）：「在轨状态」列 —— 在轨绿 / 已再入红。
+   颜色走 CSS 变量以便深浅主题各自取值（浅色主题下要压暗一档才够对比度）。 */
+:root { --st-orbit:#3ddc84; --st-gone:#ff5c5c; }
+:root[data-theme="light"] { --st-orbit:#0f9d58; --st-gone:#d93025; }
+#satTable td.stcell { text-align:center; white-space:nowrap; font-weight:600; font-size:12px; }
+#satTable td.st-orbit { color:var(--st-orbit); }
+#satTable td.st-gone { color:var(--st-gone); }
+/* 已再入的整行：文字淡化一档（它已不在轨，不应与在轨卫星抢注意力），
+   但**不隐藏**——用户口径是"已再入的也要能看见、能搜索"。 */
+#satTable tbody tr.gone td { opacity:.62; }
+#satTable tbody tr.gone td.stcell { opacity:1; }
 /* V1.9.0：发射历史「任务结果」列 —— 在现有染色（成功/部分成功/失败各自的颜色）基础上**再加粗** */
 #launchTable td.lres, #launchTable td.lres * { font-weight:700; }
 
@@ -2080,6 +2091,7 @@ html[data-theme="light"] .res-fail { color:#c72929; }
       <thead><tr>
         <th data-key="name" class="sortable" data-i18n="t_name">卫星</th>
         <th data-key="norad" class="sortable">NORAD</th>
+        <th data-key="status" class="sortable" data-i18n="t_status">在轨状态</th>
         <th data-key="launch" class="sortable" data-i18n="t_launch">批次/组</th>
         <th data-key="ltime" class="sortable" data-i18n="t_ltime">发射时间 (GMT+8)</th>
         <th data-key="maker" class="sortable" data-i18n="t_maker">Manufacturer</th>
