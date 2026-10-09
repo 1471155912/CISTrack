@@ -1,6 +1,6 @@
 {
   "name": "cistrack",
-  "version": "1.8.0",
+  "version": "1.9.0",
   "description": "星网（CSCN）与千帆星座在轨追踪 —— 单文件、纯离线、零后端的网页工具",
   "type": "module",
   "scripts": {

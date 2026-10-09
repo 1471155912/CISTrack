@@ -1716,6 +1716,32 @@ html[data-theme="light"] .res-fail { color:#c72929; }
 #sec-progress.fs-mobile .controls .ctl-btns .ghost { padding:4px 10px; font-size:10px; }
 #sec-progress.fs-mobile .controls .help-btn { width:20px; height:20px; font-size:12px; margin-right:6px; }
 #sec-progress.fs-mobile .chart-wrap { height:100vh; padding-top:var(--fsbar-h, 58px); }
+/* ---- V1.9.0（R17）：05 升轨情况的全屏布局 ----
+   与 04 的差别：本章**没有 controls 行**（按需求不设任何设置项），
+   所以全屏时唯一需要固定的是 .climb-bar（对象选择器 + 纵轴量）——
+   它必须留在屏幕上，否则全屏后就没法换批次了。
+   画布高度按「视口 − 顶栏 − climb-bar 实测高」算，而不是写死 100vh（会多出一截空白）。 */
+#sec-climb.fs-mobile { padding:0; overflow:hidden; }
+#sec-climb.fs-mobile .sec-head { display:none; }
+#sec-climb.fs-mobile .sec-lead { display:none; }
+#sec-climb.fs-mobile .climb-bar {
+  position:fixed; left:0; right:0; top:0; z-index:46; margin:0;
+  padding:6px 12px 6px calc(16px + var(--fs-ctl-h) + 12px);
+  gap:6px 14px; align-items:center; flex-wrap:wrap;
+  background:var(--nav-bg); backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
+  border-bottom:1px solid var(--hair);
+}
+#sec-climb.fs-mobile .climb-pick, #sec-climb.fs-mobile .climb-take { font-size:9px; letter-spacing:0.14em; }
+#sec-climb.fs-mobile .climb-pick select { min-width:0; width:auto; max-width:52vw; }
+#sec-climb.fs-mobile .seg button { padding:4px 10px; font-size:10px; }
+#sec-climb.fs-mobile .chart-wrap {
+  /* ⚠️ 让位量必须用 **--climbbar-h**（本章 climb-bar 的实测高），不能用 04 章的 --fsbar-h
+     —— 那个变量在 sec-climb 上没人设置，会永远回退到 58px，而 climb-bar 实测 75px
+     （visual.mjs 实测抓到过：cvTop=58 < ctlH=75 → 画布被控件条压住 17px）。 */
+  height:calc(100vh - var(--climbbar-h, 40px) - 8px);
+  padding-top:var(--climbbar-h, 40px); padding-bottom:8px;
+}
+#sec-climb.fs-mobile #climbNote { display:none; }   /* 图下说明在竖屏太窄，全屏时省掉 */
 /* 曲线末端数值标签（画在画布上，这里只给图例色点用） */
 .net-key { display:inline-flex; align-items:center; gap:6px; margin-right:14px; font-family:var(--mono); font-size:11px; color:var(--dim); }
 .net-key i { width:10px; height:10px; border-radius:50%; display:inline-block; }
@@ -2008,10 +2034,12 @@ html[data-theme="light"] .res-fail { color:#c72929; }
      章节顺序：01 地图 / 02 轨道 / 03 倾角分布 / 04 组网进度 / **05 升轨情况** / 06 卫星表格 / 07 发射历史 -->
 <section id="sec-climb"><button class="fs-exit-btn" type="button" aria-label="退出全屏" data-i18n-title="t_exitfs">×</button>
   <div class="sec-head"><h2><span data-i18n="h_climb">升轨情况</span> <span class="h2-note" data-i18n="zoomable">可缩放</span></h2>
-    <div class="sec-tools"><span></span></div>
+    <div class="sec-tools"><span></span>
+      <button class="ghost" data-defsec="climb" type="button" data-i18n="b_default" data-i18n-title="t_defclimb">默认设置</button>
+    </div>
     <span class="sec-num">05</span>
   </div>
-  <p class="sec-lead" data-i18n="lead_climb">选定一颗卫星或一个批次/组，画出它们的轨道半长轴随时间的变化 —— 刚入轨时低、随后被发动���一点点抬到工作高度的那段"爬坡"。
+  <p class="sec-lead" data-i18n="lead_climb">选定一颗卫星或一个批次/组，画出它们的轨道半长轴随时间的变化 —— 刚入轨时低、随后被发动机一点点抬到工作高度的那段"爬坡"。
 
   <div class="climb-bar">
     <label class="climb-pick"><span data-i18n="climb_pick">对象</span>

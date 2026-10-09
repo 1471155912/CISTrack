@@ -24,6 +24,11 @@ const forceCat = process.argv.includes('--force-cat');
 
 // V1.9.0：6 位编目号对象的 OMM 通路（见下方 S5）—— 占位号 → 真号的映射，落 data/omm_norad.json
 import { tleFromOmm, fromCelesTrakOmm, PH } from './scripts/omm.mjs';
+// V1.9.0（R17）：自建历史库 —— 复用 import_history.mjs 里已修过量级 bug 的 altFromOmm，
+//   以及 histstore.mjs 的幂等分片写入（(NORAD,历元) 去重，只追加不覆盖）。
+import { altFromOmm } from './scripts/import_history.mjs';
+import { mergeInto, pruneRecords, readShard, writeShard } from './scripts/histstore.mjs';
+const HIST_DIR = path.join(D, 'history');
 const OMM_IDS_PATH = path.join(D, 'omm_norad.json');
 let OMM_IDS = {};
 try { OMM_IDS = JSON.parse(fs.readFileSync(OMM_IDS_PATH, 'utf8')); } catch (e) { OMM_IDS = {}; }
@@ -237,6 +242,65 @@ for (const key of ['gw', 'qf']) {
   report[key].missing = miss.length;
   fs.writeFileSync(path.join(D, `missing_${key}.json`), JSON.stringify(miss, null, 1), 'utf8');
   console.log(key, '最终', out.size, '颗（原', before, '）｜仍缺轨道要素', miss.length, '颗');
+
+  // ---------------------------------------------------------------- V1.9.0（R17）：自建历史库
+  // 每次刷新都把「这一刻每颗星的半长轴」存档一条，历史库就一天天自己长起来 ——
+  //   这样 05 章「升轨情况」不依赖任何外部历史源（Space-Track 的 GP 历史有严格限流，
+  //   且命令行一律 401；免登录源又只给最新一条，实测 tle.ivanstanojevic.me 的历史端点 404）。
+  // 口径与页面端完全一致：布劳威尔半长轴（altFromOmm 已剥掉 J2 长期项，量级错误修过一次，
+  //   **不要在这里另写一份换算**）。
+  // 分片按**批次 key** = COSPAR 后 5 位（如 23095），与 data/history/<key>.json 同名。
+  // 幂等：mergeInto 按 (NORAD, 历元) 去重，同一天跑两次不会重复存储（用户 Q40 明确要求）。
+  try {
+    const byLk = new Map();
+    for (const s of out.values()) {
+      const mm = Number((s.l2 || '').slice(52, 63));           // TLE 第 2 行 53–63 列 = 平均运动
+      const e = parseFloat('0.' + (s.l2 || '').slice(26, 33)); // 第 2 行 27–33 列 = 偏心率
+      const inc = parseFloat((s.l2 || '').slice(8, 16));       // 第 2 行 9–16 列 = 倾角
+      const yy = parseInt((s.l1 || '').slice(18, 20), 10);
+      // ⚠️ 历元日必须取**整个 21–32 列**（含小数）：只取前 3 位（旧写法 slice(20,23)）会得到
+      //   整数天，同日内多次刷新会算出**同一个 ms** → 被 mergeInto 判为重复而**存不进去**。
+      const ddd = parseFloat((s.l1 || '').slice(20, 32));
+      if (!(mm > 0) || !isFinite(yy) || !isFinite(ddd)) continue;
+      const fullYear = yy < 57 ? 2000 + yy : 1900 + yy;
+      const ms = Date.UTC(fullYear, 0, 0) + ddd * 86400000;
+      const alt = altFromOmm({ MEAN_MOTION: mm, ECCENTRICITY: e, INCLINATION: inc });
+      if (alt == null || !isFinite(ms)) continue;
+      // COSPAR：第 1 行 10–17 列（如 "23095A "）；批次 key 只取**前 5 位数字**。
+      //   ⚠️ 旧写法 slice(9,15) 会把第 6 位的分片字母（A）也带进来 → 正则 ^\d{5}$ 恒不匹配
+      //   → 所有卫星都被 continue 掉，历史库一个字节都存不进去。
+      const cospar = (s.l1 || '').slice(9, 14);
+      const lk = /^\d{5}$/.test(cospar) ? cospar : null;
+      if (!lk) continue;
+      const norad = parseInt((s.l1 || '').slice(2, 7), 10);
+      if (!norad) continue;
+      if (!byLk.has(lk)) byLk.set(lk, []);
+      byLk.get(lk).push([norad, ms, Math.round((alt + 6378.135) * 100) / 100]);   // 存**半长轴**（= 高度 + 地球半径）
+    }
+    let st = { shards: 0, added: 0, pruned: 0 };
+    for (const [lk, recs] of byLk) {
+      const r2 = mergeInto(HIST_DIR, [{ key: lk, records: recs }]);
+      st.shards++; st.added += r2.added;
+      // ★ 存档后**立刻做容量治理**：data/history 是要进 git 仓库的，
+      //   不治理的话分片会逐年线性膨胀（436 颗 × 1 点/天 ≈ 4 MB/年 → 仓库越来越大）。
+      //   pruneRecords 是分层降采样，只降低老数据的密度，**最近的数据一个点都不会少**。
+      const cur = readShard(HIST_DIR, lk);
+      if (cur.length) {
+        const pr = pruneRecords(cur, Date.now());
+        if (pr.recs.length !== cur.length) {
+          writeShard(HIST_DIR, lk, pr.recs);
+          st.pruned += (pr.stats.before - pr.stats.after);
+        }
+      }
+    }
+    console.log(key, '历史存档 → ' + st.shards + ' 个批次、新增 ' + st.added + ' 条' +
+      (st.pruned ? '、治理裁掉 ' + st.pruned + ' 条' : '') + '（' + byLk.size + ' 批候选）');
+    report[key].hist = st;
+  } catch (e) {
+    // 存档失败**绝不能**影响 TLE 刷新本身（计划任务的主职责是刷新数据）
+    console.log(key, '历史存档跳过：', e && e.message);
+    report[key].hist = { err: String(e && e.message || e) };
+  }
 }
 fs.writeFileSync(path.join(D, 'refresh_report.json'), JSON.stringify(report, null, 1), 'utf8');
 // V1.9.0：把「占位号 → 真号」的映射落盘，供 mkdata.mjs 把真号写回前端 id（前端代码零改动）

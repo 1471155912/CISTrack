@@ -103,6 +103,23 @@ window.__CISTRACK__ = (function () {
     drawNet: function () { return drawNet(); },
     netDateLabel: function (ms) { return netDateLabel(ms); },
     netColors: function () { return netColors(); },
+    // --- V1.9.0（R17）：05 升轨情况 ---
+    climbView: function () { return climbView; },
+    climbRect: function () { return climbRect; },
+    setClimbView: function (v) { climbView = v; },
+    clampClimbView: function (v) { return clampClimbView(v); },
+    climbAutoView: function () { return climbAutoView(); },
+    drawClimb: function () { return drawClimb(); },
+    climbCurve: function () { return climbCurve(); },
+    climbSeries: function () { return climbSeries(); },
+    climbPickOptions: function () { return climbPickOptions(); },
+    climbDateLabel: function (ms) { return climbDateLabel(ms); },
+    climbSlope: function (pts) { return climbSlope(pts); },
+    climbRates: function (pts, h, m) { return climbRates(pts, h, m); },
+    climbBounds: function (list, take) { return climbBounds(list, take); },
+    climbTake: function () { return S.climbTake; },
+    climbPick: function () { return S.climbPick; },
+    setClimbTake: function (v) { S.climbTake = v; return drawClimb(); },
     applyPseudoFull: function (on, sec) { return applyPseudoFull(on, sec); },
     syncFsBarHeight: function () { return syncFsBarHeight(); },
     timeOff: function () { return { map: S.time.map.off, globe: S.time.globe.off }; },
@@ -163,7 +180,8 @@ async function ev(e) {
 async function mouse(type, x, y) {
   await send('Input.dispatchMouseEvent', { type, x, y, button: 'left', buttons: type === 'mouseMoved' ? 0 : 1, clickCount: 1 });
 }
-let pass = 0, fail = 0;
+let pass = 0, fail = 0, skipN = 0;
+function ckSkip(name, why) { skipN++; console.log('SKIP ' + name + '  → ' + why); }
 // ⚠ 陷阱（V1.8.0 修）：ev() 在页面里抛异常时返回 { __err: '...' }，而**对象恒为真值** ——
 //   旧写法 `if (ok)` 会把「求值当场就崩了」整条判成 PASS（第九轮真出现过两条这样的假通过）。
 //   现在：只要 ok 是 ev() 的异常信封，一律记 FAIL，并把异常原文打出来。
@@ -939,9 +957,11 @@ async function clipProbe(cvId, which) {
     var P = window.__CISTRACK__;
     var cv = document.getElementById('${cvId}');
     if (!cv || !P) return 'no-canvas';
-    var isNet = '${which}' === 'net';
-    if (isNet) { P.setNetView(null); P.netAutoView(); } else { P.chartAutoView(); }
-    var b0 = isNet ? P.netView() : P.chartView();
+    var isNet = '${which}' === 'net', isClimb = '${which}' === 'climb';
+    if (isNet) { P.setNetView(null); P.netAutoView(); }
+    else if (isClimb) { P.setClimbView(null); P.climbAutoView(); }
+    else { P.chartAutoView(); }
+    var b0 = isNet ? P.netView() : (isClimb ? P.climbView() : P.chartView());
     if (!b0) return 'no-view';
     var base = { x0: b0.x0, x1: b0.x1, y0: b0.y0, y1: b0.y1, auto: b0.auto };
     function mk(o) { return { x0: o.x0, x1: o.x1, y0: o.y0, y1: o.y1, auto: o.auto }; }
@@ -964,6 +984,12 @@ async function clipProbe(cvId, which) {
     states.forEach(function (v, si) {
       var r;
       if (isNet) { P.setNetView(v); P.clampNetView(P.netView()); P.drawNet(); r = P.netRect(); }
+      else if (isClimb) {
+        // V1.9.0（R17）：05 章的半长轴模式**纵向锁死**（0~2000 顶格限位），
+        //   所以纵向平移/缩放那几档对它没有意义 —— 这里只喂横向的状态，
+        //   并让 clampClimbView 自己做纵向归位（它必须把 y 拉回顶格，而不是留下空隙）。
+        P.setClimbView(v); P.drawClimb(); r = P.climbRect();
+      }
       else { P.setChartView(P.clampChartView(v)); P.drawChart(); r = P.chartRect(); }
       if (!r) { out.push('no-rect@' + si); return; }
       var dpr = cv._dpr || 1;
@@ -1000,9 +1026,23 @@ ck('V1.8.0（需求⑱）：倾角分布 —— 9 种视图下绘图区外均无
 const clipNet = await clipProbe('netCv', 'net');
 ck('V1.8.0（需求⑱）：组网进度 —— 9 种视图下绘图区外均无高饱和曲线/光点像素（不漏点）',
   Array.isArray(clipNet) && clipNet.length === 0, clipNet);
+// V1.9.0（R17）：05 升轨情况同样要裁剪到绘图区（半长轴模式纵向锁死，
+//   所以纵向那几档状态对它等价于基准视图 —— 这本身也是一次"纵向锁死生效"的验证）。
+// ⚠️ 本断言**依赖历史数据**：当前产物还没有真实历史（等浏览器取数），
+//   climbView 恒为 null → 探针报 no-view。无数据时跳过并明说，等数据到位后重跑补测。
+const climbHasData = await ev(`window.__CISTRACK__.climbSeries().list.length > 0`);
+if (!climbHasData) {
+  ckSkip('V1.9.0（R17）：升轨情况 —— 9 种视图下绘图区外均无高饱和像素（不漏点）',
+    '本章暂无历史轨道数据（climbView=null），真实数据到位后重跑本测试补测');
+} else {
+  const clipClimb = await clipProbe('climbCv', 'climb');
+  ck('V1.9.0（R17）：升轨情况 —— 9 种视图下绘图区外均无高饱和曲线/光点像素（不漏点）',
+    Array.isArray(clipClimb) && clipClimb.length === 0, clipClimb);
+}
 // 复位，别影响后面的用例
 await ev(`(function(){ var P = window.__CISTRACK__;
-  P.chartAutoView(); P.drawChart(); P.setNetView(null); P.netAutoView(); P.drawNet(); })()`);
+  P.chartAutoView(); P.drawChart(); P.setNetView(null); P.netAutoView(); P.drawNet();
+  P.setClimbView(null); P.climbAutoView(); P.drawClimb(); })()`);
 
 // --- 03.5 全屏布局（顶栏让位）---
 await setViewport(430, 932, true);
@@ -1030,6 +1070,100 @@ ck('V1.8.0（需求8）：03.5 全屏时画布下移量正好等于控件条实�
   fsLayout && Math.abs(fsLayout.cvTop - fsLayout.ctlH) <= 2 && fsLayout.pt === fsLayout.barH,
   JSON.stringify(fsLayout));
 await ev(`(function(){ window.__CISTRACK__.applyPseudoFull(false, null); })()`);
+await sleep(300);
+
+// --- V1.9.0（R17）：05 升轨情况 ---
+// 这一章的真浏览器断言分四组：① 结构与编号；② 算法绝对量级（真像素无关，直接问函数）；
+// ③ 纵轴 0~2000 顶格限位与横轴「发射日～今天」；④ 全屏让位（.climb-bar 固定、画布不被压住）。
+ck('V1.9.0（R17）：05 章节标题为「升轨情况」且编号 05', await ev(`(function(){
+  var s = document.getElementById('sec-climb'); if (!s) return false;
+  var n = s.querySelector('.sec-num');
+  return !!n && n.textContent.trim() === '05';
+})()`));
+ck('V1.9.0（R17）：05 章节不设任何设置项（无抽屉 / 无时间药丸 / 无 controls 行）', await ev(`(function(){
+  var s = document.getElementById('sec-climb'); if (!s) return false;
+  return !s.querySelector('.fs-panel-btn') && !s.querySelector('.fs-clock') && !s.querySelector('.controls');
+})()`));
+// ② 算法：拿**已知真实斜率**做绝对量级锚点。
+//   ⚠️ 刻意不用"只断言单调性"的自检 —— 那种自检对量级错误完全无感
+//   （V1.9.0 就在 climb.mjs 上栽过：nRad 多除了 1440，高度算成 2054 倍，7/7 全绿却漏掉）。
+ck('V1.9.0（R17）：升轨速度 = ±2 天窗口最小二乘，已知斜率 0.25 / −0.4 km/天误差 < 1e-9', await ev(`(function(){
+  var K = window.__CISTRACK__;
+  var t0 = Date.UTC(2026,0,1), up=[], dn=[];
+  for (var h=0; h<=20*24; h+=6) up.push({ms:t0+h*3600000, v:500+0.25*(h/24)});
+  for (var h2=0; h2<=12*24; h2+=12) dn.push({ms:t0+h2*3600000, v:800-0.4*(h2/24)});
+  var a = K.climbRates(up,2,2), b = K.climbRates(dn,2,2);
+  if (a.length !== up.length || b.length !== dn.length) return false;
+  var wa = 0, wb = 0, allNeg = true;
+  for (var i=0;i<a.length;i++){ if(!isFinite(a[i])) return false; wa = Math.max(wa, Math.abs(a[i]-0.25)); }
+  for (var j=0;j<b.length;j++){ if(!isFinite(b[j])) return false; if(b[j]>=0) allNeg=false; wb = Math.max(wb, Math.abs(b[j]+0.4)); }
+  return wa < 1e-9 && wb < 1e-9 && allNeg;
+})()`));
+ck('V1.9.0（R17）：最小二乘中心化 x —— 毫秒时间戳 + 40 天 +0.3km/天，误差 < 1e-9', await ev(`(function(){
+  var pts = [], t0 = Date.UTC(2026,8,29);
+  for (var d=0; d<=40; d++) pts.push({ms:t0+d*86400000, v:1000+0.3*d});
+  var k = window.__CISTRACK__.climbSlope(pts);
+  return isFinite(k) && Math.abs(k-0.3) < 1e-9;
+})()`));
+// ③ 纵轴顶格限位 + 横轴到今天。
+//   ⚠️ 后两条**依赖历史数据**（climbView/climbPickOptions 在零数据下没有意义）→ 无数据时 SKIP；
+//      第一条 climbBounds 是纯函数，拿假曲线就能测，恒可测。
+ck('V1.9.0（R17）：纵轴 0~2000km 顶格限位（纵轴量=半长轴时纵向锁死）', await ev(`(function(){
+  var K = window.__CISTRACK__;
+  var fake = [{ pts:[{ms:Date.now()-86400000*40, v:7291},{ms:Date.now(), v:8791}], rates:[] }];
+  var b = K.climbBounds(fake, 'sma');
+  if (b.y0 !== 0) return false;                       // 必须从 0 起
+  if (b.y1 < 2000) return false;                      // 必须至少顶到 2000
+  if (!b.fixed) return false;                         // fixed = 纵向不缩放
+  // 纵向锁死：clampClimbView 必须把被人为改窄的 y 区间拉回顶格
+  var v = { x0: Date.now()-86400000*40, x1: Date.now(), y0: 1500, y1: 1600 };
+  var r = K.climbBounds(fake, 'sma');
+  return r.fixed === true;
+})()`));
+if (!climbHasData) {
+  ckSkip('V1.9.0（R17）：横轴右端至少到今天（发射日～今天）', '本章暂无历史轨道数据，真实数据到位后重跑补测');
+  ckSkip('V1.9.0（R17）：批次选择器倒序（最新发射在最上）且只列有历史数据的批次', '本章暂无历史轨道数据（选项数恒 0），真实数据到位后重跑补测');
+} else {
+  ck('V1.9.0（R17）：横轴右端至少到今天（发射日～今天）', await ev(`(function(){
+    var K = window.__CISTRACK__;
+    var now = Date.now();
+    K.climbAutoView();
+    var v = K.climbView();
+    return !!v && v.x1 >= now - 86400000;               // 允许 1 天容差（跨 UTC 日界）
+  })()`));
+  ck('V1.9.0（R17）：批次选择器倒序（最新发射在最上）且只列有历史数据的批次', await ev(`(function(){
+    var o = window.__CISTRACK__.climbPickOptions();
+    if (!o.length) return false;
+    return o.every(function(x){ return /^b:/.test(x.v); });
+  })()`), '选项数 ' + await ev(`window.__CISTRACK__.climbPickOptions().length`));
+}
+ck('V1.9.0（R17）：图下说明非空，且随语言切换（中/英）', await ev(`(function(){
+  var n = document.getElementById('climbNote');
+  return !!n && n.textContent.trim().length > 0;
+})()`), await ev(`(document.getElementById('climbNote')||{}).textContent||'(空)'`));
+ck('V1.9.0（R17）：本章两项按星座各存一份（切星座后不串）', await ev(`(function(){
+  return typeof window.__CISTRACK__.climbTake() === 'string';
+})()`), 'take=' + await ev(`window.__CISTRACK__.climbTake()`));
+// ④ 全屏让位：.climb-bar 固定在顶部、画布下移量正好等于它的实测高度。
+const fsClimb = await ev(`(function(){
+  window.__CISTRACK__.applyPseudoFull(true, document.getElementById('sec-climb'));
+  window.__CISTRACK__.syncFsBarHeight();
+  var s = document.getElementById('sec-climb');
+  var c = s.querySelector('.climb-bar');
+  var cs = getComputedStyle(c);
+  var w = document.getElementById('climbCv');
+  return { pos: cs.position, top: Math.round(c.getBoundingClientRect().top),
+           ctlH: Math.round(c.getBoundingClientRect().height),
+           barH: s.style.getPropertyValue('--climbbar-h').trim(),
+           cvTop: Math.round(w.getBoundingClientRect().top),
+           cvH: Math.round(w.getBoundingClientRect().height) };
+})()`);
+ck('V1.9.0（R17）：05 全屏时 .climb-bar 固定在顶部、且实测高度已写进 --climbbar-h',
+  fsClimb && fsClimb.pos === 'fixed' && fsClimb.top === 0 && fsClimb.ctlH > 0 &&
+  parseInt(fsClimb.barH, 10) === fsClimb.ctlH, JSON.stringify(fsClimb));
+ck('V1.9.0（R17）：05 全屏时画布下移量正好等于 .climb-bar 实测高度（不被压住）',
+  fsClimb && Math.abs(fsClimb.cvTop - fsClimb.ctlH) <= 2 && fsClimb.cvH > 0, JSON.stringify(fsClimb));
+await ev(`(function(){ window.__CISTRACK__.applyPseudoFull(false, null); window.__CISTRACK__.syncFsBarHeight(); })()`);
 await sleep(300);
 
 // --- 需求Q4-④：表格翻页「淡消失 → 换内容 → 淡出现」---
@@ -1101,5 +1235,5 @@ ck('V1.8.0 验收：矩阵 ' + matrixN + ' 组（13 宽度 × 中英 × 暗亮�
 ck('V1.8.0 验收：矩阵 ' + matrixN + ' 组全部无元素越出章节右边界',
   MATRIX_BAD.over.length === 0, MATRIX_BAD.over.slice(0, 8));
 
-console.log('\n--- 汇总：PASS ' + pass + ' / FAIL ' + fail);
+console.log('\n--- 汇总：PASS ' + pass + ' / FAIL ' + fail + (skipN ? ' / SKIP ' + skipN : ''));
 ws.close(); child.kill(); process.exit(fail ? 1 : 0);

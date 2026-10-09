@@ -11,10 +11,6 @@ data/*.tle.bak
 
 # 内部过程文档（含工作笔记，不进仓库）
 PROCESS.md
-# V1.8.0：逐轮的「任务清单 / 验收检查清单」同属内部过程文档
-# （含本机绝对路径），过去靠 `git add -A` 误入库过一次，这里直接挡住。
-*任务清单*.md
-*验收检查清单*.md
 
 # 版本归档（本地回滚用，不进仓库）
 archive/
@@ -50,3 +46,6 @@ node_modules/
 # 清理时搬出来的"一次性产物暂存区"（clean.mjs 生成，可整包搬回，故不进版本控制）
 junk/
 
+# 历史轨道数据库的原始 TLE 拉取缓存（fetch_history.mjs 用，62MB+，可再生）
+data/history_cache/
+data/history/*.bak

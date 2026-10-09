@@ -98,7 +98,15 @@ assert('TLE 按批次差分（sats 只存差异串 + tleTpl）',
   /"d":"/.test(rawSrc) && RAW.gw.tleTpl && Object.keys(RAW.gw.tleTpl).length > 10);
 assert('差分还原：每颗星都是两行 69 字符',
   RAW.gw.sats.concat(RAW.qf.sats).every(s => /^1 \d{5}U /.test(s.l1) && s.l1.length === 69 && s.l2.length === 69 && s.norad !== undefined || /^1 \d{5}U /.test(s.l1) && s.l1.length === 69 && s.l2.length === 69));
-assert('satdata.json 体积 < 80KB', rawSrc.length < 80000, rawSrc.length);
+// V1.9.0（R17）：satdata 里新增了历史库（gw/qf 的 hist 精简兜底），体积会**随存档天数增长**。
+//   原来那条「< 80KB」的硬上限已不成立（加首批 436 条后 88KB）。
+//   ⚠️ 注意：历史数据的**完整版已改为外挂分片目录**（见下方"按批次分片外挂"断言），
+//   satdata 里只留最近 60 天的兜底 —— 所以这个体积**不会**随年数线性膨胀，
+//   兜底的窗口是固定的（BUNDLE_DAYS=60 / BUNDLE_STEP=2）。
+//   V1.9.0 全量历史注入后（436 颗 × 3 年），兜底点数约 1.1 万，satdata 稳定在 ~400KB。
+//   两段式口径同步放宽：硬上限 600KB / 软预警 350KB（突破说明兜底窗口或 TLE 差分被改大）。
+assert('satdata.json 体积 < 600KB（60 天兜底窗口固定，不随年数膨胀；超过 350KB 预警）',
+  rawSrc.length < 600000, rawSrc.length + (rawSrc.length > 350000 ? '  ⚠ 已过预警线' : ''));
 assert('词条链接去重成 urls 数组（links 里存下标）',
   Array.isArray(RAW.urls) && RAW.urls.length > 5 && typeof RAW.gw.links['24240'].r[0].u === 'number');
 assert('试验星批次元数据齐全（23095 / 23212 / 25F05 失败标记）',
@@ -857,6 +865,11 @@ console.log('--- V1.7.0 第四轮回归守卫 ---');
 //   注释里为了讲清历史必然会出现被删掉的旧词（那是给人看的，不是页面行为）。
 const appCode = appSrc.replace(/^\s*\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
 const tplCode = tpl.replace(/\/\*[\s\S]*?\*\//g, '').replace(/<!--[\s\S]*?-->/g, '');
+// V1.9.0（R17）：另需 mkdata.mjs（历史数据汇入 satdata）与 scripts/climb.mjs（构建期同口径算法）的源码。
+//   两者都是构建期脚本、不会进页面，所以只能直接读源文件断言。
+const mkCode = fs.readFileSync(B + '/mkdata.mjs', 'utf8');
+const climbMod = fs.readFileSync(B + '/scripts/climb.mjs', 'utf8');
+const histMod = fs.readFileSync(B + '/scripts/histstore.mjs', 'utf8');
 assert('需求1：TLE 自动更新标志 TLE_LIVE 保留，且界面上已无「（内置快照）」后缀',
   /var TLE_LIVE = false;/.test(appCode) && /TLE_LIVE = true;/.test(appCode) &&
   !/d_snap_suffix/.test(appCode) && !/d_snap_tip/.test(appCode) &&
@@ -1337,7 +1350,10 @@ assert('V1.8.0（需求8）：03.5 组网进度章节存在且走「顶栏让位
 //   出厂默认 = 只看本页星座；且纳入本章「默认设置」与「还原所有默认设置」的还原范围。
 assert('V1.9.0（需求3）：组网进度的口径进偏好系统；显示星网/千帆**按星座各存一份**且默认只看本页星座',
   /netMode: 'launch',/.test(appCode) && /progress: \['netMode'\]/.test(appCode) &&
-  /'netGw', 'netQf'\];/.test(appCode) &&                       // 在 STATE_FIELDS 里 → 随星座快照
+  // 在 STATE_FIELDS 里 → 随星座快照。
+  //   V1.9.0 起该数组末尾追加了 R17 的两项，故这里只断言 netGw/netQf **相邻且同在数组内**，
+  //   不再锚定它们是最后两项（那个约束在 R17 之后已经不成立了）。
+  /'netGw', 'netQf',\s*\n?[^;]*?\];/.test(appCode) &&
   /function applyNetShowDefault\(key\)/.test(appCode) &&
   /applyNetShowDefault\(k\);/.test(appCode) &&                 // initStore 里逐星座赋默认
   /if \(sec === 'progress'\) applyNetShowDefault\(\);/.test(appCode) &&   // 本章默认设置
@@ -1352,6 +1368,145 @@ assert('V1.8.0（需求8）：四张图的缩放/复位走同一套通用通路�
   /data-zoom="in" data-view="progress"/.test(tplCode));
 
 // 需求5/6/12：发射历史的任务结果列 + 卫星表的发射时间列
+// ================================================================= V1.9.0（R17）：05 升轨情况
+// 这一章的验收分两层：① 结构与接线（本组断言，纯静态可查）；
+//   ② 算法正确性（最小二乘/断档/顶格限位），由 scripts/climb.mjs --selftest 与
+//   「离线抠函数自检」两处覆盖 —— 后者刻意**不用**只断言单调性的自检，
+//   而是拿已知真实斜率（+0.25 / −0.4 km/天）做绝对量级锚点。
+// 章节编号：05=升轨 / 06=卫星表格 / 07=发射历史
+//   用「取该 section 到下一个 <section 之间的片段」再找 sec-num，而不是靠固定字符窗口
+//   ——sec-head 里加一个按钮就会把窗口撑爆（V1.9.0 就因此误报过一次）。
+function secHead(id) {
+  const i = tplCode.indexOf('<section id="' + id + '"');
+  if (i < 0) return '';
+  const j = tplCode.indexOf('<section', i + 10);
+  return tplCode.slice(i, j < 0 ? i + 3000 : Math.min(j, i + 3000));
+}
+assert('V1.9.0（R17）：05 升轨情况章节存在，且是**独立编号 05**（06/07 让位给原 05/06）',
+  /<section id="sec-climb">/.test(tplCode) && /<canvas id="climbCv">/.test(tplCode) &&
+  /<select id="climbSel"/.test(tplCode) && /id="climbTakeSeg"/.test(tplCode) &&
+  /id="climbNote"/.test(tplCode) &&
+  /<span class="sec-num">05<\/span>/.test(secHead('sec-climb')) &&
+  /<span class="sec-num">06<\/span>/.test(secHead('sec-table')) &&
+  /<span class="sec-num">07<\/span>/.test(secHead('sec-launches')));
+assert('V1.9.0（R17）：本章**不设任何设置项**（无抽屉、无时间药丸、无 controls 行）',
+  !/id="sec-climb"[\s\S]{0,1400}?fs-panel-btn/.test(tplCode) &&
+  !/id="sec-climb"[\s\S]{0,1400}?fs-clock/.test(tplCode) &&
+  !/id="sec-climb"[\s\S]{0,1400}?class="controls"/.test(tplCode));
+assert('V1.9.0（R17）：右下角章节药丸新增「升 / C」，跳转标题中英同步',
+  /\['sec-climb', 'C', '升'\]/.test(appCode) &&
+  /'sec-climb': \{ zh: '05 升轨情况', en: '05 Orbits Raising Status' \}/.test(appCode));
+assert('V1.9.0（R17）：五张图的缩放/复位走同一套通用通路（05 不另写动画旁路）',
+  /view === 'climb'\) \{[\s\S]{0,200}?smoothZoom\(function \(f\) \{ zoomClimbBy\(f\); \}, dir, 260\);/.test(appCode) &&
+  /view === 'climb'\) \{ climbView = null; climbAutoView\(\); drawClimb\(\); \}/.test(appCode) &&
+  /data-zoom="in" data-view="climb"/.test(tplCode) && !/data-climbzoom/.test(tplCode));
+assert('V1.9.0（R17）：导出图片支持本章，且底栏带**升轨速度列**',
+  /view === 'climb' \? 'climbCv'/.test(appCode) &&
+  /climb: \{ zh: '升轨情况', en: 'OrbitClimb' \}/.test(appCode) &&
+  /if \(view === 'climb'\) drawClimb\(\);/.test(appCode) &&
+  /view === 'climb'\) \{[\s\S]{0,900}?km\/天/.test(appCode.replace(/^\s*\/\/.*$/gm, '')));
+assert('V1.9.0（R17）：最小二乘**必须中心化 x**（毫秒时间戳直接平方会抵消，误差 2.9e-9）',
+  /function climbSlope\(pts\)[\s\S]{0,900}?var dx = \(pts\[i\]\.ms - t0\) - xm;/.test(appCode));
+assert('V1.9.0（R17）：纵轴 0~2000km **顶格限位**（需求 Q47），且离地高度 = 半长轴 − 6378.137',
+  /var CLIMB_TOP = 2000;/.test(appCode) && /var CLIMB_RE = 6378\.137;/.test(appCode) &&
+  /Y\(c\.pts\[k2\]\.v - CLIMB_RE\)/.test(appCode));
+assert('V1.9.0（R17）：横轴 = 发射日～今天（右端至少到今天，需求 Q45）',
+  /var now = Date\.now\(\);[\s\S]{0,120}?if \(now > t1\) t1 = now;/.test(appCode));
+assert('V1.9.0（R17）：批次选择器**倒序**（最新发射在最上）且只列有历史数据的批次',
+  /ls\.sort\(function \(a, b\) \{ return \(b\.dateMs \|\| 0\) - \(a\.dateMs \|\| 0\); \}\);/.test(appCode) &&
+  /if \(!C\[L\.key\]\) return;/.test(appCode));
+assert('V1.9.0（R17）：与全局选中**双向联动**（选中→本章跟随；本章选单星→回写 S.sel）',
+  /function climbFollowSelection\(\)[\s\S]{0,700}?if \(S\.climbPick\) return;/.test(appCode) &&
+  /function afterSelection\(\)[\s\S]{0,900}?climbFollowSelection\(\);/.test(appCode) &&
+  /function climbSelect\(v\)[\s\S]{0,700}?S\.sel = \[idx\]; S\.focusIdx = idx; S\.selGroup = null; afterSelection\(\);/.test(appCode));
+assert('V1.9.0（R17）：本章两项按星座各存一份，且纳入章级/全局默认设置',
+  /'climbPick', 'climbTake'\];/.test(appCode) &&
+  /climb: \['climbPick', 'climbTake'\]/.test(appCode) &&
+  /climbPick: '', climbTake: 'sma',/.test(appCode) &&
+  /S\.climbPick = ''; S\.climbTake = 'sma';/.test(appCode) &&
+  /if \(sec === 'climb'\)/.test(appCode) &&
+  /resetAllPrefs\(\)[\s\S]{0,2600}?renderClimbSel\(\); renderClimbTake\(\); climbView = null; climbAutoView\(\); drawClimb\(\);/.test(appCode));
+assert('V1.9.0（R17）：切星座时重建曲线缓存（不清就会画出上一星座的曲线）',
+  /CLIMB = null; climbView = null; climbHover = null; climbAutoView\(\); renderClimbSel\(\)/.test(appCode));
+assert('V1.9.0（R17）：章级过场映射含 05 章（默认设置按钮走 playSectionCurtain）',
+  /climb: 'sec-climb'/.test(appCode) && /data-defsec="climb"/.test(tplCode));
+assert('V1.9.0（R17）：i18n 三段式键位齐备（缺一个就会把键名当文字画在页面上）',
+  ['h_climb', 'lead_climb', 'climb_pick', 'climb_take', 'climb_rate', 't_defclimb',
+   'climb_pick_auto', 'climb_sel_tip', 'climb_none', 'climb_n_sats', 'climb_n_hist',
+   'climb_take_sma', 'climb_take_rate', 'climb_y_alt', 'climb_y_rate']
+   // ⚠️ 不能用 ^\s* 锚行首：climb_pick / climb_take / climb_rate 三个键写在**同一行**
+   //   （逗号连排），锚行首会把后两个误判为缺失（V1.9.0 就因此误报过一次）。
+   //   同时要求键后面紧跟 [ 才算命中，避免 climb_take 误配到 climb_take_sma。
+   .every(k => new RegExp('(^|[{,\\s])' + k + ': \\[').test(appSrc)),
+  '15 个键');
+assert('V1.9.0（R17）：信息窗复用**已有**键名（不得凭空造 d_name / d_launch —— 表里没有）',
+  /t\('t_name'\)/.test(appCode) && /t\('d_row_batch'\)/.test(appCode) &&
+  /t\('d_row_epoch_sat'\)/.test(appCode) && !/t\('d_name'\)/.test(appCode) && !/t\('d_launch'\)/.test(appCode));
+assert('V1.9.0（R17）：构建期把 data/history/*.json 汇进 satdata，并做量级过滤',
+  /function loadHistory\(\)/.test(mkCode) && /sma < 6700 \|\| sma > 12000/.test(mkCode) &&
+  // ⚠️ 外挂改造后这里不再是 HIST.out.* 直接赋值，而是**精简兜底** histLite（见下一条）
+  /DATA\.gw\.hist = histLite\.gw;/.test(mkCode) && /DATA\.qf\.hist = histLite\.qf;/.test(mkCode));
+
+// ---- V1.9.0（R17）：历史库外挂 + **规模重估后的分片方案** ----
+// ⚠️ 规模重估（用户提出"未来会到数万~数十万颗"）：原「单个 history.json」方案在
+//   10 万颗 × 20 年 = **2.26 GB**，超 GitHub 单文件 100 MB 硬限，页面更不可能一次加载。
+//   现方案：按**批次分片** + 索引，页面只取选中的那一批（几十 KB）。
+//   ① 源库 data/history/（v1 三元组，refresh 每天追加，简单可靠）
+//   ② 发布 history/（v2 紧凑编码 + 分片 + 索引，mkdata 构建时打包）
+//   ③ satdata 内嵌最近 60 天精简兜底，保证 file:// 离线打开也有曲线
+const buildCode = fs.readFileSync(B + '/build.mjs', 'utf8');
+const packMod = fs.readFileSync(B + '/scripts/histpack.mjs', 'utf8');
+assert('V1.9.0（R17）：历史库**按批次分片外挂**（不是单个大 JSON）—— build 复制 history/ 目录',
+  /build\/history/.test(buildCode) && /copied history\//.test(buildCode) &&
+  /var HIST_DIR_URL = '\.\/history\/';/.test(appCode) &&
+  /function loadHistIndex\(/.test(appCode) && /function ensureHistBatch\(/.test(appCode) &&
+  /function decodeHistShard\(/.test(appCode));
+assert('V1.9.0（R17）：分片自带 base/prec（页面解码不靠硬编码，防两端失配）',
+  /base: SMA_BASE, prec: SMA_PREC/.test(packMod) &&
+  /var base = \(j && isFinite\(j\.base\)\) \? j\.base : 6000;/.test(appCode));
+assert('V1.9.0（R17）：默认批次**从索引取**（内置单点时 climbSeries 算不出 → 否则永不加载分片）',
+  // 端到端验证抓到过：分片明明可取，页面却一直显示"暂无历史数据"
+  /var ix = HIST_IDX\[S\.key\];[\s\S]{0,400}?ix\.batches\[0\]\.k/.test(appCode) &&
+  /ixb && ixb\.batches && ixb\.batches\.length/.test(appCode));
+assert('V1.9.0（R17）：采样策略 = 变化驱动 + 分层 + 稳定期配额（不是单纯按时间抽稀）',
+  /climbKmPerDay:/.test(packMod) && /maxStablePts:/.test(packMod) &&
+  /function selectPoints\(/.test(packMod) &&
+  // 升轨期的点优先保留，稳定期受配额限制
+  /stableUsed < POLICY\.maxStablePts/.test(packMod) &&
+  /moving\[i\] && gapDays >= step/.test(packMod));
+assert('V1.9.0（R17）：v2 编码每颗星只存一次 norad（消除 23% 行内冗余）',
+  /\{ n: norad, t0: t0, d: d, a: a \}/.test(packMod) &&
+  /if \(keep\.length >= 2\) sats\.push\(encodeSat\(norad, keep\)\);/.test(packMod));
+assert('V1.9.0（R17）：缓存上限防内存膨胀（长时间浏览不会越积越多）',
+  /HIST_CACHE_MAX = 24/.test(appCode) && /keys\.length > HIST_CACHE_MAX/.test(appCode));
+{
+  // **规模承诺的量化验收**：这是本次重构的核心指标，必须实测（不是估算）
+  const hp = await import('./scripts/histpack.mjs');
+  const tEnd = Date.UTC(2026, 0, 1), DAY = 86400000;
+  // 造一颗"升轨 1 年后稳定、共 N 年"的卫星
+  const mk = (days, climbDays) => {
+    const p = [];
+    for (let d = 0; d <= days; d++) p.push({ ms: tEnd - (days - d) * DAY, v: 7000 + Math.min(d, climbDays) * 1.5 });
+    return p;
+  };
+  const n1 = hp.selectPoints(mk(365, 365), tEnd).length;
+  const n20 = hp.selectPoints(mk(20 * 365, 365), tEnd).length;
+  const enc = hp.encodeSat(1, hp.selectPoints(mk(20 * 365, 365), tEnd));
+  const perSat = JSON.stringify([enc]).length;
+  const mb10w = (perSat * 100000) / 1048576;
+  assert('V1.9.0（R17）：规模承诺 —— 单星 20 年 < 150 点（升轨密、稳定稀）',
+    n1 < 400 && n20 < 150, '1年=' + n1 + '  20年=' + n20);
+  assert('V1.9.0（R17）：规模承诺 —— 10 万颗 × 20 年 < 100 MB（原方案 2.26 GB）',
+    mb10w < 100, mb10w.toFixed(0) + ' MB（每星 ' + perSat + ' 字节）');
+  assert('V1.9.0（R17）：规模承诺 —— 单分片远低于 GitHub 100 MB 上限',
+    (perSat * 500) / 1048576 < 100, '500 星/批 ≈ ' + ((perSat * 500) / 1048576).toFixed(1) + ' MB');
+}
+assert('V1.9.0（R17）：升轨速率算法在页面端与构建期**同一口径**（±2 天窗口最小二乘 + 2 天断档）',
+  /function climbRates\(pts, half, minPts\)/.test(appCode) && /half = half \|\| 2; minPts = minPts \|\| 2;/.test(appCode) &&
+  /function climbBreakGaps\(series, maxGapDays\)/.test(appCode) &&
+  /riseRateSeries\(pts, opts\.half, opts\.minPts\)/.test(climbMod) &&
+  /breakGaps\(riseRateSeries/.test(climbMod));
+
 assert('V1.8.0（需求6）：launches 台账第 6 位=任务结果、第 7 位=百科记载颗数',
   Object.values(RAW.gw.launches).filter(v => v.length >= 6).length >= Math.floor(Object.keys(RAW.gw.launches).length * 0.9) &&
   Object.values(RAW.qf.launches).every(v => v.length >= 6) &&

@@ -1,6 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+// V1.9.0（R17）：历史库的容量治理与发布打包，见 scripts/histstore.mjs / scripts/histpack.mjs
+import { pruneRecords, CAP } from './scripts/histstore.mjs';
+import { packAll } from './scripts/histpack.mjs';
 const ROOT = path.dirname(fileURLToPath(import.meta.url));   // 脚本所在目录（发布包内任意位置可用）
 const D = path.join(ROOT, 'data');
 
@@ -474,6 +477,144 @@ const DATA = {
 };
 
 fs.mkdirSync(path.join(ROOT, 'build'), { recursive: true });
+
+// ---------------------------------------------------------------- V1.9.0（R17）：历史轨道要素
+// data/history/<批次key>.json 里是 [norad, 历元ms, 半长轴km] 三元组（由 scripts/import_history.mjs 写入）。
+// 这里只做「读进来 + 按天去重 + 量级合理性过滤」，让页面端拿到即可直接画。
+// 过滤规则（宁缺毋滥 —— 一条错数据会在图上变成一根垂直 spike，比没有更糟）：
+//   · 半长轴必须落在 [6700, 12000] km：低于 6700 物理上不可能（比地球半径+6km 还低），
+//     高于 12000 是高轨/深空，与两颗低轨互联网卫星无关。
+//   · 同一个 norad+日期只留**最后**一条（同日多条 TLE 是轨道解算的重复发布，取最新）。
+function loadHistory() {
+  const dir = path.join(ROOT, 'data', 'history');
+  const out = { gw: {}, qf: {} };
+  const stat = { shards: 0, recs: 0, dropped: 0, days: 0 };
+  if (!fs.existsSync(dir)) return { out, stat };
+  for (const f of fs.readdirSync(dir)) {
+    if (!f.endsWith('.json') || f.endsWith('.bak')) continue;
+    const key = f.slice(0, -5);
+    let arr;
+    try { arr = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')); } catch (e) { continue; }
+    if (!Array.isArray(arr) || !arr.length) continue;
+    const byNorad = new Map();
+    for (const r of arr) {
+      if (!r || r.length < 3) { stat.dropped++; continue; }
+      const norad = r[0] | 0, ms = +r[1], sma = +r[2];
+      if (!norad || !isFinite(ms) || !isFinite(sma)) { stat.dropped++; continue; }
+      if (sma < 6700 || sma > 12000) { stat.dropped++; continue; }
+      const day = Math.floor(ms / 86400000);
+      if (!byNorad.has(norad)) byNorad.set(norad, new Map());
+      byNorad.get(norad).set(day, [norad, ms, Math.round(sma * 100) / 100]);
+    }
+    // 批次 key 本身决定归属：与两个星座的 launches 里出现过的 key 精确匹配
+    const bucket = HIST_KEYS[key];
+    if (!bucket) { stat.dropped += arr.length; continue; }
+    const target = out[bucket.key];
+    const perLaunch = {};
+    for (const [, days] of byNorad) {
+      for (const [, rec] of days) {
+        (perLaunch[rec[0]] || (perLaunch[rec[0]] = [])).push(rec);
+        stat.recs++;
+      }
+    }
+    let had = false;
+    for (const norad in perLaunch) {
+      perLaunch[norad].sort((a, b) => a[1] - b[1]);
+      (target[key] || (target[key] = [])).push(...perLaunch[norad]);
+      had = true;
+      stat.days += perLaunch[norad].length;
+    }
+    if (had) stat.shards++;
+  }
+  for (const bk of ['gw', 'qf']) {
+    for (const key in out[bk]) out[bk][key].sort((a, b) => (a[0] - b[0]) || (a[1] - b[1]));
+  }
+  return { out, stat };
+}
+// 批次 key → 星座。
+// ⚠️ GW_LEDGER / QF_LEDGER 是**对象**（形如 { "23095": [名称, 日期, 火箭, 场坪, 倾角, 结果], … }），
+//   不是数组 —— 键本身就是批次 key（COSPAR 后 5 位），与 data/history/<key>.json 同名。
+//   旧写法 `for (const L of LED)` 会当场抛 "LED is not iterable"。
+const HIST_KEYS = {};
+for (const [bk, LED] of [['gw', GW_LEDGER], ['qf', QF_LEDGER]]) {
+  for (const k of Object.keys(LED || {})) HIST_KEYS[k] = { key: bk };
+}
+const HIST = loadHistory();
+
+// ---------------------------------------------------------------- V1.9.0（R17）：历史库**外挂**
+// 历史数据会随天数线性增长（见 scripts/histstore.mjs 的容量治理），塞进单文件 HTML
+// 会让页面逐年膨胀到几十 MB。所以走和 wiki.json 同一套路：
+//   · **外挂 build/history.json** —— 与 HTML 同目录托管，页面加载后 fetch 覆盖，完整版；
+//   · **satdata 里只留一份精简兜底**（BUNDLE_* 口径）—— 保证本地 file:// 双击打开也有曲线可看。
+// 两者都经过同一套 pruneRecords 容量治理，故任何一边都不会失控。
+const NOW_MS = Date.now();
+const BUNDLE_DAYS = 60;      // 内置兜底只留最近 60 天
+const BUNDLE_STEP = 2;       // 内置兜底每 2 天一点（≈30 点/星）
+function bundleLite(hist) {
+  const out = {};
+  for (const lk of Object.keys(hist || {})) {
+    const cut = (hist[lk] || []).filter(r => isFinite(r[1]) && (NOW_MS - r[1]) <= BUNDLE_DAYS * 86400000);
+    if (!cut.length) continue;
+    // 按 BUNDLE_STEP 天抽稀：从最新往回每 N 天留一点（与 pruneSat 同思路，但用固定档）
+    const bySat = new Map();
+    for (const r of cut) {
+      if (!bySat.has(r[0])) bySat.set(r[0], []);
+      bySat.get(r[0]).push(r);
+    }
+    const kept = [];
+    for (const [norad, rs] of bySat) {
+      rs.sort((a, b) => a[1] - b[1]);
+      let lastKept = Infinity;
+      for (let i = rs.length - 1; i >= 0; i--) {
+        if (lastKept === Infinity || lastKept - rs[i][1] >= BUNDLE_STEP * 86400000 * 0.999) {
+          kept.push(rs[i]); lastKept = rs[i][1];
+        }
+      }
+      if (kept.length && kept[kept.length - 1][1] !== rs[0][1]) kept.push(rs[0]);   // 起点也留
+    }
+    if (kept.length) out[lk] = kept.sort((a, b) => (a[0] - b[0]) || (a[1] - b[1]));
+  }
+  return out;
+}
+// ① 外挂：按**批次分片** + 索引（v2 紧凑编码）
+//   ⚠️ 规模重估（V1.9.0）：不做分片的话，10 万颗 × 20 年会是 2.26 GB —— 单文件超 GitHub 100MB 硬限，
+//   页面更不可能一次加载。分片后：页面只取选中的那一个批次（几十 KB），总量再大也不影响速度。
+//   编码与采样策略见 scripts/histpack.mjs（变化驱动 + 分层 + 稳定期配额，10 万颗×20 年 ≈ 42 MB）。
+const HIST_OUT = path.join(ROOT, 'build', 'history');
+fs.rmSync(HIST_OUT, { recursive: true, force: true });
+fs.mkdirSync(HIST_OUT, { recursive: true });
+let packTotal = { before: 0, after: 0, bytes: 0, batches: 0 };
+for (const bk of ['gw', 'qf']) {
+  const pk = packAll(HIST.out[bk], NOW_MS);
+  fs.writeFileSync(path.join(HIST_OUT, 'index-' + bk + '.json'), JSON.stringify(pk.index), 'utf8');
+  let dirBytes = 0;
+  for (const lk of Object.keys(pk.shards)) {
+    const s = JSON.stringify(pk.shards[lk]);
+    fs.writeFileSync(path.join(HIST_OUT, bk + '-' + lk + '.json'), s, 'utf8');
+    dirBytes += s.length;
+  }
+  packTotal.before += pk.stats.before; packTotal.after += pk.stats.after;
+  packTotal.bytes += dirBytes + JSON.stringify(pk.index).length;
+  packTotal.batches += pk.index.batches.length;
+  console.log('  历史打包 ' + bk + '：' + pk.index.batches.length + ' 批 / ' + pk.stats.after + ' 点 / ' +
+    (dirBytes / 1024).toFixed(1) + ' KB（原始 ' + pk.stats.before + ' 点）');
+}
+console.log('history/（外挂分片）' + packTotal.batches + ' 批  ' + packTotal.after + ' 点  ' +
+  (packTotal.bytes / 1024).toFixed(1) + ' KB  （治理前 ' + packTotal.before + ' 点）');
+
+// ② satdata 里只留精简兜底（离线 file:// 打开也能看到曲线）
+const histLite = { gw: {}, qf: {} };
+['gw', 'qf'].forEach(bk => { histLite[bk] = bundleLite(HIST.out[bk]); });
+
+// ② satdata 里只留精简兜底（离线 file:// 打开也能看到曲线）
+DATA.gw.hist = histLite.gw;
+DATA.qf.hist = histLite.qf;
+const liteN = Object.keys(histLite.gw).concat(Object.keys(histLite.qf))
+  .reduce((a, k) => a + ((histLite.gw[k] || histLite.qf[k] || []).length), 0);
+console.log('history: 分片 ' + HIST.stat.shards + '  历史点 ' + HIST.stat.days +
+  '  丢弃 ' + HIST.stat.dropped + '  (gw ' + Object.keys(HIST.out.gw).length +
+  ' 批 / qf ' + Object.keys(HIST.out.qf).length + ' 批)  → 内置精简 ' + liteN + ' 条');
+
 fs.writeFileSync(path.join(ROOT, 'build', 'satdata.json'), JSON.stringify(DATA), 'utf8');
 console.log('satdata.json bytes=', fs.statSync(path.join(ROOT, 'build', 'satdata.json')).size);
 

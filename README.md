@@ -1,6 +1,6 @@
 # CISTrack · 星网与千帆在轨追踪
 
-![version](https://img.shields.io/badge/version-1.8.0-ff6b6b?style=flat-square)
+![version](https://img.shields.io/badge/version-1.9.0-ff6b6b?style=flat-square)
 ![license](https://img.shields.io/badge/license-MIT-4dabf7?style=flat-square)
 ![single file](https://img.shields.io/badge/single--file-offline-4dabf7?style=flat-square)
 ![星网](https://img.shields.io/badge/%E6%98%9F%E7%BD%91-CSCN-ff6b6b?style=flat-square)
@@ -43,7 +43,8 @@ Just open the HTML file — no server, no network needed (when online it fetches
 | **03 倾角分布** | 横轴 = 轨道倾角，纵轴 = 半长轴 / 远地点 / 近地点；一张图看清星座分布在哪些轨道面 |
 | **03.5 组网进度** | 两条累计曲线随时间（横轴按周、标注为对应日期）看星座建设节奏：**发射量** = 累计发射颗数（含发射失败与部分成功，页面没写数字的不计入），**在轨数量** = 已有 TLE 的颗数 ＋ 已发射未编目且发射记录为成功的颗数 |
 | **04 卫星表格** | 全量在轨卫星的轨道要素（批次/组、制造方、半长轴、近远地点、倾角、周期、在轨天数、RAAN、偏心率、历元），可排序、可搜索、可导出图片。制造方取自卫星百科词条，收成简称并可点击跳转 |
-| **05 发射历史** | 逐次发射的批次 / 运载火箭 / 发射时间 / 发射地点 / 设计倾角 / 任务结果，火箭与场地可跳转卫星百科，卫星名可跳转 satcat.com |
+| **05 升轨情况** | 每颗卫星从入轨到工作轨道的**半长轴爬升曲线**（历史轨道数据库驱动，选中批次/单星即画）。升轨速度 = ±2 天窗口最小二乘；纵轴 0~2000 km；支持半长轴/升轨速度两种口径、导出图片带升轨速度列、与全局选中双向联动 |
+| **06 发射历史** | 逐次发射的批次 / 运载火箭 / 发射时间 / 发射地点 / 设计倾角 / 任务结果，火箭与场地可跳转卫星百科，卫星名可跳转 satcat.com |
 
 其它：中英双语、深浅主题、全屏（手机端自动横屏 + 常亮）、时间轴回放（±180 分钟，地图 / 轨道两章 × 星网 / 千帆四个组合各自独立，支持非线性平滑动画；实时态下「实时」按钮用**主题色填充并呼吸闪烁**、文字取主题前景色，被推离实时后转为**固定黄色状态灯**）、图→表联动、PNG 导出（带模拟时间与免责声明的底栏）。
 
@@ -66,7 +67,7 @@ Just open the HTML file — no server, no network needed (when online it fetches
 
 ## 🚀 快速开始
 
-1. 下载 `CISTrack_v1.8.0.html`（或 Release 里的同名附件；仓库内的 `index.html` 会自动跳到最新版）
+1. 下载 `CISTrack_v1.9.0.html`（或 Release 里的同名附件；仓库内的 `index.html` 会自动跳到最新版）
 2. 双击用浏览器打开（Chrome / Edge / Firefox / Safari 均可）
 
 就这两步。首次打开会尝试联网拉取最新 TLE，失败则用内置快照，功能完全不受影响。
@@ -126,6 +127,7 @@ node visual.mjs         # 可选：真浏览器布局与交互实测（需要本
 | 数据源 | 用来做什么 | 怎么更新 | 需要本地任务吗 |
 |---|---|---|---|
 | **CelesTrak / NORAD 轨道要素（TLE）** | 卫星此刻位置、地面覆盖、轨道形状 | **访客打开页面时在他自己浏览器里现拉**（多路查询 + 公共代理兜底 + 30 分钟会话缓存） | **不需要**（在线访客永远是最新） |
+| **Space-Track GP 历史要素集** | **05 升轨情况**的半长轴爬升曲线（历史轨道数据库） | 构建时批量拉取（登录 + `gp_history` 查询，`format=tle`）注入 `data/history/`；`refresh.mjs` 日常追加当天要素；`mkdata.mjs` 采样打包成 `history/` 发布分片 | 本机任务（配额限制，不适合放 CI） |
 | **卫星百科「星网 / 千帆星座」词条** | 页面顶部三个统计数字（已发射 / 在轨 / 发射成功） | 构建时抓一次打包；另可用计划任务定时运行 `scripts/fetch_wiki.mjs`（零依赖）自动抓取并提交 | 可选（只针对顶部数字） |
 | **卫星百科「引导页:发射记录」年度页** | 发射历史章的「任务结果」列、03.5 组网进度的纵向口径 | 构建时运行 `scripts/fetch_launch_results.mjs` 抓取，写入 `wiki_launches.json` 后由 `mkdata.mjs` 合并 | 可选（建议与 TLE 任务一起跑） |
 | **Natural Earth 海岸线** | 地图陆地轮廓 | 构建时下载并打包 | 不需要 |
@@ -206,9 +208,34 @@ build.mjs       # 把上面几块注入 template → 单文件 HTML
 - **多源 TLE 合并**：CelesTrak 的分组会漏掉早期试验星，所以再加「按名称前缀查询」与「按编号反查」，同一颗取历元最新的一份。
 - **只拿 HTML 也能用**：联网刷新是可选增强，离线打开一切照常。
 
+## 🗄️ 历史轨道数据库（V1.9.0 起）
+
+**05 升轨情况**章的曲线由一份自建的历史轨道数据库驱动。设计目标是：随两个星座从几千颗涨到**数万、数十万颗**仍然可用，且能作为开源项目的一部分直接托管在 GitHub 上。
+
+**数据从哪来**：Space-Track.org 的 **GP 历史要素集**（`class/gp_history`）——18 SDS 对每颗卫星逐日重发的多组轨道要素。脚本用官方账号登录后批量查询（10 颗/请求、按年分窗、`format=tle`），解析 TLE 的历元与平均运动，按**布劳威尔模型**反算半长轴（与页面 / SGP4 同一口径），每颗星从它发射后的第一条要素开始存。**只存布劳威尔半长轴**——一种模型、一个值，不混口径。
+
+**结构（两层）**：
+
+| 层 | 位置 | 格式 | 谁写 / 谁读 |
+|---|---|---|---|
+| 源库 | `data/history/<批次>.json` | v1 三元组 `[norad, 毫秒历元, 半长轴]`，每天 ≤2 条 | `refresh.mjs` 每天追加（幂等，按 (norad, 历元) 去重） |
+| 发布库 | `history/index-*.json` + `history/<批次>-<链接号>.json` | v2 紧凑编码：norad 只存一次、天数相对化（`t0` + 偏移数组）、半长轴定点数（`base`+`prec` 写入分片头，防两端失配） | `mkdata.mjs` 采样打包；页面**按需加载**（首屏只取索引，选中批次才取分片，LRU 缓存 24 片） |
+
+页面加载有**三级降级**：外挂发布分片 → 内置 60 天精简兜底（离线打开也有图）→「暂无历史数据」。
+
+**容量为什么扛得住数万颗**：核心认识是「卫星到工作轨道后每天存点是纯浪费」。采样策略为**变化驱动 + 分层 + 稳定期配额**——升轨期（日变化 ≥0.05 km）密采，稳定期每月 1~2 点且每星最多 24 点。实测单星 1 年 244 点、**20 年只有 39 点**，每星约 440 字节；**10 万颗 × 20 年 ≈ 42 MB**（朴素逐日方案要 2.26 GB，缩 54 倍）。单个分片上限 4 MB，浏览器加载无压力。
+
+**日常维护**：不需要人工干预——
+
+1. `refresh.mjs`（本机计划任务每 12 小时）拉最新 TLE 时顺手把当天要素追加进源库；
+2. `mkdata.mjs`（构建时）把源库采样打包成发布分片，随 `build.mjs` 一起复制到产物目录；
+3. 源库有容量治理兜底（每星 ≤3000 点、单库 24 MB），永不无限膨胀；
+4. 新批次发射后自动出现在索引里，无需改代码。
+
 ## 📊 数据来源
 
 - [CelesTrak](https://celestrak.org/) —— NORAD 空间目标目录的公开轨道要素（TLE）
+- [Space-Track.org](https://www.space-track.org/) —— 18 SDS 的 GP 历史要素集（历史轨道数据库的来源）
 - [卫星百科](https://sat.huijiwiki.com/) —— 词条口径的发射/在轨统计、批次名称、运载火箭与发射场
 - [Natural Earth](https://www.naturalearthdata.com/) —— 海岸线（公有领域）
 - [satellite-js](https://github.com/shashwatak/satellite-js) —— MIT 许可的 SGP4 实现
@@ -235,17 +262,21 @@ build.mjs       # 把上面几块注入 template → 单文件 HTML
 ```
 CISTrack.html           ★ 最新版（不带版本号）—— 固定链接就用它：
                           https://1471155912.github.io/CISTrack/CISTrack.html
-CISTrack_v1.8.0.html    当前版本快照（回滚 / 对照用）
-CISTrack_v1.5.2 … v1.7.3.html
+CISTrack_v1.9.0.html    当前版本快照（回滚 / 对照用）
+CISTrack_v1.5.2 … v1.8.0.html
                         更早的历史快照（v1.5.2 / v1.5.3 / v1.6.3 / v1.7.0 /
-                        v1.7.1 / v1.7.2 / v1.7.3，同样用于回滚与对照）
+                        v1.7.1 / v1.7.2 / v1.7.3 / v1.8.0，同样用于回滚与对照）
 index.html              入口页（自动跳转到 CISTrack.html）
+history/                历史轨道数据库发布分片（05 升轨情况的数据，按需加载；详见「历史轨道数据库」）
 app.js / template.html  源码（单文件产物 = 这两者 + data/ 由 build.mjs 打包）
-data/                   卫星数据（含制造商研发机构、离线兜底的 TLE 快照）
+data/                   卫星数据（含制造商研发机构、离线兜底的 TLE 快照、历史轨道源库 data/history/）
 wiki.json               卫星百科统计缓存（顶部「发射 / 在轨 / 发射次数」的来源；页面运行时读它）
 wiki_launches.json      星网/千帆逐次发射的任务结果（发射历史「任务结果」列 + 03.5 组网进度口径）
 scripts/fetch_wiki.mjs          抓取并更新 wiki.json（零依赖，详见「更新数据」）
 scripts/fetch_launch_results.mjs 抓取卫星百科年度发射记录页 → wiki_launches.json（零依赖）
+scripts/fetch_history.mjs       历史 TLE 批量拉取（灌库 / 补数用，日常维护不需要；详见「历史轨道数据库」）
+scripts/histstore.mjs           历史源库读写与容量治理（mergeInto / pruneRecords）
+scripts/histpack.mjs            历史发布分片打包（v2 编码 + 变化驱动采样）
 smoke.mjs / visual.mjs  测试：逻辑与源码断言 / 真实浏览器布局实测
 i18n.mjs                中英文案审计（静态四查 + 运行时四遍）
 build.mjs / mk*.mjs     构建脚本（把源码打包成单文件 HTML）

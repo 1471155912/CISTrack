@@ -52,3 +52,33 @@ if (fs.existsSync(wj)) {
   fs.copyFileSync(wj, `${B}/wiki.json`);
   console.log('copied wiki.json →', fs.statSync(`${B}/wiki.json`).size, 'bytes');
 }
+
+// V1.9.0（R17）：历史轨道要素库**外挂 + 按批次分片** —— 与 wiki.json 同一套路，但是一个目录。
+//   规模重估后（数万~数十万颗）单个大 JSON 会撞 GitHub 100MB 硬限；分片后每个文件几十 KB，
+//   页面只取选中的那一批。以后更新历史只要替换 history/ 目录，不必重新构建 HTML。
+{
+  const src = `${B}/build/history`, dst = `${B}/history`;
+  if (fs.existsSync(src)) {
+    // 清掉旧产物目录再复制。rmSync 在个别环境（安全删除钩子回收竞态）可能抛错，
+    // 这里降级为「逐文件覆盖 + 兜底移走」，保证复制本身总能完成。
+    try {
+      fs.rmSync(dst, { recursive: true, force: true });
+    } catch (e) {
+      console.log('  rmSync 旧 history/ 失败，降级为逐文件覆盖（' + (e.message || '').slice(0, 60) + '）');
+    }
+    fs.mkdirSync(dst, { recursive: true });
+    let n = 0, kb = 0;
+    for (const f of fs.readdirSync(src)) {
+      fs.copyFileSync(`${src}/${f}`, `${dst}/${f}`);
+      n++; kb += fs.statSync(`${dst}/${f}`).size;
+    }
+    // 复制完成后，清掉「新分片里已不存在」的陈旧文件，避免历史文件越积越多
+    const keep = new Set(fs.readdirSync(src));
+    for (const f of fs.readdirSync(dst)) {
+      if (!keep.has(f)) { try { fs.rmSync(`${dst}/${f}`, { force: true }); } catch (e) {} }
+    }
+    console.log(`copied history/ → ${n} files, ${(kb / 1024).toFixed(1)} KB`);
+  } else {
+    console.log('history/ 未生成（跳过复制）');
+  }
+}

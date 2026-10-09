@@ -11,7 +11,7 @@ var DAY = 86400000;
 var SGP4 = window.satellite;
 var RAW = window.SATDATA;
 var COAST = window.COAST_DATA || [];
-var VERSION = 'V1.8.0';          // 页脚版本号，后续更新在此改动
+var VERSION = 'V1.9.0';          // 页脚版本号，后续更新在此改动
 
 // ---------------------------------------------------------------- V1.3.7：TLE 分组差分解码
 // 构建脚本按发射批次（COSPAR 前缀）把「名称+两行要素」压成公共模板 + 每颗星的差异串，
@@ -182,6 +182,17 @@ var I18N = {
   lead_climb: ['选定一颗卫星或一个批次/组，画出它们的轨道半长轴随时间的变化 —— 刚入轨时低、随后被发动机一点点抬到工作高度的那段"爬坡"。',
     'Pick one satellite or one batch/group and see how its orbital semi-major axis changes over time — the climb from a low initial altitude up to the working height.'],
   climb_pick: ['对象', 'Object'], climb_take: ['纵轴量', 'Y axis'], climb_rate: ['升轨速度', 'Climb rate'],
+  // ↓ R17 画布与说明行用到的键（全部成对，缺一个就会在页面上显示键名本身）
+  climb_pick_auto: ['跟随选中（默认）', 'Follow selection (default)'],
+  climb_sel_tip: ['选择要查看升轨过程的批次/组；留空则跟随你在其它章节的选中',
+    'Pick the batch/group to inspect; leave empty to follow your selection elsewhere'],
+  climb_none: ['本章暂无历史轨道数据', 'No historical orbit data yet'],
+  climb_n_sats: ['曲线', 'curves'],
+  climb_n_hist: ['历史点', 'points'],
+  climb_take_sma: ['半长轴（离地高度）', 'Semi-major axis (altitude)'],
+  climb_take_rate: ['升轨速度（±2 天最小二乘）', 'Climb rate (±2 d least squares)'],
+  climb_y_alt: ['离地高度, km', 'Altitude, km'],
+  climb_y_rate: ['升轨速度, km/天', 'Climb rate, km/day'],
   t_defclimb: ['恢复 05 升轨情况的初始设置', 'Restore the default settings of 05 Orbits Raising Status'],
   // ↑↑ V1.9.0（R17）：05 章的三段式 i18n（标题/说明/选择器），其中「升轨速度」的算法口径见 climbNote
   t_defprogress: ['恢复 04 组网进度的初始设置', 'Restore the default settings of 04 Network Progress'],
@@ -551,6 +562,10 @@ var S = {
   //   按星座各存一份没有意义；它们随「默认设置 / 还原所有默认设置」还原即可。
   netMode: 'launch',          // 'launch' = 发射量累计；'orbit' = 在轨数量
   netGw: true, netQf: true,   // 两条曲线的显隐
+  // V1.9.0（R17）：05 升轨情况的两项。**进 STATE_FIELDS** —— 与 04 的显隐同理按星座各存一份
+  //   （切到千帆时看到的是千帆的批次，不是星网的）。
+  climbPick: '',              // '' = 跟随全局选中；'b:<批次key>' = 指定批次；'s:<norad>' = 指定单星
+  climbTake: 'sma',           // 'sma' = 半长轴（离地高度）；'rate' = 升轨速度 km/天
   // V1.7.0（任务3）：两个星座各自记住自己的滚动位置，切页互不影响（默认都在页首）
   scrollY: { gw: 0, qf: 0 }
 };
@@ -568,6 +583,9 @@ var PREF_DEF = {
   netMode: 'launch',                              // V1.8.0（需求8）：03.5 组网进度
   // V1.9.0（需求3）：netGw / netQf **不再放这里** —— 它们改为按星座各存一份（见 STATE_FIELDS），
   //   出厂默认 = 只看本页星座（星网页面只显示星网、千帆页面只显示千帆），两个页面互不联动。
+  // V1.9.0（R17）：05 章同理，climbPick / climbTake 也按星座各存一份（见 STATE_FIELDS），
+  //   但**出厂值**（'' / 'sma'）仍写在这里，供章级「默认设置」按值还原。
+  climbPick: '', climbTake: 'sma',
   timeOffsetMap: 0, timeOffsetGlobe: 0     // V1.7.3（需求9）：两章时间条各自独立
 };
 // 「默认设置」按钮各自管哪几项（时间滑块 02/03 共用，两边都能还原）
@@ -577,6 +595,8 @@ var PREF_SEC = {
   globe: ['coneOn', 'coneEl', 'spin', 'showTracks', 'nameGlobe', 'cGlobe', 'timeOffsetGlobe'],
   // V1.8.0（需求8）：03.5 组网进度自己那一章的默认设置
   progress: ['netMode'],
+  // V1.9.0（R17）：05 升轨情况本章的默认设置 = 对象选择 + 纵轴量（视图由 resetView 归位）
+  climb: ['climbPick', 'climbTake'],
   table: ['sortKey', 'sortAsc', 'allCols']
 };
 // V1.9.0（需求3）：03.5 组网进度的「显示星网 / 显示千帆」**按星座各存一份**（见 STATE_FIELDS），
@@ -597,6 +617,8 @@ function prefSnap() {
     nameGlobe: S.names.globe,
     sortKey: S.sortKey, sortAsc: S.sortAsc, allCols: S.allCols,
     netMode: S.netMode, netGw: S.netGw, netQf: S.netQf,      // V1.8.0（需求8）
+    // V1.9.0（R17）：05 章两项同样如实快照（章级「默认设置」要按 PREF_DEF 的值还原）
+    climbPick: S.climbPick, climbTake: S.climbTake,
     // V1.7.1（需求10）：时间滑块**如实快照当前偏移**（理由见下）；V1.7.3（需求9）两章各拍各的。
     //   快照用真值、还原仍由 prefApply 强制归零（见 prefApply），两件事分开。
     timeOffsetMap: S.time.map.off,
@@ -617,6 +639,8 @@ function prefApply(p) {
   S.spin = p.spin; S.showTracks = p.showTracks; S.names.globe = p.nameGlobe;
   S.sortKey = p.sortKey; S.sortAsc = p.sortAsc; S.allCols = p.allCols;
   S.netMode = p.netMode; S.netGw = !!p.netGw; S.netQf = !!p.netQf;   // V1.8.0（需求8）
+  // V1.9.0（R17）：05 章两项一并落回 S（climbPick 可能是 'b:xxx'，按原样写回）
+  S.climbPick = p.climbPick || ''; S.climbTake = (p.climbTake === 'rate') ? 'rate' : 'sma';
   // V1.3.6：时间恒为「现在」。存档里若带着旧版本写入的偏移也一律忽略，
   // 保证打开页面时时间条上的时间就是最新的时刻。
   // V1.7.3（需求9）：两章各自归零 + 解除冻结（任何"还原默认"都等于回实时）；
@@ -761,6 +785,9 @@ function resetSection(sec) {
   chartAutoView(); drawChart(); renderLegend(); renderTable();
   if (sec === 'progress') { netAutoView(); }
   try { drawNet(); } catch (e) {}      // V1.8.0（需求8）
+  // V1.9.0（R17）：05 章同理 —— 控件刷回 + 视图归位 + 重绘
+  if (sec === 'climb') { try { renderClimbSel(); renderClimbTake(); climbView = null; climbAutoView(); } catch (e) {} }
+  try { drawClimb(); } catch (e) {}
   mapDirty = globeDirty = true;
   touchPrefs();
   // ① 时间条补间**必须放在所有重活之后**：上面 canvas 重绘 + 表格重建要几十到上百毫秒，
@@ -824,6 +851,8 @@ function resetAllPrefs() {
   if (typeof setOffset === 'function') { setOffset(0, 'map'); setOffset(0, 'globe'); }
   chartAutoView(); drawChart(); renderLegend();
   try { netAutoView(); drawNet(); } catch (e) {}      // V1.8.0（需求8）：03.5 一并回默认视图
+  // V1.9.0（R17）：05 章同样回默认（对象选择 = 跟随选中，纵轴 = 半长轴，视图回自动）
+  try { renderClimbSel(); renderClimbTake(); climbView = null; climbAutoView(); drawClimb(); } catch (e) {}
   // V1.7.1（需求7）：jump:true 确保表格回到第一页且无残留高亮（缺省调用不翻页）
   renderTable({ jump: true }); renderLaunchTable(true);
   try { resetDragTips(); } catch (e) {}
@@ -2658,6 +2687,7 @@ var VIEW_SEG = {
   globe: { zh: '轨道', en: 'Orbit' },
   chart: { zh: '倾角分布', en: 'IncDist' },
   progress: { zh: '组网进度', en: 'NetProgress' },   // V1.8.0（需求8）
+  climb: { zh: '升轨情况', en: 'OrbitClimb' },        // V1.9.0（R17）
   table: { zh: '卫星表格', en: 'SatTable' },
   launches: { zh: '发射历史', en: 'Launch' }
 };
@@ -2806,6 +2836,30 @@ function shotTimeStr(view) {
 //   所以这里按 view 决定是否拼上历元；前两章与表格仍保留。
 function shotSatLines(view) {
   if (view === 'progress') return [];        // V1.8.0（需求8）：03.5 是星座曲线图，不列选中卫星
+  // V1.9.0（R17）：05 升轨情况 —— 导出图底栏要带**升轨速度列**（需求 R17）。
+  //   列的是「当前这一章画出来的那几条曲线」，而不是全局选中：
+  //   本章默认就跟着全局选中，两者一致；但用户显式选了某个批次时，
+  //   底栏必须如实写这个批次的成员星，否则图与字对不上。
+  if (view === 'climb') {
+    var sc = climbSeries(), cl = sc.list;
+    if (!cl.length) return [];
+    var rowsC = cl.slice().sort(function (a, b) { return a.norad - b.norad; });
+    return rowsC.map(function (c) {
+      var idx = climbSatIdx(c.norad);
+      var sat = idx >= 0 ? cur().sats[idx] : null;
+      // 取最后一个有效速度（升轨速度是 ±2 天窗口的局部量，末端值最有意义）
+      var rate = null;
+      for (var i = c.rates.length - 1; i >= 0; i--) if (isFinite(c.rates[i])) { rate = c.rates[i]; break; }
+      var last = c.pts[c.pts.length - 1];
+      return [
+        sat ? cnName(sat) : String(c.norad),
+        String(c.norad),
+        sat ? batchName((sat.launch || {}).name) : '',
+        fmtNum(last.v - CLIMB_RE, 1) + 'km',
+        (rate == null ? '—' : fmtNum(rate, 3) + (LANG === 'en' ? 'km/d' : 'km/天'))
+      ].join(' | ');
+    });
+  }
   if (!S.sel.length) return [];
   var withEpoch = (view !== 'chart');       // 仅第三章倾角分布去掉历元
   var sats = S.sel.map(function (i) { return cur().sats[i]; }).filter(Boolean);
@@ -3017,10 +3071,12 @@ function withCanvasScale(cv, k, redraw, done) {
   }
 }
 function exportView(view) {
-  var id = view === 'chart' ? 'chart' : (view === 'map' ? 'map' : (view === 'progress' ? 'netCv' : 'globe'));
+  var id = view === 'chart' ? 'chart' : (view === 'map' ? 'map' :
+           (view === 'progress' ? 'netCv' : (view === 'climb' ? 'climbCv' : 'globe')));
   var cv = document.getElementById(id);
   if (!cv || !cv.width) return;
-  var title = view === 'chart' ? t('h_dist') : (view === 'map' ? t('h_map') : (view === 'progress' ? t('h_progress') : t('h_orbits')));
+  var title = view === 'chart' ? t('h_dist') : (view === 'map' ? t('h_map') :
+              (view === 'progress' ? t('h_progress') : (view === 'climb' ? t('h_climb') : t('h_orbits'))));
   var satLines = shotSatLines(view);                    // V1.6.3：有选中卫星时先写卫星信息
   // V1.7.0 第三轮末修正③：导出时刻必须**带上时间条偏移**。
   // 旧版这里传的是裸 Date.now()，于是拖到 +120 分钟再导出，图上卫星位置其实还是"实时"的，
@@ -3036,6 +3092,7 @@ function exportView(view) {
     if (view === 'map') drawMap(fs, msNow);
     else if (view === 'globe') drawGlobe(fs, msNow);
     else if (view === 'progress') drawNet();     // V1.8.0（需求8）：03.5 组网进度
+    else if (view === 'climb') drawClimb();      // V1.9.0（R17）：05 升轨情况
     else drawChart();
   };
   var fname = shotFileName(view);
@@ -3561,6 +3618,11 @@ function rebuild() {
   renderHeader(); renderTable(); renderLaunchTable(); renderLegend();
   fillGroupSelect(); drawChart();
   try { netInvalidate(); drawNet(); } catch (e) {}   // V1.8.0（需求8）：曲线颜色随星座主题色 → 重建时重画
+  // V1.9.0（R17）：05 章同理。**必须在这里重画**——本章的图下说明（#climbNote）与
+  //   选择器（#climbSel 的 <option>）都是 JS 用 t() 现写进 DOM 的，不带 data-i18n 属性，
+  //   所以 applyStaticLang 刷不到它们；切语言时若不重画，英文界面就会残留中文
+  //   （i18n.mjs 审计实测抓到过：默认项「跟随选中」与「本章暂无历史轨道数据」两处）。
+  try { CLIMB = null; renderClimbSel(); renderClimbTake(); drawClimb(); } catch (e) {}
   mapTrackCache.key = null; globeTrackCache.key = null;
 }
 function fillGroupSelect() {
@@ -3723,7 +3785,10 @@ function playNetSwitch(fromKey, toKey, updateFn) {
 var STATE_FIELDS = ['selGroup', 'focusIdx', 'colorMode', 'model', 'mode', 'launchFilter',
   'time', 'names', 'cov', 'pick', 'cone', 'mz', 'mapTrack', 'page', 'tpage',
   'spin', 'showTracks', 'allCols', 'sortKey', 'sortAsc',
-  'netGw', 'netQf'];   // V1.9.0（需求3）：04 章的「显示星网/显示千帆」改为按星座各存一份   // 'time'：V1.7.3 需求9，随星座快照各存一份
+  'netGw', 'netQf',
+  'climbPick', 'climbTake'];   // V1.9.0（需求3）：04 章的「显示星网/显示千帆」改为按星座各存一份
+   // V1.9.0（R17）：05 章的「对象选择」与「纵轴量」同样按星座各存一份
+   // 'time'：V1.7.3 需求9，随星座快照各存一份
 var STORE = { gw: null, qf: null };   // 每个星座一份快照；null = 还没建过
 // ★ V1.7.0 第三轮末修正⑤：图表的缩放/平移（chartView）也要各星座独立。
 //   它不在 STATE_FIELDS 里（不是 S 的字段，而是一个独立的模块变量），
@@ -3775,14 +3840,16 @@ function initStore() {
   if (STORE_DEF) return;
   STORE_DEF = { gw: null, qf: null };
   ['gw', 'qf'].forEach(function (k) {
-    var sk = S.key, sg = S.netGw, sq = S.netQf;
+    var sk = S.key, sg = S.netGw, sq = S.netQf, sp = S.climbPick, stk = S.climbTake;
     S.key = k;
     // V1.9.0（需求3）：本页出厂默认 = **只看本星座** —— 必须在这个"逐星座快照"的循环里按 k 赋值，
     //   这样 STORE_DEF.gw / STORE_DEF.qf 各自记下"只看自己"，两个页面从此天然独立、互不联动。
     applyNetShowDefault(k);
+    // V1.9.0（R17）：05 章同理按星座各存一份出厂默认（对象选择跟随选中 / 纵轴看半长轴）
+    S.climbPick = ''; S.climbTake = 'sma';
     STORE_DEF[k] = { selNorad: [], globe: { yaw: G.yaw, pitch: G.pitch, zoom: 1 }, scrollY: 0 };
     STATE_FIELDS.forEach(function (f) { STORE_DEF[k][f] = cloneVal(S[f]); });
-    S.key = sk; S.netGw = sg; S.netQf = sq;
+    S.key = sk; S.netGw = sg; S.netQf = sq; S.climbPick = sp; S.climbTake = stk;
   });
 }
 // ---------------------------------------------------------------- V1.7.0 第三轮末
@@ -3858,6 +3925,9 @@ function afterConstelSwap() {
   //   本星座的实测行高重新定位到选中项所在页。
   try { renderTable({ jump: true }); } catch (e) {}
   try { renderLaunchTable(true); } catch (e) {}
+  // V1.9.0（R17）：换星座后 05 章必须**重建曲线缓存并重画** —— 它的数据挂在 RAW[key].hist 上，
+  //   两个星座的历史完全不同；缓存里还记着 S.key，不清就会画出上一章星座的曲线。
+  try { CLIMB = null; climbView = null; climbHover = null; climbAutoView(); renderClimbSel(); renderClimbTake(); drawClimb(); } catch (e) {}
   try { tickClock(); } catch (e) {}
   try { mapDirty = true; globeDirty = true; } catch (e) {}
   try { drawChart(); } catch (e) {}
@@ -5669,6 +5739,10 @@ document.querySelectorAll('.view-ctl button[data-zoom]').forEach(function (b) {
       // V1.8.0（需求8）：03.5 组网进度 —— 与地图/地球同向（factor>1 = 放大），
       //   同样走 smoothZoom，使四张图的 ＋/− 手感与时长完全一致。
       smoothZoom(function (f) { zoomNetBy(f); }, dir, 260);
+    } else if (view === 'climb') {
+      // V1.9.0（R17）：05 升轨情况 —— 第五张图，同样走 smoothZoom / 260ms，
+      //   与前四张的手感、时长严格一致（不新写一套动画）。
+      smoothZoom(function (f) { zoomClimbBy(f); }, dir, 260);
     }
   });
 });
@@ -5760,6 +5834,7 @@ function resetView(view) {
   else if (view === 'map') { S.mz = { k: 1, tx: 0, ty: 0 }; mapDirty = true; }
   else if (view === 'globe') { G.zoom = 1; globeDirty = true; }
   else if (view === 'progress') { netView = null; netAutoView(); drawNet(); }   // V1.8.0（需求8）
+  else if (view === 'climb') { climbView = null; climbAutoView(); drawClimb(); } // V1.9.0（R17）
 }
 document.querySelectorAll('.view-ctl button[data-reset]').forEach(function (b) {
   b.addEventListener('click', function (e) {
@@ -5813,6 +5888,17 @@ function syncFsBarHeight() {
     var h = sec.classList.contains('fs-mobile') ? Math.ceil(c.getBoundingClientRect().height) : 0;
     sec.style.setProperty('--fsbar-h', (h || 58) + 'px');
   });
+  // V1.9.0（R17）：05 升轨情况全屏时把 .climb-bar 固定到顶部（它没有 .controls 行，
+  //   所以量的是 climb-bar 自己），高度写进 --climbbar-h，画布按 100vh − 两者 让位。
+  //   不量的话窄屏下 climb-bar 会换行变高（实测能到 60px+），画布就会多出一截空白。
+  var sc = document.getElementById('sec-climb');
+  if (sc) {
+    var cb = sc.querySelector('.climb-bar');
+    if (cb) {
+      var ch = sc.classList.contains('fs-mobile') ? Math.ceil(cb.getBoundingClientRect().height) : 0;
+      sc.style.setProperty('--climbbar-h', (ch || 40) + 'px');
+    }
+  }
 }
 // （V1.8.0 需求8 已把上面那个函数改成两章通用；旧的单章实现删除，避免死代码。）
 
@@ -6242,6 +6328,9 @@ function afterSelection() {
   // V1.7.1（需求2）：只有「真正改变了选中态」才解除 INFO_CLOSED；纯 hover 不调afterSelection，天然不受影响。
   syncSelInfo();
   mapDirty = globeDirty = true;
+  // V1.9.0（R17）：05 升轨情况**跟随全局选中** —— 这是需求里的"双向联动"的一个方向。
+  //   用户没显式选批次/单星时才跟随（显式选了就以用户意图为准，不被别处的操作改掉）。
+  try { climbFollowSelection(); } catch (e) {}
 }
 
 // ---- 搜索（两个输入框同步联想，候选项竖向列出）
@@ -7437,6 +7526,114 @@ function loadWikiJson() {
     return hit;
   }).catch(function () { return false; });
 }
+// ---------------------------------------------------------------- V1.9.0（R17）：历史轨道要素外挂
+// 与 wiki.json 完全同一套路：同目录 fetch → 成功则覆盖内置 → 失败静默回退。
+//   覆盖后必须**重画 05 章**：曲线缓存 CLIMB 是按 RAW[key].hist 建的，
+//   数据换了而缓存不清，画出来的仍是内置那份（或一片空白）。
+// ============================================================================
+// 规模重估后的设计（V1.9.0）：历史库**按批次分片 + 按需加载**
+// ----------------------------------------------------------------------------
+// 为什么不是一个大 history.json：两个星座未来会到数万~数十万颗，
+//   10 万颗 × 20 年 = 2.26 GB（原方案）→ 超 GitHub 单文件 100 MB 硬限，页面更不可能一次加载。
+//   分片后页面**只取选中的那一个批次**（几十 KB），仓库总量再大也不影响速度。
+// 目录结构（与 HTML 同级）：
+//   history/index-gw.json    批次索引（列表 + 每批卫星数/点数/字节/日期范围）—— 首屏只取这两个
+//   history/index-qf.json
+//   history/gw-23095.json    单个批次的 v2 紧凑数据 —— 选中时才取
+//   history/qf-24140.json
+// 编码：{ v:2, base, prec, sats:[{ n, t0, d:[天偏移], a:[半长轴×prec] }] }
+//   解码后写回 RAW[key].hist[lk] 成内部统一的三元组 —— 绘制层完全不用改。
+// 三级降级：外挂分片 → 内置精简兜底 → 「暂无历史数据」，任何一级失败都不报错。
+// ============================================================================
+var HIST_DIR_URL = './history/';
+var HIST_IDX = { gw: null, qf: null };        // 批次索引（null = 没拉到）
+var HIST_LOADED = { gw: {}, qf: {} };         // 已解码入库的批次
+var HIST_PENDING = { gw: {}, qf: {} };        // 正在拉取的批次（避免重复请求）
+var HIST_CACHE_MAX = 24;                      // 最多缓存多少个批次（防长时间浏览后内存膨胀）
+function histIndexUrl(bk) { return HIST_DIR_URL + 'index-' + bk + '.json'; }
+function histShardUrl(bk, lk) { return HIST_DIR_URL + bk + '-' + lk + '.json'; }
+function loadHistIndex(bk) {
+  if (HIST_IDX[bk]) return Promise.resolve(HIST_IDX[bk]);
+  if (typeof fetchText !== 'function') return Promise.resolve(null);
+  return fetchText(histIndexUrl(bk), 8000).then(function (txt) {
+    var j = JSON.parse(txt);
+    HIST_IDX[bk] = (j && j.batches) ? j : null;
+    return HIST_IDX[bk];
+  }).catch(function () { HIST_IDX[bk] = null; return null; });
+}
+/** 把 v2 分片解码成内部三元组 [norad, ms, sma]，写进 RAW[bk].hist[lk] */
+function decodeHistShard(bk, lk, j) {
+  var sats = (j && j.sats) || [];
+  var base = (j && isFinite(j.base)) ? j.base : 6000;
+  var prec = (j && isFinite(j.prec) && j.prec > 0) ? j.prec : 10;
+  var recs = [];
+  for (var i = 0; i < sats.length; i++) {
+    var s = sats[i], d = s.d || [], a = s.a || [];
+    for (var k = 0; k < d.length && k < a.length; k++) {
+      recs.push([s.n, (s.t0 + d[k]) * 86400000, base + a[k] / prec]);
+    }
+  }
+  if (!recs.length) return false;
+  if (!RAW[bk]) return false;
+  RAW[bk].hist = RAW[bk].hist || {};
+  RAW[bk].hist[lk] = recs;
+  HIST_LOADED[bk][lk] = true;
+  // 缓存上限：超出就丢掉最早加载的那批（简单 LRU，防内存无限增长）
+  var keys = Object.keys(HIST_LOADED[bk]);
+  if (keys.length > HIST_CACHE_MAX) {
+    var drop = keys[0];
+    delete HIST_LOADED[bk][drop];
+    if (RAW[bk].hist) delete RAW[bk].hist[drop];
+  }
+  CLIMB = null;                              // ★ 数据变了必须重建曲线缓存
+  return true;
+}
+/** 确保某批次已加载；返回 Promise<boolean> */
+function ensureHistBatch(bk, lk) {
+  if (!lk) return Promise.resolve(false);
+  if (HIST_LOADED[bk] && HIST_LOADED[bk][lk]) return Promise.resolve(true);
+  if (HIST_PENDING[bk] && HIST_PENDING[bk][lk]) return HIST_PENDING[bk][lk];
+  if (typeof fetchText !== 'function') return Promise.resolve(false);
+  var p = fetchText(histShardUrl(bk, lk), 8000).then(function (txt) {
+    return decodeHistShard(bk, lk, JSON.parse(txt));
+  }).catch(function () { return false; }).then(function (ok) {
+    HIST_PENDING[bk][lk] = null;
+    return ok;
+  });
+  HIST_PENDING[bk][lk] = p;
+  return p;
+}
+/** 索引里该批次的概览（没索引就返回 null） */
+function histBatchInfo(bk, lk) {
+  var ix = HIST_IDX[bk];
+  if (!ix || !ix.batches) return null;
+  for (var i = 0; i < ix.batches.length; i++) if (ix.batches[i].k === String(lk)) return ix.batches[i];
+  return null;
+}
+function loadHistoryJson() {
+  if (typeof fetchText !== 'function') return Promise.resolve(false);
+  return Promise.all([loadHistIndex('gw'), loadHistIndex('qf')]).then(function (r) {
+    var hit = !!(r[0] || r[1]);
+    if (hit) {
+      // 索引到了 → 立刻把**默认批次**（最新的那个）拉下来，首屏就有曲线。
+      // ⚠️ 默认批次必须**从索引里取**，不能用 climbSeries()：
+      //   内置兜底每颗星往往只有 1 个点（画不出变化 → climbCurve 为空），
+      //   于是 climbSeries() 算不出默认批次 → 一个分片都不加载 → 页面仍显示"暂无历史数据"。
+      //   （端到端验证实测抓到过：分片明明可取，页面却一直空着。）
+      try { renderClimbSel(); renderClimbTake(); } catch (e) {}
+      var ix = HIST_IDX[S.key];
+      var lk = (ix && ix.batches && ix.batches.length) ? String(ix.batches[0].k) : '';
+      if (!lk) { var d0 = climbSeries(); lk = d0.lk || ''; }
+      if (lk) {
+        return ensureHistBatch(S.key, lk).then(function () {
+          try { climbView = null; climbAutoView(); renderClimbSel(); drawClimb(); } catch (e) {}
+          return true;
+        });
+      }
+    }
+    return hit;
+  }).catch(function () { return false; });
+}
 (function refresh() {
   var started = Date.now();
   // 硬性兜底：6 秒内无论结果如何都收起遮罩（更新在后台完成后仍会生效）
@@ -7451,6 +7648,10 @@ function loadWikiJson() {
   // V1.4.0：顺手读同目录下的 wiki.json —— 词条计数可以「改一个 JSON 就全网更新」，
   // 不必重新构建 HTML。读不到（本地 file:// 打开、或没放这个文件）就继续用内置值。
   loadWikiJson();
+  // V1.9.0（R17）：05 章的历史轨道要素同样外挂 —— 但不是单个文件，而是 **history/ 分片目录**。
+  //   规模重估后（数万~数十万颗）单个大 JSON 会撞 GitHub 100MB 硬限，故按批次分片 + 索引，
+  //   页面只取选中的那一批。读不到（file:// 打开、或没放）→ 用 satdata 里的**精简内置兜底**。
+  loadHistoryJson();
   Promise.all([tryOne('gw'), tryOne('qf')]).then(function (r) {
     if (!r[0] || !r[1]) { throw new Error('empty'); }
     // V1.7.0 第四轮（需求1）：必须在 applyFresh 之前置位 —— applyFresh→rebuild()→renderHeader()
@@ -8033,6 +8234,701 @@ function netInit() {
     tap: function (x, y) { var i = netHit(x, y); if (i != null) netShowInfoAt(i); }
   });
 }
+
+// ============================================================================
+// V1.9.0（需求17 / R17）：05 升轨情况 —— 半长轴随时间的"爬坡"曲线
+// ----------------------------------------------------------------------------
+// 口径说明（这一段是本章全部算法的唯一依据，改动前请先读）：
+//  · 画的是**布劳威尔半长轴**（km），不是高度。半长轴不含 ±a·e 的周期性抖动，
+//    是"这颗星所在轨道有多大"的干净量；高度（近地点/远地点）会随每次近地点点火而变。
+//    第三章卫星表格里的「半长轴」是同一口径，两处数值可直接对照。
+//  · 历史点来自构建期写入的 RAW[key].hist = { <批次key>: [ [norad, 历元ms, 半长轴km], … ] }。
+//    每颗星按天去重（每天留一条）—— 升轨是月尺度过程，一天一点绰绰有余，
+//    而原始历史 TLE 每颗动辄上千条，全塞进单文件会让页面膨胀到几十 MB。
+//  · **升轨速度**用 ±2 天窗口的最小二乘斜率（km/天），与 Rassvet 的 ТЕМП 同一种思路。
+//    最小二乘必须先把 x（毫秒时间戳）**中心化**：直接对 1.75e12 量级的 x 求和再乘 x，
+//    会有 catastrophic cancellation（实测斜率误差从 3e-14 劣化到 2.9e-9），
+//    中心化后 x 只有 ±1e9 量级，精度才够。
+//  · 纵轴 **0~2000 km 顶格限位**（需求 Q47）：低轨星座半长轴 = 半径 + 高度 ≈ 6791 + h，
+//    也就是曲线落在 7000~8900 km 这个带里；0 起画会把所有细节压成一条贴底的直线。
+//    真正的"离地高度"由纵轴刻度减去 6791 得到，本章不额外画第二条轴。
+//  · 没有历史数据的批次/卫星会在下方说明里点名（见 renderClimbNote），不静默空白。
+// ============================================================================
+var climbCv = document.getElementById('climbCv');
+var climbInfo = document.getElementById('climbInfo');
+var climbInfoB = document.getElementById('climbInfoB');
+var climbRect = null, climbView = null, CLIMB = null;
+var climbHover = null;                 // 悬停的 { key, idx }（批次级）或 { norad }
+var climbPinned = false;
+// 05 章只有两个状态字段，且都按星座各存一份（与 04 章的 netGw/netQf 同理）
+var CLIMB_DEF = { pick: '', take: 'sma' };
+// 半长轴常量：地球赤道半径 6378.137 km，与第三章表格里 hp/ha 的算法一致
+var CLIMB_RE = 6378.137;
+
+// ---------------------------------------------------------------- 历史数据 → 曲线
+/** 取本星座的历史点：{ 批次key: [ [norad, ms, sma], … ] }；没有则空对象 */
+function climbRaw() {
+  var c = RAW[S.key];
+  return (c && c.hist && typeof c.hist === 'object') ? c.hist : {};
+}
+/** 最小二乘斜率（x 已中心化）—— 返回 km/天 */
+function climbSlope(pts) {
+  var n = pts.length;
+  if (n < 2) return null;
+  // 第一遍：求 x̄（毫秒差，用相对首点的偏移，避免大数相减）
+  var t0 = pts[0].ms, sx = 0, i;
+  for (i = 0; i < n; i++) sx += (pts[i].ms - t0);
+  var xm = sx / n;                       // 相对毫秒的均值（量级 ~1e9，平方 ~1e18，仍在双精度安全区）
+  var sxy = 0, sxx = 0, ym = 0;
+  for (i = 0; i < n; i++) ym += pts[i].v;
+  ym /= n;
+  for (i = 0; i < n; i++) {
+    var dx = (pts[i].ms - t0) - xm;      // ← 中心化：这一步是精度的全部关键
+    sxy += dx * (pts[i].v - ym);
+    sxx += dx * dx;
+  }
+  if (!(sxx > 0)) return null;
+  var k = sxy / sxx * 86400000;          // 每毫秒 → 每天
+  return isFinite(k) ? k : null;
+}
+/** ±half 天窗口的逐点升轨速度；点数不足或窗口外无点的返回 null */
+function climbRates(pts, half, minPts) {
+  half = half || 2; minPts = minPts || 2;
+  var H = half * 86400000, out = new Array(pts.length);
+  for (var i = 0; i < pts.length; i++) {
+    var lo = pts[i].ms - H, hi = pts[i].ms + H, win = [];
+    for (var j = i; j >= 0 && pts[j].ms >= lo; j--) win.push(pts[j]);
+    for (j = i + 1; j < pts.length && pts[j].ms <= hi; j++) win.push(pts[j]);
+    out[i] = win.length >= minPts ? climbSlope(win) : null;
+  }
+  return out;
+}
+/** 断档断开：相邻有效速度之间若隔了 > maxGapDays 天，就不连线（避免把一段空白画成直线） */
+function climbBreakGaps(series, maxGapDays) {
+  maxGapDays = maxGapDays || 2;
+  var G = maxGapDays * 86400000, segs = [], curSeg = [], prevMs = null;
+  for (var i = 0; i < series.length; i++) {
+    var r = series[i];
+    if (!r || !isFinite(r.rate)) { prevMs = null; continue; }
+    if (prevMs != null && r.ms - prevMs > G) { if (curSeg.length) segs.push(curSeg); curSeg = []; }
+    curSeg.push(r); prevMs = r.ms;
+  }
+  if (curSeg.length) segs.push(curSeg);
+  return segs;
+}
+/** 构建曲线缓存：{ 批次key: [ { norad, name, pts:[{ms,v}], rates:[{ms,rate}] } ] } */
+function climbBuild() {
+  if (CLIMB && CLIMB.key === S.key) return CLIMB.data;
+  var raw = climbRaw(), out = {};
+  Object.keys(raw).forEach(function (lk) {
+    var bySat = {}, list = raw[lk];
+    if (!Array.isArray(list)) return;
+    for (var i = 0; i < list.length; i++) {
+      var r = list[i];
+      if (!r || r.length < 3) continue;
+      var norad = r[0] | 0, ms = +r[1], v = +r[2];
+      if (!norad || !isFinite(ms) || !isFinite(v)) continue;
+      (bySat[norad] || (bySat[norad] = [])).push({ ms: ms, v: v });
+    }
+    var arr = [];
+    Object.keys(bySat).forEach(function (nk) {
+      var pts = bySat[nk].sort(function (a, b) { return a.ms - b.ms; });
+      if (pts.length < 2) return;                    // 只有一个点画不出"变化"，跳过
+      arr.push({ norad: +nk, pts: pts, rates: climbRates(pts, 2, 2) });
+    });
+    if (arr.length) out[lk] = arr;
+  });
+  CLIMB = { key: S.key, data: out };
+  return out;
+}
+function climbCurve() { return climbBuild(); }
+/** 该批次在本星座里的显示名与发射时间（找不到就退化） */
+function climbBatchMeta(lk) {
+  var L = null;
+  try {
+    var ls = cur().launches || [];
+    for (var i = 0; i < ls.length; i++) if (ls[i].key === lk) { L = ls[i]; break; }
+  } catch (e) {}
+  return L || { key: lk, name: lk, dateMs: 0, sats: [] };
+}
+/** 卫星在表里的下标（找不到 -1），用于选中联动 */
+function climbSatIdx(norad) {
+  try {
+    var ss = cur().sats;
+    for (var i = 0; i < ss.length; i++) if ((ss[i].norad | 0) === (norad | 0)) return i;
+  } catch (e) {}
+  return -1;
+}
+// 纵轴：半长轴模式固定 0~2000 km 的**高度带**（即半长轴 6791~8791），
+//   升轨速度模式按当前批次速度的极值取景（速度没有绝对锚点，只能自适应）。
+var CLIMB_TOP = 2000;
+function climbBounds(list, take) {
+  if (take === 'rate') {
+    var mn = Infinity, mx = -Infinity;
+    list.forEach(function (c) {
+      c.rates.forEach(function (r) {
+        if (!r || !isFinite(r.rate)) return;
+        if (r.rate < mn) mn = r.rate;
+        if (r.rate > mx) mx = r.rate;
+      });
+    });
+    if (!isFinite(mn)) { mn = -1; mx = 1; }
+    if (mx - mn < 0.4) { var mid = (mx + mn) / 2; mn = mid - 0.2; mx = mid + 0.2; }
+    var padv = (mx - mn) * 0.12;                   // 上下各留 12% 余量，曲线不贴边
+    return { y0: mn - padv, y1: mx + padv, fixed: false };
+  }
+  // 半长轴：0~2000 km 顶格限位（需求 Q47）。但若真有曲线超出 2000（异常高轨），
+  //   也不能把曲线裁掉 —— 此时才放宽，且至少留到数据最大值。
+  var top = CLIMB_TOP;
+  list.forEach(function (c) {
+    c.pts.forEach(function (p) {
+      var alt = p.v - CLIMB_RE;
+      if (alt > top) top = alt;
+    });
+  });
+  return { y0: 0, y1: Math.max(CLIMB_TOP, top * 1.05), fixed: true };
+}
+/** 当前选中要画的曲线列表：批次（含全部成员星） */
+function climbSeries() {
+  var C = climbCurve(), pick = S.climbPick || '';
+  if (pick && pick.indexOf('b:') === 0) {
+    var lk = pick.slice(2);
+    return { lk: lk, list: C[lk] || [] };
+  }
+  if (pick && pick.indexOf('s:') === 0) {
+    var n = +pick.slice(2), all = [];
+    Object.keys(C).forEach(function (k) {
+      C[k].forEach(function (c) { if (c.norad === n) all.push(c); });
+    });
+    return { lk: '', list: all, single: n };
+  }
+  // 未选 = 跟随全局选中；有选中就画选中的那些，没有就画全部（首个批次太多时只画第一个）
+  if (S.sel && S.sel.length) {
+    var want = {}, any = false;
+    S.sel.forEach(function (i) {
+      var s = cur().sats[i]; if (!s) return;
+      Object.keys(C).forEach(function (k) {
+        C[k].forEach(function (c) { if (c.norad === (s.norad | 0)) { want[k] = 1; any = true; } });
+      });
+    });
+    if (any) {
+      var l2 = [];
+      Object.keys(C).forEach(function (k) { if (want[k]) l2 = l2.concat(C[k]); });
+      return { lk: '', list: l2, follow: true };
+    }
+  }
+  var keys = Object.keys(C);
+  if (!keys.length) {
+    // 曲线缓存为空（数据还没拉到），但**索引里可能已经有批次** → 返回最新批次 key，
+    //   让上层据此触发按需拉取（否则永远停在"暂无数据"，见 loadHistoryJson 的同一处说明）。
+    var ixb = HIST_IDX[S.key];
+    if (ixb && ixb.batches && ixb.batches.length) return { lk: String(ixb.batches[0].k), list: [] };
+    return { lk: '', list: [] };
+  }
+  // 默认：最新批次（发射时间最大者）
+  var best = keys[0], bestMs = -Infinity;
+  keys.forEach(function (k) {
+    var ms = climbBatchMeta(k).dateMs || 0;
+    if (ms > bestMs) { bestMs = ms; best = k; }
+  });
+  return { lk: best, list: C[best] };
+}
+function climbAutoView() {
+  var s = climbSeries(), d = s.list;
+  if (!d.length) { climbView = null; return; }
+  var t0 = Infinity, t1 = 0, b = climbBounds(d, S.climbTake);
+  d.forEach(function (c) {
+    c.pts.forEach(function (p) {
+      if (p.ms < t0) t0 = p.ms;
+      if (p.ms > t1) t1 = p.ms;
+    });
+  });
+  if (!isFinite(t0)) { climbView = null; return; }
+  if (t1 <= t0) t1 = t0 + 86400000 * 7;
+  // 横轴右端至少到"今天"（需求 Q45：发射日～今天），否则新发射的批次看不到"现在在哪"
+  var now = Date.now();
+  if (now > t1) t1 = now;
+  if (now - t0 < 3 * 86400000) t0 = t1 - 3 * 86400000;
+  climbView = { x0: t0 - (t1 - t0) * 0.02, x1: t1 + (t1 - t0) * 0.02, y0: b.y0, y1: b.y1 };
+}
+function clampClimbView(v) {
+  if (!v) return v;
+  var s = climbSeries(), d = s.list;
+  if (!d.length) return v;
+  var b = climbBounds(d, S.climbTake);
+  if (b.fixed) { v.y0 = b.y0; v.y1 = b.y1; }      // 半长轴是顶格限位，纵向不允许缩放
+  var t0 = Infinity, t1 = 0;
+  d.forEach(function (c) { c.pts.forEach(function (p) { if (p.ms < t0) t0 = p.ms; if (p.ms > t1) t1 = p.ms; }); });
+  if (!isFinite(t0)) return v;
+  if (v.x1 <= v.x0) v.x1 = v.x0 + 86400000;
+  var minSpan = 86400000 * 2, maxSpan = Math.max((t1 - t0) * 1.6, minSpan * 4);
+  if (v.x1 - v.x0 < minSpan) { var c0 = (v.x0 + v.x1) / 2; v.x0 = c0 - minSpan / 2; v.x1 = c0 + minSpan / 2; }
+  if (v.x1 - v.x0 > maxSpan) { var c1 = (v.x0 + v.x1) / 2; v.x0 = c1 - maxSpan / 2; v.x1 = c1 + maxSpan / 2; }
+  if (v.x0 < t0) { v.x1 += t0 - v.x0; v.x0 = t0; }
+  if (v.x1 > t1) { v.x0 -= v.x1 - t1; v.x1 = t1; }
+  if (v.x0 < t0) v.x0 = t0;
+  if (v.x1 <= v.x0) v.x1 = v.x0 + 86400000;
+  if (!b.fixed && v.y1 - v.y0 < 1e-6) v.y1 = v.y0 + 1;
+  return v;
+}
+function zoomClimbAt(mx, my, factor) {
+  var v = climbView; if (!v || !climbRect) return;
+  var r = climbRect;
+  var fx = Math.max(0, Math.min(1, (mx - r.PL) / r.pw));
+  var fy = Math.max(0, Math.min(1, (my - r.PT) / r.ph));
+  var kx = 1 / factor;
+  v.x0 = v.x0 + (v.x1 - v.x0) * fx * (1 - kx);
+  v.x1 = v.x0 + (v.x1 - v.x0) * kx;
+  if (S.climbTake !== 'rate') {
+    // 半长轴纵向锁死（顶格限位），只有升轨速度模式允许纵向缩放
+  } else {
+    var ky = 1 / factor;
+    v.y0 = v.y0 + (v.y1 - v.y0) * fy * (1 - ky);
+    v.y1 = v.y0 + (v.y1 - v.y0) * ky;
+  }
+  clampClimbView(v); drawClimb();
+}
+function zoomClimbBy(f) {
+  var r = climbRect; if (!r) return;
+  zoomClimbAt(r.PL + r.pw / 2, r.PT + r.ph / 2, f);
+}
+
+// ---------------------------------------------------------------- 画布
+var CLIMB_DAY = 86400000;
+function climbDateLabel(ms) {
+  var d = new Date(ms);
+  return pad(d.getFullYear() % 100) + '/' + pad(d.getMonth() + 1) + '/' + pad(d.getDate());
+}
+function climbColors() {
+  var base = cssVar(S.key === 'qf' ? '--c-qf' : '--c-gw', '#4dabf7');
+  return { main: base };
+}
+/** 纵轴标签：半长轴模式画"离地高度 km"（半长轴 − 6378.137），这才是读者能直接理解的量 */
+function climbYLabel(take, v) {
+  if (take === 'rate') return fmtNum(v, 2);
+  return fmtNum(v, 0);
+}
+function drawClimb() {
+  if (!climbCv) return;
+  var f = fitCanvas(climbCv), ctx = f.ctx, W = f.w, H = f.h, C = themeColors();
+  var narrow = window.innerWidth < 760;
+  var PL = narrow ? 50 : 66, PR = narrow ? 34 : 20, PT = 16, PB = 40;
+  var pw = W - PL - PR, ph = H - PT - PB;
+  climbRect = { PL: PL, PT: PT, pw: pw, ph: ph };
+  ctx.clearRect(0, 0, W, H);
+  var s = climbSeries(), d = s.list;
+  if (!d.length) {
+    ctx.fillStyle = C.dim; ctx.font = '12px ' + MONO;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(t('climb_none'), PL + pw / 2, PT + ph / 2);
+    renderClimbNote();
+    return;
+  }
+  if (!climbView) climbAutoView();
+  var v = clampClimbView(climbView);
+  var take = S.climbTake || 'sma';
+  var X = function (ms) { return PL + (ms - v.x0) / (v.x1 - v.x0) * pw; };
+  var Y = function (val) { return PT + ph - (val - v.y0) / (v.y1 - v.y0) * ph; };
+  var COL = climbColors();
+
+  // ---- 网格 + 纵轴刻度（半长轴模式画"离地高度"，读数直观）
+  ctx.font = '11px ' + MONO; ctx.lineWidth = 1;
+  ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+  niceTicks(v.y0, v.y1, 6).forEach(function (tk) {
+    var y = Y(tk);
+    if (y < PT - 2 || y > PT + ph + 2) return;
+    var zero = Math.abs(tk) < 1e-9;
+    ctx.strokeStyle = zero ? C.dim : C.gridY;
+    ctx.beginPath(); ctx.moveTo(PL, y); ctx.lineTo(PL + pw, y); ctx.stroke();
+    ctx.fillStyle = C.tick; ctx.fillText(climbYLabel(take, tk), PL - 8, y);
+  });
+  // ---- 横轴刻度：从粗到细按目标刻度数挑（与 04 章同一套档位梯，任何缩放档位都是 4~6 条）
+  var spanD = (v.x1 - v.x0) / CLIMB_DAY;
+  var LADDER = [1, 2, 3, 7, 14, 28, 56, 91, 182, 365, 730, 1825];
+  var want = narrow ? 4 : 6;
+  var stepD = LADDER[LADDER.length - 1];
+  for (var li = LADDER.length - 1; li >= 0; li--) {
+    if (spanD / LADDER[li] >= want) { stepD = LADDER[li]; break; }
+  }
+  var stepMs = stepD * CLIMB_DAY;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  for (var tm = Math.ceil(v.x0 / stepMs) * stepMs; tm <= v.x1; tm += stepMs) {
+    var x = X(tm);
+    if (x < PL - 2 || x > PL + pw + 2) continue;
+    ctx.strokeStyle = C.gridX; ctx.beginPath(); ctx.moveTo(x, PT); ctx.lineTo(x, PT + ph); ctx.stroke();
+    ctx.fillStyle = C.tick; ctx.fillText(climbDateLabel(tm), x, PT + ph + 9);
+  }
+  // 轴
+  ctx.strokeStyle = C.dim; ctx.beginPath();
+  ctx.moveTo(PL, PT); ctx.lineTo(PL, PT + ph); ctx.lineTo(PL + pw, PT + ph); ctx.stroke();
+  ctx.save();
+  ctx.translate(14, PT + ph / 2); ctx.rotate(-Math.PI / 2);
+  ctx.fillStyle = C.dim; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.font = '10px ' + MONO;
+  ctx.fillText(take === 'rate' ? t('climb_y_rate') : t('climb_y_alt'), 0, 0);
+  ctx.restore();
+  ctx.font = '10px ' + MONO; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  ctx.fillStyle = C.dim;
+  ctx.fillText(t('d_x_date'), PL + pw / 2, PT + ph + 24);
+
+  // ---- 曲线
+  ctx.save();
+  ctx.beginPath(); ctx.rect(PL, PT, pw, ph); ctx.clip();
+  var selNor = {};
+  if (S.sel && S.sel.length) S.sel.forEach(function (i) { var x2 = cur().sats[i]; if (x2) selNor[x2.norad | 0] = 1; });
+  var hovNor = (climbHover && climbHover.norad) ? climbHover.norad : 0;
+  var maxPts = 0;
+  d.forEach(function (c) {
+    var isSel = selNor[c.norad], isHov = hovNor === c.norad;
+    // 一颗星的点通常几百个；全批次（上百颗）时只画线不画点，否则糊成一片实心
+    var drawDots = d.length <= 3;
+    if (take === 'rate') {
+      // 升轨速度：按断档分段画（断档处不连直线）
+      var segs = climbBreakGaps(c.rates.map(function (r, i) {
+        return { ms: c.pts[i].ms, rate: r };
+      }).filter(function (r) { return isFinite(r.rate); }), 2);
+      ctx.strokeStyle = isSel || isHov ? COL.main : C.dim;
+      ctx.globalAlpha = (isSel || isHov) ? 1 : 0.5;
+      ctx.lineWidth = (isSel || isHov) ? 2 : 1.2;
+      ctx.lineJoin = 'round';
+      segs.forEach(function (seg) {
+        ctx.beginPath();
+        for (var i2 = 0; i2 < seg.length; i2++) {
+          var px2 = X(seg[i2].ms), py2 = Y(seg[i2].rate);
+          if (i2 === 0) ctx.moveTo(px2, py2); else ctx.lineTo(px2, py2);
+        }
+        ctx.stroke();
+      });
+      // y=0 参考线（升轨 vs 降轨的分界）
+      if (v.y0 < 0 && v.y1 > 0) {
+        ctx.globalAlpha = 0.5; ctx.strokeStyle = C.dim; ctx.setLineDash([3, 3]); ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(PL, Y(0)); ctx.lineTo(PL + pw, Y(0)); ctx.stroke();
+        ctx.setLineDash([]);
+      }
+      ctx.globalAlpha = 1;
+      if (isSel || isHov) {
+        for (var m2 = 0; m2 < segs.length; m2++) {
+          segs[m2].forEach(function (r2) {
+            ctx.beginPath(); ctx.arc(X(r2.ms), Y(r2.rate), 2.2, 0, 6.2832);
+            ctx.fillStyle = COL.main; ctx.fill();
+          });
+        }
+      }
+    } else {
+      ctx.strokeStyle = isSel || isHov ? COL.main : C.dim;
+      ctx.globalAlpha = (isSel || isHov) ? 1 : 0.45;
+      ctx.lineWidth = (isSel || isHov) ? 2 : 1.1;
+      ctx.lineJoin = 'round';
+      ctx.beginPath();
+      for (var k2 = 0; k2 < c.pts.length; k2++) {
+        var px3 = X(c.pts[k2].ms), py3 = Y(c.pts[k2].v - CLIMB_RE);
+        if (k2 === 0) ctx.moveTo(px3, py3); else ctx.lineTo(px3, py3);
+      }
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+      if (drawDots) {
+        var sparse = c.pts.length <= 200;
+        for (var m3 = 0; m3 < c.pts.length; m3++) {
+          if (!sparse && m3 !== c.pts.length - 1) continue;
+          ctx.beginPath(); ctx.arc(X(c.pts[m3].ms), Y(c.pts[m3].v - CLIMB_RE), 1.8, 0, 6.2832);
+          ctx.fillStyle = (isSel || isHov) ? COL.main : C.dim; ctx.fill();
+        }
+      }
+    }
+    // 末端数值标签：只给选中/悬停的那几颗，避免上百个标签叠成一团
+    if (isSel || isHov) {
+      var last = c.pts[c.pts.length - 1];
+      var lv = take === 'rate' ? (function () {
+        for (var z = c.rates.length - 1; z >= 0; z--) if (isFinite(c.rates[z])) return c.rates[z];
+        return null;
+      })() : (last.v - CLIMB_RE);
+      if (lv != null) {
+        ctx.font = '11px ' + MONO; ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
+        ctx.fillStyle = COL.main;
+        ctx.fillText(fmtNum(lv, take === 'rate' ? 2 : 0), X(last.ms) - 4, Y(lv) - 4);
+      }
+    }
+    if (c.pts.length > maxPts) maxPts = c.pts.length;
+  });
+  ctx.restore();
+
+  // ---- 悬停十字
+  if (climbHover && climbHover.ms != null && climbHover.norad) {
+    var hx = X(climbHover.ms);
+    if (hx >= PL && hx <= PL + pw) {
+      ctx.save();
+      ctx.strokeStyle = C.dim; ctx.setLineDash([3, 3]); ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(hx, PT); ctx.lineTo(hx, PT + ph); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.restore();
+    }
+  }
+  renderClimbNote();
+}
+/** 图下说明：批次名 + 颗数 + 时间跨度 + 当前纵轴口径（Q54） */
+function renderClimbNote() {
+  var note = document.getElementById('climbNote');
+  if (!note) return;
+  var s = climbSeries(), d = s.list;
+  if (!d.length) {
+    note.innerHTML = '<span class="net-key">' + t('climb_none') + '</span>';
+    return;
+  }
+  var t0 = Infinity, t1 = 0;
+  d.forEach(function (c) { c.pts.forEach(function (p) { if (p.ms < t0) t0 = p.ms; if (p.ms > t1) t1 = p.ms; }); });
+  var bits = [];
+  if (s.lk) {
+    var L = climbBatchMeta(s.lk);
+    bits.push('<span class="net-key"><i style="background:' + climbColors().main + '"></i>' + batchName(L.name) + '</span>');
+  }
+  bits.push('<span class="net-key">' + t('climb_n_sats') + ' ' + d.length + '</span>');
+  bits.push('<span class="net-key">' + climbDateLabel(t0) + ' – ' + climbDateLabel(t1) + '</span>');
+  bits.push('<span class="net-key">' + t(S.climbTake === 'rate' ? 'climb_take_rate' : 'climb_take_sma') + '</span>');
+  note.innerHTML = bits.join('');
+}
+/** 找出离 (mx,my) 最近的历史点 → { norad, ms, rate } */
+function climbHitAt(mx, my) {
+  var s = climbSeries(), d = s.list;
+  if (!d.length || !climbView || !climbRect) return null;
+  var r = climbRect, v = climbView;
+  if (mx < r.PL - 6 || mx > r.PL + r.pw + 6 || my < r.PT - 6 || my > r.PT + r.ph + 6) return null;
+  var take = S.climbTake || 'sma';
+  var best = null, bd = Infinity, bestDy = Infinity;
+  for (var i = 0; i < d.length; i++) {
+    var c = d[i];
+    var arr = take === 'rate'
+      ? c.rates.map(function (rr, k) { return isFinite(rr) ? { ms: c.pts[k].ms, v: rr } : null; }).filter(Boolean)
+      : c.pts.map(function (p) { return { ms: p.ms, v: p.v - CLIMB_RE }; });
+    // 先按纵向距离筛掉明显不在附近的曲线（最多留 4 条候选），再比横向
+    var cand = [];
+    for (var j = 0; j < arr.length; j++) {
+      var py = r.PT + r.ph - (arr[j].v - v.y0) / (v.y1 - v.y0) * r.ph;
+      var dy = Math.abs(py - my);
+      if (dy < r.ph * 0.5) cand.push({ j: j, dy: dy });
+    }
+    cand.sort(function (a, b) { return a.dy - b.dy; });
+    if (cand.length > 4) cand.length = 4;
+    for (var q = 0; q < cand.length; q++) {
+      var it = arr[cand[q].j];
+      var px = r.PL + (it.ms - v.x0) / (v.x1 - v.x0) * r.pw;
+      var dx = Math.abs(px - mx), dd = Math.hypot(dx, cand[q].dy);
+      if (dd < bd || (dd < r.ph * 0.2 && cand[q].dy < bestDy * 0.4)) { bd = dd; bestDy = cand[q].dy; best = { norad: c.norad, ms: it.ms, v: it.v }; }
+    }
+  }
+  return best;
+}
+function climbShowInfoAt(h) {
+  if (!h || !climbInfo) return;
+  var s = climbSeries();
+  var idx = climbSatIdx(h.norad);
+  var sat = idx >= 0 ? cur().sats[idx] : null;
+  var c = null;
+  for (var i = 0; i < s.list.length; i++) if (s.list[i].norad === h.norad) { c = s.list[i]; break; }
+  var take = S.climbTake || 'sma';
+  // ⚠️ 键名与 01/02 章信息窗**保持一致**（d_row_batch / d_row_epoch_sat …），
+  //   且值一律用 <span>（旧版信息窗的第二格就是 span，用 <b> 会与相邻行粗细不一致）。
+  var rows = [];
+  rows.push('<div class="si-row"><span>' + t('t_name') + '</span><span>' + (sat ? cnName(sat) : h.norad) + '</span></div>');
+  rows.push('<div class="si-row"><span>NORAD</span><span>' + h.norad + '</span></div>');
+  if (sat) {
+    var L = sat.launch || {};
+    if (L.name) rows.push('<div class="si-row"><span>' + t('d_row_batch') + '</span><span>' + batchName(L.name) + '</span></div>');
+    rows.push('<div class="si-row"><span>' + t('d_row_epoch_sat') + '</span><span>' + fmtUTC(h.ms) + '</span></div>');
+    if (take === 'rate') {
+      // 找该时刻的速度
+      var rr = null;
+      if (c) for (var k = 0; k < c.rates.length; k++) if (c.pts[k].ms === h.ms && isFinite(c.rates[k])) rr = c.rates[k];
+      rows.push('<div class="si-row"><span>' + t('climb_rate') + '</span><span>' +
+        (rr == null ? '—' : fmtNum(rr, 3) + (LANG === 'en' ? ' km/day' : ' km/天')) + '</span></div>');
+    }
+    rows.push('<div class="si-row"><span>' + (take === 'rate' ? t('climb_y_alt') : t('m_sma')) + '</span><span>' +
+      fmtNum(take === 'rate' ? h.v : h.v + CLIMB_RE, take === 'rate' ? 3 : 2) + ' km</span></div>');
+    var hist = c ? c.pts.length : 0;
+    rows.push('<div class="si-row"><span>' + t('climb_n_hist') + '</span><span>' + hist + '</span></div>');
+  }
+  showInfo(climbInfo, 'climb', '<div class="si-block">' + rows.join('') + '</div>', 'climb-' + h.norad + '-' + h.ms);
+  var el = document.getElementById('climbCv');
+  if (el) placeInfoCorner(climbInfo, 'climb');
+  // B 窗（触屏/窄屏用）
+  if (climbInfoB) {
+    climbInfoB.innerHTML = '<div class="si-block">' + rows.join('') + '</div>';
+    climbInfoB.style.display = INFO_HIDDEN.climb ? 'none' : 'flex';
+  }
+}
+
+// ---------------------------------------------------------------- 选择器
+function climbPickOptions() {
+  var C = climbCurve(), st = cur(), out = [];
+  // ★ 优先用**外挂索引**：它包含所有批次（含尚未加载的），否则选择器只会列出已加载的那几个。
+  //   索引里已按"最新在前"排好（packAll 里 sort 过），与需求 Q49 一致。
+  var ix = HIST_IDX[S.key];
+  if (ix && ix.batches && ix.batches.length) {
+    ix.batches.forEach(function (b) {
+      var L = climbBatchMeta(b.k);
+      var nm = (L && L.name) ? batchName(L.name) : b.k;
+      out.push({ v: 'b:' + b.k, label: nm + paren(b.n) });
+    });
+    return out;
+  }
+  var ls = (st.launches || []).slice();
+  // 只列出**有历史数据**的批次，且按发射时间**倒序**（需求 Q49：最新的在最上）
+  ls.sort(function (a, b) { return (b.dateMs || 0) - (a.dateMs || 0); });
+  ls.forEach(function (L) {
+    if (!C[L.key]) return;
+    out.push({ v: 'b:' + L.key, label: batchName(L.name) + paren(C[L.key].length) });
+  });
+  return out;
+}
+/** 选中批次后：若数据未加载则异步拉取，拉完重画（规模方案下这是唯一的取数时机） */
+function climbEnsureAndDraw(lk) {
+  if (!lk) { try { drawClimb(); } catch (e) {} return; }
+  ensureHistBatch(S.key, lk).then(function () {
+    try { climbView = null; climbAutoView(); renderClimbSel(); drawClimb(); } catch (e) {}
+  });
+}
+function renderClimbSel() {
+  var sel = document.getElementById('climbSel');
+  if (!sel) return;
+  var opts = climbPickOptions(), C = climbCurve();
+  // 当前选中的批次若已无历史数据（切星座后），回落到"跟随选中"
+  var cur_ = S.climbPick || '';
+  var valid = (cur_ === '') || (cur_.indexOf('b:') === 0 && !!C[cur_.slice(2)]) ||
+              (cur_.indexOf('s:') === 0 && climbSatIdx(+cur_.slice(2)) >= 0);
+  if (!valid) S.climbPick = '';
+  var html = '<option value="">' + t('climb_pick_auto') + '</option>';
+  opts.forEach(function (o) { html += '<option value="' + o.v + '">' + o.label + '</option>'; });
+  sel.innerHTML = html;
+  sel.value = S.climbPick || '';
+  // 悬停某个批次名 → 列出该批次的成员星（不改变当前选择，避免误触）
+  sel.title = t('climb_sel_tip');
+}
+/** 全局选中变化 → 05 章跟随（需求：双向联动） */
+function climbFollowSelection() {
+  var sel = document.getElementById('climbSel');
+  if (!sel || sel.__lock) return;
+  // 若用户显式选了批次/单星，就**不**被全局选中覆盖（用户意图优先）
+  if (S.climbPick) return;
+  CLIMB = null;                    // 曲线内容与选中无关，缓存可留；视图要重算
+  climbView = null;
+  renderClimbSel();
+  drawClimb();
+}
+function climbSelect(v) {
+  S.climbPick = v || '';
+  climbView = null;
+  // 规模方案下批次数据是**按需拉取**的：先切过去（画面立即响应），数据到了再重画
+  if (v && v.indexOf('b:') === 0) climbEnsureAndDraw(v.slice(2));
+  // 选了单星 → 同步全局选中（另一个方向的联动）
+  if (v && v.indexOf('s:') === 0) {
+    var idx = climbSatIdx(+v.slice(2));
+    if (idx >= 0) { S.sel = [idx]; S.focusIdx = idx; S.selGroup = null; afterSelection(); }
+  }
+  renderClimbSel();
+  drawClimb();
+}
+function renderClimbTake() {
+  var seg = document.getElementById('climbTakeSeg');
+  if (!seg) return;
+  seg.querySelectorAll('button[data-take]').forEach(function (b) {
+    b.classList.toggle('on', b.getAttribute('data-take') === (S.climbTake || 'sma'));
+  });
+}
+function climbInit() {
+  if (!climbCv) return;
+  climbAutoView();
+  renderClimbSel();
+  renderClimbTake();
+  drawClimb();
+  var seg = document.getElementById('climbTakeSeg');
+  if (seg) seg.addEventListener('click', function (e) {
+    var b = e.target.closest ? e.target.closest('button[data-take]') : null;
+    if (!b) return;
+    var v = b.getAttribute('data-take');
+    if ((S.climbTake || 'sma') === v) return;
+    S.climbTake = v; climbView = null;
+    renderClimbTake(); drawClimb();
+    touchPrefs();
+    syncSectionResetBtns();
+  });
+  var sel = document.getElementById('climbSel');
+  if (sel) sel.addEventListener('change', function () { climbSelect(sel.value); touchPrefs(); });
+  // ---- 鼠标：滚轮缩放 / 拖动平移 / 悬停读数 / 点击选中
+  var drag = null;
+  climbCv.addEventListener('wheel', function (e) {
+    e.preventDefault();
+    var r = climbCv.getBoundingClientRect();
+    zoomClimbAt(e.clientX - r.left, e.clientY - r.top, e.deltaY < 0 ? 1.18 : 1 / 1.18);
+  }, { passive: false });
+  climbCv.addEventListener('pointerdown', function (e) {
+    if (e.pointerType !== 'mouse') return;
+    var r = climbCv.getBoundingClientRect();
+    drag = { x: e.clientX, y: e.clientY, moved: 0 };
+    try { climbCv.setPointerCapture(e.pointerId); } catch (err) {}
+  });
+  climbCv.addEventListener('pointermove', function (e) {
+    var r = climbCv.getBoundingClientRect();
+    var mx = e.clientX - r.left, my = e.clientY - r.top;
+    if (drag) {
+      var dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+      drag.moved += Math.abs(dx) + Math.abs(dy);
+      if (drag.moved > TAP_SLOP && climbView) {
+        var v = climbView, rc = climbRect;
+        if (S.climbTake === 'rate') {
+          v.y0 += dy / rc.ph * (v.y1 - v.y0);
+          v.y1 += dy / rc.ph * (v.y1 - v.y0);
+        }
+        v.x0 -= dx / rc.pw * (v.x1 - v.x0);
+        v.x1 -= dx / rc.pw * (v.x1 - v.x0);
+        clampClimbView(v); drawClimb();
+        drag.x = e.clientX; drag.y = e.clientY;
+      }
+      return;
+    }
+    var h = climbHitAt(mx, my);
+    var same = (h && climbHover) ? (h.norad === climbHover.norad && h.ms === climbHover.ms) : !h && !climbHover;
+    if (!same) {
+      climbHover = h;
+      if (h) climbShowInfoAt(h); else if (climbInfo && !climbPinned) hideInfo(climbInfo, 'climb');
+      drawClimb();
+    }
+  });
+  function climbUp(e) {
+    if (drag && drag.moved <= TAP_SLOP) {
+      var r = climbCv.getBoundingClientRect();
+      var h = climbHitAt(e.clientX - r.left, e.clientY - r.top);
+      if (h) {
+        var idx = climbSatIdx(h.norad);
+        if (idx >= 0) { toggleSel(idx, e.ctrlKey || e.metaKey); climbPinned = true; }
+      }
+    }
+    drag = null;
+  }
+  climbCv.addEventListener('pointerup', climbUp);
+  climbCv.addEventListener('pointercancel', function () { drag = null; });
+  climbCv.addEventListener('mouseleave', function () {
+    drag = null;
+    if (climbHover) { climbHover = null; drawClimb(); }
+    if (climbInfo && !climbPinned) hideInfo(climbInfo, 'climb');
+  });
+  climbCv.addEventListener('dblclick', function () { climbView = null; climbAutoView(); drawClimb(); });
+  touchZoom(climbCv, {
+    active: function () { return true; },
+    pan: function (dx, dy) {
+      if (!climbView) return;
+      var rc = climbRect;
+      if (S.climbTake === 'rate') {
+        climbView.y0 += dy / rc.ph * (climbView.y1 - climbView.y0);
+        climbView.y1 += dy / rc.ph * (climbView.y1 - climbView.y0);
+      }
+      climbView.x0 -= dx / rc.pw * (climbView.x1 - climbView.x0);
+      climbView.x1 -= dx / rc.pw * (climbView.x1 - climbView.x0);
+      clampClimbView(climbView); drawClimb();
+    },
+    pinch: function (k, x, y) { zoomClimbAt(x, y, k); },
+    tap: function (x, y) { var h = climbHitAt(x, y); if (h) { climbShowInfoAt(h); climbPinned = true; } }
+  });
+}
+
 try { initStore(); applyConstel(); } catch (e) {}
 rebuild();
 try { afterConstelSwap(); } catch (e) {}
@@ -8056,6 +8952,7 @@ setupInfo(chartInfo, 'chart');
 setupInfo(mapInfo, 'map');
 setupInfo(globeInfo, 'globe');
 netInit();                           // V1.8.0（需求8）：03.5 组网进度
+climbInit();                         // V1.9.0（R17）：05 升轨情况
 loop();
 
 // 各章节的「默认设置」：只还原该章节那几项
@@ -8064,7 +8961,7 @@ loop();
 //   不动顶栏、也完全不动其他章节。章节标题与编号（.sec-head）按要求**保持不动**。
 //   实现上只在动画期间给子元素挂 transition（.sf-anim），避免影响页面上其它动画。
 var SF_SEC = { map: 'sec-map', globe: 'sec-orbits', chart: 'sec-chart',
-  progress: 'sec-progress', table: 'sec-table', launches: 'sec-launches' };
+  progress: 'sec-progress', climb: 'sec-climb', table: 'sec-table', launches: 'sec-launches' };
 function playSectionCurtain(sec, updateFn) {
   var el = document.getElementById(SF_SEC[sec] || ('sec-' + sec));
   if (!el) { try { updateFn(); } catch (e) {} return; }
