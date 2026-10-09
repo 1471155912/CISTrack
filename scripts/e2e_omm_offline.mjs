@@ -15,6 +15,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
+// 复用纯函数模块做"数值列体检"断言（零副作用，不触发任何刷新）
+import { tleHealth } from './omm.mjs';
 
 const SRC = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'cistrack-e2e-omm-'));
@@ -26,22 +28,33 @@ for (const f of fs.readdirSync(path.join(SRC, 'scripts'))) {
   if (f.endsWith('.mjs')) fs.copyFileSync(path.join(SRC, 'scripts', f), path.join(TMP, 'scripts', f));
 }
 fs.mkdirSync(path.join(TMP, 'data', 'history'), { recursive: true });
-for (const f of ['ct_hulianwang.tle', 'ct_qianfan.tle']) {
+/* ★ 起点设计（两个星座故意不同，覆盖两种"病态"起点）：
+ *   gw：**剥离**全部占位号条目（NORAD < 1000）→ 模拟"修复前"（55 颗整批缺失）。
+ *   qf：**保留**占位号条目，但把 L2 的 RAAN 列改写成字符串 "NaN" → 模拟
+ *       "旧代码产出的坏数据已经落盘"。这条专门验证**自愈能力**：
+ *       旧版 refresh 的 merged 是以上一轮 .tle 为起点、S5 又"键已存在就跳过"，
+ *       于是坏行**永久滞留**（刷新一百次也修不好）。V1.9.1 的入口体检会剔除坏行 → S5 重取。
+ *   本星座真实卫星的 NORAD 都是 5 位数且远大于 1000；占位号 = 6 位真号的后 5 位 → 必 < 1000。
+ */
+const badSeed = { gw: 0, qf: 0 };
+for (const [f, key] of [['ct_hulianwang.tle', 'gw'], ['ct_qianfan.tle', 'qf']]) {
   const p = path.join(SRC, 'data', f);
   if (!fs.existsSync(p)) { console.error('缺少 ' + p + '（需要先跑过一次 refresh.mjs）'); process.exit(2); }
-  // ★ 剥离"占位号条目"（NORAD < 1000）→ 还原成**修复前**的状态，
-  //   否则本测试跑在已经修好的数据上会"补到 0 颗"，变成永远通过的空测试。
-  //   （本星座真实卫星的 NORAD 都是 5 位数且远大于 1000；占位号 = 6 位真号的后 5 位 → 必 < 1000）
   const lines = fs.readFileSync(p, 'utf8').split('\n').map(s => s.trim()).filter(Boolean);
   const keep = [];
   for (let i = 0; i + 2 < lines.length; i += 3) {
-    const l1 = lines[i + 1];
+    const l1 = lines[i + 1], l2 = lines[i + 2];
     if (!/^1 /.test(l1)) continue;
-    if (parseInt(l1.slice(2, 7), 10) < 1000) continue;   // 占位号 → 丢掉
-    keep.push(lines[i], l1, lines[i + 2]);
+    const isPh = parseInt(l1.slice(2, 7), 10) < 1000;
+    if (key === 'gw') { if (isPh) continue; keep.push(lines[i], l1, l2); }
+    else {
+      if (isPh && l2.length >= 25) { badSeed.qf++; keep.push(lines[i], l1, l2.slice(0, 17) + '     NaN' + l2.slice(25)); }
+      else keep.push(lines[i], l1, l2);
+    }
   }
   fs.writeFileSync(path.join(TMP, 'data', f), keep.join('\n') + '\n');
-  console.log('（已剥离占位号条目，起点 ' + f + ' = ' + keep.length / 3 + ' 颗 —— 模拟修复前）');
+  console.log('（起点 ' + f + ' = ' + keep.length / 3 + ' 颗' +
+    (key === 'gw' ? '，已剥离占位号条目 —— 模拟修复前' : '，含 ' + badSeed.qf + ' 条 NaN 坏行 —— 模拟坏数据已落盘') + '）');
 }
 {
   const p = path.join(SRC, 'data', 'satcat.csv');
@@ -121,13 +134,35 @@ ok('③ omm 映射条数 ≥50，且 value 都是 ≥6 位真号',
 
 for (const f of ['ct_hulianwang.tle', 'ct_qianfan.tle']) {
   const L = fs.readFileSync(path.join(TMP, 'data', f), 'utf8').split('\n').map(s => s.trim()).filter(Boolean);
-  let bad = 0, n = 0;
+  let bad = 0, n = 0, nan = 0;
   for (let i = 0; i + 2 < L.length; i += 3) {
     if (!/^1 /.test(L[i + 1])) continue;
     n++;
     if (L[i + 1].length !== 69 || L[i + 2].length !== 69) bad++;
+    // ★ 长度正确 ≠ 内容正确：(NaN).toFixed(4) = "NaN" 也是 8 列，总长照样 69。
+    //   这正是 RAAN 字段名写错那个 bug 能躲过所有"长度/正则"校验的原因 → 必须盯值。
+    if (!tleHealth(L[i + 2]) || /NaN/.test(L[i + 2])) nan++;
   }
   ok('④ ' + f + ' 全部 ' + n + ' 颗都是 69 列定宽（0 行异常）', bad === 0, bad + ' 行异常');
+  ok('④b ' + f + ' 数值列无 NaN/非法值（0 行坏数据）', nan === 0, nan + ' 行坏数据');
+}
+
+// ⑥ ★ 自愈：起点注入的坏行必须被修掉（这验证的正是"坏数据不会永久滞留"）
+{
+  const L = fs.readFileSync(path.join(TMP, 'data', 'ct_qianfan.tle'), 'utf8').split('\n').map(s => s.trim()).filter(Boolean);
+  const phLines = [];
+  for (let i = 0; i + 2 < L.length; i += 3) {
+    if (!/^1 /.test(L[i + 1])) continue;
+    if (parseInt(L[i + 1].slice(2, 7), 10) < 1000) phLines.push(L[i + 2]);
+  }
+  // synthOmm 里 RA_OF_ASC_NODE 固定为 10 → 修好之后该列必然是 "10.0000"
+  const fixed = phLines.filter(l => l.slice(17, 25) === 10..toFixed(4).padStart(8));
+  ok('⑥ 起点注入的 ' + badSeed.qf + ' 条 NaN 坏行已被自愈（占位号条目重取后 RAAN = 10.0000）',
+    badSeed.qf > 0 && phLines.length >= badSeed.qf && fixed.length >= badSeed.qf,
+    '占位号条目 ' + phLines.length + ' 条，其中 RAAN 已修正 ' + fixed.length + ' 条');
+  ok('⑥b refresh 日志明确报出了"坏行"（可观测性：不静默）',
+    /坏行/.test(log) && /已剔除/.test(log),
+    (log.match(/⚠️[^\n]*坏行[^\n]*/g) || []).join(' / '));
 }
 
 // ⑤ 历史库必须存**真号**（占位号会让曲线静默空白）

@@ -28,7 +28,7 @@ const UA = { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKi
 const forceCat = process.argv.includes('--force-cat');
 
 // V1.9.0：6 位编目号对象的 OMM 通路（见下方 S5）—— 占位号 → 真号的映射，落 data/omm_norad.json
-import { tleFromOmm, fromCelesTrakOmm, PH, tleChecksum } from './scripts/omm.mjs';
+import { tleFromOmm, fromCelesTrakOmm, PH, tleChecksum, tleHealth } from './scripts/omm.mjs';
 // V1.9.0（R17）：自建历史库 —— 复用 import_history.mjs 里已修过量级 bug 的 altFromOmm，
 //   以及 histstore.mjs 的幂等分片写入（(NORAD,历元) 去重，只追加不覆盖）。
 import { altFromOmm } from './scripts/import_history.mjs';
@@ -150,7 +150,18 @@ for (const key of ['gw', 'qf']) {
   const file = key === 'gw' ? 'ct_hulianwang.tle' : 'ct_qianfan.tle';
   const old = readTLE(file);
   const merged = new Map(old);
-  const before = merged.size;
+  // V1.9.1：入口体检 —— 剔除上一轮遗留的**坏行**（数值列含 NaN）。
+  //   不做这一步的话它们会永久滞留（原因见 tleHealth 上方的长注释）。
+  let droppedBad = 0;
+  for (const [k, s] of [...merged]) {
+    if (!tleHealth(s.l2 || '')) { merged.delete(k); droppedBad++; }
+  }
+  const prevN = old.size;                                  // 上一轮 .tle 里的条数（未体检）
+  if (droppedBad) {
+    console.log(key, '⚠️ 上轮遗留 ' + droppedBad + ' 条坏行（L2 数值列含 NaN）→ 已剔除，本轮将由 S5 重新取');
+  }
+  const before = merged.size;                              // 体检后的起点（S2 日志的算术用它）
+  report[key] = { prevN: prevN, before: before, droppedBad: droppedBad };
   const from = { group: 0, name: 0, catnr: 0, alt: 0 };
 
   // S1 分组
@@ -228,7 +239,14 @@ for (const key of ['gw', 'qf']) {
   Object.keys(catByPrefix[key] || {}).forEach(p => {
     (catByPrefix[key][p] || []).forEach(o => {
       if (o.type !== 'PAY' || o.decay) return;
-      if (merged.has(Number(PH(o.norad)))) return;      // 已按（占位）号收过
+      // ★ 判据分两类（V1.9.1 定稿）：
+      //   · 编目号 **>5 位**：S1–S4 那条 TLE 通路**永远**拿不到（编目字段装不下）→
+      //     OMM 是唯一来源，因此**每轮都必须重取**。旧版写的是「占位号在 merged 里就跳过」，
+      //     后果有两个：① 落盘的坏行（NaN）永远修不好；② 历元永远停在第一次取到的那份，
+      //     TLE 不再更新（页面轨道慢慢跑偏）。两个后果都属于"看起来正常"的静默故障。
+      //   · 编目号 ≤5 位：正常应被 S1/S2 覆盖，走到这里说明前四条通路都失败了 →
+      //     用 OMM 兜底补一次即可，已在 merged 里就不必重取。
+      if (merged.has(Number(PH(o.norad))) && String(o.norad).length <= 5) return;
       ommTodo.push(o);
     });
   });
@@ -272,8 +290,21 @@ for (const key of ['gw', 'qf']) {
   // 只保留名字能对上的（避免 NAME=GW- 这类前缀误伤其它星座的卫星）
   const out = new Map();
   [...merged.values()].forEach(s => { if (MATCH[key].test(s.name)) out.set(parseInt(s.l1.slice(2, 7), 10), s); });
-  report[key] = { before: before, after: out.size, added: out.size - before, from: from };
+  Object.assign(report[key], { after: out.size, added: out.size - before, from: from });
   writeTLE(file, out, path.join(D, file));
+
+  // ★ V1.9.1 出口体检：写盘后**立刻复查**，任何一行数值列仍是 NaN 都必须当场喊出来。
+  //   理由：这类坏行是"静默污染"（长度正确、正则放过、页面算不出轨道），
+  //   出口断言是最后一道网 —— 宁可 CI 红，也不要让坏数据进仓库。
+  const badOut = [...out.values()].filter(s => !tleHealth(s.l2 || ''))
+    .map(s => s.l1.slice(2, 7) + '/' + (s.cospar || ''));
+  if (badOut.length) {
+    console.log('  ❌ 出口体检：' + badOut.length + ' 颗卫星的 L2 数值列非法（' + badOut.slice(0, 5).join(', ') +
+      (badOut.length > 5 ? ' …' : '') + '）—— 这批数据不可用，请检查上游');
+  } else {
+    console.log(key, '出口体检 → ' + out.size + ' 颗全部通过（L2 数值列均为有限数）');
+  }
+  report[key].badOut = badOut.length;
 
   // 仍然拿不到轨道要素的
   //   ⚠️ 查询键必须兼容**占位号**：6 位对象在 out / merged 里是以占位号（真号后 5 位）为键的，
@@ -289,7 +320,8 @@ for (const key of ['gw', 'qf']) {
   });
   report[key].missing = miss.length;
   fs.writeFileSync(path.join(D, `missing_${key}.json`), JSON.stringify(miss, null, 1), 'utf8');
-  console.log(key, '最终', out.size, '颗（原', before, '）｜仍缺轨道要素', miss.length, '颗');
+  console.log(key, '最终', out.size, '颗（上轮文件', prevN, '颗', (droppedBad ? '，其中坏行 ' + droppedBad : '') +
+    '）｜仍缺轨道要素', miss.length, '颗');
 
   // ---------------------------------------------------------------- V1.9.0（R17）：自建历史库
   // 每次刷新都把「这一刻每颗星的半长轴」存档一条，历史库就一天天自己长起来 ——
@@ -358,3 +390,25 @@ fs.writeFileSync(path.join(D, 'refresh_report.json'), JSON.stringify(report, nul
 // V1.9.0：把「占位号 → 真号」的映射落盘，供 mkdata.mjs 把真号写回前端 id（前端代码零改动）
 fs.writeFileSync(OMM_IDS_PATH, JSON.stringify(OMM_IDS, null, 1), 'utf8');
 console.log('\n报告已写入 data/refresh_report.json（OMM 映射 ' + Object.keys(OMM_IDS).length + ' 条 → data/omm_norad.json）');
+
+// ---------------------------------------------------------------- 全局出口闸门（V1.9.1）
+// 若产出的 .tle 里仍存在**数值列非法**的行（L2 含 NaN 之类），以非零码退出。
+//   为什么必须让进程失败（而不是只打印一句）：
+//     · 调用链是 `refresh.mjs && mkdata.mjs && build.mjs` —— 非零码会让后面两步**不执行**，
+//       页面不会用坏数据重建；
+//     · CI（update-tle.yml）里非零码 → 作业失败 → **"有变化才提交"那一步不执行** →
+//       坏数据根本进不了仓库；
+//     · 计划任务里非零码 → 任务列表显示失败 → 人看得见（旧版是"任务成功但数据缺失"）。
+//   这是"宁可红、不要静默"的落地。
+{
+  const badTotal = Object.keys(report).reduce((a, k) => a + (report[k].badOut || 0), 0);
+  if (badTotal) {
+    console.error('❌ 出口闸门：共 ' + badTotal + ' 行卫星数据的数值列非法（L2 含 NaN）—— 这些卫星算不出轨道。');
+    console.error('   可能原因：上游字段名变更 / 上游数据本身异常 / 网络不可达导致本轮回落到旧坏行。');
+    console.error('   已按"不可用"处理，refresh 以非零码（3）结束，以免坏数据被下游打包或提交。');
+    // ⚠️ 用 exitCode 而不是 process.exit()：端到端测试是**同进程 import** 本脚本的，
+    //   process.exit() 会把测试进程当场杀掉、断言输出全丢（且无法被 try/catch 拦住）。
+    //   exitCode 一样能让 `&&` 调用链与 CI 作业失败，且不影响同进程调用方。
+    process.exitCode = 3;
+  }
+}

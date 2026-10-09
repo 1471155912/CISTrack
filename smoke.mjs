@@ -116,9 +116,16 @@ assert('试验星批次元数据齐全（23095 / 23212 / 25F05 失败标记）',
   !!RAW.gw.launches['23095'] && !!RAW.gw.launches['23212'] && RAW.gw.launches['25F05'][5] === 'fail');
 assert('千帆试验星批次齐全（19077 / 21070 / 26128）',
   !!RAW.qf.launches['19077'] && !!RAW.qf.launches['21070'] && !!RAW.qf.launches['26128']);
-assert('待编目批次数：星网 4 批 / 千帆 2 批',
-  Object.keys(RAW.gw.pending).length === 4 && Object.keys(RAW.qf.pending).length === 2,
-  Object.keys(RAW.gw.pending).length + ' / ' + Object.keys(RAW.qf.pending).length);
+// V1.9.1：**反向守卫**。这里原本断言「星网 4 批 / 千帆 2 批待编目」——
+//   而调查结论是：那 6 批之所以"待编目"，根因就是**6 位编目号（100xxx）取不到 TLE**
+//   （旧代码用 FORMAT=tle 查 6 位号一律空 → 整批卫星在页面里消失）。
+//   通路修好后它们全部正常入库 → pending 必须为空。
+//   所以断言方向反过来：**pending 一旦非空，就说明 6 位编目号通路又断了**（这是最有价值的报警）。
+assert('待编目批次为空（非空 = 6 位编目号通路又断了）',
+  Object.keys(RAW.gw.pending).length === 0 && Object.keys(RAW.qf.pending).length === 0,
+  Object.keys(RAW.gw.pending).length + ' / ' + Object.keys(RAW.qf.pending).length +
+  (Object.keys(RAW.gw.pending).length + Object.keys(RAW.qf.pending).length
+    ? ' ← 待编目：' + [...Object.keys(RAW.gw.pending), ...Object.keys(RAW.qf.pending)].join(',') : ''));
 
 console.log('--- 章节与导航 ---');
 // V1.8.0（需求8）：新增 03.5「组网进度」章节（插在 03 倾角分布之后、04 卫星表格之前）
@@ -139,6 +146,9 @@ assert('档位条：中文=图轨角进升星箭 / 英文=MOIPCSL（V1.4.9 / V1.
   [...d.querySelectorAll('#jumpPill button')].map(b => b.textContent).join('') === '↑图轨角进升星箭↓');
 
 console.log('--- 表格 ---');
+// V1.9.1：编目号列放宽到 4–6 位（含 6 位编目号 100xxx）。
+//   旧断言写死 `^\d{5}$`：**6 位号的卫星因此找不到"编号单元格" → 断言恒假**。
+//   这正是"新编号规则"渗透到各处的典型 —— 任何按"5 位"写死的地方都会静默失效。
 assert('默认按 NORAD 从大到小',
   /sortKey: 'norad', sortAsc: false/.test(appSrc) &&
   (function () {
@@ -146,10 +156,10 @@ assert('默认按 NORAD 从大到小',
     if (!th || th.getAttribute('data-key') !== 'norad') return false;
     const tr = d.querySelectorAll('#tbody tr[data-idx]')[0];
     if (!tr) return false;
-    const td = [...tr.children].find(c => c.textContent.trim() && /^\d{5}$/.test(c.textContent.trim()));
+    const td = [...tr.children].find(c => c.textContent.trim() && /^\d{4,6}$/.test(c.textContent.trim()));
     if (!td) return false;
     const ids = [...d.querySelectorAll('#tbody tr[data-idx]')].slice(0, 6).map(x => {
-      const c = [...x.children].find(cc => /^\d{4,5}$/.test(cc.textContent.trim()));
+      const c = [...x.children].find(cc => /^\d{4,6}$/.test(cc.textContent.trim()));
       return c ? +c.textContent.trim() : NaN;
     });
     for (let i = 1; i < ids.length; i++) if (ids[i] > ids[i - 1]) return false;
@@ -1531,6 +1541,25 @@ assert('V1.9.0（R17）：升轨速率算法在页面端与构建期**同一口�
   assert('V1.9.1：cosparField 归一化 9 字符 OBJECT_ID（"2026-176A" → "26176A"），否则 L1 会变 70 字符',
     /export function cosparField/.test(ommCode) && /cosparField\(o\.OBJECT_ID\)/.test(ommCode) &&
     !/\(o\.OBJECT_ID \|\| ''\)\.padEnd\(8\)/.test(ommCode));
+  // ---- V1.9.1 第二轮补充：RAAN 字段名纠错 + "坏行永久滞留"根治 ----
+  //   RAAN 那次：OMM 里升交点赤经叫 RA_OF_ASC_NODE，旧代码写 om.RAAN → 恒 NaN →
+  //     L2 输出 "     NaN"（**总长照样 69**，长度型校验全放过）→ 55 颗星轨道算不出来。
+  //   "永久滞留"那次：refresh 的 merged 以**上一轮 .tle 为起点**，S5 又"键已存在就跳过"
+  //     → 坏行落盘后再也不会被重取（刷新一百次也修不好）。这两条一起才有了自愈能力。
+  assert('V1.9.1：OMM 的 RAAN 取 RA_OF_ASC_NODE（不再写 om.RAAN 那个恒 NaN 的错键）',
+    /RA_OF_ASC_NODE/.test(ommCode) && !/RAAN: Number\(om\.RAAN\),/.test(ommCode));
+  assert('V1.9.1：tleFromOmm 有"数值列必须有限"的硬闸门（拒绝写出 NaN 坏行）',
+    /非有限数/.test(ommCode) && /throw new Error\('tleFromOmm/.test(ommCode));
+  assert('V1.9.1：tleHealth 数值列体检存在且被 refresh 用于**入口**（剔坏行）+ **出口**（复查）',
+    /export function tleHealth/.test(ommCode) &&
+    /if \(!tleHealth\(s\.l2 \|\| ''\)\) \{ merged\.delete/.test(refreshCode) &&
+    /filter\(s => !tleHealth\(s\.l2 \|\| ''\)\)/.test(refreshCode));
+  assert('V1.9.1：>5 位编目号**每轮都重取**（否则落盘后历元永不更新、坏行永不修）',
+    /merged\.has\(Number\(PH\(o\.norad\)\)\) && String\(o\.norad\)\.length <= 5/.test(refreshCode));
+  assert('V1.9.1：出口仍有坏行时 refresh 以非零码结束（CI 就不会提交坏数据）',
+    /process\.exitCode = 3/.test(refreshCode) && /出口闸门/.test(refreshCode));
+  assert('V1.9.1：ommRoundTrip 用**全量**失败计数 badN（旧版 bad 被截断成 3 → 55 颗误报成 3 颗）',
+    /badN/.test(ommCode) && /rt\.badN/.test(fs.readFileSync(B + '/smoke.mjs', 'utf8')));
   assert('V1.9.1：omm_norad.json 不被 gitignore（丢了它 → 前端 NORAD 全变占位号）',
     !/^data\/omm_norad\.json/m.test(gi) && !/^data\/omm_/m.test(gi));
   // 两套离线自检必须真的绿 —— **直接 import 模块**调用（本机从 Node 内 spawn node.exe 会 EBUSY，
@@ -1539,8 +1568,11 @@ assert('V1.9.0（R17）：升轨速率算法在页面端与构建期**同一口�
   const asUrl = (p) => 'file:///' + String(p).replace(/\\/g, '/');
   const ommMod = await import(asUrl(B + '/scripts/omm.mjs'));
   const rt = ommMod.ommRoundTrip([B + '/data/ct_hulianwang.tle', B + '/data/ct_qianfan.tle']);
+  // ⚠️ 用 badN（**全量失败计数**），不要用 bad.length —— bad 只保留 3 条样本用于打印，
+  //   旧代码读 .length 会把"55 颗失败"误报成"3 颗"（自检的计数本身也会撒谎）。
   assert('V1.9.1：omm.mjs 往返自检（TLE → OMM → TLE 全样本逐字段，' + rt.n + ' 颗）',
-    rt.bad.length === 0 && rt.n > 400, '失败 ' + rt.bad.length + ' 颗');
+    rt.badN === 0 && rt.n > 400,
+    '失败 ' + rt.badN + ' 颗' + (rt.badN ? '（坏行 = L2 数值列含 NaN，见 scripts/omm.mjs 的 tleHealth）' : ''));
   const chkMod = await import(asUrl(B + '/scripts/omm_check.mjs'));
   const st = chkMod.ommSelfTest();
   const stBad = st.filter(x => !x.ok).map(x => x.name);

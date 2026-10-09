@@ -46,13 +46,14 @@ jobs:
 
       - name: 离线自检（6 位编目号/OMM 通路 —— 失败即停，避免"静默丢数据"）
         # V1.9.1：这组自检是"55 颗卫星整批消失"事故的防复发闸门。
-        #   这里只跑**不依赖数据文件**的两套（端到端那套需要 satcat.csv，放在 refresh 之后 —— 见下）。
+        #   ⚠️ 只跑**不依赖数据文件**的纯函数那套。`omm.mjs --selftest` 要读 data/ct_*.tle
+        #   （而且是拿"真实数据"做往返）→ 必须放在 refresh **之后**，否则它校验的是仓库里
+        #   上一轮的旧快照（本轮就是因为旧快照带 NaN 而在 refresh 前必然失败）——见下。
         env:
           CISTRACK_TMP: ${{ runner.temp }}
         run: |
           set -e
           node scripts/omm_check.mjs
-          node scripts/omm.mjs --selftest
 
       - name: 刷新 TLE 并重新打包单文件
         env:
@@ -63,7 +64,10 @@ jobs:
         run: |
           set -e
           node refresh.mjs
-          # V1.9.1：端到端（离线桩重跑一遍 refresh，断言 55 颗被补齐）—— 需要 refresh 下好的 satcat.csv
+          # V1.9.1：往返自检 —— 拿**刚刚刷新的真实数据**做 TLE → OMM → TLE 逐字段比对。
+          #   放在 refresh 之后才是有效校验（放前面只能校验上一轮的旧快照）。
+          node scripts/omm.mjs --selftest
+          # V1.9.1：端到端（离线桩重跑一遍 refresh，断言 55 颗被补齐 + 坏行能自愈）—— 需要 satcat.csv
           node scripts/e2e_omm_offline.mjs
           node mkdata.mjs
           node build.mjs
@@ -73,7 +77,27 @@ jobs:
           node -e "const s=require('fs').readFileSync('CISTrack.html','utf8'); if(!s.includes('CISTrack')) throw new Error('产物异常'); console.log('产物字节', s.length)"
           # V1.9.1：**6 位编目号卫星必须真的进库** —— 否则整批在页面/图表里消失（且是静默的）
           node -e "const j=require('fs').readFileSync('data/omm_norad.json','utf8');const m=JSON.parse(j);const n=Object.keys(m).length;if(n<50) throw new Error('OMM 映射仅 '+n+' 条，6 位编目号通路疑似失效');console.log('OMM 映射',n,'条（6 位编目号卫星已入库）')"
-          node -e "const fs=require('fs');for(const f of ['data/ct_hulianwang.tle','data/ct_qianfan.tle']){const L=fs.readFileSync(f,'utf8').split('\n').map(s=>s.trim()).filter(Boolean);let bad=0;for(let i=0;i+2<L.length;i+=3){if(!/^1 /.test(L[i+1]))continue;if(L[i+1].length!==69||L[i+2].length!==69)bad++;}if(bad)throw new Error(f+' 有 '+bad+' 行不是 69 列');console.log(f,'定宽 OK')}"
+          # V1.9.1：TLE 产物体检 —— 长度 + **数值内容**双重校验。
+          #   ★ 血泪教训：`(NaN).toFixed(4)` 得到字符串 "NaN"，补成 8 列后**行总长照样 69**
+          #     → 只查"69 列"的校验**完全放过了** RAAN 字段名写错这个 bug（55 颗星轨道算不出来）。
+          #   所以这里必须调 scripts/omm.mjs 的 tleHealth() 逐个数值列盯值，而不是数长度。
+          node --input-type=module -e '
+          import fs from "node:fs";
+          import { tleHealth } from "./scripts/omm.mjs";
+          for (const f of ["data/ct_hulianwang.tle", "data/ct_qianfan.tle"]) {
+            const L = fs.readFileSync(f, "utf8").split("\n").map(s => s.trim()).filter(Boolean);
+            let n = 0, badLen = 0, badVal = 0;
+            for (let i = 0; i + 2 < L.length; i += 3) {
+              if (!/^1 /.test(L[i + 1])) continue;
+              n++;
+              if (L[i + 1].length !== 69 || L[i + 2].length !== 69) badLen++;
+              if (!tleHealth(L[i + 2])) badVal++;
+            }
+            if (badLen) throw new Error(f + " 有 " + badLen + " 行不是 69 列");
+            if (badVal) throw new Error(f + " 有 " + badVal + " 行数值列非法（L2 含 NaN）—— 面板会算不出轨道");
+            console.log(f, n, "颗：定宽 OK + 数值列体检 OK");
+          }
+          '
 
       - name: 有变化才提交并推送
         run: |

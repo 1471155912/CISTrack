@@ -39,6 +39,21 @@ export function ommSelfTest() {
   ok('⑤b cosparField 对经典 6 列输入保持原样（26176A → 26176A）', cosparField('26176A').trim() === '26176A');
   ok('⑤c cosparField 对 7 字母分片（2026-067CY）不溢出（≤8 列）', cosparField('2026-067CY').length === 8, cosparField('2026-067CY'));
 
+  // ⑧b ★ V1.9.1 抓出的真 bug：OMM 里升交点赤经叫 RA_OF_ASC_NODE，不叫 RAAN。
+  //   旧代码写 Number(om.RAAN) → 恒 NaN；而 `(NaN).toFixed(4)` 得到字符串 "NaN"，
+  //   padStart(8) 之后仍是 8 列 → **总长照样 69**，于是断言 ②"长度 = 69"完全放过了它。
+  //   教训：长度正确 ≠ 内容正确。数值列必须**盯值**，并显式禁止 NaN 字符串。
+  ok('⑧b L2 的 RAAN 列是真实数值，不是 "NaN"（OMM 字段名 RA_OF_ASC_NODE）',
+    l2.slice(17, 25).trim() === OMM.RA_OF_ASC_NODE.toFixed(4), l2.slice(17, 25));
+  ok('⑧c 两行文本中不含任何 NaN 字样（数值列的"静默污染"防线）',
+    !/NaN/.test(l1) && !/NaN/.test(l2), (l1.match(/NaN/g) || []).length + '/' + (l2.match(/NaN/g) || []).length);
+  ok('⑧d 兼容旧字段名：上游若给 RAAN 也能取到值（不因改名就静默失败）',
+    (() => { const q = fromCelesTrakOmm(Object.assign({}, OMM, { RA_OF_ASC_NODE: undefined, RAAN: 157.6298 }));
+      return q.RAAN === 157.6298; })());
+  ok('⑧e 字段名全错时必须抛错，而不是写出坏 TLE（tleFromOmm 的硬闸门）',
+    (() => { try { tleFromOmm(fromCelesTrakOmm(Object.assign({}, OMM, { RA_OF_ASC_NODE: undefined })), ph); return false; }
+      catch (e) { return /RAAN/.test(e.message); } })());
+
   // parseTLE 收编：key 必须是占位号的**数值**（203）——与 S5 的 merged.has(Number(PH(…))) 判据一致
   const m = new Map();
   const lines = [OMM.OBJECT_NAME, l1, l2];

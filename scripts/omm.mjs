@@ -84,8 +84,20 @@ export function ommFromTLE(l1, l2) {
     REV_AT_EPOCH: Number(l2.slice(63, 68)) || 0
   };
 }
+// 按多个候选键取值（取第一个非空者）。CelesTrak 不同接口/不同年代的字段名有过差异，
+//   用候选表比写死一个键安全 —— 少一个键只是"值不对"，写错键名是"值直接变 NaN"，
+//   而 NaN 会被 toFixed 渲染成字符串 "NaN" 写进 TLE（L2 定宽列被撑坏、下游算轨道得到垃圾）。
+function pick(om, keys) {
+  for (const k of keys) if (om[k] != null && om[k] !== '') return Number(om[k]);
+  return NaN;
+}
 // CelesTrak 的 OMM（FORMAT=json）→ 本模块的 TLE 形状字段。
 //   差别只有一处：OMM 的 EPOCH 是 ISO 时间戳，而 TLE 要 "YY + 年内日（含小数）"。
+//   ★ 字段名坑（V1.9.1 修的真 bug）：升交点赤经在 OMM 里叫 **RA_OF_ASC_NODE**，
+//     不叫 RAAN。旧代码写 `Number(om.RAAN)` → 恒 NaN → L2 的 RAAN 列输出 "     NaN"。
+//     往返自检之所以"看起来通过"，是因为 ommFromTLE 从 L2 读回的也是 NaN，
+//     两边同为 NaN 属"恒等" → 断言骗过了自己。教训：自检必须显式断言"不是 NaN"，
+//     不能只比"原 == 转"。omm_check.mjs ⑧b 就是这条补丁。
 export function fromCelesTrakOmm(om) {
   const d = new Date(om.EPOCH);
   const y = d.getUTCFullYear() % 100;
@@ -94,22 +106,37 @@ export function fromCelesTrakOmm(om) {
   return {
     OBJECT_ID: (om.OBJECT_ID || '').trim(),
     EPOCH_Y2: y, EPOCH_DOY: doy,
-    MEAN_MOTION_DOT: Number(om.MEAN_MOTION_DOT) || 0,
-    MEAN_MOTION_DDOT: Number(om.MEAN_MOTION_DDOT) || 0,
-    BSTAR: Number(om.BSTAR) || 0,
-    EPHEMERIS_TYPE: Number(om.EPHEMERIS_TYPE) || 0,
-    ELEMENT_SET_NO: Number(om.ELEMENT_SET_NO) || 0,
-    INCLINATION: Number(om.INCLINATION),
-    RAAN: Number(om.RAAN),
-    ECCENTRICITY: Number(om.ECCENTRICITY),
-    ARG_OF_PERICENTER: Number(om.ARG_OF_PERICENTER),
-    MEAN_ANOMALY: Number(om.MEAN_ANOMALY),
-    MEAN_MOTION: Number(om.MEAN_MOTION),
-    REV_AT_EPOCH: Number(om.REV_AT_EPOCH) || 0
+    MEAN_MOTION_DOT: pick(om, ['MEAN_MOTION_DOT']) || 0,
+    MEAN_MOTION_DDOT: pick(om, ['MEAN_MOTION_DDOT']) || 0,
+    BSTAR: pick(om, ['BSTAR']) || 0,
+    EPHEMERIS_TYPE: pick(om, ['EPHEMERIS_TYPE']) || 0,
+    ELEMENT_SET_NO: pick(om, ['ELEMENT_SET_NO']) || 0,
+    INCLINATION: pick(om, ['INCLINATION']),
+    RAAN: pick(om, ['RA_OF_ASC_NODE', 'RAAN']),
+    ECCENTRICITY: pick(om, ['ECCENTRICITY']),
+    ARG_OF_PERICENTER: pick(om, ['ARG_OF_PERICENTER']),
+    MEAN_ANOMALY: pick(om, ['MEAN_ANOMALY']),
+    MEAN_MOTION: pick(om, ['MEAN_MOTION']),
+    REV_AT_EPOCH: pick(om, ['REV_AT_EPOCH']) || 0
   };
 }
 // 占位编目号：6 位真号的**后 5 位**零填充。真号与占位号的对应关系另存 sidecar。
 export const PH = (norad) => String(norad).slice(-5).padStart(5, '0');
+// ★ TLE 第 2 行的**数值列体检**（V1.9.1 新增）。
+//   为什么必须有它 —— 这是"静默污染"的克星：
+//     `(NaN).toFixed(4)` 得到的是**字符串 "NaN"**，补到 8 列之后**行总长照样 69**，
+//     于是所有"长度/正则"型的校验全部放过它，而 satellite.js 却算不出轨道。
+//   实测教训：OMM 字段名写错（RAAN vs RA_OF_ASC_NODE）→ 55 颗星的 L2 全是 "     NaN"，
+//     而 refresh.mjs 的 merged 是**以上一轮 .tle 为起点**的、S5 又"键已存在就跳过"，
+//     所以坏行**永久滞留**（刷新一百次也不会自愈）。
+//   因此这个函数被用在三处：refresh 的入口体检（剔坏行 → 促自愈）、出口体检（写盘后复查）、
+//     omm_check / e2e 的断言（防复发）。
+export function tleHealth(l2) {
+  const s = String(l2 || '');
+  if (s.length < 63) return false;
+  const cols = [s.slice(8, 16), s.slice(17, 25), s.slice(26, 33), s.slice(34, 42), s.slice(43, 51), s.slice(52, 63)];
+  return cols.every(f => isFinite(parseFloat(f)));
+}
 // COSPAR 字段归一化（V1.9.1 修的真 bug）：
 //   经典 TLE 的 COSPAR 列只有 **6 列**（YYNNNAA…，如 "26176A"），而现代 OMM 的 OBJECT_ID 是
 //   **9 字符**（"2026-176A"）。旧写法直接 padEnd(8) → 长出 1 列 → **L1 变 70 字符** →
@@ -123,7 +150,14 @@ export function cosparField(objectId) {
   return s.padEnd(8).slice(0, 8);            // 定宽 8 列（6 列 COSPAR + 2 列空白）
 }
 // OMM → 两行 TLE 文本（编目号用占位；其余各列严格按定宽规范）
+//   ★ 硬闸门：所有必填的数值列必须是有限数，否则**抛错**。
+//     理由：`(NaN).toFixed(4)` 会得到字符串 "NaN"，被 padStart 一补就写进 L2 —— TLE 看上去
+//     "有内容"，satellite.js 却算不出轨道。这种坏数据比直接报错危险得多（静默污染数据源）。
 export function tleFromOmm(o, placeholder) {
+  const req = ['INCLINATION', 'RAAN', 'ECCENTRICITY', 'ARG_OF_PERICENTER', 'MEAN_ANOMALY', 'MEAN_MOTION'];
+  for (const k of req) {
+    if (!isFinite(Number(o[k]))) throw new Error('tleFromOmm: 字段 ' + k + ' 非有限数（' + o[k] + '）—— 检查上游 OMM 的字段名');
+  }
   const cn = placeholder || '00000';
   const yy = String(o.EPOCH_Y2 != null ? o.EPOCH_Y2 : 0).padStart(2, '0');
   const doy = (o.EPOCH_DOY != null ? o.EPOCH_DOY : 0).toFixed(8).padStart(12, '0');
@@ -146,8 +180,13 @@ export function tleFromOmm(o, placeholder) {
 // ---- 往返自检：用真实的 TLE 做 TLE → OMM → TLE，逐字段比对 ----
 //   V1.9.1：抽成**可导入函数**（原先只写在 CLI 里）—— 测试（smoke.mjs）直接 import 调用，
 //   避免**起子进程**（本机从 Node 内 spawn 同一个 node.exe 会 EBUSY）。
+//   ★ 另外两处修正（都在 V1.9.1）：
+//     ① 失败**全量计数**（badN），bad 只留 3 条样本 —— 旧版直接返回被截断的数组，
+//        调用方读 .length 得到的是"3"而非真实失败数（曾把 55 颗的真实失败误读成 3 颗）；
+//     ② 单条异常**不炸**：tleFromOmm 现在会为坏字段抛错，这里必须 catch 并计入失败，
+//        否则一个坏样本就让整个自检进程崩溃、CI 看不到完整报告。
 export function ommRoundTrip(files) {
-  let n = 0; const bad = [];
+  let n = 0, badN = 0; const bad = [];
   for (const p of files) {
     if (!fs.existsSync(p)) continue;
     const lines = fs.readFileSync(p, 'utf8').split('\n').map(s => s.trim()).filter(Boolean);
@@ -155,8 +194,10 @@ export function ommRoundTrip(files) {
       const l1 = lines[i + 1], l2 = lines[i + 2];
       if (!/^1 /.test(l1) || !/^2 /.test(l2)) continue;
       const cn = l1.slice(2, 7);
-      const [a1, a2] = tleFromOmm(ommFromTLE(l1, l2), cn);
       n++;
+      let a1, a2;
+      try { [a1, a2] = tleFromOmm(ommFromTLE(l1, l2), cn); }
+      catch (e) { badN++; if (bad.length < 3) bad.push({ l1, a1: '⚠️ ' + e.message, l2, a2: '' }); continue; }
       const near = (x, y, eps) => Math.abs(Number(x) - Number(y)) <= eps;
       const d1 = near(l1.slice(18, 32), a1.slice(18, 32), 1e-8) &&
         near(l1.slice(33, 43), a1.slice(33, 43), 1e-9) &&
@@ -169,20 +210,20 @@ export function ommRoundTrip(files) {
         near(l2.slice(43, 51), a2.slice(43, 51), 1e-4) &&
         near(l2.slice(52, 63), a2.slice(52, 63), 1e-8) &&
         l2.slice(63, 68) === a2.slice(63, 68);
-      if (!d1 || !d2) { if (bad.length < 3) bad.push({ l1, a1, l2, a2 }); }
+      if (!d1 || !d2) { badN++; if (bad.length < 3) bad.push({ l1, a1, l2, a2 }); }
     }
   }
-  return { n: n, bad: bad };
+  return { n: n, badN: badN, bad: bad };
 }
 const isMain = process.argv[1] && process.argv[1].endsWith('omm.mjs');
 if (isMain && process.argv.includes('--selftest')) {
   const r = ommRoundTrip([path.join(ROOT, 'data/ct_hulianwang.tle'), path.join(ROOT, 'data/ct_qianfan.tle')]);
-  console.log('自检样本数 =', r.n, '｜往返失败 =', r.bad.length);
+  console.log('自检样本数 =', r.n, '｜往返失败 =', r.badN);
   r.bad.forEach(b => {
     console.log('  原 L1:', JSON.stringify(b.l1));
     console.log('  转 L1:', JSON.stringify(b.a1));
     console.log('  原 L2:', JSON.stringify(b.l2));
     console.log('  转 L2:', JSON.stringify(b.a2));
   });
-  process.exit(r.bad.length ? 1 : 0);
+  process.exit(r.badN ? 1 : 0);
 }

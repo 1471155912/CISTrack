@@ -893,9 +893,14 @@ await sleep(900);
 ck('V1.8.0：探针副本与发布 HTML 逐字节相同，仅多出那一处注入',
   PROBE_HTML.replace(PROBE_INS + '\n', '') === SHIPPED && PROBE_HTML.length > SHIPPED.length,
   { probe: PROBE_HTML.length, shipped: SHIPPED.length });
+// ⚠️ 版本号必须**从产物里读**，不能写死：这里原本硬编码 'V1.8.0'，
+//   版本一升（V1.9.0）断言就恒假 —— 而这是测试自身的过期，不是产品缺陷。
+//   同类问题在 smoke.mjs 也出现过（页脚/版本断言），统一改成自动对齐。
+const SHIPPED_VER = (/var VERSION = '(V\d+\.\d+\.\d+)'/.exec(SHIPPED) || [])[1] || 'V0.0.0';
 ck('V1.8.0：探针出口就位（window.__CISTRACK__，版本号可读）',
-  await ev(`!!window.__CISTRACK__ && window.__CISTRACK__.version === 'V1.8.0'`),
-  await ev(`(function(){ try { return window.__CISTRACK__.version; } catch (e) { return String(e); } })()`));
+  await ev(`!!window.__CISTRACK__ && window.__CISTRACK__.version === '${SHIPPED_VER}'`),
+  await ev(`(function(){ try { return window.__CISTRACK__.version; } catch (e) { return String(e); } })()`) +
+  '（期望 ' + SHIPPED_VER + '）');
 // 探针「哨兵」：注入点必须落在**主 IIFE** 里，才能看见 VERSION / clampChartView 这些内部名。
 //   这条专门拦住「注到了兄弟 IIFE 里」这种情况 —— 那时后面所有内部量断言都会 ReferenceError。
 ck('V1.8.0：探针注入点在 app 主 IIFE 作用域内（能看见 VERSION / clampChartView）',
