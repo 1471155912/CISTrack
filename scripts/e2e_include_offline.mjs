@@ -20,9 +20,11 @@ import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { tleFromOmm } from './omm.mjs';
+// ★ V1.9.1（1.4-C）：临时根走统一解析（原为 `os.tmpdir()`，永远落 C 盘）
+import { tmpRoot } from './tmproot.mjs';
 
 const SRC = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'cistrack-e2e-inc-'));
+const TMP = fs.mkdtempSync(path.join(tmpRoot(), 'cistrack-e2e-inc-'));
 
 // ---------- 搭最小可跑副本 ----------
 fs.copyFileSync(path.join(SRC, 'refresh.mjs'), path.join(TMP, 'refresh.mjs'));

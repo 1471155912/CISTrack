@@ -226,6 +226,31 @@ function encodeGroup(recs) {
   });
   return { tpl: { m: maskToB64(fix, REC), f: f }, diffs: out };
 }
+// ---------------------------------------------------------------- V1.9.1（1.4-D）：「在轨状态」
+// 用户要求：已再入卫星也要在卫星列表 / 变轨情况里呈现。状态来源 = satcat 的 `DECAY_DATE`：
+//   · 有 DECAY_DATE → 已再入（页面标红 + 显示再入日期）
+//   · 无             → 在轨（默认，不额外带字段）
+// ★ 只给"已再入"的卫星带 `st`/`dt` 两个字段，在轨的一律不带 —— 这样绝大多数记录的体积零增重
+//   （几百颗星每颗多两个字段，虽然也不大，但没必要）。
+function reentryMap() {
+  const m = new Map();
+  const file = `${D}/satcat.csv`;
+  if (!fs.existsSync(file)) return m;
+  const rows = fs.readFileSync(file, 'utf8').split('\n');
+  const head = rows[0].split(','); const ix = n => head.indexOf(n);
+  const iNo = ix('NORAD_CAT_ID'), iDec = ix('DECAY_DATE'), iTy = ix('OBJECT_TYPE');
+  rows.slice(1).forEach(line => {
+    if (!line) return;
+    const c = line.split(',');
+    const n = +c[iNo], dec = (c[iDec] || '').trim();
+    if (!n || !dec) return;
+    if ((c[iTy] || '').trim() !== 'PAY') return;   // 只认载荷（R/B、DEB 不算"卫星"）
+    m.set(n, dec.slice(0, 10));
+  });
+  return m;
+}
+const REENTRY = reentryMap();
+
 function pack(sats) {
   const byP = {};
   sats.forEach((s, i) => {
@@ -236,7 +261,13 @@ function pack(sats) {
   Object.keys(byP).forEach(p => {
     const list = byP[p], g = encodeGroup(list.map(x => x.rec));
     tpls[p] = g.tpl;
-    list.forEach((x, k) => { out[x.i] = { id: sats[x.i].id, c: sats[x.i].c, d: g.diffs[k] }; });
+    list.forEach((x, k) => {
+      const s = sats[x.i];
+      const rec = { id: s.id, c: s.c, d: g.diffs[k] };
+      const dec = REENTRY.get(s.id);
+      if (dec) { rec.st = 'r'; rec.dt = dec; }     // 已再入：页面据此标红并显示再入日期
+      out[x.i] = rec;
+    });
   });
   return { tpls: tpls, sats: out.filter(Boolean) };
 }

@@ -8,6 +8,7 @@ import { createRequire } from 'node:module';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { tmpRoot } from './scripts/tmproot.mjs';
 import { fileURLToPath } from 'node:url';
 const ROOT = path.dirname(fileURLToPath(import.meta.url));   // 脚本所在目录（发布包内任意位置可用）
 const require = createRequire('file:///x.js');
@@ -28,14 +29,10 @@ const EDGE = (function () {
   for (const c of cands) { try { if (fs.existsSync(c)) return c; } catch (e) {} }
   return 'msedge.exe';
 })();
-const TMPROOT = (function () {
-  const cands = [process.env.CISTRACK_TMP, process.env.TEMP, process.env.TMP];
-  for (const c of cands) {
-    if (!c) continue;
-    try { fs.mkdirSync(c, { recursive: true }); return c; } catch (e) {}
-  }
-  return os.tmpdir();
-})();
+// V1.9.1（1.4-C）：统一走 scripts/tmproot.mjs —— 本机**自动优先非系统盘**。
+//   原来这里逐个候选里把 `TEMP` 排在前，而本机 TEMP 就在 C 盘 → 临时 profile 全落 C 盘；
+//   而删除会被 safe-delete 守卫改成"移入回收站"→ 只增不减，C 盘回收站曾堆到 2.4 GB。
+const TMPROOT = tmpRoot();
 const OUT = B + '/data/makers.json';
 const PORT = 9482;
 const sleep = ms => new Promise(r => setTimeout(r, ms));

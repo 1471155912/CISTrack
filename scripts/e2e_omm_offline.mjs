@@ -17,9 +17,12 @@ import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 // 复用纯函数模块做"数值列体检"断言（零副作用，不触发任何刷新）
 import { tleHealth } from './omm.mjs';
+// ★ V1.9.1（1.4-C）：临时根走统一解析 —— 原来这里直接用 `os.tmpdir()`（永远 = C 盘），
+//   连 CISTRACK_TMP 都不看。跑一次就在 C 盘留一整套项目副本，删不掉（safe-delete 改成进回收站）。
+import { tmpRoot } from './tmproot.mjs';
 
 const SRC = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'cistrack-e2e-omm-'));
+const TMP = fs.mkdtempSync(path.join(tmpRoot(), 'cistrack-e2e-omm-'));
 
 // ---------- 搭一个最小可跑的项目副本 ----------
 fs.copyFileSync(path.join(SRC, 'refresh.mjs'), path.join(TMP, 'refresh.mjs'));

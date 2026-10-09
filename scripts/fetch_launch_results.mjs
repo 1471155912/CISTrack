@@ -17,6 +17,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { tmpRoot } from './tmproot.mjs';
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const OUT = path.join(ROOT, 'wiki_launches.json');
@@ -26,14 +27,10 @@ const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,
 // V1.8.0：无头浏览器的用户数据目录默认落在 os.tmpdir()，本机 C 盘长期紧张 →
 //   由环境变量 CISTRACK_TMP 指到其它盘，其次用系统 TEMP/TMP。
 //   （V1.8.0 收尾：原来这里写死了某个本机盘符路径，已改为环境变量驱动。）
-const TMPROOT = (function () {
-  const cands = [process.env.CISTRACK_TMP, process.env.TEMP, process.env.TMP];
-  for (const c of cands) {
-    if (!c) continue;
-    try { fs.mkdirSync(c, { recursive: true }); return c; } catch (e) {}
-  }
-  return os.tmpdir();
-})();
+// V1.9.1（1.4-C）：统一走 scripts/tmproot.mjs —— 本机**自动优先非系统盘**。
+//   （原来的候选顺序把 TEMP 排在前，而本机 TEMP 在 C 盘 → 浏览器 profile 全落 C 盘，
+//     删除又被 safe-delete 守卫改成"移入回收站"→ 只增不减。）
+const TMPROOT = tmpRoot();
 
 // 台账里出现过的年份（从 satdata.json 的 launches 键自动推导；读不到就用这份兜底）
 const FALLBACK_YEARS = [2019, 2021, 2023, 2024, 2025, 2026];

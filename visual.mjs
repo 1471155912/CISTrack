@@ -10,6 +10,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { tmpRoot } from './scripts/tmproot.mjs';
 const B = fileURLToPath(new URL('.', import.meta.url));
 
 const FILE = process.argv[2] || B + '/星网与千帆在轨追踪.html';
@@ -52,16 +53,14 @@ try {
 if (!EDGE) { console.log('本机找不到 Edge / Chromium，跳过视觉实测（不影响 smoke.mjs）'); process.exit(0); }
 if (!fs.existsSync(FILE)) { console.log('找不到 HTML:', FILE); process.exit(1); }
 
-// 无头浏览器的 profile 与探针副本一律放「非系统盘」优先的临时目录。
-//   顺序：环境变量 CISTRACK_TMP → 系统 TEMP/TMP → os.tmpdir()。取值时逐个探测可写性，
-//   避免在只读/不存在的盘上建目录。（本机把 TEMP 指到 D: 用环境变量控制，脚本不再写死盘符。）
-const TMPROOT = (function () {
-  const cands = [process.env.CISTRACK_TMP, process.env.TEMP, process.env.TMP, os.tmpdir()].filter(Boolean);
-  for (const c of cands) {
-    try { fs.mkdirSync(c, { recursive: true }); fs.accessSync(c, fs.constants.W_OK); return c; } catch (e) {}
-  }
-  return os.tmpdir();
-})();
+// V1.9.1（1.4-C）：统一走 scripts/tmproot.mjs —— **本机自动优先非系统盘**。
+//   原来的候选顺序是 `CISTRACK_TMP → TEMP → TMP → os.tmpdir()`，注释里写着
+//   "本机把 TEMP 指到 D: 用环境变量控制，脚本不再写死盘符" —— 但**本机 TEMP 并没有被改**，
+//   仍在 C 盘。于是每次跑视觉回归都在 C 盘生成一整套 Edge profile（成千上万个小文件）；
+//   而脚本收尾的 rmSync 被本机 safe-delete 守卫改成"移入回收站"→ **文件还在、空间不释放**。
+//   实测累积到 **87,887 个文件 / 2.4 GB**，成了 C 盘告急的主因（C 盘只剩 1.9 GB）。
+//   现在改为：显式 CISTRACK_TMP（CI 用）→ **非系统盘** → TEMP/TMP → os.tmpdir()。
+const TMPROOT = tmpRoot();
 const EDGE_PROFILE = fs.mkdtempSync(path.join(TMPROOT, 'cistrack-visual-'));
 function rmProfile() {
   // 收尾清掉 profile。删不掉也不能让脚本失败（Windows 上刚退出的浏览器偶尔还占着句柄）。

@@ -261,7 +261,13 @@ for (const key of ['gw', 'qf']) {
   const todo = [];
   Object.keys(catByPrefix[key] || {}).forEach(p => {
     (catByPrefix[key][p] || []).forEach(o => {
-      if (o.type !== 'PAY' || o.decay) return;
+      // ★ V1.9.1（1.4-D）：**不再因 `decay` 跳过**。
+      //   用户要求：已再入卫星的**历史 TLE** 也要录入数据库，并在卫星列表 / 变轨情况等处呈现。
+      //   已再入对象在 satcat 里 `DECAY_DATE` 非空，但它仍有可用的 GP 数据（至少是再入前最后一份），
+      //   老代码把这一整类挡在门外 → 曲线里永远看不到"它飞到了哪里然后就没了"。
+      //   代价可控：第一轮取到后 `merged` 里就有它了，后续轮次不会再请求
+      //   （S5 只对 >5 位编目号强制重取，5 位号的一旦入账就跳过）。
+      if (o.type !== 'PAY') return;
       if (String(o.norad).length > 5) return;               // >5 位 → 走 S5 的 OMM 通路
       if (merged.has(o.norad)) return;
       todo.push(o);
@@ -289,13 +295,16 @@ for (const key of ['gw', 'qf']) {
     if (r.ok && /^\s*1 \d/m.test(r.text) && /^\s*2 \d/m.test(r.text)) from.catnr += parseTLE(r.text, merged);
     await sleep(120);
   }
-  if (todo.length) console.log(key, 'S3 CATNR  → 目录待补', todo.length, '颗，补到', from.catnr, '颗');
+  // V1.9.1（1.4-D）：把"其中已再入几颗"打出来 —— 这类对象的采集效果必须看得见，
+  //   否则"放行了但一颗没取到"和"根本没放行"在日志上长得一模一样。
+  if (todo.length) console.log(key, 'S3 CATNR  → 目录待补', todo.length, '颗（含已再入',
+    todo.filter(o => o.decay).length, '颗），补到', from.catnr, '颗');
 
   // S4 备源：tle.ivanstanojevic.me（按 NORAD）
   const still = [];
   Object.keys(catByPrefix[key] || {}).forEach(p => {
     (catByPrefix[key][p] || []).forEach(o => {
-      if (o.type !== 'PAY' || o.decay) return;
+      if (o.type !== 'PAY') return;                           // 已再入的同样采集（见 S3 处说明）
       if (String(o.norad).length > 5) return;               // >5 位 → 走 S5
       if (merged.has(o.norad)) return;
       still.push(o);
@@ -331,7 +340,7 @@ for (const key of ['gw', 'qf']) {
   const ommTodo = [];
   Object.keys(catByPrefix[key] || {}).forEach(p => {
     (catByPrefix[key][p] || []).forEach(o => {
-      if (o.type !== 'PAY' || o.decay) return;
+      if (o.type !== 'PAY') return;                           // 已再入的同样采集（见 S3 处说明）
       // ★ 判据分两类（V1.9.1 定稿）：
       //   · 编目号 **>5 位**：S1–S4 那条 TLE 通路**永远**拿不到（编目字段装不下）→
       //     OMM 是唯一来源，因此**每轮都必须重取**。旧版写的是「占位号在 merged 里就跳过」，
@@ -430,7 +439,7 @@ for (const key of ['gw', 'qf']) {
   const miss = [];
   Object.keys(catByPrefix[key] || {}).forEach(p => {
     (catByPrefix[key][p] || []).forEach(o => {
-      if (o.type !== 'PAY' || o.decay) return;
+      if (o.type !== 'PAY') return;                           // 已再入的同样采集（见 S3 处说明）
       if (out.has(o.norad) || out.has(Number(PH(o.norad)))) return;
       miss.push({ norad: o.norad, cospar: o.cospar, name: o.name, launch: o.launch, pre: o.pre });
     });

@@ -1667,6 +1667,30 @@ assert('V1.9.0（R17）：升轨速率算法在页面端与构建期**同一口�
     /todo\.sort\(\(a, b\) => \{/.test(rf) && /const ia = includedByBatch\(key, a\.pre, a\.norad\)/.test(rf));
   assert('V1.9.1（1.4）：名字正则的**两处**拦截点都接上了白名单通道（只改一处会"查到却被丢"/"没查却留下"）',
     (rf.match(/includedByBatch\(/g) || []).length >= 4);
+  // ---- V1.9.1（1.4-D）：已再入卫星的采集与状态 ----
+  // 用户要求：已再入卫星的历史 TLE 也要录入并在卫星列表/变轨情况呈现。
+  // 老代码在**四处**都写了 `|| o.decay` 把这一整类挡在门外 → 曲线里永远看不到它。
+  {
+    const md = fs.readFileSync(B + '/mkdata.mjs', 'utf8');
+    assert('V1.9.1（1.4-D）：refresh 四处都不再因 decay 跳过（已再入卫星同样采集）',
+      !/o\.type !== 'PAY' \|\| o\.decay/.test(rf) &&
+      (rf.match(/if \(o\.type !== 'PAY'\) return;/g) || []).length >= 4,
+      '残留 ' + (rf.match(/o\.decay/g) || []).length + ' 处 o.decay');
+    assert('V1.9.1（1.4-D）：已再入的采集数量在日志里可见（放行了却一颗没取到 vs 根本没放行，日志必须能区分）',
+      /含已再入/.test(rf));
+    assert('V1.9.1（1.4-D）：mkdata 从 satcat 的 DECAY_DATE 产出"已再入"状态（st=r + dt）',
+      /function reentryMap/.test(md) && /const REENTRY = reentryMap\(\)/.test(md) &&
+      /rec\.st = 'r'; rec\.dt = dec;/.test(md));
+    assert('V1.9.1（1.4-D）：在轨卫星不带 st 字段（只有已再入的才加，绝大多数记录零增重）',
+      /if \(dec\) \{ rec\.st = 'r'; rec\.dt = dec; \}/.test(md) &&
+      (function () {
+        const g = JSON.parse(fs.readFileSync(B + '/build/satdata.json', 'utf8'));
+        const g2 = g.SATDATA || g;
+        const all = [...(g2.gw.sats || []), ...(g2.qf.sats || [])];
+        const withSt = all.filter(s => s.st).length;
+        return withSt === all.filter(s => s.st === 'r').length;   // 不存在 st 非 'r' 的
+      })());
+  }
   // ⚠️ CI 工作流文件只存在于**仓库**里；本地工作区（开发目录）通常没有 `.github/`。
   //   smoke 两边都会跑（本地自审 + CI），所以这里必须容错 —— 不存在就视为通过并注明。
   {

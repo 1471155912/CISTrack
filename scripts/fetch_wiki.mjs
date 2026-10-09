@@ -18,6 +18,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { tmpRoot } from './tmproot.mjs';
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const OUT = path.join(ROOT, 'wiki.json');
@@ -25,14 +26,10 @@ const OUT = path.join(ROOT, 'wiki.json');
 //   由环境变量 CISTRACK_TMP 指到其它盘，其次用系统 TEMP/TMP。
 //   （V1.8.0 收尾：原来这里写死了某个本机盘符路径 —— 换台机器就跑不起来，
 //     而且会把本机路径带进发布仓，所以一律改成环境变量驱动。）
-const TMPROOT = (function () {
-  const cands = [process.env.CISTRACK_TMP, process.env.TEMP, process.env.TMP];
-  for (const c of cands) {
-    if (!c) continue;
-    try { fs.mkdirSync(c, { recursive: true }); return c; } catch (e) {}
-  }
-  return os.tmpdir();
-})();
+// V1.9.1（1.4-C）：统一走 scripts/tmproot.mjs —— 本机**自动优先非系统盘**。
+//   （原来的候选顺序把 TEMP 排在前，而本机 TEMP 在 C 盘 → 浏览器 profile 全落 C 盘，
+//     删除又被 safe-delete 守卫改成"移入回收站"→ 只增不减，把 C 盘回收站堆到 2.4 GB。）
+const TMPROOT = tmpRoot();
 const PAGES = [
   ['gw', 'https://sat.huijiwiki.com/wiki/%E6%98%9F%E7%BD%91', '星网'],
   ['qf', 'https://sat.huijiwiki.com/wiki/%E5%8D%83%E5%B8%86%E6%98%9F%E5%BA%A7', '千帆星座'],
