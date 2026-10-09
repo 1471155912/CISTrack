@@ -1706,6 +1706,32 @@ assert('V1.9.0（R17）：升轨速率算法在页面端与构建期**同一口�
         return withSt === all.filter(s => s.st === 'r').length;   // 不存在 st 非 'r' 的
       })());
   }
+
+// ---- V1.9.1（执行顺序 1.7）：台账口径修正 ----
+// ① 搭车星必须从"颗数"里排除（satcat 按 COSPAR 前缀数 PAY 会把同次发射的**别星座载荷**算进来）
+// ② 已再入颗数要能查到（动态算，不写死 —— 写死的数字下次有卫星再入就过期）
+{
+  const md = fs.readFileSync(B + '/mkdata.mjs', 'utf8');
+  const g = JSON.parse(fs.readFileSync(B + '/build/satdata.json', 'utf8'));
+  const D = g.SATDATA || g;
+  assert('V1.9.1（1.7）：搭车星排除表存在（2026-128B 中国移动02星 / 2024-226A）',
+    /const STOWAWAY = \{/.test(md) && /'26128': \[69473\]/.test(md) && /'24226': \[62185\]/.test(md) &&
+    /isStowaway\(k, r\.norad\)/.test(md));
+  assert('V1.9.1（1.7）：DTC-01 计数 = 1 颗（satcat 数出 2 颗，含中国移动02星）',
+    D.qf.launchCounts['26128'] && D.qf.launchCounts['26128'].n === 1,
+    JSON.stringify(D.qf.launchCounts['26128']));
+  assert('V1.9.1（1.7）：26211 含 EUHT（satcat 口径 9 颗 = 极轨26组8 + EUHT 1）',
+    D.qf.launchCounts['26211'] && D.qf.launchCounts['26211'].n === 9,
+    JSON.stringify(D.qf.launchCounts['26211']));
+  assert('V1.9.1（1.7）：25067 的已再入标注（goneCount）含 63428 与再入日期',
+    (function () {
+      const gc = D.gw.goneCount && D.gw.goneCount['25067'];
+      return Array.isArray(gc) && gc.some(x => x.n === 63428 && /^\d{4}-\d{2}-\d{2}$/.test(x.on));
+    })(), JSON.stringify((D.gw.goneCount || {})['25067']));
+  assert('V1.9.1（1.7）：本页发射数与词条口径一致（gw 244 / qf 262）',
+    D.gw.stats.launched === 244 && D.qf.stats.launched === 262,
+    'gw=' + D.gw.stats.launched + ' qf=' + D.qf.stats.launched);
+}
   // ⚠️ CI 工作流文件只存在于**仓库**里；本地工作区（开发目录）通常没有 `.github/`。
   //   smoke 两边都会跑（本地自审 + CI），所以这里必须容错 —— 不存在就视为通过并注明。
   {

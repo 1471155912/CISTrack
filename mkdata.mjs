@@ -251,6 +251,34 @@ function reentryMap() {
 }
 const REENTRY = reentryMap();
 
+// V1.9.1（执行顺序 1.7）：「已再入颗数」按批次统计（**动态**，不写死）。
+//   任务清单 1.7 要求"25067 标注 1 颗已再入（63428）"—— 但写死一个数字会在下次有卫星再入时过期，
+//   所以这里从 satcat 的 DECAY_DATE **现算**：同一 COSPAR 前缀下已再入的 PAY 颗数。
+//   页面可据此在批次行/列表里标注（A10/A11 规范），"在轨数量"也能扣掉这部分。
+function goneCountsOf(batchKeys) {
+  const file = `${D}/satcat.csv`;
+  const out = {};
+  if (!fs.existsSync(file)) return out;
+  const rows = fs.readFileSync(file, 'utf8').split('\n');
+  const head = rows[0].split(','); const ix = n => head.indexOf(n);
+  const iId = ix('OBJECT_ID'), iNo = ix('NORAD_CAT_ID'), iTy = ix('OBJECT_TYPE'), iDec = ix('DECAY_DATE');
+  rows.slice(1).forEach(line => {
+    if (!line) return;
+    const c = line.split(',');
+    const id = (c[iId] || '').trim();
+    const m = id.match(/^(\d{4})-(\d+)/);
+    if (!m) return;
+    const key = m[1].slice(2) + String(+m[2]).padStart(3, '0');
+    if (batchKeys.indexOf(key) < 0) return;
+    if ((c[iTy] || '').trim() !== 'PAY') return;
+    const dec = (c[iDec] || '').trim();
+    if (!dec) return;
+    if (isStowaway(key, +c[iNo])) return;
+    (out[key] = out[key] || []).push({ n: +c[iNo], id: id, on: dec.slice(0, 10) });
+  });
+  return out;
+}
+
 function pack(sats) {
   const byP = {};
   sats.forEach((s, i) => {
@@ -313,6 +341,22 @@ function linkMap(meta) {
 // 待编目批次的可公开摘要（来自 data/satcat.csv：周期 / 倾角 / 近远地点 / 临时编号段）
 // 说明：这些对象在目录里已有临时编号（100xxx）与摘要轨道参数，但公开渠道不发布其完整 TLE，
 // 因此页面只能给出这些摘要，无法推算位置。
+// ---------------------------------------------------------------- V1.9.1（执行顺序 1.7）：搭车星排除表
+// 为什么需要：`pendingSummary` 是按 **satcat 的 COSPAR 前缀**数 PAY 的，而**同一次发射**里
+//   完全可能有"不属于本星座"的载荷 —— 它们共享前缀，于是被一并数进来，导致该批次的颗数虚高。
+//   实例（1.7 明确点名的）：`2026-128` = 千帆 DTC-01(A) + **中国移动02星(B)**，
+//   词条只把 DTC-01 记入千帆名单 → 该批应是 **1 颗**，而 satcat 数出 **2 颗**。
+//   而 `launchedTotal` 取 `max(counts.n, 库内颗数)`，于是这个 2 会**覆盖**掉正确的 1。
+// 口径来源：卫星百科词条表格（唯一名单）+ 任务清单 Q25。
+const STOWAWAY = {
+  '26128': [69473],   // 2026-128B = 中国移动02星（词条不计入千帆）
+  '24226': [62185]    // 2024-226A = 搭车星（词条 COSPAR 列虽写 A，但轨道高度指向 B；详见 V1.9.1_1.6 核对表）
+};
+function isStowaway(batchKey, norad) {
+  const l = STOWAWAY[batchKey];
+  return !!(l && l.indexOf(Number(norad)) >= 0);
+}
+
 function pendingSummary(keys, slim) {
   const file = `${D}/satcat.csv`;
   if (!fs.existsSync(file)) return {};
@@ -337,7 +381,7 @@ function pendingSummary(keys, slim) {
   });
   const out = {};
   keys.forEach(k => {
-    const list = (acc[k] || []).filter(r => r.type === 'PAY');
+    const list = (acc[k] || []).filter(r => r.type === 'PAY' && !isStowaway(k, r.norad));
     if (!list.length) return;
     // V1.3.7：只问「这批发射了几颗」的调用方（顶部计数）用 slim，省掉每批几百字节的摘要字段
     if (slim) { out[k] = { n: list.length }; return; }
@@ -490,6 +534,8 @@ const DATA = {
     key: 'gw', name: '星网', en: 'SatNet / CSCN', org: '中国卫星网络集团有限公司',
     sub: '低轨互联网星座',
     launches: GW_LEDGER, pending: gwPend, pendingInfo: gwSum, launchCounts: gwCounts, stats: gwStats,
+    // V1.9.1（1.7）：按批次的"已再入"清单（动态；页面据此标注批次行、并在在轨数量里扣除）
+    goneCount: goneCountsOf(Object.keys(GW_LAUNCH)),
     wiki: WIKI_STAT.gw,
     links: linkMap(GW_LAUNCH),
     makers: makerMap(GW_LAUNCH),
@@ -499,6 +545,7 @@ const DATA = {
     key: 'qf', name: '千帆', en: 'Qianfan / Thousand Sails (G60)', org: '上海垣信卫星科技有限公司',
     sub: '低轨互联网星座',
     launches: QF_LEDGER, pending: qfPend, pendingInfo: qfSum, launchCounts: qfCounts, stats: qfStats,
+    goneCount: goneCountsOf(Object.keys(QF_LAUNCH)),
     wiki: WIKI_STAT.qf,
     links: linkMap(QF_LAUNCH),
     makers: makerMap(QF_LAUNCH),
