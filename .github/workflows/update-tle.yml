@@ -46,16 +46,13 @@ jobs:
 
       - name: 离线自检（6 位编目号/OMM 通路 —— 失败即停，避免"静默丢数据"）
         # V1.9.1：这组自检是"55 颗卫星整批消失"事故的防复发闸门。
-        #   ① OMM 通路自检（占位号/定宽/校验位/COPAR 归一化/真号还原/高度量级）
-        #   ② TLE→OMM→TLE 全样本往返
-        #   ③ 端到端：整个 refresh.mjs 用离线桩跑一遍，断言 55 颗被补齐、历史库写真号
+        #   这里只跑**不依赖数据文件**的两套（端到端那套需要 satcat.csv，放在 refresh 之后 —— 见下）。
         env:
           CISTRACK_TMP: ${{ runner.temp }}
         run: |
           set -e
           node scripts/omm_check.mjs
           node scripts/omm.mjs --selftest
-          node scripts/e2e_omm_offline.mjs
 
       - name: 刷新 TLE 并重新打包单文件
         env:
@@ -66,6 +63,8 @@ jobs:
         run: |
           set -e
           node refresh.mjs
+          # V1.9.1：端到端（离线桩重跑一遍 refresh，断言 55 颗被补齐）—— 需要 refresh 下好的 satcat.csv
+          node scripts/e2e_omm_offline.mjs
           node mkdata.mjs
           node build.mjs
           node release.mjs
