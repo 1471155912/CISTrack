@@ -28,7 +28,7 @@ const UA = { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKi
 const forceCat = process.argv.includes('--force-cat');
 
 // V1.9.0：6 位编目号对象的 OMM 通路（见下方 S5）—— 占位号 → 真号的映射，落 data/omm_norad.json
-import { tleFromOmm, fromCelesTrakOmm, PH, tleChecksum, tleHealth } from './scripts/omm.mjs';
+import { tleFromOmm, fromCelesTrakOmm, PH, tleChecksum, tleHealth, cosparField } from './scripts/omm.mjs';
 // V1.9.0（R17）：自建历史库 —— 复用 import_history.mjs 里已修过量级 bug 的 altFromOmm，
 //   以及 histstore.mjs 的幂等分片写入（(NORAD,历元) 去重，只追加不覆盖）。
 import { altFromOmm } from './scripts/import_history.mjs';
@@ -40,11 +40,74 @@ try { OMM_IDS = JSON.parse(fs.readFileSync(OMM_IDS_PATH, 'utf8')); } catch (e) {
 
 const GROUPS = { gw: 'hulianwang', qf: 'qianfan' };
 // 名称前缀（CelesTrak NAME= 是前缀模糊匹配；目录里的写法并不统一，所以两边都列全）
+// ★ V1.9.1（1.4）：`HULIANWANG` → `HULIANWAN`（去掉末尾的 G）。
+//   为什么：目录里 GEO 那三颗写作 **`HULIANWAN GAOGUI-01/02/03`**（单 G！），
+//   与我们原先写死的 `HULIANWANG`（双 G）差一个字母 → **整批漏掉**，且是静默的。
+//   `HULIANWAN` 是 `HULIANWANG` 的前缀，两种写法都能命中；
+//   实测 satcat 里含 `HULIANWAN` 的对象共 238 个、**全部是 PAY**，放宽零误伤。
 const NAMES = {
-  gw: ['HULIANWANG', 'GUOWANG', 'GW-'],
+  gw: ['HULIANWAN', 'GUOWANG', 'GW-'],
   qf: ['QIANFAN', 'SPACESAIL', 'G60']
 };
-const MATCH = { gw: /HULIANWANG|GUOWANG|^GW-/i, qf: /QIANFAN|SPACESAIL|G60/i };
+const MATCH = { gw: /HULIANWAN|GUOWANG|^GW-/i, qf: /QIANFAN|SPACESAIL|G60/i };
+
+// ---------------------------------------------------------------- 按批次的显式纳入通道（V1.9.1 / 1.4）
+// 为什么需要它：有一批**确认属于本星座**的卫星，在 satcat 里的名字**完全不含星座关键字**，
+//   所以无论名字正则怎么写都捞不到（这不是"正则写得不全"，是**根本没有可用的关键字**）：
+//     · CX-19 / CX-20A~C / CX-26 → `CHUANGXIN 19` / `CHUANGXIN 20A` / `CHUANG XIN 26`（星网试验星，叫"创新"）
+//     · KL-Alpha / KL-Beta      → `KL-ALPHA A` / `KL-BETA A`（千帆试验星）
+//     · 千帆DTC-01              → `DTC TEST OBJECT A`
+//     · 2024-226B               → `OBJECT B`（发射已两年多，satcat 里**至今仍是 OBJECT B**）
+//   这类只能按「批次的 COSPAR 前缀」点名纳入。
+// 结构：who → { 批次key(=COSPAR 前 5 位): [要纳入的 NORAD …] }
+//   ★ 一律用**精确 NORAD 列表**，不用"整批全收"。
+//     为什么（离线测试抓出来的）：同一批的 COSPAR 前缀下面**还挂着 R/B 与 DEB**——
+//     例：`2024-040` 有 `2024-040A`(GEO 业务星, 59069) 与 `2024-040B`(R/B, 59070)。
+//     若按"整批全收"，R/B 会被一起收进来（它过不了名字正则、但过了白名单），
+//     最后在页面里变成一颗"没有任何台账来由"的卫星。测试实测：gw 命中数从 10 变 13，
+//     多出的 3 个正是 24040B / 24135B / 24181B 三个 R/B。
+//     （`null` 的"全收"写法仍保留支持，但当前名册**一处都没用**。）
+// ⚠️ 这份名单以卫星百科词条表格为唯一依据，逐条核对见 `V1.9.1_1.3_词条名单核对表.md`。
+const INCLUDE = {
+  gw: {
+    '23181': [58425, 58426, 58427],  // 星网倾斜轨道试验星02组 A/B/C（CX-20A/B/C）
+    '23190': [58505],                // 卫星互联网技术试验卫星03（CX-19）
+    '24226': [62186],                // CX 试验星（CZ-12 Y1）→ **只 2024-226B**；226A 是搭车星
+    '26158': [69972],                // CX-26
+    '24040': [59069],                // 高轨业务星01（GEO）—— 不要 24040B（R/B, 59070）
+    '24135': [60327],                // 高轨业务星02（GEO）—— 不要 24135B（R/B, 60328）
+    '24181': [61503]                 // 高轨业务星03（GEO）—— 不要 24181B（R/B, 61504）
+  },
+  qf: {
+    '19077': [44785, 44786],         // KL-Alpha A/B
+    '21070': [49059, 49060],         // KL-Beta A/B
+    '26128': [69472]                 // 千帆DTC-01 → **只 2026-128A**；128B 是中国移动02星
+  }
+};
+// 判某对象是否由白名单点名纳入。
+//   ⚠️ `norad` 可能是**占位号**（6 位真号对象在 .tle/merged 里用真号后 5 位当键），
+//   所以先经 sidecar（data/omm_norad.json）还原真号再比，否则 GEO 之类将来真变 6 位号时又会漏。
+function includedByBatch(key, lk, norad) {
+  const m = INCLUDE[key];
+  if (!m || !Object.prototype.hasOwnProperty.call(m, lk)) return false;
+  const list = m[lk];
+  if (list == null) return true;
+  const raw5 = String(norad).padStart(5, '0');
+  const real = Number(OMM_IDS[raw5] || norad);
+  return list.indexOf(real) >= 0;
+}
+// 从 COSPAR 文本提取批次 key，**两种写法都要认**：
+//   · 归一化形态 `"26158A"`（经典 TLE 的 6 列，parseTLE / cosparField 的产物）
+//   · 原始形态   `"2026-158A"`（OMM 的 OBJECT_ID，9 字符）
+//   为什么必须兼容：1.4 实测发现 S5 曾把原始 9 字符直接存进 merged，而下游一律 `slice(0,5)`
+//   → 得到 `"2026-"` → 白名单匹配失败（"取到了却在最后一步被丢掉"）。存的那头已修为归一化，
+//   这里再兜一层，避免将来又有人在别处塞原始格式。
+function lkOfCospar(cp) {
+  const s = String(cp || '').trim();
+  const m = s.match(/^(\d{4})-(\d{1,3})/);
+  if (m) return m[1].slice(2) + m[2].padStart(3, '0');
+  return s.slice(0, 5);
+}
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 async function get(url, tries) {
@@ -124,15 +187,25 @@ if (fs.existsSync(catPath)) {
   const iLd = ix('LAUNCH_DATE'), iDec = ix('DECAY_DATE'), iPer = ix('PERIOD'), iInc = ix('INCLINATION');
   const iApo = ix('APOGEE'), iPeg = ix('PERIGEE'), iSite = ix('LAUNCH_SITE');
   const cat = { gw: [], qf: [] };
+  // ★ V1.9.1（1.4）：这里就是"名字正则"的**第一处**拦截点（决定"要不要去查"）。
+  //   注意它原本把两道判据**串在一起**的写法 `if (!MATCH[k].test(nm)) continue;` 之后才解析 COSPAR ——
+  //   而白名单判据需要 COSPAR 前缀，所以必须先解析出 pre 再判。
+  //   同时还把"只有名字命中才 push"的结构松开了：**两条通道各自独立**，
+  //   名字命中 **或** 批次白名单命中，都算本星座对象。
+  let incHit = { gw: 0, qf: 0 };
   rows.slice(1).forEach(line => {
     if (!line) return;
     const c = line.split(',');
     const nm = (c[iNm] || '').trim(), id = (c[iId] || '').trim(); if (!nm || !id) return;
+    const m = id.match(/^(\d{4})-(\d{3})/); if (!m) return;
+    const pre = m[1].slice(2) + String(+m[2]).padStart(3, '0');
+    const norad = +c[iNo];
     for (const k of ['gw', 'qf']) {
-      if (!MATCH[k].test(nm)) continue;
-      const m = id.match(/^(\d{4})-(\d{3})/); if (!m) continue;
-      const pre = m[1].slice(2) + String(+m[2]).padStart(3, '0');
-      const o = { norad: +c[iNo], name: nm, cospar: id, type: (c[iTy] || '').trim(), pre: pre,
+      const byName = MATCH[k].test(nm);
+      const byBatch = !byName && includedByBatch(k, pre, norad);
+      if (!byName && !byBatch) continue;
+      if (byBatch) incHit[k]++;
+      const o = { norad: norad, name: nm, cospar: id, type: (c[iTy] || '').trim(), pre: pre,
         launch: (c[iLd] || '').trim(), decay: (c[iDec] || '').trim(), site: (c[iSite] || '').trim(),
         per: +c[iPer], inc: +c[iInc], apo: +c[iApo], peg: +c[iPeg] };
       (catByPrefix[k][pre] = catByPrefix[k][pre] || []).push(o);
@@ -142,6 +215,9 @@ if (fs.existsSync(catPath)) {
   fs.writeFileSync(path.join(D, 'cat_objs.json'), JSON.stringify(cat), 'utf8');
   console.log('目录命中：gw', cat.gw.length, '个对象 /', Object.keys(catByPrefix.gw).length, '批；qf',
     cat.qf.length, '个对象 /', Object.keys(catByPrefix.qf).length, '批');
+  // 白名单通道的战绩（名字不含关键字的那一类）—— 打出来才看得见它到底生效没有
+  console.log('  ├ 其中"按批次点名纳入"（名字不含星座关键字）：gw', incHit.gw, '个 / qf', incHit.qf, '个');
+  if (!incHit.gw && !incHit.qf) console.log('  ⚠️ 白名单一个都没命中 —— 请检查 INCLUDE 的批次前缀是否与 satcat 的 COSPAR 一致');
 }
 
 // ---- 逐星座合并四个来源 ----
@@ -191,9 +267,26 @@ for (const key of ['gw', 'qf']) {
       todo.push(o);
     });
   });
+  // ★ V1.9.1（1.4）：白名单批次的对象**排到最前面**，保证不被下面的 `slice(0,60)` 挤掉。
+  //   为什么需要：todo 会包含 catByPrefix 里所有没拿到的对象；正常运行时它很小（S1/S2 已覆盖
+  //   绝大多数），但在"首次补齐/起点为空"这类场景下 todo 可能上百 —— 而白名单那 14 颗
+  //   恰恰是**唯一只有这条路能救**的，一旦被 cap 截掉就永远补不上（离线测试实测：CX-26 与
+  //   DTC-01 正是这样丢的）。
+  todo.sort((a, b) => {
+    const ia = includedByBatch(key, a.pre, a.norad) ? 0 : 1;
+    const ib = includedByBatch(key, b.pre, b.norad) ? 0 : 1;
+    return ia - ib;
+  });
   for (const o of todo.slice(0, 60)) {
     r = await get(`https://celestrak.org/NORAD/elements/gp.php?CATNR=${o.norad}&FORMAT=tle`);
-    if (r.ok && /^1 /.test(r.text)) from.catnr += parseTLE(r.text, merged);
+    // ★ V1.9.1（1.4）修的真 bug：这里原本是 `/^1 /.test(r.text)` —— **没有 `m` 标志**。
+    //   CelesTrak 的 FORMAT=tle 返回是「卫星名行 + 1 行 + 2 行」三行，文本**以名字开头**，
+    //   而无 `m` 标志时 `^` 只匹配**字符串开头** → 判断**恒为 false** → parseTLE 从不执行
+    //   → **这条通路从来没有成功过一次**（"补到 0 颗"却看不出原因，因为 todo 常为 0 而不打印）。
+    //   它和 1.8 是同一类：判据写错 → 静默失效 → 测试又恰好没覆盖。
+    //   症状一直没暴露，是因为 S1（GROUP=hulianwang）/S2（NAME=HULIANWAN）覆盖了绝大多数卫星，
+    //   而**名字不含关键字的那些**（CX / KL / DTC / OBJECT B）恰好只有这条通路能救。
+    if (r.ok && /^\s*1 \d/m.test(r.text) && /^\s*2 \d/m.test(r.text)) from.catnr += parseTLE(r.text, merged);
     await sleep(120);
   }
   if (todo.length) console.log(key, 'S3 CATNR  → 目录待补', todo.length, '颗，补到', from.catnr, '颗');
@@ -267,9 +360,21 @@ for (const key of ['gw', 'qf']) {
           const t = fromCelesTrakOmm(om);
           const [l1s, l2s] = tleFromOmm(t, ph);
           // 直接按占位号塞进 merged（名称沿用目录里的写法，便于下面的 MATCH 过滤）
+          // ★ V1.9.1（1.4）修的 bug：`cospar` 必须用 **cosparField 归一化后的 6 列形式**。
+          //   旧写法存的是 OMM 的原始 `OBJECT_ID`（**9 字符** `"2026-158A"`），
+          //   而下游（最终过滤、批次归属）一律按 `slice(0,5)` 取批次 key →
+          //   对 "2026-158A" 得到 `"2026-"` → **白名单批次匹配必然失败**，
+          //   于是"S5 明明取到了、却在最后一步被丢掉"（离线测试实测：CX-26 与 DTC-01 就这么丢的）。
+          //   归一化后与 parseTLE 的 `l1.slice(9,17).trim()` 完全同构，merged 里只有一种格式。
           merged.set(Number(ph), { name: o.name, l1: l1s, l2: l2s,
-            epoch: t.EPOCH_Y2 * 1000 + t.EPOCH_DOY, cospar: (om.OBJECT_ID || o.cospar).trim() });
-          OMM_IDS[ph] = o.norad;
+            epoch: t.EPOCH_Y2 * 1000 + t.EPOCH_DOY, cospar: cosparField(om.OBJECT_ID || o.cospar).trim() });
+          // ★ V1.9.1（1.4）：只在"**占位号 ≠ 真号**"时才记映射。
+          //   映射表（data/omm_norad.json）的**语义就是"占位号 → 真号"**，供前端把
+          //   写进 TLE 的占位号还原成真号。而 S5 既是 6 位号的唯一通路、又是全量的兜底通路，
+          //   对 ≤5 位号的对象 ph === 真号（无占位），记进去就是 `44785 → 44785` 这种**自映射**：
+          //   语义上无意义、还会让"映射条数"这类统计失真（端到端断言正是这样抓到的）。
+          //   判据直接用「真号位数 > 5」（= 需要占位号的那种），比比较字符串更直白。
+          if (String(o.norad).length > 5) OMM_IDS[ph] = o.norad;
           from.omm = (from.omm || 0) + 1;
         } else { ommErr++; if (ommErrMsg.length < 3) ommErrMsg.push(o.norad + ': 响应无 MEAN_MOTION（' + r.text.slice(0, 60).replace(/\s+/g, ' ') + '）'); }
       } catch (e) {
@@ -287,9 +392,21 @@ for (const key of ['gw', 'qf']) {
     if (ommTodo.length > OMM_CAP) console.log('             ⚠️ 超过处理上限 ' + OMM_CAP + '，本次有 ' + (ommTodo.length - OMM_CAP) + ' 颗未处理');
   }
 
-  // 只保留名字能对上的（避免 NAME=GW- 这类前缀误伤其它星座的卫星）
+  // 只保留属于本星座的（名字对得上 **或** 批次白名单点名）
+  //   · 名字正则这条防的是 `S2 NAME=GW-` 这类前缀误伤（把别的星座的星捞进来）；
+  //   · 批次白名单这条防的是**反向漏掉**（CX / KL / DTC / OBJECT B 这些名字毫无关键字的）。
+  //   ★ V1.9.1（1.4）：这是"名字正则"的**第二处**拦截点（决定"留不留"）。
+  //     两处必须同步改 —— 只改一处会出现"查到了但被丢掉"或"没查但留下了"的诡异现象。
   const out = new Map();
-  [...merged.values()].forEach(s => { if (MATCH[key].test(s.name)) out.set(parseInt(s.l1.slice(2, 7), 10), s); });
+  let outByName = 0, outByBatch = 0;
+  [...merged.entries()].forEach(([norad, s]) => {
+    const byName = MATCH[key].test(s.name);
+    const byBatch = !byName && includedByBatch(key, lkOfCospar(s.cospar), norad);
+    if (!byName && !byBatch) return;
+    if (byBatch) outByBatch++; else outByName++;
+    out.set(parseInt(s.l1.slice(2, 7), 10), s);
+  });
+  if (outByBatch) console.log('  ├ 最终保留里"按批次点名纳入"的：' + outByBatch + ' 颗（名字不含星座关键字）');
   Object.assign(report[key], { after: out.size, added: out.size - before, from: from });
   writeTLE(file, out, path.join(D, file));
 

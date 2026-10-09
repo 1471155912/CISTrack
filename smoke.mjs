@@ -1611,22 +1611,67 @@ assert('V1.9.0（R17）：升轨速率算法在页面端与构建期**同一口�
   assert('V1.9.1：离线重建按 NORAD 匹配（分块下标会随卫星清单变化整体错位 → 静默丢数据）',
     /const NET = process\.argv\.includes\('--net'\)/.test(fh) && /const lk = lkOf\.get\(r\.norad\)/.test(fh));
   const hs = (function () {
-    let bad = 0, max = 0, min = Infinity;
+    let bad = 0, max = 0, min = Infinity, geo = 0;
     const dir = B + '/data/history';
     for (const f of fs.readdirSync(dir)) {
       if (!f.endsWith('.json') || f.endsWith('.bak')) continue;
       let a; try { a = JSON.parse(fs.readFileSync(dir + '/' + f, 'utf8')); } catch (e) { continue; }
       for (const r of (Array.isArray(a) ? a : [])) {
-        const v = +r[2]; if (v > max) max = v; if (v < min) min = v; if (v < 6000 || v > 20000) bad++;
+        const v = +r[2]; if (v > max) max = v; if (v < min) min = v;
+        // ★ V1.9.1（1.4）：区间从 [6000,20000] 放宽到 [6000,50000] —— 因为 Q44 把 **GEO**
+        //   纳入了采集，而 GEO 的半长轴约 **42164 km**（静止轨道 35786 km 高度 + 地球半径），
+        //   固定用 LEO 的 20000 上限会把 GEO 正常数据判成"越界"（体检自己变成误报源）。
+        //   放宽后仍能抓住真正的异常值（修复前出现过 476,736 km，比真实值大 70 倍）。
+        if (v > 30000 && v < 38000) geo++;          // 好数据里不该有"卡在中间"的孤立档
+        if (v < 6000 || v > 50000) bad++;
       }
     }
-    return { bad: bad, max: max, min: min, n: fs.readdirSync(dir).filter(f => f.endsWith('.json') && !f.endsWith('.bak')).length };
+    return { bad: bad, max: max, min: min, geo: geo,
+      n: fs.readdirSync(dir).filter(f => f.endsWith('.json') && !f.endsWith('.bak')).length };
   })();
-  assert('V1.9.1：历史源库无越界半长轴（真实 LEO 约 6600–8000；修复前曾出现 476,736 km）',
-    hs.bad === 0 && hs.max < 20000 && hs.min > 6000,
+  assert('V1.9.1：历史源库半长轴落在合理量级（LEO 约 6600–8000 / GEO 约 42164；越界仅允许 0）',
+    hs.bad === 0 && hs.max < 50000 && hs.min > 6000,
     hs.n + ' 片 / 范围 ' + hs.min.toFixed(2) + ' ~ ' + hs.max.toFixed(2) + ' km / 越界 ' + hs.bad + ' 条');
   assert('V1.9.1：新入编的 6 位号批次在历史源库里有分片（离线重建覆盖不到，靠 refresh 日常归档）',
     ['26176', '26187', '26210', '26211', '26213', '26221'].every(k => fs.existsSync(B + '/data/history/' + k + '.json')));
+}
+
+// ==================== V1.9.1（第十一轮）回归守卫：按批次点名纳入（执行顺序 1.4）====================
+// 背景：有一批**确认属于本星座**的卫星，satcat 名字**完全不含星座关键字**（CX-19/20/26 = "CHUANGXIN"、
+//   KL-Alpha/Beta、DTC-01、"OBJECT B"），无论名字正则怎么写都捞不到 → 只能按 COSPAR 批次点名纳入。
+//   实施中又抓出两个真 bug（都是"静默失效"）：
+//     ① S3 的判据写的是 `/^1 /.test(text)` —— **没有 m 标志**，而 FORMAT=tle 的返回以**卫星名行**开头
+//        → 恒为 false → 这条通路**从来没有成功过一次**（todo 常为 0 所以从不打印，一直没暴露）；
+//     ② S5 把 OMM 的原始 9 字符 OBJECT_ID（"2026-158A"）直接存进 merged，而下游一律 slice(0,5)
+//        → 得到 "2026-" → 白名单匹配失败（"取到了却在最后一步被丢掉"）。
+{
+  const rf = fs.readFileSync(B + '/refresh.mjs', 'utf8');
+  assert('V1.9.1（1.4）：名字正则放宽为 HULIANWAN（GEO 在目录里写作 "HULIANWAN GAOGUI-01" 单 G）',
+    /MATCH = \{ gw: \/HULIANWAN\|/.test(rf) && /gw: \['HULIANWAN'/.test(rf));
+  assert('V1.9.1（1.4）：存在"按批次的显式纳入通道"，且**一律用精确 NORAD 列表**（不用"整批全收"）',
+    /const INCLUDE = \{/.test(rf) && /function includedByBatch/.test(rf) &&
+    !/'2\d{4}': null/.test(rf) && !/'1\d{4}': null/.test(rf));
+  assert('V1.9.1（1.4）：白名单搭车星已排除（2024-226A=62185 / 2026-128B=69473 不在名册里）',
+    !/\b62185\b/.test(rf) && !/\b69473\b/.test(rf) && /\b62186\b/.test(rf) && /\b69472\b/.test(rf));
+  assert('V1.9.1（1.4）：S3 的 TLE 判据带 m 标志（不带 m 时 ^ 只匹配串首 → 因返回值以卫星名开头而恒假）',
+    /\/\^\\s\*1 \\d\/m\.test\(r\.text\)/.test(rf) && !/if \(r\.ok && \/\^1 \/\.test\(r\.text\)\)/.test(rf));
+  assert('V1.9.1（1.4）：S5 存进 merged 的 cospar 用 cosparField 归一化（原始 9 字符会让 slice(0,5) 得 "2026-"）',
+    /cospar: cosparField\(om\.OBJECT_ID \|\| o\.cospar\)\.trim\(\)/.test(rf));
+  assert('V1.9.1（1.4）：批次 key 提取兼容两种 COSPAR 写法（归一化 6 列 与 原始 9 字符）',
+    /function lkOfCospar/.test(rf) && /includedByBatch\(key, lkOfCospar\(s\.cospar\), norad\)/.test(rf));
+  assert('V1.9.1（1.4）：S3 的 todo 把白名单批次排到最前（否则会被 slice(0,60) 挤掉而永远补不上）',
+    /todo\.sort\(\(a, b\) => \{/.test(rf) && /const ia = includedByBatch\(key, a\.pre, a\.norad\)/.test(rf));
+  assert('V1.9.1（1.4）：名字正则的**两处**拦截点都接上了白名单通道（只改一处会"查到却被丢"/"没查却留下"）',
+    (rf.match(/includedByBatch\(/g) || []).length >= 4);
+  // ⚠️ CI 工作流文件只存在于**仓库**里；本地工作区（开发目录）通常没有 `.github/`。
+  //   smoke 两边都会跑（本地自审 + CI），所以这里必须容错 —— 不存在就视为通过并注明。
+  {
+    const ymlP = B + '/.github/workflows/update-tle.yml';
+    const has = fs.existsSync(ymlP);
+    assert('V1.9.1（1.4）：CI 里挂了"按批次纳入"的端到端测试',
+      has ? /e2e_include_offline\.mjs/.test(fs.readFileSync(ymlP, 'utf8')) : true,
+      has ? '' : '（本地工作区无 .github/workflows，跳过内容校验；CI 中会实查）');
+  }
 }
 
 assert('V1.8.0（需求6）：launches 台账第 6 位=任务结果、第 7 位=百科记载颗数',

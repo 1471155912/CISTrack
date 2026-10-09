@@ -128,9 +128,15 @@ ok('② 报告口径正确：两个星座都"仍缺轨道要素 0 颗"',
   (log.match(/最终[^\n]*/g) || []).join(' / '));
 
 const ommMap = JSON.parse(fs.readFileSync(path.join(TMP, 'data', 'omm_norad.json'), 'utf8'));
-ok('③ omm 映射条数 ≥50，且 value 都是 ≥6 位真号',
-  Object.keys(ommMap).length >= 50 && Object.values(ommMap).every(v => String(v).length >= 6),
-  Object.keys(ommMap).length + ' 条：' + Object.entries(ommMap).slice(0, 3).map(([k, v]) => k + '→' + v).join(' '));
+// 映射表的语义 = "占位号 → 真号"，所以**只有 6 位号对象才该有条目**。
+// V1.9.1（1.4）起 S5 同时是全量兜底通路（也处理 ≤5 位号），曾一度把 `44785→44785`
+// 这类自映射也记进来（统计失真）→ refresh 已改为只记真号位数 > 5 的。
+const six = Object.entries(ommMap).filter(([k, v]) => String(v).length >= 6);
+ok('③ omm 映射 ≥50 条（全是"占位号 → 6 位真号"，无 ≤5 位号的自映射）',
+  six.length >= 50 && six.length === Object.keys(ommMap).length &&
+  six.every(([k, v]) => Number(v) > 99999 && k === String(v).slice(-5).padStart(5, '0')),
+  six.length + ' 条 6 位号映射 / 总 ' + Object.keys(ommMap).length + ' 条：' +
+  six.slice(0, 3).map(([k, v]) => k + '→' + v).join(' '));
 
 for (const f of ['ct_hulianwang.tle', 'ct_qianfan.tle']) {
   const L = fs.readFileSync(path.join(TMP, 'data', f), 'utf8').split('\n').map(s => s.trim()).filter(Boolean);
