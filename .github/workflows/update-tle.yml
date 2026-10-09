@@ -44,6 +44,19 @@ jobs:
         with:
           node-version: '20'
 
+      - name: 离线自检（6 位编目号/OMM 通路 —— 失败即停，避免"静默丢数据"）
+        # V1.9.1：这组自检是"55 颗卫星整批消失"事故的防复发闸门。
+        #   ① OMM 通路自检（占位号/定宽/校验位/COPAR 归一化/真号还原/高度量级）
+        #   ② TLE→OMM→TLE 全样本往返
+        #   ③ 端到端：整个 refresh.mjs 用离线桩跑一遍，断言 55 颗被补齐、历史库写真号
+        env:
+          CISTRACK_TMP: ${{ runner.temp }}
+        run: |
+          set -e
+          node scripts/omm_check.mjs
+          node scripts/omm.mjs --selftest
+          node scripts/e2e_omm_offline.mjs
+
       - name: 刷新 TLE 并重新打包单文件
         env:
           # 无头浏览器的用户数据目录默认落在系统临时目录；这里显式指到 runner 的临时区
@@ -59,6 +72,9 @@ jobs:
           # 构建成功判据：产物必须存在且含布局占位符已全部替换
           test -s CISTrack.html
           node -e "const s=require('fs').readFileSync('CISTrack.html','utf8'); if(!s.includes('CISTrack')) throw new Error('产物异常'); console.log('产物字节', s.length)"
+          # V1.9.1：**6 位编目号卫星必须真的进库** —— 否则整批在页面/图表里消失（且是静默的）
+          node -e "const j=require('fs').readFileSync('data/omm_norad.json','utf8');const m=JSON.parse(j);const n=Object.keys(m).length;if(n<50) throw new Error('OMM 映射仅 '+n+' 条，6 位编目号通路疑似失效');console.log('OMM 映射',n,'条（6 位编目号卫星已入库）')"
+          node -e "const fs=require('fs');for(const f of ['data/ct_hulianwang.tle','data/ct_qianfan.tle']){const L=fs.readFileSync(f,'utf8').split('\n').map(s=>s.trim()).filter(Boolean);let bad=0;for(let i=0;i+2<L.length;i+=3){if(!/^1 /.test(L[i+1]))continue;if(L[i+1].length!==69||L[i+2].length!==69)bad++;}if(bad)throw new Error(f+' 有 '+bad+' 行不是 69 列');console.log(f,'定宽 OK')}"
 
       - name: 有变化才提交并推送
         run: |

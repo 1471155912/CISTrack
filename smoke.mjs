@@ -80,8 +80,11 @@ const RAW = w.SATDATA;
 console.log('--- 基础 ---');
 assert('页面无脚本错误', errors.length === 0, errors.slice(0, 3).join(' | ') || 'none');
 assert('卫星表已渲染 9~10 行（按行单元分页）', rows() >= 9 && rows() <= 10, rows());
-assert('版本号 V1.8.0', /var VERSION = 'V1\.8\.0'/.test(appSrc));
-assert('页脚显示 CISTrack + 版本号', /CISTrack/.test($('#footCopy').textContent) && /V1\.8\.0/.test($('#footCopy').textContent), $('#footCopy').textContent);
+// V1.9.1：这两条曾长期停留在 V1.8.0（V1.9.0 发布时漏改）→ 改为**与 app.js 的实际 VERSION 对齐**，
+//   以后升版本只改 app.js 一处，断言自动跟随，不会再出现"版本升级后断言过期"的假 FAIL。
+const _VER = (/var VERSION = '(V\d+\.\d+\.\d+)'/.exec(appSrc) || [])[1];
+assert('版本号可从 app.js 读出（形如 V1.9.0）', !!_VER, _VER);
+assert('页脚显示 CISTrack + 版本号', /CISTrack/.test($('#footCopy').textContent) && $('#footCopy').textContent.includes(_VER), $('#footCopy').textContent);
 assert('页脚 B 站链接是橙色主题', /#footLink/.test(tpl) && /#ff8c1a/.test(tpl));
 
 console.log('--- 数据层 ---');
@@ -1506,6 +1509,44 @@ assert('V1.9.0（R17）：升轨速率算法在页面端与构建期**同一口�
   /function climbBreakGaps\(series, maxGapDays\)/.test(appCode) &&
   /riseRateSeries\(pts, opts\.half, opts\.minPts\)/.test(climbMod) &&
   /breakGaps\(riseRateSeries/.test(climbMod));
+
+// ==================== V1.9.1（第十一轮）回归守卫：6 位编目号通路 ====================
+// 背景：CelesTrak 自 2026-07-11 起新对象一律 6 位编目号（100000+），而经典 TLE 的编目号字段
+//   只有 5 列 → 旧代码用「norad >= 100000 跳过」把 55 颗在编卫星整批漏掉（页面/表格/曲线全空），
+//   且失败是**静默**的（日志只写"补到 0 颗"）。这一组断言把整条链路钉死，防复发。
+{
+  const refreshCode = fs.readFileSync(B + '/refresh.mjs', 'utf8');
+  const ommCode = fs.readFileSync(B + '/scripts/omm.mjs', 'utf8');
+  const gi = fs.readFileSync(B + '/.gitignore', 'utf8');
+  assert('V1.9.1：refresh 不再用「norad >= 100000」这类魔数过滤（改为按编目号位数判据）',
+    !/o\.norad >= 100000/.test(refreshCode) && /String\(o\.norad\)\.length > 5/.test(refreshCode));
+  assert('V1.9.1：S5（OMM 兜底）对**所有** S1–S4 未取到的对象生效（不再限定 6 位）',
+    /S5 OMM：\*\*兜底通路\*\*/.test(refreshCode) && !/if \(o\.norad < 100000\) return;/.test(refreshCode));
+  assert('V1.9.1：S5 不再静默吞错（累计错误 + 打印原因 + 全失败告警）',
+    /ommErrMsg/.test(refreshCode) && /疑似网络\/上游不可达/.test(refreshCode) && !/跳过这一颗 \*\/ \}/.test(refreshCode));
+  assert('V1.9.1：missing 报告的查询键兼容占位号（否则误报"仍缺 36 颗"并写坏 missing_*.json）',
+    /out\.has\(o\.norad\) \|\| out\.has\(Number\(PH\(o\.norad\)\)\)/.test(refreshCode));
+  assert('V1.9.1：历史库存的是**真号**（占位号会让曲线静默空白）',
+    /const norad = OMM_IDS\[raw5\] \|\| parseInt\(raw5, 10\);/.test(refreshCode));
+  assert('V1.9.1：cosparField 归一化 9 字符 OBJECT_ID（"2026-176A" → "26176A"），否则 L1 会变 70 字符',
+    /export function cosparField/.test(ommCode) && /cosparField\(o\.OBJECT_ID\)/.test(ommCode) &&
+    !/\(o\.OBJECT_ID \|\| ''\)\.padEnd\(8\)/.test(ommCode));
+  assert('V1.9.1：omm_norad.json 不被 gitignore（丢了它 → 前端 NORAD 全变占位号）',
+    !/^data\/omm_norad\.json/m.test(gi) && !/^data\/omm_/m.test(gi));
+  // 两套离线自检必须真的绿 —— **直接 import 模块**调用（本机从 Node 内 spawn node.exe 会 EBUSY，
+  //   所以不能起子进程；refresh.mjs 顶层带副作用也不能 import，故自检逻辑独立在 scripts/omm_check.mjs）
+  //   ⚠️ Windows 上动态 import 必须用 file:/// URL —— 绝对路径会 ERR_UNSUPPORTED_ESM_URL_SCHEME（老坑）
+  const asUrl = (p) => 'file:///' + String(p).replace(/\\/g, '/');
+  const ommMod = await import(asUrl(B + '/scripts/omm.mjs'));
+  const rt = ommMod.ommRoundTrip([B + '/data/ct_hulianwang.tle', B + '/data/ct_qianfan.tle']);
+  assert('V1.9.1：omm.mjs 往返自检（TLE → OMM → TLE 全样本逐字段，' + rt.n + ' 颗）',
+    rt.bad.length === 0 && rt.n > 400, '失败 ' + rt.bad.length + ' 颗');
+  const chkMod = await import(asUrl(B + '/scripts/omm_check.mjs'));
+  const st = chkMod.ommSelfTest();
+  const stBad = st.filter(x => !x.ok).map(x => x.name);
+  assert('V1.9.1：OMM 通路自检全绿（占位/定宽/校验位/收编/真号还原/高度量级，共 ' + st.length + ' 条）',
+    stBad.length === 0, stBad.join(' | '));
+}
 
 assert('V1.8.0（需求6）：launches 台账第 6 位=任务结果、第 7 位=百科记载颗数',
   Object.values(RAW.gw.launches).filter(v => v.length >= 6).length >= Math.floor(Object.keys(RAW.gw.launches).length * 0.9) &&

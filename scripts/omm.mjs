@@ -110,12 +110,24 @@ export function fromCelesTrakOmm(om) {
 }
 // 占位编目号：6 位真号的**后 5 位**零填充。真号与占位号的对应关系另存 sidecar。
 export const PH = (norad) => String(norad).slice(-5).padStart(5, '0');
+// COSPAR 字段归一化（V1.9.1 修的真 bug）：
+//   经典 TLE 的 COSPAR 列只有 **6 列**（YYNNNAA…，如 "26176A"），而现代 OMM 的 OBJECT_ID 是
+//   **9 字符**（"2026-176A"）。旧写法直接 padEnd(8) → 长出 1 列 → **L1 变 70 字符** →
+//   下游一律按定宽切片的产品全线错位：批次的 key 会变成 "2026-"（卫星归属丢失）、
+//   历史库的 `slice(9,14)` 正则失配（**历史静默不入库**）。
+//   实测由 refresh.mjs --selftest-omm 的 ②④ 两条抓出。
+export function cosparField(objectId) {
+  const id = String(objectId || '').trim();
+  const m = id.match(/^(\d{4})-(\d{3})([A-Z]{1,3})$/);
+  const s = m ? (m[1].slice(2) + m[2] + m[3]) : id;
+  return s.padEnd(8).slice(0, 8);            // 定宽 8 列（6 列 COSPAR + 2 列空白）
+}
 // OMM → 两行 TLE 文本（编目号用占位；其余各列严格按定宽规范）
 export function tleFromOmm(o, placeholder) {
   const cn = placeholder || '00000';
   const yy = String(o.EPOCH_Y2 != null ? o.EPOCH_Y2 : 0).padStart(2, '0');
   const doy = (o.EPOCH_DOY != null ? o.EPOCH_DOY : 0).toFixed(8).padStart(12, '0');
-  const l1 = '1 ' + cn + 'U ' + (o.OBJECT_ID || '').padEnd(8) + ' ' + yy + doy + ' ' +
+  const l1 = '1 ' + cn + 'U ' + cosparField(o.OBJECT_ID) + ' ' + yy + doy + ' ' +
     toTleNdot(o.MEAN_MOTION_DOT) + ' ' +
     toTleExp(o.MEAN_MOTION_DDOT, 5) + ' ' +
     toTleExp(o.BSTAR, 5) + ' ' +
@@ -131,12 +143,12 @@ export function tleFromOmm(o, placeholder) {
     String(o.REV_AT_EPOCH || 0).padStart(5);
   return [l1 + tleChecksum(l1), l2 + tleChecksum(l2)];   // 末位补上真正的校验位
 }
-// ---- 自检：用真实的 TLE 做 TLE → OMM → TLE 往返，逐字段比对 ----
-const isMain = process.argv[1] && process.argv[1].endsWith('omm.mjs');
-if (isMain && process.argv.includes('--selftest')) {
-  let n = 0, bad = [];
-  for (const f of ['data/ct_hulianwang.tle', 'data/ct_qianfan.tle']) {
-    const p = path.join(ROOT, f);
+// ---- 往返自检：用真实的 TLE 做 TLE → OMM → TLE，逐字段比对 ----
+//   V1.9.1：抽成**可导入函数**（原先只写在 CLI 里）—— 测试（smoke.mjs）直接 import 调用，
+//   避免**起子进程**（本机从 Node 内 spawn 同一个 node.exe 会 EBUSY）。
+export function ommRoundTrip(files) {
+  let n = 0; const bad = [];
+  for (const p of files) {
     if (!fs.existsSync(p)) continue;
     const lines = fs.readFileSync(p, 'utf8').split('\n').map(s => s.trim()).filter(Boolean);
     for (let i = 0; i + 2 < lines.length; i += 3) {
@@ -160,12 +172,17 @@ if (isMain && process.argv.includes('--selftest')) {
       if (!d1 || !d2) { if (bad.length < 3) bad.push({ l1, a1, l2, a2 }); }
     }
   }
-  console.log('自检样本数 =', n, '｜往返失败 =', bad.length);
-  bad.forEach(b => {
+  return { n: n, bad: bad };
+}
+const isMain = process.argv[1] && process.argv[1].endsWith('omm.mjs');
+if (isMain && process.argv.includes('--selftest')) {
+  const r = ommRoundTrip([path.join(ROOT, 'data/ct_hulianwang.tle'), path.join(ROOT, 'data/ct_qianfan.tle')]);
+  console.log('自检样本数 =', r.n, '｜往返失败 =', r.bad.length);
+  r.bad.forEach(b => {
     console.log('  原 L1:', JSON.stringify(b.l1));
     console.log('  转 L1:', JSON.stringify(b.a1));
     console.log('  原 L2:', JSON.stringify(b.l2));
     console.log('  转 L2:', JSON.stringify(b.a2));
   });
-  process.exit(bad.length ? 1 : 0);
+  process.exit(r.bad.length ? 1 : 0);
 }

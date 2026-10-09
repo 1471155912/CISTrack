@@ -1,14 +1,19 @@
 /* 刷新两个星座的 TLE + SATCAT
  * V1.3.7：改成「多源 + 按 COSPAR / 编号反查」。
  *   旧版只按 CelesTrak 的 GROUP=hulianwang / qianfan 分组抓，这两个分组漏掉了
- *   早期试验星（23095 / 23212 等）与部分刚入轨的批次。现在四个来源依次合并：
- *     S1 GROUP=          星座分组（主源，和旧版一致）
+ *   早期试验星（23095 / 23212 等）与部分刚入轨的批次。现在五个来源依次合并：
+ *     S1 GROUP=          星座分组（主源）
  *     S2 NAME=           CelesTrak 的 NAME 是前缀模糊匹配，能捞回 S1 漏掉的星
- *     S3 CATNR=          用完整 NORAD 目录按 COSPAR 前缀反查出编号后逐颗补（正式编号才查，
- *                        100xxx 是尚未编目的临时号，目录里本来就没有轨道要素，跳过）
- *     S4 tle.ivanstanojevic.me   上面都拿不到时的备源
+ *     S3 CATNR=          用 satcat 按 COSPAR 前缀反查出编号后逐颗补（**只处理 ≤5 位编目号**：
+ *                        6 位号的编目字段装不下，FORMAT=tle 一律空 → 交给 S5）
+ *     S4 tle.ivanstanojevic.me   上面都拿不到时的备源（同样只管 ≤5 位）
+ *     S5 CATNR= + FORMAT=json（OMM）  **兜底通路**：凡 S1–S4 仍未取到的对象都在这里试。
+ *                        6 位及以上编目号（CelesTrak 自 2026-07-11 起的新规则）只能走这条，
+ *                        取回后用 scripts/omm.mjs 转成"TLE 形状"（编目号填占位 = 真号后 5 位），
+ *                        真号记进 data/omm_norad.json 由 mkdata.mjs 写回前端 id。
  *   同一颗卫星多源都有时，取历元（epoch）最新的那份。
  * 用法：node refresh.mjs [--force-cat]      --force-cat 强制重下 6.7MB 的 satcat.csv
+ *      node refresh.mjs --selftest-omm     离线自检 S5 的 OMM 解析/占位/映射链路（不联网）
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -23,7 +28,7 @@ const UA = { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKi
 const forceCat = process.argv.includes('--force-cat');
 
 // V1.9.0：6 位编目号对象的 OMM 通路（见下方 S5）—— 占位号 → 真号的映射，落 data/omm_norad.json
-import { tleFromOmm, fromCelesTrakOmm, PH } from './scripts/omm.mjs';
+import { tleFromOmm, fromCelesTrakOmm, PH, tleChecksum } from './scripts/omm.mjs';
 // V1.9.0（R17）：自建历史库 —— 复用 import_history.mjs 里已修过量级 bug 的 altFromOmm，
 //   以及 histstore.mjs 的幂等分片写入（(NORAD,历元) 去重，只追加不覆盖）。
 import { altFromOmm } from './scripts/import_history.mjs';
@@ -82,6 +87,19 @@ function writeTLE(file, map, oldPath) {
 function readTLE(file) {
   if (!fs.existsSync(path.join(D, file))) return new Map();
   const m = new Map(); parseTLE(fs.readFileSync(path.join(D, file), 'utf8'), m); return m;
+}
+
+// ---------------------------------------------------------------- 离线自检（不联网）
+// V1.9.1：S5 的 OMM 链路曾经"补到 0 颗"却看不出原因（静默 catch + 环境不可达），
+//   而且原始 bug 直接导致 55 颗卫星在页面里整批消失。自检逻辑放在 **scripts/omm_check.mjs**
+//   （纯函数、零副作用）—— 这里只做命令行的打印与退出码，测试（smoke.mjs）则直接 import 它。
+if (process.argv.includes('--selftest-omm')) {
+  const { ommSelfTest } = await import('./scripts/omm_check.mjs');
+  const r = ommSelfTest();
+  r.forEach(x => console.log((x.ok ? 'PASS ' : 'FAIL ') + x.name + (x.info !== undefined ? '  → ' + x.info : '')));
+  const nf = r.filter(x => !x.ok).length;
+  console.log('\n自检结论：' + (nf ? '失败 ' + nf + ' 项' : '全部通过'));
+  process.exit(nf ? 1 : 0);
 }
 
 // ---- SATCAT：每周拉一次就够了（6.7MB，约 70s）----
@@ -147,12 +165,17 @@ for (const key of ['gw', 'qf']) {
   }
   console.log(key, 'S2 NAME   → 新增', merged.size - before - from.group, '颗（累计', merged.size, '）');
 
-  // S3 目录里查得到编号、但上面没拿到的（跳过 100xxx 临时号与已再入的）
+  // S3 目录里查得到编号、但上面没拿到的（跳过已再入的）
+  //   ⚠️ 编目号 **超过 5 位**的对象**不在这里处理** —— 经典 TLE 的编目号字段只有 5 列，
+  //     对 6 位号调 FORMAT=tle 一律返回「No GP data found」（实测 100203）。它们统一走下面的 S5：
+  //     用 FORMAT=json（OMM）取，再转成"TLE 形状"（编目号用占位）并把真号记进 sidecar。
+  //   ★ 旧注释写的是「临时号：目录里没有轨道要素」——**这个前提是错的**（实测有完整 GP），
+  //     误导过一次全库级排查，见 V1.9.1 任务清单第十轮核查。
   const todo = [];
   Object.keys(catByPrefix[key] || {}).forEach(p => {
     (catByPrefix[key][p] || []).forEach(o => {
       if (o.type !== 'PAY' || o.decay) return;
-      if (o.norad >= 100000) return;                        // 临时号：目录里没有轨道要素
+      if (String(o.norad).length > 5) return;               // >5 位 → 走 S5 的 OMM 通路
       if (merged.has(o.norad)) return;
       todo.push(o);
     });
@@ -168,7 +191,9 @@ for (const key of ['gw', 'qf']) {
   const still = [];
   Object.keys(catByPrefix[key] || {}).forEach(p => {
     (catByPrefix[key][p] || []).forEach(o => {
-      if (o.type !== 'PAY' || o.decay || o.norad >= 100000 || merged.has(o.norad)) return;
+      if (o.type !== 'PAY' || o.decay) return;
+      if (String(o.norad).length > 5) return;               // >5 位 → 走 S5
+      if (merged.has(o.norad)) return;
       still.push(o);
     });
   });
@@ -187,25 +212,35 @@ for (const key of ['gw', 'qf']) {
   }
   if (still.length) console.log(key, 'S4 备源   → 待补', still.length, '颗，补到', from.alt, '颗');
 
-  // ---- S5 OMM（V1.9.0 修复的真缺陷）：6 位编目号的对象 ----
-  //   CelesTrak 自 2026-07-11 起新对象一律 6 位（100000+），而**经典 TLE 的编目号字段只有 5 列**，
-  //   于是它们的 GP 数据不再以 TLE 格式提供 —— 旧版三路全用 FORMAT=tle，所以永远拿不到
-  //   （实测 missing 全为 6 位：gw 36 条、qf 19 条）。
-  //   这里改用 FORMAT=json（OMM）取，再用 scripts/omm.mjs 转成"TLE 形状"文本：
-  //   **编目号字段填占位 5 位（真号后 5 位）**，真号记进 data/omm_norad.json 由 mkdata 写回前端。
-  //   （转换器自带往返自检：node scripts/omm.mjs --selftest，436 样本 0 失败。）
+  // ---- S5 OMM：**兜底通路**（任何 S1–S4 没拿到的对象都在这里试） ----
+  //   为什么需要它：CelesTrak 自 2026-07-11 起**新对象一律 6 位编目号**（100000+），
+  //   而**经典 TLE 的编目号字段只有 5 列** → 这些对象调 FORMAT=tle 一律「No GP data found」，
+  //   S1（GROUP）/S2（NAME）/S3（CATNR+tle）/S4（备源）**全都拿不到**。
+  //   ★ V1.9.1 起的口径（这就是"不会再出现无法识别新编号"的保证）：
+  //     · 判据**不再是"≥100000"这个魔数**，而是「**编目号位数 > 5**」——
+  //       将来若出现 7 位号，同一段代码自动适用；
+  //     · 而且这里**不再限定 5 位/6 位**：凡是 catByPrefix 认定属于本星座、
+  //       而前面四条通路没取到的对象，**一律用 OMM 再试一次**（顺带兜住 S3/S4 的偶发失败）。
+  //   做法：FORMAT=json（OMM）→ scripts/omm.mjs 转成"TLE 形状"文本（**编目号填占位 =
+  //   真号后 5 位**）→ 真号记进 data/omm_norad.json，由 mkdata.mjs 写回前端 id（前端零改动）。
+  //   （转换器自带往返自检：node scripts/omm.mjs --selftest。）
   const ommTodo = [];
   Object.keys(catByPrefix[key] || {}).forEach(p => {
     (catByPrefix[key][p] || []).forEach(o => {
       if (o.type !== 'PAY' || o.decay) return;
-      if (o.norad < 100000) return;                    // 5 位的走上面四路，这里只管 6 位
-      if (merged.has(Number(PH(o.norad)))) return;      // 已按占位号收过
+      if (merged.has(Number(PH(o.norad)))) return;      // 已按（占位）号收过
       ommTodo.push(o);
     });
   });
-  for (const o of ommTodo.slice(0, 80)) {
+  // ★ 静默 catch 是"补到 0 颗"却看不出原因的元凶（V1.9.0 起一直没发现）→ 现在累计错误并打印。
+  let ommErr = 0; const ommErrMsg = [];
+  const OMM_CAP = 400;                                   // 上限（正常规模 ~55；留足余量并防失控）
+  for (const o of ommTodo.slice(0, OMM_CAP)) {
     r = await get(`https://celestrak.org/NORAD/elements/gp.php?CATNR=${o.norad}&FORMAT=json`);
-    if (r.ok) {
+    if (!r.ok) {
+      ommErr++;
+      if (ommErrMsg.length < 3) ommErrMsg.push(o.norad + ': HTTP ' + r.status + (r.err ? ' ' + r.err : ''));
+    } else {
       try {
         const arr = JSON.parse(r.text);
         const om = Array.isArray(arr) ? arr[0] : arr;
@@ -218,12 +253,21 @@ for (const key of ['gw', 'qf']) {
             epoch: t.EPOCH_Y2 * 1000 + t.EPOCH_DOY, cospar: (om.OBJECT_ID || o.cospar).trim() });
           OMM_IDS[ph] = o.norad;
           from.omm = (from.omm || 0) + 1;
-        }
-      } catch (e) { /* 不是 JSON / 字段不全：跳过这一颗 */ }
+        } else { ommErr++; if (ommErrMsg.length < 3) ommErrMsg.push(o.norad + ': 响应无 MEAN_MOTION（' + r.text.slice(0, 60).replace(/\s+/g, ' ') + '）'); }
+      } catch (e) {
+        ommErr++;
+        if (ommErrMsg.length < 3) ommErrMsg.push(o.norad + ': JSON 解析失败 — ' + (e && e.message));
+      }
     }
     await sleep(120);
   }
-  if (ommTodo.length) console.log(key, 'S5 OMM    → 6 位待补', ommTodo.length, '颗，补到', from.omm || 0, '颗');
+  if (ommTodo.length) {
+    console.log(key, 'S5 OMM    → 待补', ommTodo.length, '颗（处理', Math.min(ommTodo.length, OMM_CAP), '），补到', from.omm || 0, '颗，失败', ommErr);
+    ommErrMsg.forEach(m => console.log('             · ' + m));
+    // ★ 全失败时**必须显式告警**（旧版静默 → 数据静默缺失，是最难查的一类问题）
+    if ((from.omm || 0) === 0 && ommErr > 0) console.log('             ⚠️ 全部失败：疑似网络/上游不可达 —— 请检查本机到 celestrak.org 的连通性');
+    if (ommTodo.length > OMM_CAP) console.log('             ⚠️ 超过处理上限 ' + OMM_CAP + '，本次有 ' + (ommTodo.length - OMM_CAP) + ' 颗未处理');
+  }
 
   // 只保留名字能对上的（避免 NAME=GW- 这类前缀误伤其它星座的卫星）
   const out = new Map();
@@ -231,12 +275,16 @@ for (const key of ['gw', 'qf']) {
   report[key] = { before: before, after: out.size, added: out.size - before, from: from };
   writeTLE(file, out, path.join(D, file));
 
-  // 仍然拿不到轨道要素的（几乎都是 100xxx 临时号）
+  // 仍然拿不到轨道要素的
+  //   ⚠️ 查询键必须兼容**占位号**：6 位对象在 out / merged 里是以占位号（真号后 5 位）为键的，
+  //   直接用真号 `out.has(o.norad)` 会恒为 false → 报告"仍缺 36 颗"（而文件里其实已经有），
+  //   并把错误的 missing_*.json 写盘（下游会把它们当"无轨道要素"处理）。见 V1.9.1 第十轮核查。
   const miss = [];
   Object.keys(catByPrefix[key] || {}).forEach(p => {
     (catByPrefix[key][p] || []).forEach(o => {
       if (o.type !== 'PAY' || o.decay) return;
-      if (!out.has(o.norad)) miss.push({ norad: o.norad, cospar: o.cospar, name: o.name, launch: o.launch, pre: o.pre });
+      if (out.has(o.norad) || out.has(Number(PH(o.norad)))) return;
+      miss.push({ norad: o.norad, cospar: o.cospar, name: o.name, launch: o.launch, pre: o.pre });
     });
   });
   report[key].missing = miss.length;
@@ -272,7 +320,11 @@ for (const key of ['gw', 'qf']) {
       const cospar = (s.l1 || '').slice(9, 14);
       const lk = /^\d{5}$/.test(cospar) ? cospar : null;
       if (!lk) continue;
-      const norad = parseInt((s.l1 || '').slice(2, 7), 10);
+      // ⚠️ 编目号必须换成**真号**：6 位对象在 .tle 里是**占位号**（真号后 5 位），
+      //   若直接把占位号写进历史库，页面端 `climbSatIdx()` 拿真号（mkdata 已还原）去匹配就永远找不到 →
+      //   曲线空白的**静默**故障。OMM_IDS 是本轮 S5 刚落盘的「占位号 → 真号」映射。
+      const raw5 = (s.l1 || '').slice(2, 7);
+      const norad = OMM_IDS[raw5] || parseInt(raw5, 10);
       if (!norad) continue;
       if (!byLk.has(lk)) byLk.set(lk, []);
       byLk.get(lk).push([norad, ms, Math.round((alt + 6378.135) * 100) / 100]);   // 存**半长轴**（= 高度 + 地球半径）
