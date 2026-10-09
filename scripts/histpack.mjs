@@ -183,7 +183,21 @@ export function packAll(hist, nowMs, opts) {
                          b: r.stats.bytes, f: r.stats.from, t: r.stats.to });
     totalPts += r.stats.pts; totalBytes += r.stats.bytes; before += r.stats.before;
   }
-  index.batches.sort((a, b) => b.t - a.t);      // 最新批次在前（页面选择器默认倒序）
+  // ★ V1.9.1（执行顺序 1.8）排序修复：原为 `index.batches.sort((a, b) => b.t - a.t)`。
+  //   `t` = **该批次最后一个数据点的时刻**。但在轨批次每天都在被刷新 → 每个批次的 `t`
+  //   一律等于"今天" → 差值**恒为 0** → 排序完全失效，实际退化成对象键的插入顺序
+  //   （结果 ≈ 最早批次排在前面）。
+  //   而页面把 `batches[0]` 当作**默认选中批次**（app.js:7625 renderClimbTake、
+  //   app.js:8425 climbSeries）—— 也就是说：注释承诺"最新在前（需求 Q49）"、
+  //   页面期待"第一个就是最新的"，实际拿到的却是**最老的批次**。谁都看不出来，
+  //   因为数组看起来"有序"（有顺序 ≠ 顺序正确）。
+  //   改为按**批次号降序**：批次号 = COSPAR 前 5 位（YY + 序号），本身就是时间序，
+  //   而且**不随每日刷新漂移**（t 会漂）。同批次号时才用 t 兜底。
+  index.batches.sort((a, b) => {
+    const ka = String(a.k), kb = String(b.k);
+    if (ka !== kb) return ka < kb ? 1 : -1;
+    return b.t - a.t;
+  });
   index.totals = { batches: index.batches.length, pts: totalPts, bytes: totalBytes };
   return { index: index, shards: shards, stats: { before: before, after: totalPts, bytes: totalBytes } };
 }
@@ -286,6 +300,26 @@ if (isMain && process.argv.includes('--selftest')) {
     ok('④e 硬上限生效（单星 ≤400 点）', r.index.batches.every(b => {
       return r.shards[b.k].sats.every(s => s.d.length <= POLICY.maxPtsPerSat);
     }));
+
+    // ★ ④f 真实形态（V1.9.1 / 1.8 抓出的缺陷）：**所有批次的 t 完全相同**时仍须正确排序。
+    //   为什么要有这一条：上面 ④b 用的是"t 不同"的数据，而**真实数据里 t 全相同** ——
+    //   在轨批次每天都刷新，每个批次的"最后一个数据点"都是**今天** → `b.t - a.t` 恒为 0
+    //   → 旧排序退化成插入顺序（≈最早批次在前），而 ④b 因为 t 有差异而**照样通过**。
+    //   盲区就来自"测试数据比现实更理想"。这条断言刻意把 t 造成相等，复现真实条件。
+    {
+      const same = {};
+      const now2 = Date.UTC(2026, 5, 1);
+      ['23095', '24140', '26176', '25067'].forEach((k, i) => {
+        same[k] = [];
+        for (let d = 0; d <= 40; d++) same[k].push([100 + i, now2 - (40 - d) * DAY, 7000 + d * 0.5 + i]);
+      });
+      const r2 = packAll(same, now2);
+      const ts = r2.index.batches.map(b => b.t);
+      const ks = r2.index.batches.map(b => b.k);
+      ok('④f 所有批次 t 相同时，仍按**批次号降序**（页面把 batches[0] 当默认批次的依据）',
+        new Set(ts).size === 1 && ks.join(',') === '26176,25067,24140,23095',
+        't 全同=' + (new Set(ts).size === 1) + '，顺序=' + ks.join(','));
+    }
   }
   // ⑤ 恶意/畸形输入：不得崩、不得产生 NaN
   {

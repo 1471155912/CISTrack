@@ -119,6 +119,12 @@ window.__CISTRACK__ = (function () {
     climbBounds: function (list, take) { return climbBounds(list, take); },
     climbTake: function () { return S.climbTake; },
     climbPick: function () { return S.climbPick; },
+    // ★ V1.9.1（1.8）：把**外挂索引**本身暴露出来。
+    //   为什么需要：页面把 HIST_IDX[key].batches[0] 当作「默认批次」（见 app.js:7625/8425），
+    //   而索引的排序由构建期 packAll 决定。以前探针目录里没有 history/ 分片 →
+    //   HIST_IDX 恒空 → 这条路径**在真浏览器里从未被检查过**，
+    //   于是"排序失效导致默认批次变成最老批次"一直没人发现。
+    histIdx: function () { return HIST_IDX; },
     setClimbTake: function (v) { S.climbTake = v; return drawClimb(); },
     applyPseudoFull: function (on, sec) { return applyPseudoFull(on, sec); },
     syncFsBarHeight: function () { return syncFsBarHeight(); },
@@ -144,6 +150,27 @@ try {
   const wj = path.join(path.dirname(FILE), 'wiki.json');
   if (fs.existsSync(wj)) fs.copyFileSync(wj, path.join(PROBE_DIR, 'wiki.json'));
 } catch (e) {}
+// ★ V1.9.1：**外挂历史分片也要复制进探针目录**。
+//   为什么必须补这一步：探针目录以前只放 wiki.json，于是页面在真浏览器里
+//   **取不到 history/index-*.json** → `HIST_IDX` 恒为空 → 所有断言都只覆盖了
+//   "内置兜底"那条路径。而「变轨/升轨情况」章节的**默认选中批次**恰恰只走外挂索引
+//   （app.js:7625 / 8425：`ix.batches[0].k`）—— 也就是说：1.8 修的那个排序 bug
+//   在这个测试环境下**根本不可见**。补上分片后，真浏览器才会真正走到那条路。
+try {
+  const hd = path.join(path.dirname(FILE), 'history');
+  if (fs.existsSync(hd)) {
+    const dst = path.join(PROBE_DIR, 'history');
+    fs.mkdirSync(dst, { recursive: true });
+    let n = 0;
+    for (const f of fs.readdirSync(hd)) {
+      if (!f.endsWith('.json')) continue;
+      fs.copyFileSync(path.join(hd, f), path.join(dst, f)); n++;
+    }
+    console.log('（外挂历史分片已复制进探针目录：' + n + ' 个）');
+  } else {
+    console.log('（⚠️ 找不到 history/ 目录 —— 默认批次那一类断言会退化到内置兜底路径）');
+  }
+} catch (e) { console.log('（历史分片复制失败：' + e.message + '）'); }
 process.on('SIGINT', () => { try { fs.rmSync(PROBE_DIR, { recursive: true, force: true }); } catch (e) {} });
 process.on('exit', () => { try { fs.rmSync(PROBE_DIR, { recursive: true, force: true }); } catch (e) {} });
 console.log('（探针副本：' + PAGE + '）');
@@ -155,6 +182,13 @@ const child = spawn(EDGE, ['--headless=new', '--disable-blink-features=Automatio
   '--user-data-dir=' + EDGE_PROFILE,
   '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
   '--disable-gpu', '--no-first-run', '--no-default-browser-check', '--remote-debugging-port=' + PORT,
+  // ★ V1.9.1：允许从 file:// 页面读到同目录的其它文件。
+  //   为什么必须加：页面是**用 file:// 打开的**（探针副本），而它要 fetch 外挂
+  //   `./history/index-*.json` 与分片。默认情况下 file:// 的 fetch 会被拦（origin 为 null），
+  //   于是 `HIST_IDX` 永远是空的 —— 也就是说：**"外挂历史分片"这条真实链路
+  //   在本测试里从未被走到过**，所有依赖它的断言都悄悄退化成"内置 60 天兜底"。
+  //   （1.8 修的排序 bug 正是藏在只有外挂索引才会走的那条路上，所以一直没被发现。）
+  '--allow-file-access-from-files',
   '--window-size=1440,1000', 'about:blank'], { stdio: 'ignore' });
 async function getWs() {
   for (let i = 0; i < 80; i++) {
@@ -1139,8 +1173,51 @@ if (!climbHasData) {
   ck('V1.9.0（R17）：批次选择器倒序（最新发射在最上）且只列有历史数据的批次', await ev(`(function(){
     var o = window.__CISTRACK__.climbPickOptions();
     if (!o.length) return false;
-    return o.every(function(x){ return /^b:/.test(x.v); });
-  })()`), '选项数 ' + await ev(`window.__CISTRACK__.climbPickOptions().length`));
+    if (!o.every(function(x){ return /^b:/.test(x.v); })) return false;
+    // ★ V1.9.1（执行顺序 1.8）：**这条断言以前是假的**。
+    //   标题写着"倒序（最新在最上）"，但原实现只查了 /^b:/ 前缀（格式），
+    //   顺序根本没验证 —— 而当时排序恰好是失效的（packAll 按「t」排，而所有批次的
+    //   「t」都等于"今天" → 差值恒 0 → 退化成插入顺序），所以"最新在最上"实际不成立。
+    //   现在真验证：① 批次号必须严格降序；② 首项必须是全部选项里的最大值。
+    var ks = o.map(function (x) { return String(x.v).slice(2); });
+    for (var i = 1; i < ks.length; i++) if (ks[i] > ks[i - 1]) return false;
+    return ks[0] === ks.slice().sort().pop();
+  })()`), '选项数 ' + await ev(`window.__CISTRACK__.climbPickOptions().length`) +
+    '，前四 ' + await ev(`window.__CISTRACK__.climbPickOptions().slice(0,4).map(function(x){return x.v}).join(' ')`));
+  // ★ V1.9.1（1.8）新增：**默认批次必须是索引里的第一个 = 最新批次**。
+  //   依据：app.js 的 renderClimbTake / climbSeries 都写 `ix.batches[0].k`，
+  //   注释也明确"已按最新在前排好（需求 Q49）"、"默认批次必须从索引里取（最新的那个）"。
+  //   这条断言把"索引排序 → 页面默认批次"整条链在**真浏览器 + 真外挂分片**下钉住。
+  {
+    const r = await ev(`(function(){
+      var K = window.__CISTRACK__, ix = K.histIdx ? K.histIdx() : null;
+      if (!ix) return { ok: false, msg: 'HIST_IDX 为空（外挂索引未加载 → 本断言无意义，需检查探针目录是否复制了 history/）' };
+      var parts = [], ok = true;
+      ['gw', 'qf'].forEach(function (k) {
+        var r = ix[k];
+        if (!r || !r.batches || !r.batches.length) { parts.push(k + '=无索引'); ok = false; return; }
+        var ks = r.batches.map(function (b) { return String(b.k); });
+        var asc = ks.slice().sort();
+        var desc = asc.slice().reverse().join(',') === ks.join(',');
+        var topIsMax = ks[0] === asc[asc.length - 1];
+        if (!desc || !topIsMax) ok = false;
+        parts.push(k + '[' + ks.length + '批] ' + (desc ? '降序✓' : '顺序✗') + ' 首=' + ks[0] + ' 最大=' + asc[asc.length - 1]);
+      });
+      var o = K.climbPickOptions();
+      if (!o.length) { parts.push('选择器为空'); ok = false; }
+      else {
+        var f = String(o[0].v).slice(2);
+        parts.push('选择器首项=' + f);
+        var gw0 = ix.gw && ix.gw.batches.length ? String(ix.gw.batches[0].k) : '';
+        if (String(K.climbPick() || '').indexOf('b:') === 0 && String(K.climbPick()).slice(2) !== f) {
+          parts.push('⚠ 已选批次与首项不一致'); ok = false;
+        }
+      }
+      return { ok: ok, msg: parts.join(' ｜ ') };
+    })()`);
+    ck('V1.9.1（1.8）：外挂索引按批次号降序（batches[0] = 最新），选择器首项同序一致',
+      r && r.ok === true, r && r.msg);
+  }
 }
 ck('V1.9.0（R17）：图下说明非空，且随语言切换（中/英）', await ev(`(function(){
   var n = document.getElementById('climbNote');
