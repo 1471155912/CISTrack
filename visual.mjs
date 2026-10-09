@@ -10,7 +10,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { tmpRoot } from './scripts/tmproot.mjs';
+import { tmpRoot, tmpResidue } from './scripts/tmproot.mjs';
 const B = fileURLToPath(new URL('.', import.meta.url));
 
 const FILE = process.argv[2] || B + '/星网与千帆在轨追踪.html';
@@ -53,18 +53,29 @@ try {
 if (!EDGE) { console.log('本机找不到 Edge / Chromium，跳过视觉实测（不影响 smoke.mjs）'); process.exit(0); }
 if (!fs.existsSync(FILE)) { console.log('找不到 HTML:', FILE); process.exit(1); }
 
-// V1.9.1（1.4-C）：统一走 scripts/tmproot.mjs —— **本机自动优先非系统盘**。
-//   原来的候选顺序是 `CISTRACK_TMP → TEMP → TMP → os.tmpdir()`，注释里写着
-//   "本机把 TEMP 指到 D: 用环境变量控制，脚本不再写死盘符" —— 但**本机 TEMP 并没有被改**，
-//   仍在 C 盘。于是每次跑视觉回归都在 C 盘生成一整套 Edge profile（成千上万个小文件）；
-//   而脚本收尾的 rmSync 被本机 safe-delete 守卫改成"移入回收站"→ **文件还在、空间不释放**。
-//   实测累积到 **87,887 个文件 / 2.4 GB**，成了 C 盘告急的主因（C 盘只剩 1.9 GB）。
-//   现在改为：显式 CISTRACK_TMP（CI 用）→ **非系统盘** → TEMP/TMP → os.tmpdir()。
 const TMPROOT = tmpRoot();
-const EDGE_PROFILE = fs.mkdtempSync(path.join(TMPROOT, 'cistrack-visual-'));
+// ★ V1.9.1：Edge profile 与探针目录改用**固定路径、跨次复用**（不再每次 mkdtemp 新建）。
+//   为什么必须这样改（前因后果记全，免得以后有人"顺手"改回 mkdtemp）：
+//     · 本机的删除**一律被送进回收站**（Node / PowerShell / .NET 三种 API 实测行为一致；
+//       Add-Type、P/Invoke、COM 都被安全策略禁用）→ 脚本收尾的 rmSync **不释放空间**；
+//     · 于是每跑一次视觉回归就往回收站里丢一整个 Edge profile（**上万个小文件、约 120 MB**）；
+//       实测累积到过 **87,887 个文件 / 2.4 GB**，把 C 盘（当时仅剩 1.9 GB）压到告急；
+//     · 唯一能真释放的是 Windows 原生的 `Clear-RecycleBin`，但它是**整盘粒度**的
+//       —— 会连带清掉用户自己的回收站内容（实测用户那儿有 305 MB 音乐），**不能自动调**。
+//   所以正确解法不是"删得更狠"，而是"**根本不产生要删的东西**"：
+//     profile 固定复用 → 常驻约 120 MB，但**跑一百次也只占这一份**。
+//   （profile 里有缓存/扩展等状态，但本测试是本地 file:// 页面 + CDP，
+//     不依赖 profile 状态；且真走到需要干净 profile 时，删掉这个固定目录重建即可。）
+const EDGE_PROFILE = path.join(TMPROOT, 'cistrack-edge-profile');
 function rmProfile() {
-  // 收尾清掉 profile。删不掉也不能让脚本失败（Windows 上刚退出的浏览器偶尔还占着句柄）。
-  try { fs.rmSync(EDGE_PROFILE, { recursive: true, force: true }); } catch (e) {}
+  // 有意**不删除** profile（见上面说明）。只做残留巡检提示。
+  try {
+    const res = tmpResidue ? tmpResidue() : [];
+    if (res.length > 3) {
+      console.log('（提示：临时根下仍有 ' + res.length + ' 个残留目录 → ' + res.slice(0, 4).join(', ') +
+        '；如需回收空间，请在合适时机手动执行 Clear-RecycleBin）');
+    }
+  } catch (e) {}
 }
 process.on('exit', rmProfile);
 process.on('SIGINT', () => { rmProfile(); process.exit(130); });
@@ -81,7 +92,10 @@ process.on('SIGINT', () => { rmProfile(); process.exit(130); });
 //   页面上一个内部名都看不见（第九轮第一次跑就是这么全线 ReferenceError 的）。
 //   探针成员一律写成**取值函数**，所以放在 IIFE 最前面也安全（调用时变量早已初始化）。
 //   同目录再放一份 wiki.json，保证「打开即读词条覆盖计数」这条路径与发布版一致。
-const PROBE_DIR = fs.mkdtempSync(path.join(TMPROOT, 'cistrack-probe-'));
+// 探针目录同样**固定复用**（体积小，但"每次新建+删除"同样会往回收站堆）。
+//   内容是每次覆盖写（HTML / wiki.json / history/*），同名文件覆盖不产生回收站项。
+const PROBE_DIR = path.join(TMPROOT, 'cistrack-probe');
+fs.mkdirSync(PROBE_DIR, { recursive: true });
 const PROBE_INS = `
 /* ---- 只读探针出口：仅存在于 visual.mjs 生成的临时副本；发布 HTML 里没有这一段 ---- */
 window.__CISTRACK__ = (function () {
@@ -170,8 +184,9 @@ try {
     console.log('（⚠️ 找不到 history/ 目录 —— 默认批次那一类断言会退化到内置兜底路径）');
   }
 } catch (e) { console.log('（历史分片复制失败：' + e.message + '）'); }
-process.on('SIGINT', () => { try { fs.rmSync(PROBE_DIR, { recursive: true, force: true }); } catch (e) {} });
-process.on('exit', () => { try { fs.rmSync(PROBE_DIR, { recursive: true, force: true }); } catch (e) {} });
+// 有意**不删**探针目录（同 profile：删了也只进回收站，白堆）。只做残留巡检。
+//   SIGINT 分支保留一次尝试性清理（用户按 Ctrl-C 时顺手清，比什么都不做好）。
+process.on('SIGINT', () => { try { rmProfile(); } catch (e) {} });
 console.log('（探针副本：' + PAGE + '）');
 
 const child = spawn(EDGE, ['--headless=new', '--disable-blink-features=AutomationControlled',

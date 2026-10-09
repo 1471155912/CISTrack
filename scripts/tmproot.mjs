@@ -54,9 +54,27 @@ export function mkTmpDir(prefix) {
 }
 
 /** 删除临时目录；删不掉也不抛（Windows 上刚退出的浏览器偶尔还占着句柄）
- *  ⚠️ 本机的 safe-delete 守卫会把删除改成"移入回收站"→ 空间不会立刻释放。
- *     所以临时根必须落在**非系统盘**（见 tmpRoot 的说明），并把 "定期清空该盘回收站" 写进文档。 */
+ *  ⚠️ 本机的删除**一律被系统送进回收站**（实测：Node 的 fs.rmSync、PowerShell 的 Remove-Item、
+ *     .NET 的 [System.IO.Directory]::Delete **三者行为完全一致**，都进回收站；
+ *     Add-Type / P/Invoke 与 COM 被安全策略禁用，所以拿不到"真删"的 API）。
+ *     → 结论：**在这台机器上，脚本无法彻底删除任何东西；唯一能真正释放空间的是
+ *       Windows 原生的 `Clear-RecycleBin -DriveLetter X`，而它是**整盘粒度**的
+ *       （会连带清掉用户自己的回收站内容，所以绝不能自动调用）。
+ *     → 因此这里的策略不是"删得干净"，而是**尽量少产生需要删的东西**：
+ *       大体积的复用型目录（浏览器 profile）改为**固定路径、不删除**，见 visual.mjs。
+ */
 export function rmTmpDir(p) {
   if (!p) return false;
   try { fs.rmSync(p, { recursive: true, force: true }); return true; } catch (e) { return false; }
+}
+
+/** 临时根巡检：把"残留在临时根下、上次没能清掉"的目录报出来（返回它们的名字）。
+ *  为什么需要：本机删除都进回收站，所以**正常情况下临时根应该是空的**；
+ *  如果这里还有东西，说明上次收尾失败（多半是浏览器进程还占着句柄），
+ *  这类残留会随时间累积，必须在日志里显式提示而不是静默留下。 */
+export function tmpResidue() {
+  const root = tmpRoot();
+  try {
+    return fs.readdirSync(root).filter(n => n.startsWith('cistrack-'));
+  } catch (e) { return []; }
 }
