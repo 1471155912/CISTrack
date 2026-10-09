@@ -23,8 +23,15 @@ const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 
 const pad = (s, n) => String(s).padStart(n, ' ');
 // TLE 的"省略小数点 + 指数"写法：1.23456e-5 → " 12345-5"，-1.2e-6 → "-12000-6"
+// ★ V1.9.1（1.4）：零值必须写成 **"+0" 而不是 "-0"**。
+//   为什么：CelesTrak 的原文对 0 一律用 `00000+0`（GEO 卫星的 BSTAR 就是 0 —— 静止轨道没有
+//   大气阻力），而我们旧写法返回 `-0` → 往返自检里"原文本 == 转出文本"这一比就失败。
+//   数值上 +0 与 -0 完全等价（fromTleExp 两者都解析成 0），所以这是**纯格式不一致**；
+//   但既然要与上游逐字节对齐（往返自检的验收标准就是这个），就按上游的写法来。
+//   这个 bug 只在"BSTAR 恰为 0"时才暴露 —— LEO 卫星都有阻力（BSTAR≈1e-4），
+//   所以它一直躲着，直到 1.4 把 GEO 三颗收进来才现形。
 export function toTleExp(v, digits) {
-  if (!isFinite(v) || v === 0) return ' ' + '0'.repeat(digits) + '-0';
+  if (!isFinite(v) || v === 0) return ' ' + '0'.repeat(digits) + '+0';
   const sign = v < 0 ? '-' : ' ';
   const a = Math.abs(v);
   let exp = Math.floor(Math.log10(a)) + 1;          // 变成 0.ddddd × 10^exp
@@ -199,8 +206,14 @@ export function ommRoundTrip(files) {
       try { [a1, a2] = tleFromOmm(ommFromTLE(l1, l2), cn); }
       catch (e) { badN++; if (bad.length < 3) bad.push({ l1, a1: '⚠️ ' + e.message, l2, a2: '' }); continue; }
       const near = (x, y, eps) => Math.abs(Number(x) - Number(y)) <= eps;
+      // ★ V1.9.1（1.4）：**补上 nddot（第 45–52 列）的比较**。
+      //   旧版只比了 ndot / BSTAR / 元素集号，**漏了 nddot** —— 于是 nddot 列的任何
+      //   文本不一致都看不见（假阴性）。实测正是这里放过了 `00000+0` vs `00000-0`
+      //   （198 颗卫星的 nddot 都是 0，写法却与我们生成的不同，一直没报）。
+      //   教训：逐字段自检必须**列全所有字段**，少比一列就等于给那一列开了免检通道。
       const d1 = near(l1.slice(18, 32), a1.slice(18, 32), 1e-8) &&
         near(l1.slice(33, 43), a1.slice(33, 43), 1e-9) &&
+        l1.slice(44, 52) === a1.slice(44, 52) &&
         l1.slice(53, 61) === a1.slice(53, 61) &&
         l1.slice(65, 68) === a1.slice(65, 68);
       const d2 = near(l2.slice(8, 16), a2.slice(8, 16), 1e-4) &&

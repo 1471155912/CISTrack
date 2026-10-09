@@ -10,7 +10,8 @@
  *   真号(100203) → 占位号(00203) → OMM→TLE（69 列定宽 + 校验位 + COSPAR 归一化）
  *   → refresh 的 parseTLE 收编 → mkdata 的真号还原 → 高度量级合理（防"量级错误"复发）。
  */
-import { tleFromOmm, fromCelesTrakOmm, PH, tleChecksum, cosparField } from './omm.mjs';
+import fs from 'node:fs';
+import { tleFromOmm, fromCelesTrakOmm, PH, tleChecksum, cosparField, toTleExp, fromTleExp } from './omm.mjs';
 import { altFromOmm } from './import_history.mjs';
 
 export function ommSelfTest() {
@@ -53,6 +54,18 @@ export function ommSelfTest() {
   ok('⑧e 字段名全错时必须抛错，而不是写出坏 TLE（tleFromOmm 的硬闸门）',
     (() => { try { tleFromOmm(fromCelesTrakOmm(Object.assign({}, OMM, { RA_OF_ASC_NODE: undefined })), ph); return false; }
       catch (e) { return /RAAN/.test(e.message); } })());
+
+  // ⑧f ★ V1.9.1（1.4）抓出的格式不一致：零值必须写成 `00000+0`（CelesTrak 的写法），
+  //   而不是 `00000-0`。数值上等价，但往返自检是**逐字节比对**，`-0` 会被判失败。
+  //   这个 bug 只在"BSTAR 恰为 0"时才露头 —— GEO 卫星在静止轨道没有大气阻力，BSTAR 就是 0，
+  //   而 LEO 卫星都有阻力（≈1e-4）→ 它一直躲着，直到 1.4 把 GEO 三颗收进来才现形。
+  ok('⑧f 零值指数用 "+0" 写法（与 CelesTrak 原文一致；GEO 的 BSTAR 就是 0）',
+    toTleExp(0, 5) === ' 00000+0' && toTleExp(-0, 5) === ' 00000+0' &&
+    fromTleExp(' 00000+0') === 0 && fromTleExp(' 00000-0') === 0,
+    JSON.stringify(toTleExp(0, 5)));
+  // ⑧g 往返自检必须**覆盖全部字段**（旧版漏了 nddot 这一列 → 那一列长期免检）
+  ok('⑧g 往返自检覆盖 nddot 列（漏掉一列 = 给那一列开免检通道）',
+    /l1\.slice\(44, 52\) === a1\.slice\(44, 52\)/.test(fs.readFileSync(new URL('./omm.mjs', import.meta.url), 'utf8')));
 
   // parseTLE 收编：key 必须是占位号的**数值**（203）——与 S5 的 merged.has(Number(PH(…))) 判据一致
   const m = new Map();
