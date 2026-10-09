@@ -26,10 +26,27 @@ for (const f of fs.readdirSync(path.join(SRC, 'scripts'))) {
   if (f.endsWith('.mjs')) fs.copyFileSync(path.join(SRC, 'scripts', f), path.join(TMP, 'scripts', f));
 }
 fs.mkdirSync(path.join(TMP, 'data', 'history'), { recursive: true });
-for (const f of ['ct_hulianwang.tle', 'ct_qianfan.tle', 'satcat.csv']) {
+for (const f of ['ct_hulianwang.tle', 'ct_qianfan.tle']) {
   const p = path.join(SRC, 'data', f);
   if (!fs.existsSync(p)) { console.error('缺少 ' + p + '（需要先跑过一次 refresh.mjs）'); process.exit(2); }
-  fs.copyFileSync(p, path.join(TMP, 'data', f));
+  // ★ 剥离"占位号条目"（NORAD < 1000）→ 还原成**修复前**的状态，
+  //   否则本测试跑在已经修好的数据上会"补到 0 颗"，变成永远通过的空测试。
+  //   （本星座真实卫星的 NORAD 都是 5 位数且远大于 1000；占位号 = 6 位真号的后 5 位 → 必 < 1000）
+  const lines = fs.readFileSync(p, 'utf8').split('\n').map(s => s.trim()).filter(Boolean);
+  const keep = [];
+  for (let i = 0; i + 2 < lines.length; i += 3) {
+    const l1 = lines[i + 1];
+    if (!/^1 /.test(l1)) continue;
+    if (parseInt(l1.slice(2, 7), 10) < 1000) continue;   // 占位号 → 丢掉
+    keep.push(lines[i], l1, lines[i + 2]);
+  }
+  fs.writeFileSync(path.join(TMP, 'data', f), keep.join('\n') + '\n');
+  console.log('（已剥离占位号条目，起点 ' + f + ' = ' + keep.length / 3 + ' 颗 —— 模拟修复前）');
+}
+{
+  const p = path.join(SRC, 'data', 'satcat.csv');
+  if (!fs.existsSync(p)) { console.error('缺少 ' + p + '（需要先跑过一次 refresh.mjs）'); process.exit(2); }
+  fs.copyFileSync(p, path.join(TMP, 'data', 'satcat.csv'));
 }
 fs.writeFileSync(path.join(TMP, 'data', 'omm_norad.json'), '{}');
 
