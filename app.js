@@ -1551,10 +1551,20 @@ function drawChart() {
   // V1.7.2（需求8）：物理边界线 —— 虚线画出 180°（倾角上限，含逆行轨道）与 36500 km（GEO 高度上限），
   //   只在边界落在当前视口内时才画；配合 clampChartView，图再也缩不出/拖不出这个框。
   //   横轴上界 90 → 180：原来 90° 把逆行轨道（倾角 > 90°）挡在定义域外，放宽后才能容纳。
-  // V1.7.1（需求8）：这两条线改用**星座主题色**（星网红 / 千帆蓝）—— 原来用 C.accent，
-  //   而 --accent 是一个跟星座无关的固定蓝（暗色 #4dabf7 / 亮色 #1971c2），
-  //   于是千帆页看着对、星网页却是蓝的。C.theme 才是按星座写好的那个（renderHeader 里
-  //   setProperty('--row-sel', 红/蓝) 并 refreshTheme()，所以切星座后这两条线会自动跟着变）。
+  // V1.8.0（需求17 / ⑱）：绘图区硬裁剪 —— 卫星光点、待编目虚影与选中标注一律裁到
+  //   横纵坐标轴围成的矩形内。此前只做了「越界点跳过」（x/y 超出 ±4px 就不画），
+  //   于是正好压在轴上或半出轴的点仍会把圆点画到轴外（低倍率/窄屏/滑动时最明显）。
+  //   现在改为 canvas 级 clip：无论屏幕比例、页面内还是全屏，图像都在坐标线上截止。
+  ctx.save();
+  ctx.beginPath(); ctx.rect(PL, PT, pw, ph); ctx.clip();
+
+  // ★ V1.9.1（1.4）：两条**物理边界虚线**（180° 与 36500 km）挪到 clip **之后**画。
+  //   为什么必须挪：它们是"上界"线，落点恰好在绘图区的边上（`by === PT`、`bx === PL+pw`），
+  //   而 `lineWidth = 1` 的描边是**以线为中心**铺开的 → 顶边那条线有 0.5px 落在 PT 之上，
+  //   抗锯齿后在绘图区外留下一整条高饱和像素带（视觉回归实测抓到：y=15 行、x=76…102）。
+  //   以前不暴露是因为纵轴/横轴从没被撑到上界（过去最高卫星 1200 km），
+  //   直到 1.4 把 GEO（35786 km，纵轴上界 36500）收进来才现形。
+  //   挪进 clip 内后，溢出的那半像素被裁掉，线正好"贴在坐标轴上截止"（需求⑱ 要的效果）。
   ctx.setLineDash([5, 4]); ctx.lineWidth = 1;
   ctx.strokeStyle = C.theme;
   if (v.x1 > CHART_X_MAX - 1e-6 && CHART_X_MAX >= v.x0) {
@@ -1566,17 +1576,12 @@ function drawChart() {
   if (v.y1 > CHART_Y_MAX - 1e-6 && CHART_Y_MAX >= v.y0) {
     var by = Y(CHART_Y_MAX);
     ctx.beginPath(); ctx.moveTo(PL, by); ctx.lineTo(PL + pw, by); ctx.stroke();
-    ctx.fillStyle = C.theme; ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
-    ctx.fillText('36500 km (GEO)', PL + 6, by - 3);
+    ctx.fillStyle = C.theme; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+    // 标签画在线的**下方**（top 基线），天然落在绘图区内（旧写法 by - 3 + bottom 基线
+    // 是画在坐标轴之上，见上面那段说明）。
+    ctx.fillText('36500 km (GEO)', PL + 6, by + 3);
   }
   ctx.setLineDash([]);
-
-  // V1.8.0（需求17 / ⑱）：绘图区硬裁剪 —— 卫星光点、待编目虚影与选中标注一律裁到
-  //   横纵坐标轴围成的矩形内。此前只做了「越界点跳过」（x/y 超出 ±4px 就不画），
-  //   于是正好压在轴上或半出轴的点仍会把圆点画到轴外（低倍率/窄屏/滑动时最明显）。
-  //   现在改为 canvas 级 clip：无论屏幕比例、页面内还是全屏，图像都在坐标线上截止。
-  ctx.save();
-  ctx.beginPath(); ctx.rect(PL, PT, pw, ph); ctx.clip();
 
   // 点
   var scope = 'chart';

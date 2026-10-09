@@ -937,9 +937,13 @@ assert('需求3+V1.7.2（需求8）：倾角物理边界 0\u2013180\u00b0 / 0\u2
   /function clampChartView\(v\)/.test(appSrc) &&
   (appSrc.match(/clampChartView\(/g) || []).length >= 7 &&
   /chartView = clampChartView\(pendingChartView\)/.test(appSrc));
+// V1.9.1（1.4）：标签位置从 `by - 3`（bottom 基线，画在坐标轴之上、会溢出绘图区）
+//   改为 `by + 3`（top 基线，落在区内）—— 断言跟着更新，仍要求两条线都画。
 assert('需求3+V1.7.2（需求8）：画出边界线（180\u00b0 与 36500 km (GEO) 虚线，仅边界在视口内时）',
   /ctx\.fillText\('180\u00b0', bx - 4, PT \+ 4\)/.test(appSrc) &&
-  /ctx\.fillText\('36500 km \(GEO\)', PL \+ 6, by - 3\)/.test(appSrc));
+  /ctx\.fillText\('36500 km \(GEO\)', PL \+ 6, by \+ 3\)/.test(appSrc) &&
+  /if \(v\.x1 > CHART_X_MAX - 1e-6 && CHART_X_MAX >= v\.x0\)/.test(appSrc) &&
+  /if \(v\.y1 > CHART_Y_MAX - 1e-6 && CHART_Y_MAX >= v\.y0\)/.test(appSrc));
 // 需求4：未编目行只留黄色边框
 assert('需求4：未编目行不再染黄/弱化文字（COSPAR、待编目数量、日期列全部恢复普通样式），黄框保留',
   !/tr\.pend-part \./.test(tpl) && !/tr\.pend-none \./.test(tpl) && !/\.ltable td\.pend/.test(tpl) &&
@@ -1668,10 +1672,28 @@ assert('V1.9.0（R17）：升轨速率算法在页面端与构建期**同一口�
   {
     const ymlP = B + '/.github/workflows/update-tle.yml';
     const has = fs.existsSync(ymlP);
-    assert('V1.9.1（1.4）：CI 里挂了"按批次纳入"的端到端测试',
-      has ? /e2e_include_offline\.mjs/.test(fs.readFileSync(ymlP, 'utf8')) : true,
-      has ? '' : '（本地工作区无 .github/workflows，跳过内容校验；CI 中会实查）');
+  assert('V1.9.1（1.4）：CI 里挂了"按批次纳入"的端到端测试',
+    has ? /e2e_include_offline\.mjs/.test(fs.readFileSync(ymlP, 'utf8')) : true,
+    has ? '' : '（本地工作区无 .github/workflows，跳过内容校验；CI 中会实查）');
   }
+}
+
+// ---- V1.9.1（1.4 连带）：物理边界虚线必须在 clip **之内**画 ----
+// 视觉回归实测抓到：GEO 进来后纵轴首次被撑到 36500，于是画那条"36500 km (GEO)"边界线，
+//   而它以 `by = PT`（顶格）落点、`lineWidth=1` 的描边**以线为中心**铺开
+//   → 有 0.5px 落在绘图区之上，抗锯齿后成为一整条高饱和像素带（y=15 行，x=76…102）。
+//   根因是这两条线画在 `ctx.clip()` **之前**，压根没被裁剪。
+//   修法是把整个边界线块挪到 clip 之后。这条断言用**源码顺序**把它钉住：
+//   必须存在 `clip()`，且 `setLineDash([5, 4])`（边界线块的标志）出现在它之后。
+{
+  const src = fs.readFileSync(B + '/app.js', 'utf8');
+  const clipAt = src.indexOf('ctx.rect(PL, PT, pw, ph); ctx.clip();');
+  const dashAt = src.indexOf('ctx.setLineDash([5, 4]); ctx.lineWidth = 1;');
+  assert('V1.9.1（1.4）：倾角分布的物理边界虚线画在 clip 之内（否则半个像素会溢出绘图区）',
+    clipAt > 0 && dashAt > clipAt, 'clip@' + clipAt + ' vs 边界线@' + dashAt);
+  assert('V1.9.1（1.4）："36500 km (GEO)" 标签在线的下方（旧写法 by-3 + bottom 基线画在坐标轴之上）',
+    /fillText\('36500 km \(GEO\)', PL \+ 6, by \+ 3\)/.test(src) &&
+    !/fillText\('36500 km \(GEO\)', PL \+ 6, by - 3\)/.test(src));
 }
 
 assert('V1.8.0（需求6）：launches 台账第 6 位=任务结果、第 7 位=百科记载颗数',
