@@ -22,15 +22,24 @@ vc.on('error', (...a) => errors.push('console.error: ' + a.join(' ')));
 // canvas 2d 上下文桩
 function makeCtx() {
   const calls = { stroke: 0, fill: 0, fillText: 0, arc: 0, clearRect: 0 };
+  // V1.9.1（#4）：记录**着色历史** —— "每星一色"这类断言只能靠它验证（jsdom 不真画，
+  //   没有像素可采样）。每次绘制会往数组里追加，断言时取"本次调用之后新增的那一段"。
+  const styles = { stroke: [], fill: [], alpha: [] };
   const target = {};
   return new Proxy(target, {
     get(t, k) {
       if (k === 'measureText') return () => ({ width: 24 });
       if (k === '__calls') return calls;
+      if (k === '__styles') return styles;
       if (k in calls) return (...a) => { calls[k]++; };
       return (...a) => { };
     },
-    set() { return true; }
+    set(t, k, v) {
+      if (k === 'strokeStyle') styles.stroke.push(v);
+      else if (k === 'fillStyle') styles.fill.push(v);
+      else if (k === 'globalAlpha') styles.alpha.push(v);
+      return true;
+    }
   });
 }
 
@@ -2084,6 +2093,12 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
     "  selectGroup: function (lk) { return selectGroup(lk); },\n" +
     "  state: function () { return { sel: S.sel.slice(), selGroup: S.selGroup }; },\n" +
     "  tt: function (k) { return t(k); },\n" +
+    // V1.9.1（#4）：彩色多线 —— 需要能切换本章选中的批次并强制重绘
+    "  setClimbPick: function (v) { S.climbPick = v; climbView = null; },\n" +
+    "  climbN: function () { return climbSeries().list.length; },\n" +
+    "  climbHues: function () { var m = climbColorMap(climbSeries().list), o = {}; for (var k in m) o[k] = m[k]; return o; },\n" +
+    "  climbList: function () { return climbSeries().list.map(function (c) { return { n: c.norad, lk: c.lk }; }); },\n" +
+    "  drawClimb: function () { return drawClimb(); },\n" +
     "  toast: function () { var e = document.getElementById('selToast'); return e ? { txt: e.textContent, cls: e.className } : null; }\n" +
     "};\n";
   const hm = HEAD_RE.exec(html);
@@ -2163,6 +2178,50 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
     /if \(S\.sel\.length === 1\) showToast\(t\('d_sel_one'\), false\);/.test(appSrc));
   assert('A3/Q12：多颗提示只在 selectGroup 且**仅当 >1 颗**时弹（单颗交给 afterSelection）',
     /if \(!allSel && idxs\.length > 1\) showToast\(t\('d_sel_all'\), false\);/.test(appSrc));
+
+  // ================================================================ V1.9.1（#4 / #5）
+  // #5：升轨章的 B 窗（无 hover 设备的悬停预览件）删除 —— 它与可拖拽的 A 窗**重复显示同一份内容**，
+  //     而且它读的 `INFO_HIDDEN.climb` 在 INFO_HIDDEN 里**根本没有这个键**（只有 chart/map/globe/net）
+  //     → 条件恒为 falsy → 一直 `display:flex` 挂在屏幕上。
+  // ⚠️ 产物里要查的是**节点与引用**，不是字样 —— 源码注释（讲"为什么删"）会被原样注入产物，
+  //   那属于正常留档（`html` 里 1 处 `climbInfoB` 就是注释）。
+  assert('#5：升轨章 B 窗已彻底删除（模板无节点、源码无引用、产物无 id）',
+    !/climbInfoB/.test(tpl) && !/climbInfoB/.test(appCode) &&
+    !/id="climbInfoB"/.test(html) && !/getElementById\('climbInfoB'\)/.test(html) && !/getElementById\('climbInfoB'\)/.test(appCode),
+    'tpl=' + /climbInfoB/.test(tpl) + ' code=' + /climbInfoB/.test(appCode) + ' htmlId=' + /id="climbInfoB"/.test(html));
+  assert('#5：本章只剩可拖拽的 A 窗（#climbInfo），模板里仍在',
+    /id="climbInfo"/.test(tpl) && /placeInfoCorner\(climbInfo, 'climb'\)/.test(appSrc));
+
+  // #4：彩色多线 —— 同一批次内**每颗星一种颜色**（黄金角），选中/悬停=**自身色**提亮加粗（Q5）
+  assert('#4：颜色分配器存在，且用黄金角（137.508°）而**不是**均匀分布 —— 追加新星不改已有星颜色',
+    /function climbHueColor/.test(appSrc) && /i \* 137\.508/.test(appSrc) &&
+    /function climbColorMap/.test(appSrc));
+  assert('#4：色相只依赖"批内 NORAD 升序序号"（不依赖表内下标/筛选/翻页 → 颜色稳定）',
+    /byLk\[lk\]\.sort\(function \(a, b\) \{ return a - b; \}\)/.test(appSrc));
+  assert('#4：曲线对象带上 lk（跨批的链也能按批次分组取色）',
+    /arr\.push\(\{ norad: \+nk, lk: lk, pts: pts/.test(appSrc));
+  assert('#4：旧写法（未选中一律灰）已消失；改成"自身色 + 选中提亮(alpha=1/加粗)、其余降暗"',
+    !/strokeStyle = isSel \|\| isHov \? COL\.main : C\.dim/.test(appSrc) &&
+    /var own = CMAP\[c\.norad\] \|\| COL\.main;/.test(appSrc) &&
+    /var restAlpha = anyHi \? 0\.12/.test(appSrc) &&
+    /ctx\.lineWidth = hi \? 2\.4 : 1\.2;/.test(appSrc));
+  assert('#4：末端数值标签也用该星自身色（线色进标签）', /ctx\.fillStyle = own;\s+\/\/ V1\.9\.1（#4）：标签也用/.test(appSrc));
+  // 行为验证：真跑一次绘制，采样"写进 ctx 的 strokeStyle"里有多少种 hsl
+  const st3 = d3.getElementById('climbCv').getContext('2d').__styles;
+  k3.setClimbPick('b:24240');                    // 低轨01组：10 颗（内置兜底也有 10 颗 → 离线可画）
+  const n0 = st3.stroke.length;
+  k3.drawClimb();
+  const used = [...new Set(st3.stroke.slice(n0))].filter(x => /^hsl\(/.test(String(x)));
+  const listN = k3.climbN();
+  assert('#4：绘制时真的为每颗星取了不同颜色（本轮 strokeStyle 里的 hsl 种类 ≈ 曲线条数）',
+    listN >= 8 && used.length >= 8 && used.length >= Math.min(listN, 8),
+    '曲线=' + listN + ' 色种=' + used.length);
+  assert('#4：颜色与"批内 NORAD 升序序号"一一对应（climbHues 的 key 就是 NORAD）',
+    (function () {
+      const hs = k3.climbHues();
+      const ks = Object.keys(hs);
+      return ks.length === listN && ks.every(n => /^\d+$/.test(n) && /^hsl\(/.test(hs[n]));
+    })(), JSON.stringify(Object.keys(k3.climbHues()).slice(0, 4)));
   dom3.window.close();
 }
 

@@ -8475,7 +8475,9 @@ function netInit() {
 // ============================================================================
 var climbCv = document.getElementById('climbCv');
 var climbInfo = document.getElementById('climbInfo');
-var climbInfoB = document.getElementById('climbInfoB');
+// V1.9.1（#5）：**删除本章的 B 窗** —— `climbInfoB` 是一直给"无 hover 设备的悬停预览"用的那件
+//   （浮窗跟手指走），而本章点选已经走可拖拽的 A 窗（`climbInfo`），B 窗只会与 A 窗**重复显示同一份内容**。
+//   模板节点、变量与下面 showInfo 处的两处引用、以及 INFO_HIDDEN 的清位逻辑一并删除。
 var climbRect = null, climbView = null, CLIMB = null;
 var climbHover = null;                 // 悬停的 { key, idx }（批次级）或 { norad }
 var climbPinned = false;
@@ -8553,7 +8555,9 @@ function climbBuild() {
     Object.keys(bySat).forEach(function (nk) {
       var pts = bySat[nk].sort(function (a, b) { return a.ms - b.ms; });
       if (pts.length < 2) return;                    // 只有一个点画不出"变化"，跳过
-      arr.push({ norad: +nk, pts: pts, rates: climbRates(pts, 2, 2) });
+      // V1.9.1（#4）：带上所属批次 key —— 每星一色要"**同批次内**取黄金角"，
+      //   而 drawClimb 拿到的 list 可能是跨批的（跟随全局选中时），没有 lk 就分不了组。
+      arr.push({ norad: +nk, lk: lk, pts: pts, rates: climbRates(pts, 2, 2) });
     });
     if (arr.length) out[lk] = arr;
   });
@@ -8561,6 +8565,24 @@ function climbBuild() {
   return out;
 }
 function climbCurve() { return climbBuild(); }
+// ---- V1.9.1（#4）：**每星一色** ----
+// 为什么用黄金角（137.508°）而不用"360/n 均匀分布"：
+//   ① 均匀分布下**新增一颗星会让所有星重新配色**（序号全体位移）；而星座每周都在补星，
+//      用户上一眼记住的颜色不该每次都变。黄金角是"往后追加"的，已有星的色相**永不变**；
+//   ② 排序后色相间隔约为 360/n × 0.38 —— 一批 ≤10 颗时最小间隔 ~20°，配合明度差异足够分辨。
+// 色相只与"该星在**本批次内**按 NORAD 升序的序号"有关（不用表内下标 —— 那会随筛选/翻页变化）。
+function climbHueColor(h) {
+  return isLight() ? 'hsl(' + h.toFixed(1) + ',66%,40%)' : 'hsl(' + h.toFixed(1) + ',70%,62%)';
+}
+function climbColorMap(list) {
+  var byLk = {}, map = {};
+  list.forEach(function (c) { var lk = c.lk || ''; (byLk[lk] = byLk[lk] || []).push(c.norad); });
+  Object.keys(byLk).forEach(function (lk) {
+    byLk[lk].sort(function (a, b) { return a - b; });
+    byLk[lk].forEach(function (n, i) { map[n] = climbHueColor((i * 137.508) % 360); });
+  });
+  return map;
+}
 /** 该批次在本星座里的显示名与发射时间（找不到就退化） */
 function climbBatchMeta(lk) {
   var L = null;
@@ -8797,8 +8819,17 @@ function drawClimb() {
   if (S.sel && S.sel.length) S.sel.forEach(function (i) { var x2 = cur().sats[i]; if (x2) selNor[x2.norad | 0] = 1; });
   var hovNor = (climbHover && climbHover.norad) ? climbHover.norad : 0;
   var maxPts = 0;
+  // V1.9.1（#4）：每星一色 + "选中提亮、其余降暗"（与地图章既有行为一致；Q5 = **自身色**提亮，
+  //   不是把选中线改成主题色）。anyHi = 本帧是否有任何高亮对象 —— 有的话其余线统一降到很暗，
+  //   这样"选中的那条"一眼就能从上百条线里认出来。
+  var CMAP = climbColorMap(d);
+  var anyHi = false;
+  d.forEach(function (c) { if (selNor[c.norad] || hovNor === c.norad) anyHi = true; });
+  var restAlpha = anyHi ? 0.12 : (d.length > 6 ? 0.45 : 0.8);
   d.forEach(function (c) {
     var isSel = selNor[c.norad], isHov = hovNor === c.norad;
+    var hi = !!(isSel || isHov);
+    var own = CMAP[c.norad] || COL.main;               // 该星自己的颜色
     // 一颗星的点通常几百个；全批次（上百颗）时只画线不画点，否则糊成一片实心
     var drawDots = d.length <= 3;
     if (take === 'rate') {
@@ -8806,9 +8837,9 @@ function drawClimb() {
       var segs = climbBreakGaps(c.rates.map(function (r, i) {
         return { ms: c.pts[i].ms, rate: r };
       }).filter(function (r) { return isFinite(r.rate); }), 2);
-      ctx.strokeStyle = isSel || isHov ? COL.main : C.dim;
-      ctx.globalAlpha = (isSel || isHov) ? 1 : 0.5;
-      ctx.lineWidth = (isSel || isHov) ? 2 : 1.2;
+      ctx.strokeStyle = own;
+      ctx.globalAlpha = hi ? 1 : restAlpha;
+      ctx.lineWidth = hi ? 2.4 : 1.2;
       ctx.lineJoin = 'round';
       segs.forEach(function (seg) {
         ctx.beginPath();
@@ -8825,18 +8856,18 @@ function drawClimb() {
         ctx.setLineDash([]);
       }
       ctx.globalAlpha = 1;
-      if (isSel || isHov) {
+      if (hi) {
         for (var m2 = 0; m2 < segs.length; m2++) {
           segs[m2].forEach(function (r2) {
             ctx.beginPath(); ctx.arc(X(r2.ms), Y(r2.rate), 2.2, 0, 6.2832);
-            ctx.fillStyle = COL.main; ctx.fill();
+            ctx.fillStyle = own; ctx.fill();
           });
         }
       }
     } else {
-      ctx.strokeStyle = isSel || isHov ? COL.main : C.dim;
-      ctx.globalAlpha = (isSel || isHov) ? 1 : 0.45;
-      ctx.lineWidth = (isSel || isHov) ? 2 : 1.1;
+      ctx.strokeStyle = own;
+      ctx.globalAlpha = hi ? 1 : restAlpha;
+      ctx.lineWidth = hi ? 2.4 : 1.1;
       ctx.lineJoin = 'round';
       ctx.beginPath();
       for (var k2 = 0; k2 < c.pts.length; k2++) {
@@ -8850,7 +8881,7 @@ function drawClimb() {
         for (var m3 = 0; m3 < c.pts.length; m3++) {
           if (!sparse && m3 !== c.pts.length - 1) continue;
           ctx.beginPath(); ctx.arc(X(c.pts[m3].ms), Y(c.pts[m3].v - CLIMB_RE), 1.8, 0, 6.2832);
-          ctx.fillStyle = (isSel || isHov) ? COL.main : C.dim; ctx.fill();
+          ctx.fillStyle = own; ctx.fill();
         }
       }
     }
@@ -8863,7 +8894,7 @@ function drawClimb() {
       })() : (last.v - CLIMB_RE);
       if (lv != null) {
         ctx.font = '11px ' + MONO; ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
-        ctx.fillStyle = COL.main;
+        ctx.fillStyle = own;                       // V1.9.1（#4）：标签也用**该星自己的颜色**（线色进标签）
         ctx.fillText(fmtNum(lv, take === 'rate' ? 2 : 0), X(last.ms) - 4, Y(lv) - 4);
       }
     }
@@ -8968,11 +8999,6 @@ function climbShowInfoAt(h) {
   showInfo(climbInfo, 'climb', '<div class="si-block">' + rows.join('') + '</div>', 'climb-' + h.norad + '-' + h.ms);
   var el = document.getElementById('climbCv');
   if (el) placeInfoCorner(climbInfo, 'climb');
-  // B 窗（触屏/窄屏用）
-  if (climbInfoB) {
-    climbInfoB.innerHTML = '<div class="si-block">' + rows.join('') + '</div>';
-    climbInfoB.style.display = INFO_HIDDEN.climb ? 'none' : 'flex';
-  }
 }
 
 // ---------------------------------------------------------------- 选择器
