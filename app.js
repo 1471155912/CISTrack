@@ -194,6 +194,13 @@ var I18N = {
   st_gone_c: [' 天）', 'd)'],
   // V1.9.1（A10）：点击"已再入"行时的红色提示（与 A19 搜索补池的 dead 提示同文案，但那是搜索场景）
   d_sel_gone: ['该卫星已再入', 'This satellite has re-entered'],
+  // V1.9.1（A11）：发射记录表格的两种再入口径
+  //   ① 仍有卫星在轨 → 绿色「已全选仍在轨卫星（X/T）」（X=仍在轨、T=原部署总颗数）
+  //   ② 该次发射已全部再入 → 红色「该批次/组已全部再入」（Q29 定稿）
+  d_sel_alive_a: ['已全选仍在轨卫星（', 'All in-orbit selected ('],
+  d_sel_alive_b: ['/', '/'],
+  d_sel_alive_c: ['）', ')'],
+  d_sel_gone_all: ['该批次/组已全部再入', 'This batch has fully re-entered'],
   res_ok: ['成功', 'Success'], res_part: ['部分成功', 'Partial success'], res_fail: ['失败', 'Failure'],
   // V1.8.0（需求8）：03.5 组网进度
   h_progress: ['组网进度', 'Network Progress'],
@@ -539,6 +546,8 @@ function build(key) {
     key: key, name: c.name, en: c.en, org: c.org, sub: c.sub,
     launches: launches, sats: sats, lmap: lmap, bad: bad,
     makers: c.makers || {},            // V1.4.2：制造方（按批次 key 索引，来自词条）
+    // V1.9.1（A11）：按批次的「已再入」清单（satcat 的 DECAY_DATE）—— 发射记录弹窗的 X/T 用它算
+    goneCount: c.goneCount || {},
     // V1.9.1（A19）：**搜索补池** —— 「已再入」与「尚未编目」这两类**库内没有 TLE** 的对象，
     //   页面的搜索原先只在 sats 里找，于是搜名字/NORAD 什么都搜不到。这里并联进来（Q35：可搜索），
     //   点击行为见 poolJump()（01/02/03 章物理上无法高亮，只跳 06 + 弹提示）。
@@ -581,11 +590,12 @@ var S = {
   key: 'gw',
   sel: [],
   selGroup: null,                 // 选中的卫星 idx
-  // V1.9.1（A10）：**已再入卫星**的表格框选（独立于 S.sel）。
-  //   ⚠️ 它绝不能进 S.sel —— 1/2/3 章会用 S.sel 去画**轨道**，而已再入卫星手上的 TLE 是
+  // V1.9.1（A10/A11）：**已再入卫星**的表格框选（数组；独立于 S.sel）。
+  //   ⚠️ 它们绝不能进 S.sel —— 1/2/3 章会用 S.sel 去画**轨道**，而已再入卫星手上的 TLE 是
   //   "再入前最后一份"，拿它做 SGP4 递推出来的位置完全错误（卫星其实已经掉下来了）。
-  //   所以已再入行只做"灰色框选 + 红色提示"，**不进任何章节的选中态**（用户口径 A10/Q35）。
-  selGone: null,
+  //   用**独立集合**的好处：A11 要求"卫星表格全选本次全部（含已再入行）"与
+  //   "1/2/3 章只高亮仍在轨的那些"**同时成立** —— 后者自动成立（过滤发生在 S.sel 这一侧）。
+  selGone: [],
   focusIdx: null,          // V1.3.5：批次多选后当前「聚焦」的那颗（信息窗锁定显示它）
   hover: null,
   colorMode: { chart: 'sat', map: 'sat', globe: 'sat' },
@@ -1803,7 +1813,7 @@ function hitTableRow() {
 }
 function clearSel() {
   S.focusIdx = null;                  // V1.7.2（需求2④）：取消选择同时清掉"组内切换"的焦点
-  S.selGone = null;                   // V1.9.1（A10）：点空白处也收起已再入行的灰框
+  S.selGone = [];                     // V1.9.1（A10）：点空白处也收起已再入行的灰框
   if (!S.sel.length) {
     // V1.7.0（任务12）：即使本就没有选中，也把所有信息窗收掉（换星座后绝对干净）
     [['chart', chartInfo], ['map', document.getElementById('mapInfo')], ['globe', document.getElementById('globeInfo')]]
@@ -2504,7 +2514,7 @@ function satRowHtml(r) {
   // V1.9.1（1.4-D）：已再入的整行加 `.gone` 类（供样式与联动控制识别）。
   // V1.9.1（A10）：已再入行**不参与任何章节联动**，所以它的"框选"用独立的 `.gone-focus`
   //   （灰色），而不是 `.focused`（星座主题色）—— 见 tbody 点击处理里的说明。
-  var goneFocus = r.gone && S.selGone === s.idx;
+  var goneFocus = r.gone && S.selGone.indexOf(s.idx) >= 0;
   // 8 项轨道要素一律显示 `-`（无数据态）：它们的 TLE 是**再入前最后一份**，拿去反算出来的
   //   高度/倾角/周期是"再入那一刻"的过期值，显示出来会误导（用户口径：不用 0、不用上一帧值）。
   var DASH = '<span class="no-data">-</span>';
@@ -5222,12 +5232,13 @@ tbody.addEventListener('click', function (e) {
   //   拿它做 SGP4 递推会得到完全错误的位置。所以这里**只**改表格自己的框选态。
   var s0 = cur().sats[idx];
   if (s0 && s0.st === 'r') {
-    S.selGone = (S.selGone === idx) ? null : idx;      // 再点一次 = 取消（与「已全选」同口径）
-    if (S.selGone != null) showToast(t('d_sel_gone'), 'dead');
+    var wasG = (S.selGone.length === 1 && S.selGone[0] === idx);
+    S.selGone = wasG ? [] : [idx];                     // 再点一次 = 取消（与「已全选」同口径）
+    if (!wasG) showToast(t('d_sel_gone'), 'dead');
     renderTable();                                     // 只重画表格，不触发任何章节联动
     return;
   }
-  S.selGone = null;                                    // 点别的行 → 收起已再入的灰框
+  S.selGone = [];                                      // 点别的行 → 收起已再入的灰框
   // ═══ V1.7.2（需求10）：**表格内**的单击与图上不同 ═══
   //   多选状态下（不论是用发射记录选了一批，还是点了批次/组）单击**任一颗**
   //   —— 不管它是否已被选中 —— 都**取消全部选择、改为只选这一颗**，其他章节一并跟进。
@@ -6466,12 +6477,44 @@ function selectGroup(lk) {
   S.selGroup = null;
   // V1.7.2（需求2）：整批选中 → 清掉"组内切换"的焦点，回到「显示 NORAD 最小那颗」的默认口径
   S.focusIdx = null;
-  var allSel = idxs.every(function (i) { return S.sel.indexOf(i) >= 0; });
-  S.sel = allSel ? [] : idxs;      // 再次点击同一批次 = 取消
+  // ═══ V1.9.1（A11）：把"仍在轨"与"已再入"**分开** ═══
+  //   为什么分开：`S.sel` 是"1/2/3 章要高亮/画轨迹的集合" —— 已再入卫星手上的 TLE 是
+  //   **再入前最后一份**，拿它做 SGP4 递推得到的位置完全错误（卫星已经掉下来了）。
+  //   所以已再入的**永远不进 S.sel**（这样 A11 要求的"1/2/3 章只高亮仍在轨的"自动成立、
+  //   不需要在每张图里各写一遍过滤）；它们在**卫星表格**里的框选改用 `.gone-focus` 灰框
+  //   （见 satRowHtml 与 A10）。这样"表格全选本次全部（含已再入行）"与"图上不画过期轨道"同时满足。
+  var alive = [], gone = [];
+  idxs.forEach(function (i) { var s0 = st.sats[i]; (s0 && s0.st === 'r' ? gone : alive).push(i); });
+  var L = null;
+  st.launches.forEach(function (x) { if (x.key === lk) L = x; });
+  // T = 该次发射的部署总颗数：**卫星百科记载的颗数优先**（比 satcat 的对象数权威），退回目录口径
+  var T = (L && (L.wn || L.count)) || idxs.length;
+  var G = (st.goneCount && st.goneCount[lk]) ? st.goneCount[lk].length : gone.length;
+  var X = Math.max(0, T - G);                     // 仍在轨颗数
+
+  // ---- 情形二：该次发射**已全部再入**（X ≤ 0）→ 灰框 + **无 1/2/3 章联动** + 红色弹窗
+  if (X <= 0) {
+    var wasOff = (S.selGroup === lk);
+    S.selGroup = wasOff ? null : lk;
+    S.sel = [];
+    S.selGone = wasOff ? [] : gone.slice();        // 灰框：表格里把这些已再入行标出来
+    renderTable();                                // 只刷表格 —— 不调 afterSelection（那才是联动入口）
+    try { climbSelect('b:' + lk); } catch (e) {}   // A11：升轨章仍要切到该批次/组
+    if (!wasOff) showToast(t('d_sel_gone_all'), 'dead');
+    return;
+  }
+
+  var allSel = alive.every(function (i) { return S.sel.indexOf(i) >= 0; });
+  S.sel = allSel ? [] : alive;                     // 再次点击同一批次 = 取消（只针对仍在轨的）
+  S.selGone = allSel ? [] : gone.slice();          // 表格里的已再入行一并上灰框
   // V1.9.0（需求9）：只有"真的全选了"才提示；再点一次是取消，不该说"已全选"
   // V1.9.1（A3）：**单颗**（该条发射记录在库内只有 1 颗）改说「已选择」，且由 afterSelection
   //   统一负责 —— 这样"图上点选 / 表里点选 / 搜索选中 / 选择框选单星"四条路径共用同一句提示（Q12）。
-  if (!allSel && idxs.length > 1) showToast(t('d_sel_all'), false);
+  // V1.9.1（A11）：**多颗**时按定稿口径给出 X/T（仍在轨 / 原总部署颗数）——
+  //   用户看到的不只是"选了"，而是"选了 8/9 颗，还有 1 颗已再入"。
+  if (!allSel && alive.length > 1) {
+    showToast(t('d_sel_alive_a') + X + t('d_sel_alive_b') + T + t('d_sel_alive_c'), false);
+  }
   afterSelection();
 }
 function afterSelection() {

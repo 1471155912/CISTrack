@@ -2111,7 +2111,16 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
 //   app.js 整体是 IIFE，内部函数不挂 window，不注入就没法精确触发 selectGroup / 读 S.sel。
 {
   const HEAD_RE = /\(function \(\) \{\r?\n'use strict';/;
-  const INS = "\nwindow.__CISTRACK__ = {\n" +
+  const INS = "\n// V1.9.1（A11）：**合成「全部已再入」的批次** —— 真实数据里只有 1 颗已再入（63428），\n" +
+    "//   凑不出「整批都再入」的情形，而那条分支（灰框 + 红弹窗 + 无 1/2/3 章联动）必须被真正跑到。\n" +
+    "//   注入点选在主 IIFE 的最前面，此时 `var RAW = window.SATDATA;` **还没执行** → 直接改 window.SATDATA 有效。\n" +
+    "(function () {\n" +
+    "  var g = window.SATDATA.gw, DT = '2026-01-01';\n" +
+    "  var hit = [];\n" +
+    "  g.sats.forEach(function (s) { if (String(s.c).indexOf('26137') === 0) { s.st = 'r'; s.dt = DT; hit.push({ n: s.id, id: s.c, on: DT }); } });\n" +
+    "  if (hit.length) { g.goneCount = g.goneCount || {}; g.goneCount['26137'] = hit; }\n" +
+    "})();\n" +
+    "window.__CISTRACK__ = {\n" +
     "  selectGroup: function (lk) { return selectGroup(lk); },\n" +
     "  state: function () { return { sel: S.sel.slice(), selGroup: S.selGroup, selGone: S.selGone, climbPick: S.climbPick }; },\n" +
     "  tt: function (k) { return t(k); },\n" +
@@ -2164,11 +2173,17 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
   assert('A3：03 章批次下拉首项文案**未被改坏**（仍是「全部批次（N 颗）」）',
     !!opt0 && /^全部批次（\d+ 颗）$/.test(opt0.textContent.trim()), opt0 && opt0.textContent.trim());
 
-  // ② 整批全选（多颗）→ 绿药丸「已全选」
-  k3.selectGroup('25030');                       // 低轨02组：9 颗
+  // ② 整批全选（多颗）→ 绿药丸。
+  //    V1.9.1（A11）细化：发射记录/批次的选中提示要给出 **X/T**（仍在轨 / 原部署总颗数）——
+  //    用户看到的不只是"选了"，而是"选了 9/9 颗"（有卫星已再入时会显示 8/9）。
+  k3.selectGroup('25030');                       // 低轨02组：9 颗（全部在轨）
   let tst = k3.toast();
-  assert('A3：整批全选（多颗）→ 绿药丸「已全选」（不带动画期间新增的反色/补池类）',
-    !!tst && tst.txt === '已全选' && !/inv|pool-dead|pool-pend/.test(tst.cls), JSON.stringify(tst));
+  assert('A3+A11：整批全选（多颗）→ 绿药丸「已全选仍在轨卫星（X/T）」（不带动画期间新增的反色/补池类）',
+    (function () {
+      if (!tst) return false;
+      const m = tst.txt.match(/^已全选仍在轨卫星（(\d+)\/(\d+)）$/);
+      return !!m && +m[1] === +m[2] && !/inv|pool-dead|pool-pend/.test(tst.cls);
+    })(), JSON.stringify(tst));
 
   // ③ 只有单颗的批次 → 「已选择」
   k3.selectGroup('26158');                       // 试验星12：1 颗（69972）
@@ -2198,8 +2213,9 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
   // ⑥ Q12：单颗提示**收口在 afterSelection**（图上点选/表里点选/搜索选中/选择框选单星四条路径共用）
   assert('A3/Q12：单颗「已选择」收口在 afterSelection（四入口共用，漏一个就少一路）',
     /if \(S\.sel\.length === 1\) showToast\(t\('d_sel_one'\), false\);/.test(appSrc));
-  assert('A3/Q12：多颗提示只在 selectGroup 且**仅当 >1 颗**时弹（单颗交给 afterSelection）',
-    /if \(!allSel && idxs\.length > 1\) showToast\(t\('d_sel_all'\), false\);/.test(appSrc));
+  assert('A3/Q12：多颗提示只在 selectGroup 且**仅当 >1 颗在轨**时弹（单颗交给 afterSelection）',
+    /if \(!allSel && alive\.length > 1\) \{/.test(appSrc) &&
+    /d_sel_alive_a'\) \+ X \+ t\('d_sel_alive_b'\) \+ T \+ t\('d_sel_alive_c'\)/.test(appSrc));
 
   // ================================================================ V1.9.1（#4 / #5）
   // #5：升轨章的 B 窗（无 hover 设备的悬停预览件）删除 —— 它与可拖拽的 A 窗**重复显示同一份内容**，
@@ -2287,10 +2303,57 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
         //   往上再派发事件不会冒泡到 tbody（第一次就是这么白跑一条的）→ 必须重新查询。
         const tr2 = d3.querySelector('#tbody tr[data-idx]');
         tr2.dispatchEvent(new w3.MouseEvent('click', { bubbles: true }));
-        return !d3.querySelector('#tbody tr.gone-focus') && k3.state().selGone === null;
+        const s2 = k3.state();
+        return !d3.querySelector('#tbody tr.gone-focus') &&
+          Array.isArray(s2.selGone) && s2.selGone.length === 0;
       })());
     // 复原：清掉搜索，别影响后续断言
     ti.value = ''; ti.dispatchEvent(new w3.Event('input', { bubbles: true }));
+  }
+
+  // ================================================================ V1.9.1（A11）：发射记录表格的再入规则
+  {
+    // ⚠️ 卫星表格**分页**（每页 9~10 行）→ 直接数 `#tbody tr.focused` 会漏掉不在当前页的那几颗
+    //   （第一次就是这么误报的：同一批 4 颗里只有 2 颗落在当前页）。所以先用搜索把范围收窄到该批次，
+    //   这样"本次全部"必定在同一页里，统计才有意义。
+    const ti11 = d3.getElementById('tableSearch');
+    const setQ = q => { ti11.value = q; ti11.dispatchEvent(new w3.Event('input', { bubbles: true })); };
+
+    // ① **仍有卫星在轨**的情形：真实数据 25067（试验星06组）T=4 颗、其中 1 颗已再入 → 3/4
+    setQ('25067');
+    k3.selectGroup('25067');
+    let t11 = k3.toast();
+    assert('A11：仍有卫星在轨的发射记录 → 绿色「已全选仍在轨卫星（X/T）」（X<T 时如实显示）',
+      !!t11 && /^已全选仍在轨卫星（3\/4）$/.test(t11.txt) && !/inv|pool-dead/.test(t11.cls),
+      JSON.stringify(t11));
+    const s11 = k3.state();
+    assert('A11：1/2/3 章只高亮**仍在轨**的那些（已再入的绝不进 S.sel —— 否则会画出过期轨道）',
+      s11.sel.length === 3 && s11.selGone.length === 1, JSON.stringify(s11));
+    assert('A11：卫星表格里"本次全部都被选中"= 仍在轨的用主题色框 + 已再入的用灰框',
+      (function () {
+        const f = d3.querySelectorAll('#tbody tr.focused').length;
+        const g2 = d3.querySelectorAll('#tbody tr.gone-focus').length;
+        return f === 3 && g2 === 1;                // 3 在轨 + 1 已再入
+      })(), 'focused=' + d3.querySelectorAll('#tbody tr.focused').length +
+      ' goneFocus=' + d3.querySelectorAll('#tbody tr.gone-focus').length);
+
+    // ② **已全部再入**的情形：注入的 26137（低轨22组，9 颗全被标成已再入）
+    setQ('26137');
+    k3.selectGroup('26137');
+    t11 = k3.toast();
+    const s11b = k3.state();
+    assert('A11：该次发射**已全部再入** → 红色「该批次/组已全部再入」（Q29 定稿文案）',
+      !!t11 && t11.txt === '该批次/组已全部再入' && /pool-dead/.test(t11.cls), JSON.stringify(t11));
+    assert('A11：全部已再入 → 卫星表格**灰色**框选（9 颗全灰、无主题色框）',
+      (function () {
+        return d3.querySelectorAll('#tbody tr.gone-focus').length === 9 &&
+          d3.querySelectorAll('#tbody tr.focused').length === 0;
+      })(), 'goneFocus=' + d3.querySelectorAll('#tbody tr.gone-focus').length +
+      ' focused=' + d3.querySelectorAll('#tbody tr.focused').length);
+    assert('A11：全部已再入 → **无 1/2/3 章联动**（S.sel 保持空）', s11b.sel.length === 0, JSON.stringify(s11b));
+    assert('A11：全部已再入 → **升轨章仍切到该批次/组**（A11 的例外：这一条联动要保留）',
+      s11b.climbPick === 'b:26137', 'climbPick=' + s11b.climbPick);
+    setQ('');                                      // 复原搜索
   }
   dom3.window.close();
 }
