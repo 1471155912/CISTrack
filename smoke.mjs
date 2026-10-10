@@ -3385,6 +3385,169 @@ assert('V1.9.1（#9）：JS 起来后仍然接管（语言切换 / 真实历元�
     /var from = dir === 1 \? 'inset\(0 0 0 100%\)' : 'inset\(0 100% 0 0\)';/.test(appSrc));
 }
 
+// ============================================================================
+// V1.9.1 二轮：README 顶栏字标动图（assets/cistrack-logo.gif）的规格守卫
+// ----------------------------------------------------------------------------
+// 这张图是**确定性逐帧生成**的（不是录屏），所以它的每项参数都是硬事实、可以断言。
+// 一轮里踩过的两个坑各配一条守卫：
+//   ① 画布 2400×600 而字标只占 1485×220 → 四周 77% 是空白，看上去像套了个黑框；
+//   ② 红/蓝停留 1500ms vs 2500ms（1.67 倍）→ 节奏明显不均。
+// "回环无跳变"只有真解码才能验，所以这里内联一个最小 LZW 解码器
+//   （已与 Python/Pillow 的独立实现交叉比对，两者结论一致）。
+// ⚠️ GIF 帧描述符 = 分隔符(1)+left(2)+top(2)+w(2)+h(2)+packed(1) = **10** 字节，
+//    少算那个分隔符会让 left/top 全错位（本机就解析出过 w=11520 这种荒谬值）。
+{
+  const gp = B + 'assets/cistrack-logo.gif';
+  const gb = fs.existsSync(gp) ? fs.readFileSync(gp) : Buffer.alloc(0);
+
+  function gifParse(buf) {
+    const W = buf.readUInt16LE(6), H = buf.readUInt16LE(8);
+    let i = 13;
+    const gct = [];
+    if (buf[10] & 0x80) {
+      const n = 1 << ((buf[10] & 7) + 1);
+      for (let k = 0; k < n; k++) gct.push([buf[i + 3 * k], buf[i + 3 * k + 1], buf[i + 3 * k + 2]]);
+      i += 3 * n;
+    }
+    const frames = [];
+    let loop = null, delay = 0, transparent = null, disposal = 0;
+    while (i < buf.length) {
+      const b = buf[i];
+      if (b === 0x3B) break;
+      if (b === 0x21) {
+        const label = buf[i + 1];
+        i += 2;
+        const size = buf[i];
+        if (label === 0xF9) {
+          const packed = buf[i + 1];
+          delay = buf.readUInt16LE(i + 2) * 10;
+          transparent = (packed & 1) ? buf[i + 4] : null;
+          disposal = (packed >> 2) & 7;
+        } else if (label === 0xFF && buf.toString('latin1', i + 1, i + 12) === 'NETSCAPE2.0') {
+          loop = buf.readUInt16LE(i + 1 + size + 2);
+        }
+        i += 1 + size;
+        while (buf[i] !== 0) i += buf[i] + 1;
+        i += 1;
+      } else if (b === 0x2C) {
+        const left = buf.readUInt16LE(i + 1), top = buf.readUInt16LE(i + 3);
+        const w = buf.readUInt16LE(i + 5), h = buf.readUInt16LE(i + 7);
+        const packed = buf[i + 9];
+        i += 10;
+        let pal = gct;
+        if (packed & 0x80) {
+          const n = 1 << ((packed & 7) + 1);
+          pal = [];
+          for (let k = 0; k < n; k++) pal.push([buf[i + 3 * k], buf[i + 3 * k + 1], buf[i + 3 * k + 2]]);
+          i += 3 * n;
+        }
+        const minCode = buf[i]; i += 1;
+        const chunks = [];
+        while (buf[i] !== 0) { chunks.push(buf.slice(i + 1, i + 1 + buf[i])); i += buf[i] + 1; }
+        i += 1;
+        frames.push({ left, top, w, h, pal, indices: gifLzw(minCode, Buffer.concat(chunks), w * h), delay, transparent, disposal });
+      } else i += 1;
+    }
+    return { W, H, frames, loop, gct };
+  }
+
+  function gifLzw(minCode, data, expected) {
+    const CLEAR = 1 << minCode, EOI = CLEAR + 1;
+    let codeSize = minCode + 1, dict = [], prev = null;
+    const out = new Uint8Array(expected);
+    let n = 0, bit = 0, total = data.length * 8;
+    const reset = () => {
+      dict = [];
+      for (let k = 0; k < CLEAR; k++) dict.push([k]);
+      dict.push(null, null);
+      codeSize = minCode + 1;
+    };
+    reset();
+    while (bit + codeSize <= total) {
+      let code = 0;
+      for (let k = 0; k < codeSize; k++) code |= ((data[(bit + k) >> 3] >> ((bit + k) & 7)) & 1) << k;
+      bit += codeSize;
+      if (code === CLEAR) { reset(); prev = null; continue; }
+      if (code === EOI) break;
+      const entry = (code < dict.length && dict[code]) ? dict[code] : (prev ? prev.concat(prev[0]) : null);
+      if (!entry) break;
+      for (let k = 0; k < entry.length && n < out.length; k++) out[n++] = entry[k];
+      if (prev) {
+        dict.push(prev.concat(entry[0]));
+        if (dict.length === (1 << codeSize) && codeSize < 12) codeSize++;
+      }
+      prev = entry;
+    }
+    return out;
+  }
+
+  // 按 disposal 规则合成出完整像素（GIF 用的是增量帧 + 局部调色板，不能只看帧矩形）
+  function gifCompose(g) {
+    const { W, H, frames } = g;
+    const canvas = new Uint8Array(W * H).fill(255);
+    const shots = [];
+    for (const f of frames) {
+      for (let y = 0; y < f.h; y++) {
+        for (let x = 0; x < f.w; x++) {
+          const src = f.indices[y * f.w + x];
+          if (f.transparent !== null && src === f.transparent) continue;
+          const px = f.left + x, py = f.top + y;
+          if (px < W && py < H) canvas[py * W + px] = src;
+        }
+      }
+      shots.push(Buffer.from(canvas));
+      if (f.disposal === 2) {
+        for (let y = 0; y < f.h; y++) {
+          for (let x = 0; x < f.w; x++) {
+            const px = f.left + x, py = f.top + y;
+            if (px < W && py < H) canvas[py * W + px] = 255;
+          }
+        }
+      }
+    }
+    return shots;
+  }
+
+  const g = gifParse(gb);
+  const durs = g.frames.map(f => f.delay);
+  const total = durs.reduce((a, b) => a + b, 0);
+  const longDurs = durs.filter(x => x >= 500);
+
+  assert('字标动图：画布已紧凑裁切 —— 1581×292（不再是 2400×600 那种四周 77% 空白的大黑框）',
+    g.W === 1581 && g.H === 292, g.W + 'x' + g.H);
+  assert('字标动图：无限循环（NETSCAPE 扩展块 loop=0，不是有次数上限）',
+    g.loop === 0, 'loop=' + g.loop);
+  assert('字标动图：周期 4.88s（与源帧节奏一致，不再是 4.00s）',
+    total === 4880, total + 'ms');
+  assert('字标动图：红/蓝两次停留**等长**（各约 2s，差值 ≤40ms）—— 旧图是 1.5s vs 2.5s（1.67 倍）',
+    longDurs.length === 2 && Math.abs(longDurs[0] - longDurs[1]) <= 40,
+    JSON.stringify(longDurs));
+  assert('字标动图：两段扫过帧数对称（各约 22 帧 / 440ms）',
+    g.frames.length === 45,
+    g.frames.length + ' 帧');
+
+  // ★ 回环无跳变：只有"首末帧逐像素相同"才能保证循环点上看不出接缝。
+  //   首帧是整幅（全画布），末帧是收尾的小块增量帧；两者**合成后**必须完全一致。
+  const shots = gifCompose(g);
+  const first = shots[0], last = shots[shots.length - 1];
+  assert('字标动图：回环点无跳变 —— 首帧与末帧逐像素相同（无缝无限循环）',
+    first.equals(last),
+    '首帧 ' + first.length + ' 像素 vs 末帧 ' + last.length);
+  // 交叉校验：回环点上两帧都是"纯红"，即红停留横跨循环点
+  assert('字标动图：循环点两侧都是纯红静止态（红停留跨越回环点）',
+    g.frames[0].delay >= 2000 && g.frames[g.frames.length - 1].delay === 20);
+
+  const rdZh = fs.existsSync(B + 'README.md') ? fs.readFileSync(B + 'README.md', 'utf8') : '';
+  const rdEn = fs.existsSync(B + 'README.en.md') ? fs.readFileSync(B + 'README.en.md', 'utf8') : '';
+  assert('README（双语）：顶部都插入了这张动图，且路径指向 assets/',
+    /<img src="assets\/cistrack-logo\.gif"[^>]*width="720">/.test(rdZh) &&
+    /<img src="assets\/cistrack-logo\.gif"[^>]*width="720">/.test(rdEn));
+  assert('README（双语）：都不再引用已废弃的 shots/ 目录（那目录既被 gitignore、又是构建清理区）',
+    !/shots\//.test(rdZh) && !/shots\//.test(rdEn));
+  assert('README（双语）：仓库结构说明里列出了 assets/',
+    /^assets\//m.test(rdZh) && /^assets\//m.test(rdEn));
+}
+
 $('#themeBtn').dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
 
 
