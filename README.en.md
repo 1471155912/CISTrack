@@ -211,6 +211,15 @@ Loading degrades through **three levels**: external published shards → a bundl
 3. The source store has capacity governance as a backstop (≤3000 points per satellite, 24 MB per store), so it can never grow without bound;
 4. A newly launched batch appears in the index automatically — no code change needed.
 
+**If a batch's curve does not show up** (its history holds only one or two isolated points), the history is
+"too thin" rather than missing — run `node scripts/fetch_history.mjs --missing`. It **finds by itself**
+the satellites whose history span is less than half their time in orbit, and **queries only their own
+year windows** (measured: 33 satellites → 13 requests; the older `--net` rescanned all 50 blocks across
+their whole year range, 200–400 requests). Add `--net` to actually go online (a Space-Track account is
+needed; credentials come from the `SPACETRACK_USER` / `SPACETRACK_PASS` environment variables and are
+never written to disk); without it the raw message pool in `data/history_cache/` is re-parsed **offline**
+with 0 requests. Run `--prune` afterwards for capacity governance.
+
 ## 📊 Data sources
 
 - [CelesTrak](https://celestrak.org/) — public orbital elements (TLEs) from the NORAD space-object catalogue
