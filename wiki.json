@@ -1,24 +1,21 @@
 {
- "_readme": "改这里就能更新网页顶部的词条计数（launched=已发射, inOrbit=在轨, launches=发射成功/总）。改完保存，访客刷新即可看到。",
- "asOf": "2026-10-09",
- "checkedAt": "2026-10-09 16:00",
  "gw": {
-  "asOf": "2026-10-09",
+  "asOf": "2026-10-10",
   "article": "星网",
   "launched": {
-   "n": 248,
-   "zh": "试验星32+高轨业务星3+低轨业务星213",
-   "en": "test 32 + GEO service 3 + LEO service 213"
+   "n": 257,
+   "zh": "试验星32+高轨业务星3+低轨业务星222",
+   "en": "test 32 + GEO service 3 + LEO service 222"
   },
   "inOrbit": {
-   "n": 244,
-   "zh": "试验星28+高轨业务星3+低轨业务星213",
-   "en": "test 28 + GEO service 3 + LEO service 213"
+   "n": 253,
+   "zh": "试验星28+高轨业务星3+低轨业务星222",
+   "en": "test 28 + GEO service 3 + LEO service 222"
   },
-  "launches": "40/41"
+  "launches": "41/42"
  },
  "qf": {
-  "asOf": "2026-10-09",
+  "asOf": "2026-10-10",
   "article": "千帆星座",
   "launched": {
    "n": 262,
@@ -31,5 +28,8 @@
    "en": "test 6, network 256, theoretical"
   },
   "launches": "19/19"
- }
+ },
+ "_readme": "改这里就能更新网页顶部的词条计数（launched=已发射, inOrbit=在轨, launches=发射成功/总）。改完保存，访客刷新即可看到。",
+ "asOf": "2026-10-10",
+ "checkedAt": "2026-10-10 04:00"
 }
