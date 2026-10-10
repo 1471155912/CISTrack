@@ -223,6 +223,8 @@ var I18N = {
   climb_none: ['本章暂无历史轨道数据', 'No historical orbit data yet'],
   climb_n_sats: ['曲线', 'curves'],
   climb_n_hist: ['历史点', 'points'],
+  // V1.9.1（A1）：信息窗最末行 —— 当前节点相比该星**前一个历史节点**的半长轴变化量
+  climb_delta: ['轨道高度变更', 'Altitude change'],
   climb_take_sma: ['半长轴（离地高度）', 'Semi-major axis (altitude)'],
   climb_take_rate: ['升轨速度（±2 天最小二乘）', 'Climb rate (±2 d least squares)'],
   climb_y_alt: ['离地高度, km', 'Altitude, km'],
@@ -8681,6 +8683,21 @@ function climbBuild() {
   CLIMB = { key: S.key, data: out };
   return out;
 }
+// ---- V1.9.1（A1）：信息窗「轨道高度变更」用的 Δ —— 当前节点 vs 该星**前一个历史节点**
+//   单位 km。注意**半长轴的变化量与离地高度的变化量数值相等**（两者只差一个常数 6378.137），
+//   所以这里算 v 之差即可，不必先换算成高度。
+//   边界（用户口径）：该节点是这颗星的**第一个**点时没有"前一个节点" → 返回 null（上层显示 `—`、灰）。
+function climbDeltaAt(c, ms) {
+  if (!c || !c.pts) return null;
+  for (var i = 1; i < c.pts.length; i++) {
+    if (c.pts[i].ms === ms) return c.pts[i].v - c.pts[i - 1].v;
+  }
+  return null;                                     // i=0（第一个点）或没匹配上
+}
+// 变化量的颜色（站内既有色值）：正=绿 / 负=黄 / 0=灰
+function climbDeltaColor(d) {
+  return d > 0 ? '#2f9e44' : (d < 0 ? '#f59f00' : 'var(--dim)');
+}
 function climbCurve() { return climbBuild(); }
 // ---- V1.9.1（#4）：**每星一色** ----
 // 为什么用黄金角（137.508°）而不用"360/n 均匀分布"：
@@ -9112,6 +9129,13 @@ function climbShowInfoAt(h) {
       fmtNum(take === 'rate' ? h.v : h.v + CLIMB_RE, take === 'rate' ? 3 : 2) + ' km</span></div>');
     var hist = c ? c.pts.length : 0;
     rows.push('<div class="si-row"><span>' + t('climb_n_hist') + '</span><span>' + hist + '</span></div>');
+    // V1.9.1（A1）：**最末行**「轨道高度变更」= 当前节点 vs 该星前一个历史节点的半长轴变化量。
+    //   保留两位小数、正数带 `+`；正=绿 / 负=黄 / 0=灰（站内既有色值）。
+    //   该节点是第一个点 → `—`（灰，不给颜色 —— 用 var(--dim) 与"0"同色，语义是"无前一个节点可比"）。
+    var dc = climbDeltaAt(c, h.ms);
+    rows.push('<div class="si-row"><span>' + t('climb_delta') + '</span><span' +
+      (dc == null ? ' style="color:var(--dim)"' : ' style="color:' + climbDeltaColor(dc) + '"') + '>' +
+      (dc == null ? '—' : (dc > 0 ? '+' : '') + fmtNum(dc, 2) + 'km') + '</span></div>');
   }
   showInfo(climbInfo, 'climb', '<div class="si-block">' + rows.join('') + '</div>', 'climb-' + h.norad + '-' + h.ms);
   var el = document.getElementById('climbCv');

@@ -2130,6 +2130,11 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
     "  climbHues: function () { var m = climbColorMap(climbSeries().list), o = {}; for (var k in m) o[k] = m[k]; return o; },\n" +
     "  climbList: function () { return climbSeries().list.map(function (c) { return { n: c.norad, lk: c.lk }; }); },\n" +
     "  drawClimb: function () { return drawClimb(); },\n" +
+    // V1.9.1（A1）：信息窗新行的验证入口
+    "  climbFind: function (n) { var s = climbSeries().list.filter(function (c) { return c.norad === n; })[0];\n" +
+    "    return s ? { n: s.norad, pts: s.pts.map(function (p) { return { ms: p.ms, v: p.v }; }) } : null; },\n" +
+    "  climbInfoAt: function (n, i) { var s = climbSeries().list.filter(function (c) { return c.norad === n; })[0];\n" +
+    "    climbShowInfoAt({ norad: s.norad, ms: s.pts[i].ms, v: s.pts[i].v }); },\n" +
     "  toast: function () { var e = document.getElementById('selToast'); return e ? { txt: e.textContent, cls: e.className } : null; }\n" +
     "};\n";
   const hm = HEAD_RE.exec(html);
@@ -2311,6 +2316,48 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
     ti.value = ''; ti.dispatchEvent(new w3.Event('input', { bubbles: true }));
   }
 
+  // ================================================================ V1.9.1（A1）：信息窗「轨道高度变更」行
+  // 规范：升轨章信息窗（A 窗）**最末行**；值 = 当前节点 vs 该星**前一个历史节点**的半长轴变化量；
+  //   两位小数、正数带 `+`；正=绿 #2f9e44 / 负=黄 #f59f00 / 0=灰 var(--dim)；首点无"前一个" → `—`。
+  {
+    k3.setClimbPick('b:26137');                   // 低轨22组：实测该批在**上升**（Δ 为正）→ 可验证绿
+    const poi = k3.climbFind(69572);
+    const lastRow = () => {
+      const rs = [...d3.querySelectorAll('#climbInfo .si-row')];
+      const r = rs[rs.length - 1];
+      return { txt: r.textContent.trim(), style: r.querySelectorAll('span')[1].getAttribute('style') || '' };
+    };
+    assert('A1：该行在信息窗**最末**（「历史点数」之后）—— 行首文案是「轨道高度变更」',
+      (function () {
+        k3.climbInfoAt(69572, 1);
+        const rs = [...d3.querySelectorAll('#climbInfo .si-row')].map(r => r.textContent.trim());
+        return rs[rs.length - 1].indexOf('轨道高度变更') === 0 &&
+          rs[rs.length - 2].indexOf(k3.tt('climb_n_hist')) === 0;
+      })(), JSON.stringify([...d3.querySelectorAll('#climbInfo .si-row')].map(r => r.textContent.trim()).slice(-2)));
+    assert('A1：第一个节点时显示 `—`（灰：color:var(--dim)）',
+      (function () { k3.climbInfoAt(69572, 0); const r = lastRow(); return /—$/.test(r.txt) && /var\(--dim\)/.test(r.style); })(),
+      JSON.stringify((function () { k3.climbInfoAt(69572, 0); return lastRow(); })()));
+    assert('A1：正变化 → 带 `+`、两位小数、**绿色** #2f9e44，且数值 = 与前一节点之差',
+      (function () {
+        k3.climbInfoAt(69572, 1);
+        const r = lastRow(), exp = (poi.pts[1].v - poi.pts[0].v);
+        return r.txt === '轨道高度变更+' + exp.toFixed(2) + 'km' && /#2f9e44/.test(r.style);
+      })(), JSON.stringify((function () { k3.climbInfoAt(69572, 1); return lastRow(); })()));
+    assert('A1：负变化 → 保留 `-`、两位小数、**黄色** #f59f00（换一个实测在降轨的批次）',
+      (function () {
+        k3.setClimbPick('b:25067');               // 试验星06组：实测在**下降**
+        const p2 = k3.climbFind(63429);
+        k3.climbInfoAt(63429, 1);
+        const r = lastRow(), exp = (p2.pts[1].v - p2.pts[0].v);
+        return exp < 0 && r.txt === '轨道高度变更' + exp.toFixed(2) + 'km' && /#f59f00/.test(r.style);
+      })(), JSON.stringify((function () { k3.climbInfoAt(63429, 1); return lastRow(); })()));
+    assert('A1：色值口径与源码一致（三个色值都写在同一处 climbDeltaColor，不散落）',
+      /function climbDeltaColor\(d\) \{\s*\n\s*return d > 0 \? '#2f9e44' : \(d < 0 \? '#f59f00' : 'var\(--dim\)'\);/.test(appSrc));
+    assert('A1：i18n 中英同步（climb_delta = 轨道高度变更 / Altitude change）',
+      k3.tt('climb_delta') === '轨道高度变更' && /climb_delta: \['轨道高度变更', 'Altitude change'\]/.test(appSrc));
+    k3.setClimbPick('b:24240');                   // 复原，别影响后面的断言
+  }
+
   // ================================================================ V1.9.1（A11）：发射记录表格的再入规则
   {
     // ⚠️ 卫星表格**分页**（每页 9~10 行）→ 直接数 `#tbody tr.focused` 会漏掉不在当前页的那几颗
@@ -2375,6 +2422,10 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
     })());
   assert('V1.9.1：mkdata 输出 wiki.json 的字段顺序与末尾换行都与仓库版一致（否则每次构建都是无意义 diff）',
     /JSON.stringify\(WIKI_JSON, null, 1\) \+ '\\n'/.test(fs.readFileSync(B + '/mkdata.mjs', 'utf8')));
+  // ★ V1.9.1：`history/` 同样要防"陈旧产物覆盖已发布数据"—— 与上面 wiki.json 是**同一类**问题
+  //   （build/history 是 mkdata 的产物，却是**已发布 history/ 的输入**）。实测倒退过 30 个点、还删了一个分片。
+  assert('V1.9.1：build.mjs 有 history/ "陈旧检测"（数据源比打包产物新则拒绝覆盖）',
+    /newestSrc > packTime/.test(bc) && /拒绝覆盖/.test(bc) && /CISTRACK_ALLOW_STALE_HISTORY/.test(bc));
 }
 
 $('#themeBtn').dispatchEvent(new w.MouseEvent('click', { bubbles: true }));

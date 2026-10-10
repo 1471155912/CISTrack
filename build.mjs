@@ -95,25 +95,50 @@ if (fs.existsSync(wj)) {
 {
   const src = `${B}/build/history`, dst = `${B}/history`;
   if (fs.existsSync(src)) {
-    // 清掉旧产物目录再复制。rmSync 在个别环境（安全删除钩子回收竞态）可能抛错，
-    // 这里降级为「逐文件覆盖 + 兜底移走」，保证复制本身总能完成。
-    try {
-      fs.rmSync(dst, { recursive: true, force: true });
-    } catch (e) {
-      console.log('  rmSync 旧 history/ 失败，降级为逐文件覆盖（' + (e.message || '').slice(0, 60) + '）');
+    // ★ V1.9.1：**陈旧检测**（与下面 wiki.json 的"不倒退"守卫同一类问题）。
+    //   `history/` 是**已发布**的产物，而 `build/history` 是 mkdata 的产物 —— 它可能比数据源旧：
+    //   "只跑 build、没跑 mkdata"（或跨机器拉过数据后）时，复制会把已发布的 `history/` **倒退**。
+    //   2026-10-10 实测：CI 刚发布 gw 8154 点，本地 build/history 只有 8124 点，复制后
+    //   **倒退了 30 个点、并删掉了一个分片文件**（gw-24181.json）—— 而 build 全程没有任何提示。
+    //   判据用**文件的最后修改时间**而不是点数：点数在容量治理（prune）后**合法地**会变小，
+    //   拿它当判据会误报；而"数据源比打包产物还新"则明确意味着**该重新打包**。
+    const newestSrc = (() => {
+      let mx = 0;
+      for (const f of fs.readdirSync(`${B}/data/history`)) {
+        if (f.endsWith('.bak')) continue;
+        try { const m = fs.statSync(`${B}/data/history/${f}`).mtimeMs; if (m > mx) mx = m; } catch (e) {}
+      }
+      return mx;
+    })();
+    const packTime = (() => {
+      try { return fs.statSync(`${src}/index-gw.json`).mtimeMs; } catch (e) { return Infinity; }
+    })();
+    if (newestSrc > packTime && !process.env.CISTRACK_ALLOW_STALE_HISTORY) {
+      console.log('!! history/ **拒绝覆盖**：数据源 data/history 比打包产物 build/history 还新' +
+        '（差 ' + ((newestSrc - packTime) / 60000).toFixed(1) + ' 分钟）——');
+      console.log('   先跑 `node mkdata.mjs` 重新打包再构建；否则会把**已发布的 history/ 倒退**。');
+      console.log('   确实要强制覆盖：设 CISTRACK_ALLOW_STALE_HISTORY=1。');
+    } else {
+      // 清掉旧产物目录再复制。rmSync 在个别环境（安全删除钩子回收竞态）可能抛错，
+      // 这里降级为「逐文件覆盖 + 兜底移走」，保证复制本身总能完成。
+      try {
+        fs.rmSync(dst, { recursive: true, force: true });
+      } catch (e) {
+        console.log('  rmSync 旧 history/ 失败，降级为逐文件覆盖（' + (e.message || '').slice(0, 60) + '）');
+      }
+      fs.mkdirSync(dst, { recursive: true });
+      let n = 0, kb = 0;
+      for (const f of fs.readdirSync(src)) {
+        fs.copyFileSync(`${src}/${f}`, `${dst}/${f}`);
+        n++; kb += fs.statSync(`${dst}/${f}`).size;
+      }
+      // 复制完成后，清掉「新分片里已不存在」的陈旧文件，避免历史文件越积越多
+      const keep = new Set(fs.readdirSync(src));
+      for (const f of fs.readdirSync(dst)) {
+        if (!keep.has(f)) { try { fs.rmSync(`${dst}/${f}`, { force: true }); } catch (e) {} }
+      }
+      console.log(`copied history/ → ${n} files, ${(kb / 1024).toFixed(1)} KB`);
     }
-    fs.mkdirSync(dst, { recursive: true });
-    let n = 0, kb = 0;
-    for (const f of fs.readdirSync(src)) {
-      fs.copyFileSync(`${src}/${f}`, `${dst}/${f}`);
-      n++; kb += fs.statSync(`${dst}/${f}`).size;
-    }
-    // 复制完成后，清掉「新分片里已不存在」的陈旧文件，避免历史文件越积越多
-    const keep = new Set(fs.readdirSync(src));
-    for (const f of fs.readdirSync(dst)) {
-      if (!keep.has(f)) { try { fs.rmSync(`${dst}/${f}`, { force: true }); } catch (e) {} }
-    }
-    console.log(`copied history/ → ${n} files, ${(kb / 1024).toFixed(1)} KB`);
   } else {
     console.log('history/ 未生成（跳过复制）');
   }
