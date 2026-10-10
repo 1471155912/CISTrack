@@ -1037,7 +1037,8 @@ assert('V1.7.2r7（新需求A）：导出图底栏不再拼「数据更新」，
     const bar = appSrc.match(/function drawShotBar\([\s\S]*?\n\}/);
     return !!bar && !/d_dataupd/.test(bar[0]);
   })() &&
-  /var rest = \[VERSION, st\.name, title, timePart\]\.join\(' \| '\);/.test(appSrc) &&
+  // V1.9.1（A14）：星座名改走 t('shot_' + S.key)（英文图不再漏出中文名）→ 断言同步
+  /var rest = \[VERSION, t\('shot_' \+ S\.key\), title, timePart\]\.join\(' \| '\);/.test(appSrc) &&
   /\[' \+ t\('d_row_epoch_sat'\) \+ ' ' \+ fmtUTC\(s\.epochMs\) \+ '\]'/.test(appSrc));
 // 需求2：卫星百科更新行
 assert('需求2：第0章概况「首发发射」下新增「卫星百科更新 / Satwiki info update」，格式与上一行一致',
@@ -1345,7 +1346,9 @@ assert('V1.7.2r7（新需求A）：信息窗 satBlock 只输出「该星历元�
     return /d_row_epoch_sat/.test(body) && !/d_dataupd/.test(body);
   })());
 assert('V1.7.2r7（新需求A）：导出底栏 rest 里不再拼 TLE更新时间',
-  /var rest = \[VERSION, st\.name, title, timePart\]\.join\(' \| '\);/.test(appCode));
+  // V1.9.1（A14）：星座名由 st.name 改为 t('shot_' + S.key)（英文图不再漏出中文名）→ 断言同步
+  /var rest = \[VERSION, t\('shot_' \+ S\.key\), title, timePart\]\.join\(' \| '\);/.test(appCode) &&
+  !/var rest = \[[^\]]*d_dataupd/.test(appCode));
 // 需求3：标题上端间距 = 药丸上端到顶栏下边缘
 assert('V1.7.2r7（需求3）：layoutTitleGap 用文档坐标换算（滚动中重算也不会得出荒唐值）',
   /function layoutTitleGap\(\)/.test(appCode) &&
@@ -1536,11 +1539,13 @@ assert('V1.9.0（R17）：五张图的缩放/复位走同一套通用通路（05
   /view === 'climb'\) \{[\s\S]{0,200}?smoothZoom\(function \(f\) \{ zoomClimbBy\(f\); \}, dir, 260\);/.test(appCode) &&
   /view === 'climb'\) \{ climbView = null; climbAutoView\(\); drawClimb\(\); \}/.test(appCode) &&
   /data-zoom="in" data-view="climb"/.test(tplCode) && !/data-climbzoom/.test(tplCode));
-assert('V1.9.0（R17）：导出图片支持本章，且底栏带**升轨速度列**',
+assert('V1.9.0（R17）+ V1.9.1（A2）：导出图片支持本章，底栏为**六段新结构**（A2 已取代 R17 的升轨速度列）',
   /view === 'climb' \? 'climbCv'/.test(appCode) &&
   /climb: \{ zh: '变轨情况', en: 'Orbits Change' \}/.test(appCode) &&
   /if \(view === 'climb'\) drawClimb\(\);/.test(appCode) &&
-  /view === 'climb'\) \{[\s\S]{0,900}?km\/天/.test(appCode.replace(/^\s*\/\/.*$/gm, '')));
+  // A2 第 4/5 段（节点：时间/高度/倾角）与第 6 段（Δ/间隔）都在 climb 分支里
+  /if \(view === 'climb'\) \{[\s\S]{0,2600}?shotNodeDate\(p\.ms\)/.test(appCode.replace(/^\s*\/\/.*$/gm, '')) &&
+  !/km\/天/.test((appCode.match(/if \(view === 'climb'\) \{[\s\S]{0,2000}?\n  \}/) || [''])[0]));
 assert('V1.9.0（R17）：最小二乘**必须中心化 x**（毫秒时间戳直接平方会抵消，误差 2.9e-9）',
   /function climbSlope\(pts\)[\s\S]{0,900}?var dx = \(pts\[i\]\.ms - t0\) - xm;/.test(appCode));
 assert('V1.9.0（R17）：纵轴 0~2000km **顶格限位**（需求 Q47），且离地高度 = 半长轴 − 6378.137',
@@ -1573,7 +1578,7 @@ assert('V1.9.0（R17）：本章两项按星座各存一份，且纳入章级/�
 //   把"重建缓存 + 复位固定态 + 收起信息窗 + 重画"四件事一起要求（原意不减，且新增了后两件）。
 assert('V1.9.0（R17）+ V1.9.1（A20）：切星座时重建曲线缓存**并**复位固定态、收起旧信息窗',
   /CLIMB = null; climbView = null; climbHover = null;/.test(appCode) &&
-  /climbPinned = false;\s*\n\s*if \(climbInfo\) hideInfo\(climbInfo, 'climb'\);\s*\n\s*climbAutoView\(\); renderClimbSel\(\); renderClimbTake\(\); drawClimb\(\);/.test(appCode));
+  /climbPinned = false;\s*\n\s*climbPickNode = null;[\s\S]{0,80}?if \(climbInfo\) hideInfo\(climbInfo, 'climb'\);\s*\n\s*climbAutoView\(\); renderClimbSel\(\); renderClimbTake\(\); drawClimb\(\);/.test(appCode));
 assert('V1.9.0（R17）：章级过场映射含 05 章（默认设置按钮走 playSectionCurtain）',
   /climb: 'sec-climb'/.test(appCode) && /data-defsec="climb"/.test(tplCode));
 assert('V1.9.0（R17）：i18n 三段式键位齐备（缺一个就会把键名当文字画在页面上）',
@@ -2257,6 +2262,15 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
     "  climbSelValue: function () { var s = document.getElementById('climbSel'); return s ? s.value : null; },\n" +
     "  climbSelText: function () { var s = document.getElementById('climbSel'); return s ? s.options[s.selectedIndex].textContent : null; },\n" +
     "  climbSelect: function (v) { climbSelect(v); },\n" +
+    // V1.9.1（A2）：导出底栏六段（真值验证：不进 canvas，直接看数据）
+    "  shotLines: function (v) { return shotSatLines(v || 'climb'); },\n" +
+    "  pickNode: function (n, ms) { climbPickNode = (n == null) ? null : { norad: n, ms: ms }; },\n" +
+    "  pickNow: function () { return climbPickNode; },\n" +
+    // V1.9.1（A4）：导出底栏的行色（源码级核对之外的行为验证）
+    "  shotInk: function () { return shotInk(); },\n" +
+    "  dayWord: function (n) { return shotDayWord(n); },\n" +
+    "  nodeDate: function (ms) { return shotNodeDate(ms); },\n" +
+    "  lang: function (v) { if (v) LANG = v; return LANG; },\n" +
     // V1.9.1（A18/Q41）：02 章 3D 球体的「分段夸张」—— 暴露真实函数与常量（源码守卫之外的行为验证）
     "  globeRad: function (r) { return +globeRad(r).toFixed(6); },\n" +
     "  globeHi: function () { return { knee: HI_KNEE_R, kneeY: +HI_KNEE_Y.toFixed(6), ref: HI_REF_R, refY: HI_REF_Y, ex: ALT_EXAG, RE: RE }; },\n" +
@@ -2979,9 +2993,140 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
       })());
     assert('A20：单击分支里**同时**做了 toggleSel 与"显示+固定"（对齐 05 章的 netPinned 写法）',
       /climbPinned = true;\s*\n\s*climbShowInfoAt\(h\);/.test(appSrc) &&
-      /climbPinned = false;\s*\n\s*if \(climbInfo\) hideInfo\(climbInfo, 'climb'\);/.test(appSrc));
+      /climbPinned = false;[\s\S]{0,120}?if \(climbInfo\) hideInfo\(climbInfo, 'climb'\);/.test(appSrc));
   }
 
+
+  // ================================================================ V1.9.1（A2）：导出底栏六段结构
+  // 「批次/组」之后 = 第4段（点选节点：YYYY-MM-DD/高度km/倾角°）+ 第5段（最新节点，同格式）
+  //   + 第6段（最新 vs 次新：±Δ半长轴km/间隔+天词，颜色同页面内规则）。
+  //   Q8：只填被点选的那一行，其余三段一律破折号。Q9/Q16：中文「天」/ 英文 day(1) / days(>1)。
+  //   同时 A2 取代了 R17 的「升轨速度列」——那条列不再出现在导出图里。
+  {
+    assert('A2：第 4/5/6 段就位（+ 新增会话态记录"最后点选的节点"）',
+      /var climbPickNode = null;/.test(appSrc) &&
+      /climbPickNode = \{ norad: h\.norad, ms: h\.ms \};/.test(appSrc));
+    assert('A2：点选态是纯会话态（刻意不放 S，避免被 prefSnap 落盘带出去）',
+      !/climbPickNode:/.test((appSrc.match(/var S = \{[\s\S]*?\n\};/) || [''])[0]));
+    assert('A2：换曲线 / 换星座 / 点空白 → 点选态一律清掉（导出图必须回到破折号）',
+      // 3 处复位（换星座 / 换曲线 / 点空白）+ 1 处声明
+      (appSrc.match(/climbPickNode = null;/g) || []).length === 4,
+      '出现 ' + (appSrc.match(/climbPickNode = null;/g) || []).length + ' 次（期望 3 复位 + 1 声明）');
+    assert('A2：天数词按 Q16（英文 1→day / >1→days；中文恒为「天」）',
+      k3.dayWord(0) === '天' && k3.dayWord(1) === '天' && k3.dayWord(9) === '天',
+      'zh: ' + [0, 1, 9].map(n => k3.dayWord(n)).join(','));
+
+    // —— 取一条真实曲线，走"未点选 → 点选 → 点选已失效"三个阶段，逐段核对内容 ——
+    const rows0 = k3.shotLines('climb');
+    assert('A2：每行都是六段（名称 | NORAD | 批次/组 | 选择节点 | 最新节点 | Δ/间隔）',
+      rows0.length > 0 && rows0.every(r => r.segs && r.segs.length === 6),
+      '行数=' + rows0.length + ' 段数=' + (rows0[0] ? rows0[0].segs.length : '-'));
+    assert('A2（Q8）：未点选任何节点时，第 4/5/6 段全是破折号（不越权替用户选）',
+      rows0.every(r => r.segs[3].t === '—' && r.segs[4].t === '—' && r.segs[5].t === '—'),
+      JSON.stringify(rows0[0].segs.map(x => x.t)));
+    assert('A2：整行不含旧的「升轨速度列」（A2 明确取代 R17 的两段）',
+      rows0.every(r => r.segs.map(x => x.t).join('|').indexOf('km/天') < 0 &&
+        r.segs.map(x => x.t).join('|').indexOf('km/d') < 0));
+
+    // 点选"该批次里第一颗星"的第 2 个节点（保证它一定有前一个点 → 第 6 段才有值）
+    const first = k3.climbList()[0];
+    const pts = k3.climbFind(first.n).pts;
+    const pickIdx = pts.length >= 2 ? 1 : 0;
+    k3.pickNode(first.n, pts[pickIdx].ms);
+    const rows1 = k3.shotLines('climb');
+    const mine = rows1.filter(r => r.segs[1].t === String(first.n))[0];
+    const others = rows1.filter(r => r.segs[1].t !== String(first.n));
+    assert('A2（Q8）：只填被点选的那一行，其余行仍全为破折号',
+      mine.segs[3].t !== '—' && mine.segs[4].t !== '—' && mine.segs[5].t !== '—' &&
+      others.every(r => r.segs[3].t === '—' && r.segs[4].t === '—' && r.segs[5].t === '—'),
+      'mine=' + JSON.stringify(mine.segs.map(x => x.t)) + ' 其余行=' + others.length);
+    assert('A2：第 4 段 = 点选的那个节点（日期/高度km/倾角°，形如 2026-09-10/960.32km/50.9°）',
+      /^\d{4}-\d{2}-\d{2}\/\d+(\.\d{1,2})?km\/\d+(\.\d)?°$/.test(mine.segs[3].t) &&
+      mine.segs[3].t.slice(0, 10) === k3.nodeDate(pts[pickIdx].ms),
+      mine.segs[3].t);
+    assert('A2：第 5 段 = 该星最新节点（日期 = 该曲线最后一个点）',
+      mine.segs[4].t.slice(0, 10) === k3.nodeDate(pts[pts.length - 1].ms),
+      mine.segs[4].t + ' vs ' + k3.nodeDate(pts[pts.length - 1].ms));
+    assert('A2：高度两位小数、倾角一位小数（与清单给的样例同格式）',
+      /\/\d+\.\d{2}km\/\d+\.\d°/.test(mine.segs[3].t) && /\/\d+\.\d{2}km\/\d+\.\d°/.test(mine.segs[4].t),
+      mine.segs[3].t + ' | ' + mine.segs[4].t);
+    assert('A2：第 6 段 = 最新 vs 次新的 ±Δ半长轴 + 间隔天数（形如 +1.21km/9天）',
+      /^[+-]?\d+(\.\d{1,2})?km\/\d+天$/.test(mine.segs[5].t), mine.segs[5].t);
+    assert('A2：第 6 段带分段颜色（正=绿 / 负=黄 / 0=灰，取自 climbDeltaColor，与页面内规则一致）',
+      mine.segs[5].c != null && /^#|var\(--/.test(mine.segs[5].c) &&
+      mine.segs[5].c === (/^\+/.test(mine.segs[5].t) ? '#2f9e44' : (/^-/.test(mine.segs[5].t) ? '#f59f00' : 'var(--dim)')),
+      mine.segs[5].t + ' → ' + mine.segs[5].c);
+    assert('A2：前 3 段不带分段色（只有第 6 段着色，其余整行同色）',
+      mine.segs.slice(0, 5).every(x => !x.c));
+    assert('A2：英文模式下天数为 day(1) / days(>1)（Q16：撤掉 d）',
+      (function () {
+        const old = k3.lang();
+        k3.lang('en');
+        const w1 = k3.dayWord(1), w9 = k3.dayWord(9);
+        const rows = k3.shotLines('climb');
+        const m = rows.filter(r => r.segs[1].t === String(first.n))[0];
+        const okDay = /km\/\d+(day|days)$/.test(m.segs[5].t);
+        k3.lang(old);
+        return w1 === 'day' && w9 === 'days' && okDay && k3.dayWord(9) === '天';
+      })());
+    // 点选的那个节点被数据刷新抹掉时 → 退回最新节点，不留空段
+    k3.pickNode(first.n, 12345);
+    const rows2 = k3.shotLines('climb');
+    const m2 = rows2.filter(r => r.segs[1].t === String(first.n))[0];
+    assert('A2：点选的节点已不在数据里 → 退回最新节点（不留空段、不显示空字符串）',
+      m2.segs[3].t === m2.segs[4].t && m2.segs[3].t !== '—', m2.segs[3].t);
+    k3.pickNode(null, 0);
+
+    // ---- A4：导出底栏多行卫星数据统一白色 ----
+    assert('A4：全部行同一取色（删掉首行特例 i === 0 ? shotInk() : shotInkDim()）',
+      !/i === 0 \? shotInk\(\) : shotInkDim\(\)/.test(appSrc));
+    const bar = appSrc.match(/function drawShotBar\([\s\S]*?\n\}/);
+    // 只查卫星信息行那一段：右下角声明行仍用次要色（既有设计，A4 不动它）
+    const satBlock = (appSrc.match(/if \(satLines\.length\) \{[\s\S]*?\n  \}/) || [''])[0];
+    assert('A4：drawShotBar 的卫星信息行只有 shotInk() 作为整行底色，不再引用 shotInkDim',
+      satBlock.length > 0 && !/shotInkDim/.test(satBlock) && /var base = shotInk\(\);/.test(satBlock),
+      satBlock.length ? '信息行段内 shotInkDim 出现 ' + (satBlock.match(/shotInkDim/g) || []).length + ' 次' : '未取到信息行段');
+    assert('A4：底栏行仍支持分段着色（A2 的第 6 段靠 seg.c，其余段回落到整行白）',
+      /var base = shotInk\(\);/.test(appSrc) && /ctx\.fillStyle = s\.c \|\| base;/.test(appSrc));
+    assert('A2 + A4：宽度按整行拼接测量（分段着色不会让段与段错位），自动缩字仍作用于整行',
+      /var txt = segs\.map\(function \(s\) \{ return s\.t; \}\)\.join\(SEP\);/.test(appSrc) &&
+      /xx \+= ctx\.measureText\(SEP\)\.width;/.test(appSrc));
+  }
+
+  // ================================================================ V1.9.1（A14）：导出路径的**运行时**英文完整性
+  // i18n.mjs 的四遍扫描只看 DOM 文本，**看不到 canvas 上的字**（导出底栏是 fillText 画出来的）。
+  // 这里补上那一块：切到英文后取六段行 → 逐段断言**不含 CJK**。
+  //   （A14 本次正是靠这条思路抓到真 bug：底栏星座名用了 st.name，英文图一直漏出「星网/千帆」。）
+  {
+    const CJK = /[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF\u3000-\u303F\uFF00-\uFFEF]/;
+    const old = k3.lang();
+    const firstN = k3.climbList()[0].n;
+    const pts2 = k3.climbFind(firstN).pts;
+    k3.pickNode(firstN, pts2[pts2.length - 1].ms);
+    k3.lang('en');
+    const enRows = k3.shotLines('climb');
+    const allTxt = enRows.map(r => r.segs.map(x => x.t).join(' | ')).join('\n');
+    const cjkHits = [];
+    enRows.forEach(r => r.segs.forEach(x => { if (CJK.test(x.t)) cjkHits.push(x.t); }));
+    assert('A14：英文模式下导出底栏六段**零 CJK**（卫星名走目录原名 / 批次组走 batchName / 天词走 i18n）',
+      cjkHits.length === 0, cjkHits.slice(0, 4).join(' | ') || 'clean');
+    assert('A14：英文导出行的天词为 day/days（不是中文「天」）', /km\/\d+(day|days)$/.test(enRows[0].segs[5].t), enRows[0].segs[5].t);
+    assert('A14：英文导出的批次/组列已译（Test Satellite / LEO Group / Polar Group…）',
+      !CJK.test(enRows[0].segs[2].t) && /Group|Satellite|Batch/.test(enRows[0].segs[2].t), enRows[0].segs[2].t);
+    k3.lang(old);
+    const zhRows = k3.shotLines('climb');
+    assert('A14：切回中文后天词恢复为「天」（语言切换是双向生效的，不是一次性）',
+      /km\/\d+天$/.test(zhRows[0].segs[5].t), zhRows[0].segs[5].t);
+    assert('A14：导出底栏星座名走 i18n（源码守卫；strip 注释后不得再出现 st.name）',
+      (function () {
+        const i = appSrc.indexOf('function drawShotBar(');
+        const j = appSrc.indexOf('\nfunction ', i + 1);
+        const body = appSrc.slice(i, j > 0 ? j : i + 6000)
+          .replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+        return !/st\.name/.test(body) && /t\('shot_' \+ S\.key\)/.test(body);
+      })());
+    k3.pickNode(null, 0);
+  }
   dom3.window.close();
 }
 

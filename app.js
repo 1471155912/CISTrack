@@ -153,6 +153,13 @@ var I18N = {
   fs_fallback_t: ['全屏未生效', 'Full screen unavailable'],
   fs_fallback_m: ['浏览器或系统没有允许真全屏，已切换为「页面内满屏」模式：内容仍然铺满，但手机顶部的状态栏/浏览器工具条会保留一点。想彻底全屏可以再点一次全屏键，或把浏览器切到无痕/独立窗口重试。',
     'The browser or system did not allow true full screen, so an in-page full view is used instead. The page still fills the viewport, but the phone status bar / browser chrome may keep a strip. Tap full screen again, or retry in a private/standalone window.'],
+  // V1.9.1（A2 / Q16 + A14）：导出底栏第 6 段的天数词（1 → day / >1 → days）
+  d_day1: ['天', 'day'], d_dayN: ['天', 'days'],
+  // V1.9.1（A14）：导出/信息窗里两处**内联中文**收进表（原先是 `LANG === 'en' ? 'Live' : '实时'`
+  //   这种写法 —— 键表检查看不见，英文完整性审计也抓不到）。
+  //   注意 shot_live 用 'Live'（沿用原英文），**不是**复用 b_now 的 'Now'：两处语义不同，
+  //   合并会顺手改掉英文文案，属于「该另立键却被合并」的反面例子。
+  shot_live: ['实时', 'Live'], u_min: [' 分', ' min'],
   d_shot_disc: ['非官方项目，模拟基于开源 TLE 数据，不代表实际情况',
     'Unofficial project; simulation based on open TLE data, not the actual situation'],
   b_pick: ['选择地面观测点', 'Pick ground site'], b_names: ['名称', 'Names'],
@@ -2002,7 +2009,7 @@ function satBlock(s, scope, extra) {
     '<div class="si-row"><span>' + t('d_row_pa') + '</span><span>' +
       fmtNum(b ? s.hpB : s.hpK, 2) + ' km×' + fmtNum(b ? s.haB : s.haK, 2) + ' km</span></div>' +
     '<div class="si-row"><span>' + t('d_row_inc') + '</span><span>' + fmtNum(s.inc, 2) + '°</span></div>' +
-    '<div class="si-row"><span>' + t('d_row_period') + '</span><span>' + fmtNum(s.period, 3) + (LANG === 'en' ? ' min' : ' 分') + '</span></div>' +
+    '<div class="si-row"><span>' + t('d_row_period') + '</span><span>' + fmtNum(s.period, 3) + t('u_min') + '</span></div>' +
     '<div class="si-row"><span>' + t('d_row_launch') + '</span><span>' + date +
       (days === null ? '' : paren(days + (LANG === 'en' ? ' d' : ' 天'))) + '</span></div>' +
     // V1.7.2 第七轮（需求6）：**信息窗里只保留「该星历元」这一行**。
@@ -3158,6 +3165,18 @@ function monoFont(px, bold) {
 //   · 时间后标注 [实时]/[Live] 或 [+ X 分]/[+ X min]
 function shotInk() { return isLight() ? '#16181d' : '#f2f2f0'; }
 function shotInkDim() { return isLight() ? '#5a5f66' : '#9aa0a6'; }
+// ★ V1.9.1（A2 / Q16）：天数词 —— 中文恒为「天」；英文 1 → `day`、>1 → `days`
+//   （Q16 明确撤掉我原先建议的 `d` 写法。）
+//   V1.9.1（A14）：**走 i18n 表**（d_day1 / d_dayN）而不是内联 `LANG === 'en' ? ... : '天'` ——
+//   导出路径里只要还剩一个中文字面量，A14 的「硬编码漏译」通用守卫就漏掉一块。
+function shotDayWord(n) { return n === 1 ? t('d_day1') : t('d_dayN'); }
+// ★ V1.9.1（A2）：导出信息栏第 4/5 段用的**本地日期**（YYYY-MM-DD）——
+//   节点 ms 是历史库里的一天一刻，用本地日与页面上组网/升轨两章的日期标签同口径。
+function shotNodeDate(ms) {
+  var d = new Date(ms);
+  var p2 = function (n) { return (n < 10 ? '0' : '') + n; };
+  return d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate());
+}
 // V1.7.0（任务16-i）：分隔细线与 CISTrack 字样一律用「当前星座」主题色（星网红 / 千帆蓝）。
 function shotAccent() { return S.key === 'qf' ? cssVar('--c-qf', '#4dabf7') : cssVar('--c-gw', '#ff6b6b'); }
 function shotBrandFont(px) { return px + 'px ' + cssVar('--brand', 'monospace'); }
@@ -3191,8 +3210,8 @@ function shotTimeTagFront(view) {
   //   只有真的加了/减了时间，才写 [+X 分, …] / [−X 分, …]。
   //   实测旧输出：`... (GMT+8 18:36:16) [0 分, 10.0°]` → 现在为 `... [实时, 10.0°]`。
   var label = off === 0
-    ? (LANG === 'en' ? 'Live' : '实时')
-    : ((off > 0 ? '+' : '−') + Math.abs(off) + (LANG === 'en' ? ' min' : ' 分'));
+    ? t('shot_live')
+    : ((off > 0 ? '+' : '−') + Math.abs(off) + t('u_min'));
   return ' [' + label + ', ' + fmtNum(el, 1) + '°]';
 }
 // V1.7.0（任务16-iv）：最后两章表格只用「设备本地日期」： (GMT+8 2026-10-03)
@@ -3227,20 +3246,49 @@ function shotSatLines(view) {
     var sc = climbSeries(), cl = sc.list;
     if (!cl.length) return [];
     var rowsC = cl.slice().sort(function (a, b) { return a.norad - b.norad; });
+    var pick = climbPickNode;
     return rowsC.map(function (c) {
       var idx = climbSatIdx(c.norad);
       var sat = idx >= 0 ? cur().sats[idx] : null;
-      // 取最后一个有效速度（升轨速度是 ±2 天窗口的局部量，末端值最有意义）
-      var rate = null;
-      for (var i = c.rates.length - 1; i >= 0; i--) if (isFinite(c.rates[i])) { rate = c.rates[i]; break; }
-      var last = c.pts[c.pts.length - 1];
-      return [
-        sat ? cnName(sat) : String(c.norad),
-        String(c.norad),
-        sat ? batchName((sat.launch || {}).name) : '',
-        fmtNum(last.v - CLIMB_RE, 1) + 'km',
-        (rate == null ? '—' : fmtNum(rate, 3) + (LANG === 'en' ? 'km/d' : 'km/天'))
-      ].join(' | ');
+      var n = c.pts.length;
+      var last = c.pts[n - 1];
+      var prev = n >= 2 ? c.pts[n - 2] : null;
+      // 倾角：历史点位只存半长轴，倾角取**该星台账里的当前值**（与页面信息窗同一来源）
+      var inc = sat ? fmtNum(sat.inc, 1) + '°' : '—';
+      var nodeSeg = function (p) {
+        return shotNodeDate(p.ms) + '/' + fmtNum(p.v - CLIMB_RE, 2) + 'km/' + inc;
+      };
+      // ★ V1.9.1（A2）：三段新段的构成 ——
+      //   第 4 段 = **用户在图上点选的那个节点**（时间/离地高度/倾角）
+      //   第 5 段 = 该星的**最新节点**（同格式；没有点选时也照写，它是"当前状态"）
+      //   第 6 段 = 最新节点 vs 倒数第二个节点的 **Δ半长轴 / 两节点间隔**，颜色同页面内规则
+      //             （正=绿 / 负=黄 / 0=灰，见 climbDeltaColor）
+      //   ⚠️ Q8：**只填被点选的那一行**，其余行三段一律 `—`
+      //      （与前面各章"信息行只列被选中的那颗"同一逻辑）。
+      var isPick = !!(pick && pick.norad === c.norad);
+      var s4 = '—', s5 = '—', s6 = { t: '—', c: null };
+      if (isPick) {
+        var pk = null;
+        for (var q = 0; q < n; q++) { if (c.pts[q].ms === pick.ms) { pk = c.pts[q]; break; } }
+        // 点选的那个节点在数据刷新后可能已不在（历史库重打包 / 容量治理）→ 退回最新节点，
+        //   而不是留一个空段（导出图不该出现空白格）
+        if (!pk) pk = last;
+        s4 = nodeSeg(pk);
+        s5 = nodeSeg(last);
+        if (prev) {
+          var dv = last.v - prev.v;
+          var dd = Math.max(0, Math.round((last.ms - prev.ms) / DAY));
+          s6 = { t: (dv > 0 ? '+' : '') + fmtNum(dv, 2) + 'km/' + dd + shotDayWord(dd), c: climbDeltaColor(dv) };
+        }
+      }
+      return { segs: [
+        { t: sat ? cnName(sat) : String(c.norad) },
+        { t: String(c.norad) },
+        { t: sat ? batchName((sat.launch || {}).name) : '' },
+        { t: s4 },
+        { t: s5 },
+        s6
+      ] };
     });
   }
   if (!S.sel.length) return [];
@@ -3257,8 +3305,8 @@ function shotSatLines(view) {
       batchName(L.name),
       fmtNum(s.hpK, 2) + 'km×' + fmtNum(s.haK, 2) + 'km',
       fmtNum(s.inc, 2) + '°',
-      fmtNum(s.period, 3) + (LANG === 'en' ? ' min' : ' 分'),
-      d + (days === null ? '' : '(' + days + (LANG === 'en' ? 'd' : '天') + ')')
+      fmtNum(s.period, 3) + t('u_min'),
+      d + (days === null ? '' : '(' + days + shotDayWord(days) + ')')
     ];
     // V1.7.2 第七轮（新需求A）：导出图片里的卫星信息行**只带「该星历元」**。
     //   整包的「TLE更新时间」已从导出底栏与信息窗里全部撤掉，只保留在主标题下方那一处
@@ -3283,7 +3331,23 @@ function drawShotBar(ctx, W, yTop, title, satLines, dpr, view) {
   // 卫星信息行
   if (satLines.length) {
     ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-    satLines.forEach(function (txt, i) {
+    // ★ V1.9.1（A2）：每行可以是
+    //   ① 一个**字符串**（旧写法，整行同色）；或
+    //   ② `{ segs: [{t, c?}] }` —— **分段着色**（A2 的第 6 段「Δ/间隔」按正绿/负黄/0灰）。
+    //   归一化成一个数组，后面的排版逻辑对两种形态一视同仁（宽度按"整行拼起来"算，
+    //   再按各段宽度逐段落笔，于是自动缩字仍然作用于整行而不会让段与段错位）。
+    var SEP = ' | ';
+    var rowsN = satLines.map(function (r) {
+      if (typeof r === 'string') return [{ t: r, c: null }];
+      if (r && r.segs) return r.segs;
+      return [{ t: String(r), c: null }];
+    });
+    rowsN.forEach(function (segs, i) {
+      // ★ V1.9.1（A4）：**全部行都用主文字色（白）**。
+      //   旧写法对首行用了主文字色、其余行用了**次要色**（首行白、其余灰），
+      //   于是多颗卫星的导出图里第 2 行起明显发灰。用户要求所有章节的导出图一致全白。
+      var base = shotInk();
+      var txt = segs.map(function (s) { return s.t; }).join(SEP);
       var sz = size, tw = 0;
       for (var k = 0; k < 7; k++) {
         ctx.font = monoFont(sz);
@@ -3291,8 +3355,18 @@ function drawShotBar(ctx, W, yTop, title, satLines, dpr, view) {
         if (tw <= W - 24 * dpr) break;
         sz *= 0.9;
       }
-      ctx.fillStyle = i === 0 ? shotInk() : shotInkDim();
-      ctx.fillText(txt, 12 * dpr, y + lineH * i + lineH / 2);
+      ctx.font = monoFont(sz);
+      var xx = 12 * dpr, yRow = y + lineH * i + lineH / 2;
+      segs.forEach(function (s, si) {
+        if (si > 0) {
+          ctx.fillStyle = base;
+          ctx.fillText(SEP, xx, yRow);
+          xx += ctx.measureText(SEP).width;
+        }
+        ctx.fillStyle = s.c || base;         // 有分段色就用它（A2 第 6 段），否则整行白
+        ctx.fillText(s.t, xx, yRow);
+        xx += ctx.measureText(s.t).width;
+      });
     });
     y += lineH * satLines.length;
   }
@@ -3319,7 +3393,11 @@ function drawShotBar(ctx, W, yTop, title, satLines, dpr, view) {
   var timePart = (chapter === 'front') ? (shotTimeStr(view) + shotTimeTagFront(view)) : shotDateOnly();
   // V1.7.2 第七轮（需求6）：图片里也不再重复整包口径的「TLE 更新时间」——
   //   它只出现在页面主标题下方那一处；图片中单星信息行末尾的 [该星历元 …] 保留（见 shotSatLines）。
-  var rest = [VERSION, st.name, title, timePart].join(' | ');
+  // ★ V1.9.1（A14 抓到）：这里原先用的是 `st.name`（星座对象的**中文**名），于是英文导出图
+  //   底栏一直漏出「星网 / 千帆」。同一个项目里另外两条导出路径（说明弹窗 shotWaitTitle、
+  //   多页导出 restTxt）早就用的是 `t('shot_' + S.key)` —— 只有这条底栏漏改，
+  //   而 shot_gw / shot_qf 两个键也就长期挂着「定义了没人用」。现在三处统一。
+  var rest = [VERSION, t('shot_' + S.key), title, timePart].join(' | ');
   // 先算右下角声明要占多宽（含 16px 间距），给 CISTrack 行留出空间，避免两者重叠
   ctx.font = monoFont(size * 0.9);
   var discW = ctx.measureText(disco).width;
@@ -4336,6 +4414,7 @@ function afterConstelSwap() {
   try {
     CLIMB = null; climbView = null; climbHover = null;
     climbPinned = false;
+    climbPickNode = null;      // ★ V1.9.1（A2）：换星座 → 点选节点一并清掉（导出图回到 `—`）
     if (climbInfo) hideInfo(climbInfo, 'climb');
     climbAutoView(); renderClimbSel(); renderClimbTake(); drawClimb();
   } catch (e) {}
@@ -5273,7 +5352,7 @@ function syncTimeUI() {
   timeInputs.forEach(function (i) { i.value = String(timeStateOf(timeView(i)).off); });
   timeVals.forEach(function (b) {
     var ts = timeStateOf(timeView(b));
-    b.textContent = ts.off === 0 ? t('d_now_btn') : (ts.off > 0 ? '+' : '') + ts.off + (LANG === 'en' ? ' min' : ' 分');
+    b.textContent = ts.off === 0 ? t('d_now_btn') : (ts.off > 0 ? '+' : '') + ts.off + t('u_min');
     var ctl = b.closest('.time-ctl');
     if (ctl) ctl.classList.toggle('shifted', ts.off !== 0);
     b.classList.toggle('frozen', ts.off !== 0);
@@ -8983,6 +9062,12 @@ var climbInfo = document.getElementById('climbInfo');
 var climbRect = null, climbView = null, CLIMB = null;
 var climbHover = null;                 // 悬停的 { key, idx }（批次级）或 { norad }
 var climbPinned = false;
+// ★ V1.9.1（A2）：**最后点选的节点**（`{norad, ms}`）—— 导出图片的第 4 段要用它。
+//   为什么要有这个状态：改版前信息窗是 hover 即显、**不记任何节点**，导出时根本拿不到
+//   "用户点的是哪个点"，只能写该星的最新值。A20 之后单击才显示并固定，正好在这里落账。
+//   刻意**不放 S**：它是纯会话态（与"点了哪个像素级节点"绑定），跨刷新/跨星座毫无意义，
+//   放进 S 会被 prefSnap/落盘带出去（S.climbPick 那种"选项名"才是该持久化的东西）。
+var climbPickNode = null;
 // 05 章只有两个状态字段，且都按星座各存一份（与 04 章的 netGw/netQf 同理）
 var CLIMB_DEF = { pick: '', take: 'sma' };
 // 半长轴常量：地球赤道半径 6378.137 km，与第三章表格里 hp/ha 的算法一致
@@ -9516,6 +9601,8 @@ function climbHitAt(mx, my) {
 }
 function climbShowInfoAt(h) {
   if (!h || !climbInfo) return;
+  // ★ V1.9.1（A2）：记下"最后点选的节点" → 导出图片第 4 段（选择节点的时间/高度/倾角）
+  climbPickNode = { norad: h.norad, ms: h.ms };
   var s = climbSeries();
   var idx = climbSatIdx(h.norad);
   var sat = idx >= 0 ? cur().sats[idx] : null;
@@ -9663,6 +9750,7 @@ function climbSelect(v) {
   // V1.9.1（A20）：换了要看的曲线 → 固定态失效、旧信息窗收起（它显示的是**上一条曲线**上的点）
   climbPinned = false;
   climbHover = null;
+  climbPickNode = null;        // ★ V1.9.1（A2）：点选节点属于上一条曲线 → 一并清掉
   if (climbInfo) hideInfo(climbInfo, 'climb');
   // 规模方案下批次数据是**按需拉取**的：先切过去（画面立即响应），数据到了再重画
   if (v && v.indexOf('b:') === 0) climbEnsureAndDraw(v.slice(2));
@@ -9760,6 +9848,8 @@ function climbInit() {
       } else {
         // 点空白 = 取消固定并收起（同样对齐 05 章）
         climbPinned = false;
+        // ★ V1.9.1（A2）：取消点选 → 导出图里也回到 `—`（否则会一直写着上次那个点）
+        climbPickNode = null;
         if (climbInfo) hideInfo(climbInfo, 'climb');
       }
     }

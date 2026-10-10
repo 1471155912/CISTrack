@@ -6,6 +6,8 @@
 ![星网](https://img.shields.io/badge/%E6%98%9F%E7%BD%91-CSCN-ff6b6b?style=flat-square)
 ![千帆](https://img.shields.io/badge/%E5%8D%83%E5%B8%86-G60-4dabf7?style=flat-square)
 
+> 🌐 **中文** | [English](README.en.md)
+
 > **项目主页**：https://github.com/1471155912/CISTrack
 > **固定在线地址**：https://1471155912.github.io/CISTrack/CISTrack.html （不带版本号，更新后不变）
 > 顶栏左上角的 **CISTrack** 标志可直接点击跳转到项目主页。
@@ -21,16 +23,6 @@
 > 非官方项目。数据来自公开的 NORAD 空间目标目录与卫星百科，仅用于科普与观测参考，**不适用于轨道预报、工程或研究用途**。
 
 ---
-
-A **single-file, fully offline, zero-backend** web page that uses real public orbit data (the NORAD catalogue / TLEs) to compute and visualise, in real time, two Chinese low-Earth-orbit internet constellations:
-
-- **GuoWang / SatNet (CSCN)** — China Satellite Network Group
-- **Qianfan / Thousand Sails (SpaceSail, G60)** — Shanghai Yuanxin Satellite
-
-Just open the HTML file — no server, no network needed (when online it fetches the latest orbital elements by itself).
-
-> Unofficial project. Data comes from the public NORAD space-object catalogue and the satellite wiki; it is intended for outreach and observation reference only and **must not be used for orbit prediction, engineering, or research**.
-
 
 ![顶栏与简介](shots/v139_top.jpg)
 
@@ -267,6 +259,8 @@ CISTrack_v1.5.2 … v1.8.0.html
                         更早的历史快照（v1.5.2 / v1.5.3 / v1.6.3 / v1.7.0 /
                         v1.7.1 / v1.7.2 / v1.7.3 / v1.8.0，同样用于回滚与对照）
 index.html              入口页（自动跳转到 CISTrack.html）
+README.md / README.en.md
+                        本说明：中文版（默认）/ 英文版（V1.9.1 A16 起拆出，顶部可互跳）
 history/                历史轨道数据库发布分片（04 变轨情况的数据，按需加载；详见「历史轨道数据库」）
 app.js / template.html  源码（单文件产物 = 这两者 + data/ 由 build.mjs 打包）
 data/                   卫星数据（含制造商研发机构、离线兜底的 TLE 快照、历史轨道源库 data/history/）

@@ -123,6 +123,77 @@ ok('I18N 每条都是 [zh, en] 两元字符串，且 zh 均非空', bad.length =
 ok('I18N 的英文侧不为空（白名单：' + [...EN_EMPTY_OK].join(', ') + '）', enEmpty.length === 0, enEmpty.join(', '));
 ok('I18N 的英文侧零 CJK 字符', enCjk.length === 0, enCjk.join(' | '));
 
+// ---------------------------------------------------------------- ②b V1.9.1（A14）：英文完整性专项
+// 背景：A14 的要求是「确保中文页面的**全部**内容被完整正确译成英文，**包括导出图片底栏/水印这种细节**」。
+//   ①②③ 只能保证"键表本身是干净的"，抓不到两类真实漏网：
+//   · 键定义了却**从未被引用**（本次实测：导出底栏用 `st.name` 硬编码星座中文名，
+//     而 shot_gw / shot_qf 两个键**定义了没人用** → 英文导出图一直漏出「星网 / 千帆」）；
+//   · 导出路径里**内联的中文字面量**（不走 t()，任何键表检查都看不见）。
+//   下面把这两类都变成硬失败。
+{
+  function stripComments(src) {
+    return src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+  }
+  // (a) zh 与 en **完全相同**的键 —— 要么是"术语不译"，要么是"漏译"。
+  //     逐条白名单化（而不是放宽成"允许相同"）：新增一条相同值必须显式登记，逼人做一次判断。
+  const SAME_OK = new Set([
+    'd_sel_alive_b'                      // 纯分隔符 "/"，无内容可译
+  ]);
+  const same2 = keys.filter(k => I18N[k][0] === I18N[k][1] && !SAME_OK.has(k));
+  ok('A14：中英取值相同的键都必须**显式登记**在"术语不译"白名单里（防漏译混进来）',
+    same2.length === 0, same2.map(k => k + '=' + I18N[k][0]).join(', '));
+
+  // (b) 导出路径的**星座名**必须是 i18n 的（A14 本次抓到的真 bug）
+  // ⚠️ 必须先剥注释：解释「原先用的是 st.name」的那段注释本身会命中这个守卫
+  //   （同一个坑已踩三次 —— 凡「断言某写法不存在」的守卫，都要先剥注释）。
+  const barFn = stripComments((appSrc.match(/function drawShotBar\([\s\S]*?\n\}/) || [''])[0]);
+  ok('A14：导出底栏的星座名走 i18n（不得再用 st.name 硬编码中文名）',
+    barFn.length > 0 && !/st\.name/.test(barFn) && /t\('shot_' \+ S\.key\)/.test(barFn));
+  ok('A14：shot_gw / shot_qf 两个键**确实被引用**（不再"定义了没人用"）',
+    /t\('shot_' \+ S\.key\)/.test(appSrc));
+  ok('A14：shot_gw / shot_qf 的中英必须不同（导出图英文口径 = CSCN / SpaceSail）',
+    I18N.shot_gw[0] !== I18N.shot_gw[1] && I18N.shot_qf[0] !== I18N.shot_qf[1],
+    I18N.shot_gw.join('/') + ' ' + I18N.shot_qf.join('/'));
+
+  // (c) 导出底栏的**章节标题**必须逐章走 t()（五张图 + 07 多页导出）
+  const SHOT_TITLE_KEYS = ['h_map', 'h_orbits', 'h_dist', 'h_climb', 'h_progress', 'h_sattable', 'h_launchhist'];
+  const badTitle = SHOT_TITLE_KEYS.filter(k => !I18N[k] || I18N[k][0] === I18N[k][1]);
+  ok('A14：导出图用到的章节标题键齐备且中英不同（缺一个就会把键名画在图上）',
+    badTitle.length === 0, badTitle.join(', '));
+  ok('A14：导出图的免责声明（水印）中英齐备',
+    !!I18N.d_shot_disc && I18N.d_shot_disc[0] !== I18N.d_shot_disc[1] && !CJK.test(I18N.d_shot_disc[1]));
+
+  // (d) 导出路径里**不得有内联中文字面量**（通用守卫：A2/A4 新增的六段结构也一并被覆盖）
+  //   做法：把导出相关的函数体抠出来 → 去掉注释 → 找字符串字面量里的 CJK。
+  const EXPORT_FNS = ['drawShotBar', 'shotSatLines', 'shotDayWord', 'shotTimeStr', 'shotTimeTagFront',
+    'shotDateOnly', 'shotChapter', 'shotElevation', 'shotFileName', 'shotAllPages'];
+  const inlineCjk = [];
+  EXPORT_FNS.forEach(fn => {
+    const i = appSrc.indexOf('function ' + fn + '(');
+    if (i < 0) return;
+    // 取到下一个顶层 function 之前（够用且简单）
+    const restSrc = appSrc.slice(i + 1);
+    const j = restSrc.indexOf('\nfunction ');
+    const body = stripComments(j > 0 ? restSrc.slice(0, j) : restSrc);
+    // 只查**字符串字面量**里的 CJK（单/双引号、模板串）
+    (body.match(/(?:'[^'\n]*'|"[^"\n]*")/g) || []).forEach(lit => {
+      if (CJK.test(lit)) inlineCjk.push(fn + ' :: ' + lit.slice(0, 40));
+    });
+  });
+  ok('A14：导出路径的函数里**没有内联中文字面量**（全部走 t()，否则键表检查看不见）',
+    inlineCjk.length === 0, inlineCjk.join(' | '));
+
+  // (e) A14 点名的两处历史疑点 —— 现在就固化成守卫，防以后被改回去
+  ok('A14：t_maker 中英不同（"制造商 / Manufacturer" —— 它是**可译词**，不是术语）',
+    !!I18N.t_maker && I18N.t_maker[0] !== I18N.t_maker[1], (I18N.t_maker || []).join('/'));
+  ok('A14：BSTAR 表头带 data-i18n（第六轮抓到过的"无 data-i18n 静态文本"）',
+    /<th[^>]*data-i18n="t_bstar"[^>]*>/.test(tpl) || /<th[^>]*data-i18n="([^"]+)"[^>]*>[^<]*大气阻力系数/.test(tpl));
+  ok('A14：天数词走 i18n 表（d_day1 / d_dayN），不再内联中文',
+    /function shotDayWord\(n\) \{ return n === 1 \? t\('d_day1'\) : t\('d_dayN'\); \}/.test(appSrc) &&
+    !!I18N.d_day1 && !!I18N.d_dayN &&
+    I18N.d_day1[1] === 'day' && I18N.d_dayN[1] === 'days' &&
+    I18N.d_day1[0] === '天' && I18N.d_dayN[0] === '天');
+}
 // ---------------------------------------------------------------- ③ 键引用闭环
 // 模板侧：data-i18n / data-i18n-title / data-i18n-ph
 const tplKeys = new Set();
