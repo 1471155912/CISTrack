@@ -41,6 +41,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { mergeInto, readShard } from './histstore.mjs';
 import { fromCelesTrakOmm, PH } from './omm.mjs';
+// V1.9.1：临时目录统一走 scripts/tmproot.mjs（**自动优先非系统盘**，且用完即删）
+import { mkTmpDir, rmTmpDir } from './tmproot.mjs';
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const DATA = path.join(ROOT, 'data');
@@ -211,13 +213,16 @@ if (isMain && process.argv.includes('--selftest')) {
   {
     // 临时目录**每次运行都新建**：用固定目录会让"首次导入"在第二次运行时必然是 0（因为已经写过了），
     //  自检就会变得**不可重复运行** —— 这类"测试自己把状态搞脏"的问题必须从根上去掉。
-    const dir = path.join(process.env.TEMP || 'D:/Temp', 'cistrack-hist-imp-selftest-' + process.pid + '-' + Date.now());
-    fs.mkdirSync(dir, { recursive: true });
+    // ★ V1.9.1（2026-10-10）：改用 tmproot 统一收口 + 块末显式删除 —— 原来写的是
+    //   `process.env.TEMP || 'D:/Temp'`，而本机 `TEMP` **就在 C 盘**，且**从不清理**
+    //   → 每跑一次自检就往紧张的 C 盘留一个目录（实测残留 4 个）。
+    const dir = mkTmpDir('cistrack-hist-imp-selftest-');
     const batches = [{ key: 25101, records: densify([mkOmm('2026-01-01T00:00:00.000Z', 15.2), mkOmm('2026-01-01T06:00:00.000Z', 15.25)], 100203, 2) }];
     const s1 = mergeInto(dir, batches);
     const s2 = mergeInto(dir, batches);
     ok('④ 首次写入 2 条、重复写入 0 条', s1.added === 2 && s2.added === 0, '首次 ' + s1.added + '，重复 ' + s2.added);
     ok('④ 分片内容不增长', readShard(dir, 25101).length === 2, '现有 ' + readShard(dir, 25101).length + ' 条');
+    rmTmpDir(dir);                       // 用完即删
   }
   // ⑤ 坏数据不炸：MEAN_MOTION 缺失 / EPOCH 非法 → 整条丢弃
   {

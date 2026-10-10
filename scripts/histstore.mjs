@@ -17,6 +17,8 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+// V1.9.1：临时目录统一走 scripts/tmproot.mjs（**自动优先非系统盘**，且用完即删）
+import { mkTmpDir, rmTmpDir } from './tmproot.mjs';
 
 export const KEY = (norad, ms) => norad + '@' + ms;
 
@@ -229,8 +231,12 @@ if (isMain && process.argv.includes('--selftest')) {
   //    于是第一次必然是 0 —— 那是我测试写错，不是代码错。这里改用**全新的 key**做首次导入。
   {
     // 临时目录**每次运行都新建**（固定目录会让"首次导入"在第二次运行必然是 0，自检不可重复运行）
-    const dir = path.join(process.env.TEMP || 'D:/Temp', 'cistrack-hist-selftest-' + process.pid + '-' + Date.now());
-    fs.mkdirSync(dir, { recursive: true });
+    // ★ V1.9.1（2026-10-10）：改用 `scripts/tmproot.mjs` 统一收口，并在块末**显式删除**。
+    //   原来这里是 `process.env.TEMP || 'D:/Temp'` —— 而本机 `TEMP` **就在 C 盘**
+    //   （`C:\Users\14711\AppData\Local\Temp`），且**从不清理** → 每跑一次自检就往紧张的 C 盘
+    //   留一个目录（实测残留 4 个）。这与"1.4-C 把临时目录统一到非系统盘"的收口是同一件事，
+    //   当时漏了这两处脚本。
+    const dir = mkTmpDir('cistrack-hist-selftest-');
     const recs = [[1, 100, 1.5], [2, 200, 2.5]];
     writeShard(dir, 23095, recs);
     const back = readShard(dir, 23095);
@@ -242,6 +248,7 @@ if (isMain && process.argv.includes('--selftest')) {
     ok('⑤ 首次导入加 2 条、重复导入加 0 条（幂等）', s1.added === 2 && s2.added === 0 && s2.dup === 2,
       '首次 ' + s1.added + '，重复 ' + s2.added + '（dup=' + s2.dup + '）');
     ok('⑤ 重复导入不增长文件内容', readShard(dir, 24096).length === 2);
+    rmTmpDir(dir);                       // 用完即删（本机删除会进回收站，但至少不留在临时根里）
   }
 
   // ---- V1.9.0（R17）：容量治理（分层降采样 + 两道硬上限）----
