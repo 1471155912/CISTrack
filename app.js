@@ -135,7 +135,7 @@ var I18N = {
   t_resetview: ['恢复原始比例', 'Reset to original scale'],
   t_shot: ['导出图片', 'Export image'],
   t_selinfo: ['选中与信息窗', 'Selection & info panel'],
-  t_resetall: ['把 01–04 全部章节的设置还原为初始配置', 'Restore the default settings of sections 01–04'],
+  t_resetall: ['把 01–05 全部章节的设置还原为初始配置', 'Restore the default settings of sections 01–05'],
   t_defmap: ['恢复 02 地图的初始设置', 'Restore the default settings of 02 Map'],
   t_deforb: ['恢复 03 轨道的初始设置', 'Restore the default settings of 03 Orbit'],
   t_defchart: ['恢复 03 倾角分布的初始设置', 'Restore the default settings of 03 Inclination Distribution'],
@@ -158,7 +158,12 @@ var I18N = {
   l_el: ['最低仰角', 'Min. elevation'], l_time: ['时间', 'Time'],
   // V1.8.0（需求15 i18n 审计）：原 ph_search 键早已没有任何引用（搜索框占位符统一走
   //   d_search_ph），属于死键 —— 清掉，避免审计里长期挂着一条"未被引用"的噪声。
-  t_name: ['卫星', 'Satellite'], t_launch: ['批次/组', 'Batch / Group'], t_maker: ['Manufacturer', 'Manufacturer'], t_sma: ['半长轴, KM', 'SMA, KM'],
+  // V1.9.1（A13）：修 bug —— 原为 `['Manufacturer', 'Manufacturer']`，**中文页也显示英文**。
+  t_name: ['卫星', 'Satellite'], t_launch: ['批次/组', 'Batch / Group'], t_maker: ['制造商', 'Manufacturer'], t_sma: ['半长轴, KM', 'SMA, KM'],
+  // V1.9.1（A13）：BSTAR 列原本**完全没有 data-i18n**（中英都写死 "BSTAR"）→ 补上键，
+  //   中文用「大气阻力系数」、英文保留 `BSTAR`（业内通行写法）。
+  //   注意：表头是**导出图片**的列名来源（exportTable 读 th.textContent）→ 改一处即可两处生效。
+  t_bstar: ['大气阻力系数', 'BSTAR'],
   t_hp: ['近地点, KM', 'Perigee, KM'], t_ha: ['远地点, KM', 'Apogee, KM'], t_inc: ['倾角, °', 'Incl., °'],
   t_period: ['周期, 分', 'Period, min'], t_raan: ['升交点, °', 'RAAN, °'], t_ecc: ['偏心率', 'Ecc.'],
   t_epoch: ['历元 (UTC)', 'Epoch (UTC)'],
@@ -181,8 +186,10 @@ var I18N = {
   l_netmode: ['纵轴量', 'Y axis'], nm_launch: ['发射量（累计）', 'Launches (cum.)'], nm_orbit: ['在轨数量', 'In orbit'],
   nm_unit_launch: ['累计发射卫星数', 'Cumulative satellites launched'], nm_unit_orbit: ['在轨卫星数', 'Satellites in orbit'],
   l_netshow: ['星座', 'Constellation'], d_x_date: ['日期', 'Date'],
-  // V1.9.0（R17）05 章「升轨情况」：英文标题按定稿用 Orbits Raising Status
-  h_climb: ['升轨情况', 'Orbits Raising Status'],
+  // V1.9.1（A15）04 章「变轨情况」：由「变轨情况」改名 + 与组网进度换位。
+  //   英文按 Q32 定稿用 **Orbits Change Status**（表格里那个 Orbits Change 是导出图的短标签，
+  //   底栏宽度有限，见 Q32 —— 两处不是同一个字符串，别顺手统一）。
+  h_climb: ['变轨情况', 'Orbits Change Status'],
   lead_climb: ['选定一颗卫星或一个批次/组，画出它们的轨道半长轴随时间的变化 —— 刚入轨时低、随后被发动机一点点抬到工作高度的那段"爬坡"。',
     'Pick one satellite or one batch/group and see how its orbital semi-major axis changes over time — the climb from a low initial altitude up to the working height.'],
   climb_pick: ['对象', 'Object'], climb_take: ['纵轴量', 'Y axis'], climb_rate: ['升轨速度', 'Climb rate'],
@@ -197,9 +204,9 @@ var I18N = {
   climb_take_rate: ['升轨速度（±2 天最小二乘）', 'Climb rate (±2 d least squares)'],
   climb_y_alt: ['离地高度, km', 'Altitude, km'],
   climb_y_rate: ['升轨速度, km/天', 'Climb rate, km/day'],
-  t_defclimb: ['恢复 05 升轨情况的初始设置', 'Restore the default settings of 05 Orbits Raising Status'],
+  t_defclimb: ['恢复 04 变轨情况的初始设置', 'Restore the default settings of 04 Orbits Change Status'],
   // ↑↑ V1.9.0（R17）：05 章的三段式 i18n（标题/说明/选择器），其中「升轨速度」的算法口径见 climbNote
-  t_defprogress: ['恢复 04 组网进度的初始设置', 'Restore the default settings of 04 Network Progress'],
+  t_defprogress: ['恢复 05 组网进度的初始设置', 'Restore the default settings of 05 Network Progress'],
   t_netinfo: ['怎么看这张图', 'How to read this chart'],
   // V1.9.0（需求8）：改名「新增批次」→「新增卫星」（内容也确实是新增的卫星/批次组）
   d_net_week: ['该周', 'Week'], d_net_batches: ['新增卫星', 'New satellites'],
@@ -566,7 +573,7 @@ var S = {
   //   按星座各存一份没有意义；它们随「默认设置 / 还原所有默认设置」还原即可。
   netMode: 'launch',          // 'launch' = 发射量累计；'orbit' = 在轨数量
   netGw: true, netQf: true,   // 两条曲线的显隐
-  // V1.9.0（R17）：05 升轨情况的两项。**进 STATE_FIELDS** —— 与 04 的显隐同理按星座各存一份
+  // V1.9.0（R17）：04 变轨情况的两项。**进 STATE_FIELDS** —— 与 04 的显隐同理按星座各存一份
   //   （切到千帆时看到的是千帆的批次，不是星网的）。
   climbPick: '',              // '' = 跟随全局选中；'b:<批次key>' = 指定批次；'s:<norad>' = 指定单星
   climbTake: 'sma',           // 'sma' = 半长轴（离地高度）；'rate' = 升轨速度 km/天
@@ -599,7 +606,7 @@ var PREF_SEC = {
   globe: ['coneOn', 'coneEl', 'spin', 'showTracks', 'nameGlobe', 'cGlobe', 'timeOffsetGlobe'],
   // V1.8.0（需求8）：03.5 组网进度自己那一章的默认设置
   progress: ['netMode'],
-  // V1.9.0（R17）：05 升轨情况本章的默认设置 = 对象选择 + 纵轴量（视图由 resetView 归位）
+  // V1.9.0（R17）：04 变轨情况本章的默认设置 = 对象选择 + 纵轴量（视图由 resetView 归位）
   climb: ['climbPick', 'climbTake'],
   table: ['sortKey', 'sortAsc', 'allCols']
 };
@@ -2706,7 +2713,9 @@ var VIEW_SEG = {
   globe: { zh: '轨道', en: 'Orbit' },
   chart: { zh: '倾角分布', en: 'IncDist' },
   progress: { zh: '组网进度', en: 'NetProgress' },   // V1.8.0（需求8）
-  climb: { zh: '升轨情况', en: 'OrbitClimb' },        // V1.9.0（R17）
+  // V1.9.1（A15）：导出图底栏的章节短标签。英文按 Q32 定稿用 **Orbits Change**（短）。
+  //   ⚠️ 硬约束：底栏宽度有限，这个字符串**由 visual.mjs 的底栏宽度断言守着**，改长会溢出。
+  climb: { zh: '变轨情况', en: 'Orbits Change' },      // V1.9.0（R17）→ V1.9.1 改名
   table: { zh: '卫星表格', en: 'SatTable' },
   launches: { zh: '发射历史', en: 'Launch' }
 };
@@ -2855,7 +2864,7 @@ function shotTimeStr(view) {
 //   所以这里按 view 决定是否拼上历元；前两章与表格仍保留。
 function shotSatLines(view) {
   if (view === 'progress') return [];        // V1.8.0（需求8）：03.5 是星座曲线图，不列选中卫星
-  // V1.9.0（R17）：05 升轨情况 —— 导出图底栏要带**升轨速度列**（需求 R17）。
+  // V1.9.0（R17）：04 变轨情况 —— 导出图底栏要带**升轨速度列**（需求 R17）。
   //   列的是「当前这一章画出来的那几条曲线」，而不是全局选中：
   //   本章默认就跟着全局选中，两者一致；但用户显式选了某个批次时，
   //   底栏必须如实写这个批次的成员星，否则图与字对不上。
@@ -3111,7 +3120,7 @@ function exportView(view) {
     if (view === 'map') drawMap(fs, msNow);
     else if (view === 'globe') drawGlobe(fs, msNow);
     else if (view === 'progress') drawNet();     // V1.8.0（需求8）：03.5 组网进度
-    else if (view === 'climb') drawClimb();      // V1.9.0（R17）：05 升轨情况
+    else if (view === 'climb') drawClimb();      // V1.9.0（R17）：04 变轨情况
     else drawChart();
   };
   var fname = shotFileName(view);
@@ -5267,20 +5276,26 @@ var README_ZH = [
   '',
   '- 🛰️ **实时态势**：所有卫星位置由 SGP4 在你的设备上按当前时间逐颗推算，图表、地图、3D 地球三视图联动；',
   '- 📈 **倾角分布（03）**：横轴 = 轨道倾角，纵轴 = 轨道高度（可选半长轴 / 远地点 / 近地点），滚轮或双指缩放、拖框放大、拖拽平移、双击复位；',
-  '- ⭕ **待编目批次**：最近几批（星网 2026-176/187/213/221，千帆 2026-210/211）目录里已有 100xxx 临时编号与公开摘要参数，但没有正式 TLE。它们在高度图上以**空心点 + 虚线高度区间**标出，不参与选中与悬停，也不会出现在地图与 3D 地球里。',
+  '- ⭕ **待编目批次**：目录里已给出编号与摘要参数、但上游尚未发布完整 TLE 的对象，会以**空心点 + 虚线高度区间**标出，不参与选中与悬停，也不出现在地图与 3D 地球里。**当前两个星座没有待编目对象**（V1.9.1 修好 6 位编号采集通路后已全部收录）。',
   '- 🗺️ **地图**：卫星对地面的可视覆盖区（可见倾角可调，默认 35°）、前后各半圈地面轨迹、1–8 倍缩放；',
   '  - **地图仅为粗略的地球大陆海岸线轮廓示意图，不能准确代表实际投影情况。**',
   '- 📍 **地面观测点**：随鼠标实时预览"从这里能看到多大范围、可见几颗卫星"，点击固定并高亮可见卫星，再点该点解除；',
   '- 🌍 **3D 地球（02）**：自转 + 拖拽 + 缩放，轨道圈分正/背面，显示可视区域，**轨道高度按 2.4× 夸张显示**以便区分高度壳层；',
-  '- 📋 **卫星表格（04）**：13 列轨道要素（含「在轨日, 天」）、混合搜索与联想、排序、每页 10 条，卫星名点击直达 satcat.com 对应条目；',
-  '- 🚀 **发射历史（05）**：列序为「批次/组 · 运载火箭（后跟 COSPAR 编号）· 发射时间 · 发射地点 · 设计倾角 · 轨道要素」，火箭与发射地点染主题色带下划线可点跳转；按页浏览（每页 10 条），**整行点一下**就选中整批 —— 图表 / 地图 / 地球只高亮这一批，卫星表自动翻到当前排序下该批第一颗所在的页，批次表这一行用一条星网红 / 千帆蓝的长边框整行框住；待编目批次只标一个「待编目 ×N」标签，完整目录摘要悬停标签即可看到，不再铺开拉长表格；',
+  // V1.9.1（A15）：章节号 04/05 互换后，帮助里的特性列表也要**按新编号补齐** ——
+  //   原文缺了「变轨情况」与「组网进度」两条，且把卫星表格写成（04）、发射历史写成（05）。
+  '- 🛰️ **变轨情况（04）**：选定一颗卫星或一个批次/组，画出它的**轨道半长轴随时间的变化** —— 刚入轨时低、随后被发动机一点点抬到工作高度的那段"爬坡"；可切换纵轴量为「升轨速度」；已再入的卫星标红并有独立标记；',
+  '- 📶 **组网进度（05）**：两条曲线分别是星网与千帆的组网推进速度，横轴按周、纵轴可切「发射量（累计）」或「在轨数量」；',
+  '- 📋 **卫星表格（06）**：13 列轨道要素（含「在轨日, 天」与**「在轨状态」**）、混合搜索与联想、排序、每页 10 条，卫星名点击直达 satcat.com 对应条目；',
+  '- 🚀 **发射历史（07）**：列序为「批次/组 · 运载火箭（后跟 COSPAR 编号）· 发射时间 · 发射地点 · 设计倾角 · 轨道要素」，火箭与发射地点染主题色带下划线可点跳转；按页浏览（每页 10 条），**整行点一下**就选中整批 —— 图表 / 地图 / 地球只高亮这一批，卫星表自动翻到当前排序下该批第一颗所在的页，批次表这一行用一条星网红 / 千帆蓝的长边框整行框住；待编目批次只标一个「待编目 ×N」标签，完整目录摘要悬停标签即可看到，不再铺开拉长表格；',
   '- 🎨 **界面**：深浅色主题、中英文切换、任意比例屏幕适配、三幅图一键全屏、右下角章节跳转药丸、顶部实时时钟。',
   '',
   '## ⚙️ 设置：本会话内全局生效、可一键还原',
   '',
   '- 任何一处设置改动都**全局生效**（改完立即对整个页面起作用，不区分章节）：**刷新页面、重新打开链接、点「还原所有默认设置」这三种情况都会把全部设置、三张图的视图、表格页码与所有搜索框一并还原成初始状态**；设置不写入浏览器本地存储，所以不会跨会话残留；',
-  '- 01 地图、02 轨道、03 倾角分布、04 卫星表格四个章节各有一个 **「默认设置」** 按钮，只把该章节的这几项还原成初始配置（例如地图的覆盖区开关、最低仰角、显示轨道、配色）；',
-  '- 页面顶部搜索框下面靠右还有一个 **「还原所有默认设置」**：把 01–04 全部章节、三张图的视图、表格与发射历史的页码、所有搜索框、**时间条**一起还原成初始状态。刚打开页面时它本来就是默认配置，按钮是**暗淡不可点**的，改动任意一项后才会亮起；',
+  // V1.9.1（A15）：这句原本写"01 地图、02 轨道、03 倾角分布、04 卫星表格四个章节" ——
+  //   两处都不对：卫星表格**没有**「默认设置」按钮，而真正有按钮的变轨情况/组网进度被漏掉了。
+  '- 01 地图、02 轨道、03 倾角分布、04 变轨情况、05 组网进度五个章节各有一个 **「默认设置」** 按钮，只把该章节的这几项还原成初始配置（例如地图的覆盖区开关、最低仰角、显示轨道、配色）；',
+  '- 页面顶部搜索框下面靠右还有一个 **「还原所有默认设置」**：把 01–05 全部章节、三张图的视图、表格与发射历史的页码、所有搜索框、**时间条**一起还原成初始状态。刚打开页面时它本来就是默认配置，按钮是**暗淡不可点**的，改动任意一项后才会亮起；',
   '- **初始默认配置（V1.7.1 起扩到「完全一致」）**：**中文界面 + 星网 + 暗色主题**，纵轴 = 半长轴、模型 = 布劳威尔、配色 = 按卫星、批次 = 全部；地图覆盖区开 / 最低仰角 10°、显示轨道开、显示名称关；地球可视锥开 / 最低仰角 10°、自转开、轨道开；表格按卫星名升序、只显示常用列；**时间条回到「实时」**。点「还原所有默认设置」会把星座与语言也一并拨回中文星网（不播动画，直接到位）；',
   '',
   '## 🚀 快速开始',
@@ -5453,21 +5468,24 @@ var README_EN = [
   '- 🛰️ **Live situation**: every position is propagated on your device with SGP4; chart, map and 3D globe stay in sync;',
   '- 🖼️ **Save image**: the bottom button of each view saves that canvas as a PNG; each table has one at the right end of its pager row. All local, nothing uploaded.',
   '- 📈 **Orbit distribution (03)**: X axis = orbital inclination, Y axis = orbit altitude (SMA / apogee / perigee), wheel or pinch zoom, box zoom, drag pan, double-click reset;',
-  '- ⭕ **Pending groups**: the newest groups (CSCN 2026-176/187/213/221, Qianfan 2026-210/211) carry temporary 100xxx numbers and published summary parameters but no full TLE. They appear on the altitude chart as **hollow dots with dashed altitude ranges**, are not selectable or hoverable, and never show on the map or the globe.',
+  '- ⭕ **Pending groups**: objects that already carry a catalogue number and published summary parameters but whose full TLE has not been released upstream are drawn as **hollow dots with a dashed altitude band**; they take no part in selection or hover and never appear on the map or the 3D globe. **Neither constellation currently has any pending object** (V1.9.1 fixed the six-digit catalogue-number path, so everything is now ingested).',
   '- 🔗 **View → table**: picking a satellite in any view makes the satellite table jump to its page and flash the row.',
   '- **The map is only a rough outline of continental coastlines and does not accurately represent any real map projection.**',
   '- 🗺️ **Map**: per-satellite ground coverage zones (adjustable minimum elevation, 35° by default), half-orbit ground tracks, 1–8× zoom;',
   '- 📍 **Ground site picker**: hover to preview the visibility region and satellite count in real time; click to fix a site and highlight what it can see;',
   '- 🌍 **3D globe (02)**: spin + drag + zoom, orbit rings split into front/back halves, coverage zones, with **altitudes exaggerated 2.4×** so the shells are easy to tell apart;',
-  '- 📋 **Satellite table (04)**: 13 element columns (including days in orbit), autocomplete search, sorting, 10 rows per page — satellite names link straight to their satcat.com entries;',
-  '- 🚀 **Launch history (05)**: column order is group · vehicle (followed by the COSPAR id) · launch time · launch site · design inclination · elements; rockets and sites are rendered in the constellation colour, underlined and clickable; 10 rows per page with wiki links; **click anywhere on a row** to select that group — the chart, map and globe highlight it, the satellite table auto-pages to the first satellite of that group under the current sort, and the row is boxed with one long red (CSCN) / blue (Qianfan) border; pending groups only carry a "pending ×N" tag — the full catalog summary sits in its tooltip instead of stretching the table;',
+  // V1.9.1（A15）：按新编号补齐（原文缺「变轨情况」「组网进度」，且表格/发射历史编号是旧的 04/05）
+  '- 🛰️ **Orbits Change Status (04)**: pick one satellite or one batch/group and see how its orbital **semi-major axis changes over time** — the climb from a low initial altitude up to the working altitude. The Y axis can be switched to *climb rate*; re-entered satellites are flagged in red.',
+  '- 📶 **Network progress (05)**: two curves track how fast CSCN and Qianfan build their constellations; the X axis is weekly, the Y axis switches between cumulative launches and satellites in orbit.',
+  '- 📋 **Satellite table (06)**: 13 element columns (including days in orbit and **orbit status**), autocomplete search, sorting, 10 rows per page — satellite names link straight to their satcat.com entries;',
+  '- 🚀 **Launch history (07)**: column order is group · vehicle (followed by the COSPAR id) · launch time · launch site · design inclination · elements; rockets and sites are rendered in the constellation colour, underlined and clickable; 10 rows per page with wiki links; **click anywhere on a row** to select that group — the chart, map and globe highlight it, the satellite table auto-pages to the first satellite of that group under the current sort, and the row is boxed with one long red (CSCN) / blue (Qianfan) border; pending groups only carry a "pending ×N" tag — the full catalog summary sits in its tooltip instead of stretching the table;',
   '- 🎨 **UI**: dark/light themes, Chinese/English, fully responsive, one-click fullscreen, a section-jump pill and a live clock.',
   '',
   '## ⚙️ Settings: global within the session, one-click restore',
   '',
   '- Every setting is **global within the session** (it applies to the whole page the moment you change it): **refreshing the page, reopening the link, or clicking "Restore all defaults" returns every setting, all three chart views, the table page and all search boxes to their initial state**; nothing is written to browser storage, so no state is carried over between visits;',
-  '- Sections 01 map, 02 globe, 03 orbit distribution and 04 satellite table each carry a **"Defaults"** button that restores only that section\'s own settings (e.g. map coverage on/off, minimum elevation, orbits, colors);',
-  '- Right-aligned under the search box at the top sits **"Restore all defaults"**, which resets sections 01–04 plus all three chart views, the table and launch-history page numbers, every search box **and the time slider** in one go. On a fresh page everything is already default, so the button is **dimmed and disabled** until you change something;',
+  '- Sections 01 map, 02 globe, 03 orbit distribution, 04 orbits-change status and 05 network progress each carry a **"Defaults"** button that restores only that section\'s own settings (e.g. map coverage on/off, minimum elevation, orbits, colors);',
+  '- Right-aligned under the search box at the top sits **"Restore all defaults"**, which resets sections 01–05 plus all three chart views, the table and launch-history page numbers, every search box **and the time slider** in one go. On a fresh page everything is already default, so the button is **dimmed and disabled** until you change something;',
   '- **Initial defaults (V1.7.1: now fully consistent)**: **the page always opens in Chinese, on the CSCN constellation, in the dark theme**; Y axis = SMA, model = Brouwer, colors = by satellite, group = all; map coverage on / min. elevation 10°, orbits on, names off; globe cones on / min. elevation 10°, spin on, orbits on; table sorted by satellite name ascending with the common columns only; **time slider back to live**. "Restore all defaults" also switches the language back to Chinese and the constellation back to CSCN (instantly, no animation).',
   '',
   '## 🚀 Quick start',
@@ -5759,7 +5777,7 @@ document.querySelectorAll('.view-ctl button[data-zoom]').forEach(function (b) {
       //   同样走 smoothZoom，使四张图的 ＋/− 手感与时长完全一致。
       smoothZoom(function (f) { zoomNetBy(f); }, dir, 260);
     } else if (view === 'climb') {
-      // V1.9.0（R17）：05 升轨情况 —— 第五张图，同样走 smoothZoom / 260ms，
+      // V1.9.0（R17）：04 变轨情况 —— 第五张图，同样走 smoothZoom / 260ms，
       //   与前四张的手感、时长严格一致（不新写一套动画）。
       smoothZoom(function (f) { zoomClimbBy(f); }, dir, 260);
     }
@@ -5907,7 +5925,7 @@ function syncFsBarHeight() {
     var h = sec.classList.contains('fs-mobile') ? Math.ceil(c.getBoundingClientRect().height) : 0;
     sec.style.setProperty('--fsbar-h', (h || 58) + 'px');
   });
-  // V1.9.0（R17）：05 升轨情况全屏时把 .climb-bar 固定到顶部（它没有 .controls 行，
+  // V1.9.0（R17）：04 变轨情况全屏时把 .climb-bar 固定到顶部（它没有 .controls 行，
   //   所以量的是 climb-bar 自己），高度写进 --climbbar-h，画布按 100vh − 两者 让位。
   //   不量的话窄屏下 climb-bar 会换行变高（实测能到 60px+），画布就会多出一截空白。
   var sc = document.getElementById('sec-climb');
@@ -6347,7 +6365,7 @@ function afterSelection() {
   // V1.7.1（需求2）：只有「真正改变了选中态」才解除 INFO_CLOSED；纯 hover 不调afterSelection，天然不受影响。
   syncSelInfo();
   mapDirty = globeDirty = true;
-  // V1.9.0（R17）：05 升轨情况**跟随全局选中** —— 这是需求里的"双向联动"的一个方向。
+  // V1.9.0（R17）：04 变轨情况**跟随全局选中** —— 这是需求里的"双向联动"的一个方向。
   //   用户没显式选批次/单星时才跟随（显式选了就以用户意图为准，不被别处的操作改掉）。
   try { climbFollowSelection(); } catch (e) {}
 }
@@ -6883,16 +6901,19 @@ document.querySelectorAll('[data-panel]').forEach(function (b) {
 // V1.4.9：字母改成三列 [id, 英文, 中文] —— 中文界面显示「图轨角星箭」（图=地图 轨=轨道
 // 角=轨道分布 星=卫星表格 箭=发射历史），英文界面仍用 MOISL；中文字号稍大便于辨认，
 // 但按钮 26×24 尺寸固定，药丸条本身不变。
-var JUMP = [['top', '↑', '↑'], ['sec-map', 'M', '图'], ['sec-orbits', 'O', '轨'], ['sec-chart', 'I', '角'], ['sec-progress', 'P', '进'], ['sec-climb', 'C', '升'], ['sec-table', 'S', '星'], ['sec-launches', 'L', '箭'], ['bottom', '↓', '↓']];
+var JUMP = [['top', '↑', '↑'], ['sec-map', 'M', '图'], ['sec-orbits', 'O', '轨'], ['sec-chart', 'I', '角'], ['sec-climb', 'C', '变'], ['sec-progress', 'P', '进'], ['sec-table', 'S', '星'], ['sec-launches', 'L', '箭'], ['bottom', '↓', '↓']];
 var JUMP_TITLE = {
   top: { zh: '回到顶部', en: 'Back to top' },
   'sec-map': { zh: '01 地图', en: '01 Map' },
   'sec-orbits': { zh: '02 轨道', en: '02 Orbits' },
   'sec-chart': { zh: '03 倾角分布', en: '03 Inclination Distribution' },
-  'sec-progress': { zh: '04 组网进度', en: '04 Network progress' },
-  'sec-climb': { zh: '05 升轨情况', en: '05 Orbits Raising Status' },
-  'sec-table': { zh: '04 卫星表格', en: '04 Satellite table' },
-  'sec-launches': { zh: '05 发射历史', en: '05 Launch history' },
+  // V1.9.1（A15）：04/05 互换 —— 变轨情况前移到 04、组网进度后移到 05。
+  //   ⚠️ 顺带修两处**早就存在的编号 bug**：sec-table 原写「04 卫星表格」、sec-launches 原写「05 发射历史」，
+  //   而它们实际是 06/07（F24 早就记过，这次一并改对）。
+  'sec-climb': { zh: '04 变轨情况', en: '04 Orbits Change Status' },
+  'sec-progress': { zh: '05 组网进度', en: '05 Network progress' },
+  'sec-table': { zh: '06 卫星表格', en: '06 Satellite table' },
+  'sec-launches': { zh: '07 发射历史', en: '07 Launch history' },
   bottom: { zh: '到页面底部', en: 'Go to bottom' }
 };
 var jumpPill = document.getElementById('jumpPill');
@@ -8255,7 +8276,7 @@ function netInit() {
 }
 
 // ============================================================================
-// V1.9.0（需求17 / R17）：05 升轨情况 —— 半长轴随时间的"爬坡"曲线
+// V1.9.0（需求17 / R17）：04 变轨情况 —— 半长轴随时间的"爬坡"曲线
 // ----------------------------------------------------------------------------
 // 口径说明（这一段是本章全部算法的唯一依据，改动前请先读）：
 //  · 画的是**布劳威尔半长轴**（km），不是高度。半长轴不含 ±a·e 的周期性抖动，
@@ -8971,7 +8992,7 @@ setupInfo(chartInfo, 'chart');
 setupInfo(mapInfo, 'map');
 setupInfo(globeInfo, 'globe');
 netInit();                           // V1.8.0（需求8）：03.5 组网进度
-climbInit();                         // V1.9.0（R17）：05 升轨情况
+climbInit();                         // V1.9.0（R17）：04 变轨情况
 loop();
 
 // 各章节的「默认设置」：只还原该章节那几项

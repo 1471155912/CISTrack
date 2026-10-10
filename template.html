@@ -511,7 +511,7 @@ section.sf-out  > *:not(.sec-head) { opacity:0; }
 .seg button { transition:background-color .26s var(--ease), color .26s var(--ease), border-color .26s var(--ease); }
 .chart-wrap canvas { transition:opacity .26s var(--ease); }
 .chart-wrap.chart-out canvas { opacity:0; }
-/* ── V1.9.0（R17）05 章「升轨情况」的对象选择行 ─────────────────────────────────────────
+/* ── V1.9.0（R17）04 章「变轨情况」的对象选择行 ─────────────────────────────────────────
    放在图的**下方**（R17："这个图表的下方有一个批次/组选择按钮"）。
    手机端允许换行；全屏时由 JS 把这一行移到右上角（下一批接线）。 */
 .climb-bar { display:flex; align-items:center; gap:22px; flex-wrap:wrap; margin:14px 0 0; }
@@ -1727,7 +1727,7 @@ html[data-theme="light"] .res-fail { color:#c72929; }
 #sec-progress.fs-mobile .controls .ctl-btns .ghost { padding:4px 10px; font-size:10px; }
 #sec-progress.fs-mobile .controls .help-btn { width:20px; height:20px; font-size:12px; margin-right:6px; }
 #sec-progress.fs-mobile .chart-wrap { height:100vh; padding-top:var(--fsbar-h, 58px); }
-/* ---- V1.9.0（R17）：05 升轨情况的全屏布局 ----
+/* ---- V1.9.0（R17）：04 变轨情况的全屏布局 ----
    与 04 的差别：本章**没有 controls 行**（按需求不设任何设置项），
    所以全屏时唯一需要固定的是 .climb-bar（对象选择器 + 纵轴量）——
    它必须留在屏幕上，否则全屏后就没法换批次了。
@@ -1996,10 +1996,48 @@ html[data-theme="light"] .res-fail { color:#c72929; }
   <div class="legend-groups" id="groupLegend"></div>
 </section>
 
+<!-- ══ V1.9.0（R17）04 章「变轨情况」骨架 ══════════════════════════════════════════════
+     结构照 04 组网进度那一套（同一套 view-ctl 通用处理器 → 自动获得 smoothZoom 平滑缩放与导出），
+     但按要求**不设任何设置项**：因此没有抽屉（fs-panel-btn）、没有时间药丸（fs-clock），
+     也没有 controls 行。右上角的批次/组切换与页面下方的选择器共用同一个 #climbSel。
+     章节顺序：01 地图 / 02 轨道 / 03 倾角分布 / **04 变轨情况** / 05 组网进度 / 06 卫星表格 / 07 发射历史 -->
+<section id="sec-climb"><button class="fs-exit-btn" type="button" aria-label="退出全屏" data-i18n-title="t_exitfs">×</button>
+  <div class="sec-head"><h2><span data-i18n="h_climb">变轨情况</span> <span class="h2-note" data-i18n="zoomable">可缩放</span></h2>
+    <div class="sec-tools"><span></span>
+      <button class="ghost" data-defsec="climb" type="button" data-i18n="b_default" data-i18n-title="t_defclimb">默认设置</button>
+    </div>
+    <span class="sec-num">04</span>
+  </div>
+  <p class="sec-lead" data-i18n="lead_climb">选定一颗卫星或一个批次/组，画出它们的轨道半长轴随时间的变化 —— 刚入轨时低、随后被发动机一点点抬到工作高度的那段"爬坡"。
+
+  <div class="climb-bar">
+    <label class="climb-pick"><span data-i18n="climb_pick">对象</span>
+      <select id="climbSel" aria-label="卫星/卫星批次/组"></select>
+    </label>
+    <label class="climb-take"><span data-i18n="climb_take">纵轴量</span>
+      <span class="seg" id="climbTakeSeg">
+        <button data-take="sma" class="on" data-i18n="m_sma">半长轴</button>
+        <button data-take="rate" data-i18n="climb_rate">升轨速度</button>
+      </span>
+    </label>
+  </div>
+
+  <div class="chart-wrap"><canvas id="climbCv"></canvas><div class="sat-info chart-info" id="climbInfo"></div><div class="sat-info floatwin chart-info" id="climbInfoB"></div>
+    <div class="view-ctl">
+      <button data-zoom="in" data-view="climb" type="button" aria-label="放大" data-i18n-title="t_zoomin">+</button>
+      <button data-zoom="out" data-view="climb" type="button" aria-label="缩小" data-i18n-title="t_zoomout">−</button>
+      <button data-reset="climb" class="rst" type="button" aria-label="恢复原始比例" data-i18n-title="t_resetview"><svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2.4-5.7M4 4v4h4"/></svg></button>
+      <button data-fs="sec-climb" class="fs" type="button" aria-label="全屏" data-i18n-title="t_fullscr"><svg viewBox="0 0 24 24"><path d="M9 3H3v6M15 3h6v6M9 21H3v-6M15 21h6v-6"/></svg></button>
+      <button data-shot="climb" class="shot" type="button" aria-label="导出图片" data-i18n-title="t_shot"><svg viewBox="0 0 24 24"><path d="M7 9V3h10v6"/><path d="M5 19h14a2 2 0 0 0 2-2v-4a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v4a2 2 0 0 0 2 2z"/><path d="M7 15h10v6H7z"/></svg></button>
+    </div>
+  </div>
+  <p class="note" id="climbNote"></p>
+</section>
+
 <section id="sec-progress"><button class="fs-exit-btn" type="button" aria-label="退出全屏" data-i18n-title="t_exitfs">×</button>
   <div class="sec-head"><h2><span data-i18n="h_progress">组网进度</span> <span class="h2-note" data-i18n="zoomable">可缩放</span></h2>
     <div class="sec-tools"><span></span></div>
-    <span class="sec-num">04</span>
+    <span class="sec-num">05</span>
   </div>
   <p class="sec-lead" data-i18n="lead_progress">两条曲线分别是星网与千帆的组网推进速度。横轴按周、标的是那一周的日期；纵轴可切换「发射量（累计）」或「在轨数量」。发射量把所有发射的颗数累加（含失败与部分成功，百科没有记载颗数的不计），在轨数量 = 已有最新轨道要素的颗数 + 已发射但尚未编目的成功批次。</p>
 
@@ -2038,44 +2076,6 @@ html[data-theme="light"] .res-fail { color:#c72929; }
   <p class="note" id="netNote"></p>
 </section>
 
-<!-- ══ V1.9.0（R17）05 章「升轨情况」骨架 ══════════════════════════════════════════════
-     结构照 04 组网进度那一套（同一套 view-ctl 通用处理器 → 自动获得 smoothZoom 平滑缩放与导出），
-     但按要求**不设任何设置项**：因此没有抽屉（fs-panel-btn）、没有时间药丸（fs-clock），
-     也没有 controls 行。右上角的批次/组切换与页面下方的选择器共用同一个 #climbSel。
-     章节顺序：01 地图 / 02 轨道 / 03 倾角分布 / 04 组网进度 / **05 升轨情况** / 06 卫星表格 / 07 发射历史 -->
-<section id="sec-climb"><button class="fs-exit-btn" type="button" aria-label="退出全屏" data-i18n-title="t_exitfs">×</button>
-  <div class="sec-head"><h2><span data-i18n="h_climb">升轨情况</span> <span class="h2-note" data-i18n="zoomable">可缩放</span></h2>
-    <div class="sec-tools"><span></span>
-      <button class="ghost" data-defsec="climb" type="button" data-i18n="b_default" data-i18n-title="t_defclimb">默认设置</button>
-    </div>
-    <span class="sec-num">05</span>
-  </div>
-  <p class="sec-lead" data-i18n="lead_climb">选定一颗卫星或一个批次/组，画出它们的轨道半长轴随时间的变化 —— 刚入轨时低、随后被发动机一点点抬到工作高度的那段"爬坡"。
-
-  <div class="climb-bar">
-    <label class="climb-pick"><span data-i18n="climb_pick">对象</span>
-      <select id="climbSel" aria-label="卫星/卫星批次/组"></select>
-    </label>
-    <label class="climb-take"><span data-i18n="climb_take">纵轴量</span>
-      <span class="seg" id="climbTakeSeg">
-        <button data-take="sma" class="on" data-i18n="m_sma">半长轴</button>
-        <button data-take="rate" data-i18n="climb_rate">升轨速度</button>
-      </span>
-    </label>
-  </div>
-
-  <div class="chart-wrap"><canvas id="climbCv"></canvas><div class="sat-info chart-info" id="climbInfo"></div><div class="sat-info floatwin chart-info" id="climbInfoB"></div>
-    <div class="view-ctl">
-      <button data-zoom="in" data-view="climb" type="button" aria-label="放大" data-i18n-title="t_zoomin">+</button>
-      <button data-zoom="out" data-view="climb" type="button" aria-label="缩小" data-i18n-title="t_zoomout">−</button>
-      <button data-reset="climb" class="rst" type="button" aria-label="恢复原始比例" data-i18n-title="t_resetview"><svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2.4-5.7M4 4v4h4"/></svg></button>
-      <button data-fs="sec-climb" class="fs" type="button" aria-label="全屏" data-i18n-title="t_fullscr"><svg viewBox="0 0 24 24"><path d="M9 3H3v6M15 3h6v6M9 21H3v-6M15 21h6v-6"/></svg></button>
-      <button data-shot="climb" class="shot" type="button" aria-label="导出图片" data-i18n-title="t_shot"><svg viewBox="0 0 24 24"><path d="M7 9V3h10v6"/><path d="M5 19h14a2 2 0 0 0 2-2v-4a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v4a2 2 0 0 0 2 2z"/><path d="M7 15h10v6H7z"/></svg></button>
-    </div>
-  </div>
-  <p class="note" id="climbNote"></p>
-</section>
-
 <section id="sec-table">
   <div class="sec-head"><h2 data-i18n="h_sattable">卫星表格</h2>
     <div class="sec-tools">
@@ -2103,7 +2103,7 @@ html[data-theme="light"] .res-fail { color:#c72929; }
         <th data-key="age" class="sortable" data-i18n="t_age">在轨日, 天</th>
         <th data-key="raan" class="sortable extra" data-i18n="t_raan">升交点, °</th>
         <th data-key="ecc" class="sortable extra" data-i18n="t_ecc">偏心率</th>
-        <th data-key="bstar" class="sortable extra">BSTAR</th>
+        <th data-key="bstar" class="sortable extra" data-i18n="t_bstar">大气阻力系数</th>
         <th data-key="epoch" class="sortable" data-i18n="t_epoch">历元 (UTC)</th>
       </tr></thead>
       <tbody id="tbody"></tbody>

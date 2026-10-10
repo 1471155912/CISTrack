@@ -130,8 +130,9 @@ assert('待编目批次为空（非空 = 6 位编目号通路又断了）',
 console.log('--- 章节与导航 ---');
 // V1.8.0（需求8）：新增 03.5「组网进度」章节（插在 03 倾角分布之后、04 卫星表格之前）
 // V1.9.0（R17）：新增 05 章「升轨情况」并把组网进度从 03.5 提到 04、其后顺延为 06 / 07
-assert('章节顺序 = 地图/轨道/倾角分布/组网进度/升轨情况/卫星表格/发射历史',
-  [...d.querySelectorAll('section')].map(s => s.id).join('|') === 'sec-map|sec-orbits|sec-chart|sec-progress|sec-climb|sec-table|sec-launches');
+// V1.9.1（A15）：04/05 互换 —— 变轨情况前移到 04、组网进度后移到 05。
+assert('章节顺序 = 地图/轨道/倾角分布/变轨情况/组网进度/卫星表格/发射历史',
+  [...d.querySelectorAll('section')].map(s => s.id).join('|') === 'sec-map|sec-orbits|sec-chart|sec-climb|sec-progress|sec-table|sec-launches');
 assert('章节号 01/02/03/04/05/06/07', [...d.querySelectorAll('.sec-num')].map(s => s.textContent).join('') === '01020304050607');
 // V1.7.2 第七轮（需求2）：顶栏章节切换按钮（.navlinks）与「更新历元」那行（.nav-updated）
 // 已**有意删除**（与右下悬浮药丸功能重合）。这里改成反向守卫：一旦被加回来就报警。
@@ -142,8 +143,8 @@ assert('顶栏「更新历元」那行已移除（.nav-updated / #navUpdated 不
 assert('顶栏右侧空容器 .nav-right 仍在（layoutNav 读它的计算宽度）', !!d.querySelector('.nav-right'));
 // V1.9.0（需求15）：组网进度的短标签 网/N → 进/P
 // V1.9.0（R17）：药丸新增 05 章「升 / C」，插在「进 / P」与「星 / S」之间
-assert('档位条：中文=图轨角进升星箭 / 英文=MOIPCSL（V1.4.9 / V1.8.0 / V1.9.0）',
-  [...d.querySelectorAll('#jumpPill button')].map(b => b.textContent).join('') === '↑图轨角进升星箭↓');
+assert('档位条：中文=图轨角变进星箭 / 英文=MOIPCSL（V1.4.9 / V1.8.0 / V1.9.0 / A15 改「升」为「变」）',
+  [...d.querySelectorAll('#jumpPill button')].map(b => b.textContent).join('') === '↑图轨角变进星箭↓');
 
 console.log('--- 表格 ---');
 // V1.9.1：编目号列放宽到 4–6 位（含 6 位编目号 100xxx）。
@@ -355,7 +356,10 @@ console.log('--- V1.4.2 ---');
 assert('表头前五列 = 名称/NORAD/在轨状态/批次·组/发射时间，第 6 列才是 Manufacturer',
   [...d.querySelectorAll('#satTable thead th')].slice(0, 6).map(t => t.getAttribute('data-key')).join('|') === 'name|norad|status|launch|ltime|maker',
   [...d.querySelectorAll('#satTable thead th')].slice(0, 6).map(t => t.getAttribute('data-key')).join('|'));
-assert('表头文案「批次/组」「Manufacturer」', /t_launch: \['批次\/组'/.test(appSrc) && /t_maker: \['Manufacturer'/.test(appSrc));
+// V1.9.1（A13）：t_maker 原为 ['Manufacturer','Manufacturer'] —— **中文页也显示英文**（真 bug）→ 改中文「制造商」。
+assert('表头文案「批次/组」「制造商」', /t_launch: \['批次\/组'/.test(appSrc) && /t_maker: \['制造商', 'Manufacturer'\]/.test(appSrc));
+assert('V1.9.1（A13）：BSTAR 列补上 data-i18n（原为硬编码，中英都写死 "BSTAR"）',
+  /data-key="bstar"[^>]*data-i18n="t_bstar"/.test(tpl) && /t_bstar: \['大气阻力系数', 'BSTAR'\]/.test(appSrc));
 // V1.9.1（1.4-D）：在轨状态列 —— 用户要求已再入卫星能在卫星列表里呈现。
 assert('V1.9.1（1.4-D）：卫星表有「在轨状态」列，当前页每个单元格都渲染了在轨/已再入',
   (function () {
@@ -442,7 +446,7 @@ assert('Manufacturer双语简称（英文界面显示缩写：CAST/SAST/Microsat
   /'氦星光联', 'Histarlink'/.test(appSrc) && /'鸿擎科技', 'HongQing Tech'/.test(appSrc) &&
   /'航天二院', 'Acad\. 2nd, CASIC'/.test(appSrc) && /'垣信科技', 'SpaceSail'/.test(appSrc) &&
   /var name = \(LANG === 'en' && it\.en\) \? it\.en : it\.zh;/.test(appSrc));
-assert('英文列标签是 Manufacturer', /t_maker: \['Manufacturer', 'Manufacturer'\]/.test(appSrc));
+assert('制造方列标签：中文「制造商」/ 英文 Manufacturer（A13 修掉中文页显示英文的 bug）', /t_maker: \['制造商', 'Manufacturer'\]/.test(appSrc));
 assert('Manufacturer首格带 .maker-link 链接', d.querySelectorAll('#satTable tbody td.maker a.maker-link').length > 0,
   d.querySelectorAll('#satTable tbody td.maker a.maker-link').length + ' 个链接');
 // ⑤ 发射场链接
@@ -1414,27 +1418,29 @@ function secHead(id) {
   const j = tplCode.indexOf('<section', i + 10);
   return tplCode.slice(i, j < 0 ? i + 3000 : Math.min(j, i + 3000));
 }
-assert('V1.9.0（R17）：05 升轨情况章节存在，且是**独立编号 05**（06/07 让位给原 05/06）',
+assert('V1.9.1（A15）：04 变轨情况章节存在，且是**独立编号 04**（05/06/07 顺延）',
   /<section id="sec-climb">/.test(tplCode) && /<canvas id="climbCv">/.test(tplCode) &&
   /<select id="climbSel"/.test(tplCode) && /id="climbTakeSeg"/.test(tplCode) &&
   /id="climbNote"/.test(tplCode) &&
-  /<span class="sec-num">05<\/span>/.test(secHead('sec-climb')) &&
+  /<span class="sec-num">04<\/span>/.test(secHead('sec-climb')) &&
   /<span class="sec-num">06<\/span>/.test(secHead('sec-table')) &&
   /<span class="sec-num">07<\/span>/.test(secHead('sec-launches')));
 assert('V1.9.0（R17）：本章**不设任何设置项**（无抽屉、无时间药丸、无 controls 行）',
   !/id="sec-climb"[\s\S]{0,1400}?fs-panel-btn/.test(tplCode) &&
   !/id="sec-climb"[\s\S]{0,1400}?fs-clock/.test(tplCode) &&
   !/id="sec-climb"[\s\S]{0,1400}?class="controls"/.test(tplCode));
-assert('V1.9.0（R17）：右下角章节药丸新增「升 / C」，跳转标题中英同步',
-  /\['sec-climb', 'C', '升'\]/.test(appCode) &&
-  /'sec-climb': \{ zh: '05 升轨情况', en: '05 Orbits Raising Status' \}/.test(appCode));
+assert('V1.9.1（A15）：右下角章节药丸「变 / C」且位次在「进 / P」之前，跳转标题中英同步',
+  /\['sec-climb', 'C', '变'\]/.test(appCode) &&
+  appCode.indexOf("['sec-climb'") < appCode.indexOf("['sec-progress'") &&
+  /'sec-climb': \{ zh: '04 变轨情况', en: '04 Orbits Change Status' \}/.test(appCode) &&
+  /'sec-progress': \{ zh: '05 组网进度', en: '05 Network progress' \}/.test(appCode));
 assert('V1.9.0（R17）：五张图的缩放/复位走同一套通用通路（05 不另写动画旁路）',
   /view === 'climb'\) \{[\s\S]{0,200}?smoothZoom\(function \(f\) \{ zoomClimbBy\(f\); \}, dir, 260\);/.test(appCode) &&
   /view === 'climb'\) \{ climbView = null; climbAutoView\(\); drawClimb\(\); \}/.test(appCode) &&
   /data-zoom="in" data-view="climb"/.test(tplCode) && !/data-climbzoom/.test(tplCode));
 assert('V1.9.0（R17）：导出图片支持本章，且底栏带**升轨速度列**',
   /view === 'climb' \? 'climbCv'/.test(appCode) &&
-  /climb: \{ zh: '升轨情况', en: 'OrbitClimb' \}/.test(appCode) &&
+  /climb: \{ zh: '变轨情况', en: 'Orbits Change' \}/.test(appCode) &&
   /if \(view === 'climb'\) drawClimb\(\);/.test(appCode) &&
   /view === 'climb'\) \{[\s\S]{0,900}?km\/天/.test(appCode.replace(/^\s*\/\/.*$/gm, '')));
 assert('V1.9.0（R17）：最小二乘**必须中心化 x**（毫秒时间戳直接平方会抵消，误差 2.9e-9）',
