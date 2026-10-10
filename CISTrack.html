@@ -478,6 +478,13 @@ section.fs-mobile .canvas-wrap { margin-top:0 !important; }
 .sug-note b { font-weight:800 !important; color:var(--row-sel); }
 .sug-item:hover { background:var(--row-hover); color:var(--fg); }
 .sug-item b { color:var(--fg); font-weight:600; }
+/* V1.9.1（A19）：搜索补池条目 —— 「已再入」（红）/「尚未编目」（琥珀）。
+   刻意**不复用** .sug-note 的主题色：那两类的语义是"库里没有它"，用主题色会看着像正常结果。
+   只加左边一条 3px 竖线 + 尾标注着色，不改动 .sug-item 本身。 */
+.sug-item.sug-pool { border-left:3px solid var(--st-gone); }
+.sug-item.sug-pool[data-kind="pend"] { border-left-color:#f59f00; }
+.sug-item.sug-pool .sug-norad { color:var(--st-gone); font-weight:600; }
+.sug-item.sug-pool[data-kind="pend"] .sug-norad { color:#f59f00; }
 .hero-search { margin-top:0; }   /* V1.7.0 第三轮（需求6）：第 0 章四段间距统一为 24px —— 原来 gap24+22=46 */   /* V1.3.8：去掉 520px 上限，输入框拉满到右边界 */
 .hero-search .lbl { display:block; margin-bottom:7px; }
 /* 搜索栏下一行、靠右对齐的「还原所有默认设置」；初始就是默认配置时暗淡不可点 */
@@ -852,6 +859,10 @@ footer .foot-celes:hover { color:var(--fg); border-bottom-color:var(--fg); }
   transition:opacity .26s var(--ease), transform .26s var(--ease);
 }
 #selToast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+/* V1.9.1（A19）：搜索补池条目的两种提示色 —— 「已再入」红（与卫星表 st-gone 同色）、
+   「尚未编目」琥珀。**只新增这两个类**，既有的 .cross 行为与观感一字未动。 */
+#selToast.pool-dead { background:rgba(255,92,92,0.94); border-color:rgba(255,92,92,1); }
+#selToast.pool-pend { background:rgba(245,159,0,0.94); border-color:rgba(245,159,0,1); }
 /* V1.3.6：页脚作者（B 站 ID）用橙色 —— 中英文两版、星网千帆两页都一样 */
 #footLink { color:#ff8c1a; border-bottom-color:rgba(255,140,26,0.45); }
 #footLink:hover { color:#ffa94d; border-bottom-color:#ffa94d; }
@@ -2467,6 +2478,12 @@ var I18N = {
   d_pick_hint_desktop: ['电脑端可移动鼠标预览 · 点击固定观测点', 'On desktop, move the cursor to preview · click to fix the site'],
   d_pick_hint_touch: ['点击地图任意位置设置观测点', 'Tap the map anywhere to set the site'],
   d_search_none: ['没有匹配的卫星', 'No matching satellite'],
+  // V1.9.1（A19）：搜索补池 —— 「已再入」与「尚未编目」这两类**库内没有 TLE** 的对象。
+  //   左键点它们的联想项时：跳转到 06 卫星表格 + 弹下面这两句提示（红 / 琥珀）。
+  d_pool_dead: ['已再入', 'Re-entered'],
+  d_pool_pend: ['待编目', 'Not catalogued'],
+  d_pool_dead_toast: ['该卫星已再入', 'This satellite has re-entered'],
+  d_pool_pend_toast: ['该卫星尚未编目', 'This satellite is not catalogued yet'],
   d_search_ph: ['支持模糊搜索', 'Fuzzy search'],
   d_search_recent: ['最近', 'Recent'],
   d_first: ['首页', 'First'], d_prev: ['上一页', 'Prev'], d_next: ['下一页', 'Next'], d_last: ['尾页', 'Last'],
@@ -2706,7 +2723,11 @@ function build(key) {
   var st = {
     key: key, name: c.name, en: c.en, org: c.org, sub: c.sub,
     launches: launches, sats: sats, lmap: lmap, bad: bad,
-    makers: c.makers || {}            // V1.4.2：制造方（按批次 key 索引，来自词条）
+    makers: c.makers || {},            // V1.4.2：制造方（按批次 key 索引，来自词条）
+    // V1.9.1（A19）：**搜索补池** —— 「已再入」与「尚未编目」这两类**库内没有 TLE** 的对象，
+    //   页面的搜索原先只在 sats 里找，于是搜名字/NORAD 什么都搜不到。这里并联进来（Q35：可搜索），
+    //   点击行为见 poolJump()（01/02/03 章物理上无法高亮，只跳 06 + 弹提示）。
+    dead: c.dead || [], pend: c.pend || []
   };
   // 统计
   var sum = 0, incs = {};
@@ -8483,7 +8504,10 @@ Object.keys(NUMB).forEach(function (kind) {
 // 「已全选」绿色提示：位置在**顶部时间药丸的正下方、水平居中**（运行时按药丸的实际底边定位，
 //   所以任何语言/宽度/是否全屏都贴着它），与药丸同层悬浮于页面内容之上；1.8s 后淡出。
 var toastEl = null, toastTimer = 0;
-function showToast(txt, isCross) {
+// V1.9.1（A19）：第二个参数升级为"模式"（原先只有布尔）——
+//   'dead' → 红（.pool-dead，与卫星表「已再入」同色）／'pend' → 琥珀（.pool-pend）。
+//   旧的 `true/false` 语义原样保留（true 仍映射到 .cross），所以既有调用点一个都不用改。
+function showToast(txt, mode) {
   try {
     if (!toastEl) {
       toastEl = document.createElement('div');
@@ -8491,7 +8515,10 @@ function showToast(txt, isCross) {
       document.body.appendChild(toastEl);
     }
     toastEl.textContent = txt;
-    toastEl.classList.toggle('cross', !!isCross);
+    var isCross = (mode === true || mode === 'cross');
+    toastEl.classList.toggle('cross', isCross);
+    toastEl.classList.toggle('pool-dead', mode === 'dead');
+    toastEl.classList.toggle('pool-pend', mode === 'pend');
     var pill = document.getElementById('clockPill');
     if (pill) {
       var r = pill.getBoundingClientRect();
@@ -8503,6 +8530,25 @@ function showToast(txt, isCross) {
     toastEl.classList.add('show');
     toastTimer = setTimeout(function () { toastEl.classList.remove('show'); }, 1800);
   } catch (e) {}
+}
+// V1.9.1（A19）：搜索补池（已再入 / 尚未编目）条目的点击行为 —— 任务清单 Q35。
+//   ① **01/02/03 章物理上无法高亮**：那三章画的是"库内有可推算 TLE 的卫星"，补池对象不在其中，
+//      所以这里**只**跳到 06 卫星表格 + 弹提示，绝不假装在图上高亮了一个不存在的点；
+//   ② 06 卫星表格：该 NORAD 若**在库**就框选它那一行（A10/A17 把已再入/待编目也列进表格后自动生效）；
+//      不在库（A19 两池的定义就是这样）→ 退一步按**批次**高亮 —— 反馈落在 07 发射历史那一行；
+//   ③ 04 变轨情况：**跟随选中**（selectGroup → afterSelection → climbFollowSelection），
+//      该批次有曲线时会一并高亮，没曲线就没有可高亮的东西。
+function poolJump(kind, norad, bk) {
+  var hit = -1;
+  cur().sats.forEach(function (s) { if (s.norad === norad) hit = s.idx; });
+  if (hit >= 0) { infoClearClosed(); S.sel = [hit]; S.focusIdx = hit; afterSelection(); }
+  else selectGroup(bk);
+  // ⚠️ 提示必须放在 selectGroup **之后**：selectGroup 内部可能自己弹「已全选」，
+  //   先弹的话会被它覆盖掉（这里要的是"该卫星已再入/尚未编目"这句）。
+  showToast(t(kind === 'dead' ? 'd_pool_dead_toast' : 'd_pool_pend_toast'), kind === 'dead' ? 'dead' : 'pend');
+  var sec = document.getElementById('sec-table');
+  if (sec) smoothScrollTo(sec.getBoundingClientRect().top + window.scrollY - navHeight() - 8, 720);
+  updateJumpActive('sec-table');
 }
 // 跨星座全选：把"全选"写进**另一个星座的会话快照**（STORE[other].selNorad + selGroup）。
 //   这样用户切过去时 applyConstel() 会自然恢复出"五个章节都选中该批次"的状态 —— 全程不需要切页面。
@@ -8729,22 +8775,65 @@ function searchCandidates(q) {
   if (!raw) return [];
   var words = raw.toLowerCase().split(/[\s,，、]+/).filter(Boolean);
   var out = [], seenSat = {}, seenGroup = {};
+  // V1.9.1（A19-S）：**命中词表** —— 键 → { 词: 1 }。
+  //   为什么需要它：多词搜索的交集本来用「候选条数 ≥ 词数」判断，而候选在 push 时**已按 NORAD 去重**
+  //   → 同一个对象被两个词命中时只会留下一条 → `arr.length` 恒为 1 → **多词搜索一律返回"没有匹配的卫星"**
+  //   （实测 'HULIANWANG DIGUI-01'、'长征八号甲 Y1' 全空）。
+  //   现在改为在**去重之前**按对象记下"哪些词命中过它"，交集按**命中词数**判断。
+  var hitWords = {}, curW = '';
+  function okey(o) {
+    return o.kind === 'sat' ? ('sat:' + o.sat.norad)
+      : o.kind === 'group' ? ('group:' + o.launch.cospar)
+        : (o.kind + ':' + o.pool.n);
+  }
+  function markHit(o) {
+    var k = okey(o);
+    (hitWords[k] || (hitWords[k] = {}))[curW] = 1;
+  }
 
   function pushSat(s, score, note) {
+    var o = { kind: 'sat', sat: s, score: score, note: note, t: s.launch ? s.launch.dateMs : 0 };
+    markHit(o);                                    // ★ 必须在去重**之前**记
     if (seenSat[s.norad]) return;
     seenSat[s.norad] = 1;
-    out.push({ kind: 'sat', sat: s, score: score, note: note, t: s.launch ? s.launch.dateMs : 0 });
+    out.push(o);
   }
   function pushGroup(L, score, note) {
+    var o = { kind: 'group', launch: L, score: score, note: note, t: L.dateMs };
+    markHit(o);
     if (seenGroup[L.cospar]) return;
     seenGroup[L.cospar] = 1;
-    out.push({ kind: 'group', launch: L, score: score, note: note, t: L.dateMs });
+    out.push(o);
   }
   function pushLaunchSats(L, score, note) {
     L.sats.forEach(function (s) { pushSat(s, score, note); });
   }
+  // ---- V1.9.1（A19）：搜索补池 ----
+  // 「已再入」与「尚未编目」这两类对象**库内没有 TLE**（satdata 的 dead / pend 两池），
+  // 原先搜索只在 sats 里找 → 搜它们的名字/NORAD 一律"没有匹配的卫星"。
+  // 这里把它们并联进候选：kind 直接就是 'dead' / 'pend'（渲染与点击都按它分派）。
+  var seenPool = {};
+  function pushPool(rec, kind, score, note) {
+    var o = { kind: kind, pool: rec, score: score, note: note, t: 0 };
+    var k = kind + ':' + rec.n;
+    var L = null;
+    for (var i = 0; i < st.launches.length; i++) if (st.launches[i].key === rec.bk) { L = st.launches[i]; break; }
+    // t（时间）用所属批次的发射时刻 —— 排序时"新到旧"这一维度要跟主池一致
+    o.t = L ? L.dateMs : 0;
+    markHit(o);                                    // ★ 同样要在去重之前记
+    if (seenPool[k]) return;
+    seenPool[k] = 1;
+    out.push(o);
+  }
+  function poolEach(fn) {
+    (st.dead || []).forEach(function (r) { fn(r, 'dead'); });
+    (st.pend || []).forEach(function (r) { fn(r, 'pend'); });
+  }
+  // 补池对象的可搜字段：目录名 + 库内口径 6 列 COSPAR + NORAD + 批次号
+  function poolHay(rec) { return (rec.nm + ' ' + rec.c + ' ' + rec.n + ' ' + rec.bk).toLowerCase(); }
 
   words.forEach(function (w) {
+    curW = w;                                        // V1.9.1（A19-S）：供 markHit 记录"哪个词命中的"
     var num = w.match(/^[0-9]+$/) ? w : '';
 
     // —— ① 火箭（含遥号）：命中型号 → 该型号（+遥号）发射的全部卫星
@@ -8825,6 +8914,10 @@ function searchCandidates(q) {
       st.sats.forEach(function (s) {
         if (String(s.norad).indexOf(num) >= 0) pushSat(s, 8, b(clip(String(s.norad), 10)));
       });
+      // V1.9.1（A19）：补池也按 NORAD 数字命中（排在主池之后 —— 主池那颗能算出轨道，优先级更高）
+      poolEach(function (rec, kind) {
+        if (String(rec.n).indexOf(num) >= 0) pushPool(rec, kind, 9, b(clip(String(rec.n), 10)));
+      });
       return;
     }
     // —— ⑤ 普通词：批次名 / 卫星名 / NORAD / COSPAR / 日期
@@ -8842,25 +8935,31 @@ function searchCandidates(q) {
       var cn = (s.launch.cospar || '').toLowerCase();
       if (cn.indexOf(w) >= 0) pushSat(s, 4, b(clip(s.launch.cospar, 12)));
     });
+    // V1.9.1（A19）：补池同样按「目录名 / 6 列 COSPAR / NORAD / 批次号」模糊命中
+    poolEach(function (rec, kind) {
+      var p = poolHay(rec).indexOf(w);
+      if (p >= 0) pushPool(rec, kind, p === 0 ? 1 : 5, b(clip(rec.c, 12)));
+    });
   });
 
   // 多词同时输入时：必须每个词都命中（取各词结果的交集）
+  // ★ V1.9.1（A19-S）：判据由「候选条数 ≥ 词数」改为「**命中词数** ≥ 词数」——
+  //   前者恒不成立（候选按 NORAD 去重，同一对象被 N 个词命中也只留一条），
+  //   结果就是多词搜索**永远返回空**。见上面 hitWords 的说明。
   if (words.length > 1) {
     var byKey = {};
     out.forEach(function (o) {
-      var k = o.kind + ':' + (o.kind === 'sat' ? o.sat.norad : o.launch.cospar);
-      if (!byKey[k]) byKey[k] = [];
-      byKey[k].push(o);
+      var k = okey(o);
+      var e = byKey[k] || (byKey[k] = { best: null, notes: [] });
+      if (e.best === null || o.score < e.best.score) e.best = o;
+      if (e.notes.indexOf(o.note) < 0) e.notes.push(o.note);
     });
     var inter = [];
     Object.keys(byKey).forEach(function (k) {
-      var arr = byKey[k];
-      if (arr.length >= words.length) {
-        // 合并标注：多个命中都列出来（如「氦星光联 航天二院」）
-        var best = arr.slice().sort(function (a, c) { return a.score - c.score; })[0];
-        best.note = arr.map(function (x) { return x.note; }).join(' ');
-        inter.push(best);
-      }
+      if (Object.keys(hitWords[k] || {}).length < words.length) return;
+      var e = byKey[k];
+      e.best.note = e.notes.join(' ');       // 合并标注：多个命中都列出来（如「氦星光联 航天二院」）
+      inter.push(e.best);
     });
     out = inter;
   }
@@ -8872,25 +8971,35 @@ function searchCandidates(q) {
 // V1.7.0：括号内的命中关键词按当前语言输出（英文界面不留中文）；
 //         并把「被输入命中的那一段」加粗（原来是整段 <b> 包住，现在按命中片段高亮）。
 function sugItemHtml(o, mark) {
-  var name, right, tail;
+  var name, right, tail, attrs, cls = '';
   if (o.kind === 'sat') {
     var s = o.sat;
     name = cnName(s);
     right = o.note || clip(String(s.norad), 10);
     tail = String(s.norad);
+    // V1.6.3：批次项的 data-lk 必须是 launch.key（裸号，如 23095）—— 此前误用 cospar（2023-095），
+    // 导致从联想区点击批次时 selectGroup 匹配不到、毫无反应。
+    attrs = ' data-kind="sat" data-idx="' + s.idx + '"';
+  } else if (o.kind === 'dead' || o.kind === 'pend') {
+    // V1.9.1（A19）：搜索补池条目 —— 库内没有 TLE，所以**没有** data-idx（点不了"选中卫星"）。
+    //   右侧尾标注直接写「已再入 / 待编目」（红 / 琥珀由 .sug-pool + data-kind 上色）。
+    var pr = o.pool;
+    name = pr.nm || pr.c;
+    right = o.note || clip(pr.c, 12);
+    tail = t(o.kind === 'dead' ? 'd_pool_dead' : 'd_pool_pend');
+    attrs = ' data-kind="' + o.kind + '" data-norad="' + pr.n + '" data-bk="' + pr.bk + '"';
+    cls = ' sug-pool';
   } else {
     var L = o.launch;
     name = batchName(L.name);
     right = o.note || L.name;
     tail = L.sats.length + (LANG === 'en' ? ' sats' : ' 颗');
+    attrs = ' data-kind="group" data-lk="' + L.key + '"';
   }
   // V1.7.0：note 里可能带 <b>...</b>（表示命中字段），把它按语言转写：
   //   英文界面下，把括号里的中文关键词转换成对应英文（用 makerAliasSet 反查规范名）。
   right = localizeNote(right);
-  return '<div class="sug-item" data-kind="' + o.kind + '"' +
-    // V1.6.3：批次项的 data-lk 必须是 launch.key（裸号，如 23095）—— 此前误用 cospar（2023-095），
-    // 导致从联想区点击批次时 selectGroup 匹配不到、毫无反应。
-    (o.kind === 'sat' ? ' data-idx="' + o.sat.idx + '"' : ' data-lk="' + o.launch.key + '"') + '>' +
+  return '<div class="sug-item' + cls + '"' + attrs + '>' +
     '<span class="sug-name">' + (mark ? '<i class="sug-mark">' + mark + '</i>' : '') + name +
     ' <i class="sug-note">(' + right + ')</i></span>' +
     '<span class="sug-norad">' + tail + '</span></div>';
@@ -9057,6 +9166,16 @@ SEARCH_BOXES.forEach(function (b) {
   var el = document.getElementById(b.sug); if (!el) return;
   el.addEventListener('mousedown', function (e) {
     var it = e.target.closest('.sug-item'); if (!it) return;
+    var kd0 = it.getAttribute('data-kind');
+    // V1.9.1（A19）：补池条目走单独分支 —— **不进「最近浏览」**（Q40：库里没有 TLE 的对象
+    //   不该出现在"最近"里，否则那 6 条会被它们长期占住）。
+    if (kd0 === 'dead' || kd0 === 'pend') {
+      e.preventDefault();
+      blurSearchInputs();
+      poolJump(kd0, +it.getAttribute('data-norad'), it.getAttribute('data-bk'));
+      closeSug();
+      return;
+    }
     try {                                        // V1.5.0：记入本次会话的浏览记录
       var kd = it.getAttribute('data-kind');
       if (kd === 'sat') {

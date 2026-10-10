@@ -1873,6 +1873,132 @@ assert('V1.8.0（需求16）：章节「默认设置」把观测点整组摆回�
 assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂（地图缩放平移 / 地球姿态与缩放）',
   /if \(sec === 'globe'\) \{ G\.yaw = 100 \* RAD; G\.pitch = 22 \* RAD; G\.zoom = 1; \}/.test(appCode));
 
+// ================================================================ V1.9.1（A19）页面侧：搜索补池
+// 为什么必须"注入合成数据"才能测：真实数据里 dead/pend 两池**恰好都是空的**
+//   （1.1/1.4/1.6 之后已 100% 归位）—— 拿真实产物跑，这整条通路一行代码都不会执行。
+// 做法：把产物 HTML 里那段 `window.SATDATA={…}` 取出来、塞进 3 条合成池对象再放回，
+//   然后用**真 JSDOM**走真实交互（填输入框 → 读联想区 → mousedown 点击 → 看提示条）。
+{
+  const k0 = html.indexOf('window.SATDATA=');
+  const end0 = html.indexOf(';</script>', k0);
+  const sd = JSON.parse(html.slice(k0 + 'window.SATDATA='.length, end0));
+  // 合成三条：已再入（无 TLE）、尚未编目（无 TLE）；批次都挂在真实存在的批次上，便于验证高亮
+  sd.gw.dead = [{ n: 900001, nm: 'A19 DEAD SYNTH', c: '25067Z', bk: '25067', on: '2025-10-16' }];
+  sd.gw.pend = [{ n: 900002, nm: 'A19 PEND SYNTH', c: '26221Z', bk: '26221' }];
+  sd.qf.pend = [{ n: 900003, nm: 'A19 PEND QF', c: '26211Z', bk: '26211' }];
+  const html2 = html.slice(0, k0 + 'window.SATDATA='.length) + JSON.stringify(sd) + html.slice(end0);
+
+  const err2 = [];
+  const vc2 = new VirtualConsole();
+  vc2.on('jsdomError', e => err2.push('jsdomError: ' + ((e.detail && (e.detail.stack || e.detail.message)) || e.message)));
+  vc2.on('error', (...a) => err2.push('console.error: ' + a.join(' ')));
+  const dom2 = new JSDOM(html2, {
+    runScripts: 'dangerously', pretendToBeVisual: true, url: 'http://localhost/', virtualConsole: vc2,
+    beforeParse(window) {
+      window.HTMLCanvasElement.prototype.getContext = function () { if (!this.__ctx) this.__ctx = makeCtx(); return this.__ctx; };
+      window.HTMLCanvasElement.prototype.toBlob = function (cb) { cb(null); };
+      window.Element.prototype.getBoundingClientRect = function () {
+        var h = (this.tagName === 'TR') ? 41 : 460;
+        return { left: 0, top: 0, x: 0, y: 0, width: 900, height: h, right: 900, bottom: h };
+      };
+      window.scrollTo = () => {}; window.scrollBy = () => {};
+      // ⚠️ 这里**不要**覆盖 requestAnimationFrame：app 里有连续的动画循环，
+      //   把 rAF 换成 `setTimeout(cb, 0)` 会让它变成死循环 —— 断言全跑完、汇总也打印了，
+      //   但进程永不退出（实测挂 4 分钟以上）。jsdom 自己的 rAF（pretendToBeVisual）就够用。
+      Object.defineProperty(window, 'innerHeight', { value: 4000, configurable: true });
+      Object.defineProperty(window, 'innerWidth', { value: 1400, configurable: true });
+      window.addEventListener('error', e => err2.push('window.error: ' + e.message));
+    }
+  });
+  const w2 = dom2.window, d2 = w2.document;
+  await new Promise(r => setTimeout(r, 2000));
+
+  const inp = d2.getElementById('topSearch'), sug = d2.getElementById('topSug');
+  function typeQ(q) {
+    inp.value = q;
+    inp.dispatchEvent(new w2.Event('input', { bubbles: true }));
+    return sug.innerHTML;
+  }
+  assert('A19 页面侧：注入合成池后页面无脚本错误', err2.length === 0, err2.slice(0, 3).join(' | ') || 'none');
+
+  // ① 三池并联：已再入 / 尚未编目都能被搜到，且 data-kind 正确
+  const hDead = typeQ('900001');
+  assert('A19 页面侧：按 NORAD 能搜到「已再入」补池对象（原先只在 sats 里找 → 搜不到）',
+    /data-kind="dead"/.test(hDead) && /A19 DEAD SYNTH/.test(hDead), hDead.slice(0, 160));
+  const hPend = typeQ('900002');
+  assert('A19 页面侧：按 NORAD 能搜到「尚未编目」补池对象',
+    /data-kind="pend"/.test(hPend) && /A19 PEND SYNTH/.test(hPend), hPend.slice(0, 160));
+  // ② 按名字与 COSPAR 也要能搜到
+  const hName = typeQ('A19 PEND SYNTH');
+  assert('A19 页面侧：按目录名（**多词**）能搜到补池对象', /data-kind="pend"/.test(hName), hName.slice(0, 120));
+  const hCos = typeQ('26221Z');
+  assert('A19 页面侧：按 6 列 COSPAR 能搜到补池对象', /data-kind="pend"/.test(hCos), hCos.slice(0, 120));
+  // ③ 尾标注写「已再入」/「待编目」（不是颗数、不是 NORAD）
+  assert('A19 页面侧：补池条目尾标注是「已再入」/「待编目」',
+    /sug-norad">已再入</.test(hDead) && /sug-norad">待编目</.test(hPend));
+  // ④ 换星座后只显示本星座的池（千帆的 pend 不串到星网页）
+  assert('A19 页面侧：搜索补池按星座隔离（星网页搜不到千帆的 pend 对象）',
+    !/data-kind="pend"/.test(typeQ('900003')));
+
+  // ⑤ 点击「已再入」条目 → 红提示 + 该批次行高亮（反馈落在 07 发射历史）
+  typeQ('900001');
+  const itDead = sug.querySelector('.sug-item[data-kind="dead"]');
+  assert('A19 页面侧：「已再入」条目带 data-norad / data-bk（供点击定位用）',
+    !!itDead && itDead.getAttribute('data-norad') === '900001' && itDead.getAttribute('data-bk') === '25067',
+    itDead ? itDead.outerHTML.slice(0, 140) : 'null');
+  itDead.dispatchEvent(new w2.MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+  await new Promise(r => setTimeout(r, 60));
+  const toast = d2.getElementById('selToast');
+  assert('A19 页面侧：点「已再入」→ 弹红提示「该卫星已再入」（.pool-dead）',
+    !!toast && toast.textContent === '该卫星已再入' && toast.classList.contains('pool-dead') &&
+    toast.classList.contains('show'),
+    toast ? (toast.textContent + ' / ' + toast.className) : 'null');
+  assert('A19 页面侧：同一批次（25067）的行在发射历史里被高亮（不在库 → 退化为批次级反馈）',
+    !!d2.querySelector('#launchBody tr.focused') &&
+    d2.querySelector('#launchBody tr.focused').getAttribute('data-lk') === '25067',
+    d2.querySelector('#launchBody tr.focused') ? d2.querySelector('#launchBody tr.focused').getAttribute('data-lk') : 'none');
+
+  // ⑥ 点击「尚未编目」条目 → 琥珀提示
+  typeQ('900002');
+  const itPend = sug.querySelector('.sug-item[data-kind="pend"]');
+  itPend.dispatchEvent(new w2.MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+  await new Promise(r => setTimeout(r, 60));
+  assert('A19 页面侧：点「尚未编目」→ 弹琥珀提示「该卫星尚未编目」（.pool-pend）',
+    !!toast && toast.textContent === '该卫星尚未编目' && toast.classList.contains('pool-pend') &&
+    !toast.classList.contains('pool-dead'),
+    toast ? (toast.textContent + ' / ' + toast.className) : 'null');
+
+  // ⑦ Q40：补池条目**不进「最近浏览」** —— 清空输入后不该出现在最近 6 条里
+  inp.value = '';
+  inp.dispatchEvent(new w2.Event('input', { bubbles: true }));
+  assert('A19 页面侧：补池条目不进「最近浏览」（Q40：清空输入后不出现）',
+    !/data-kind="dead"|data-kind="pend"/.test(sug.innerHTML), sug.innerHTML.slice(0, 160));
+
+  // ⑧ 01/02/03 章不联动（Q35）：点补池条目不得改动地图/地球/倾角三处选中态
+  assert('A19 页面侧：点补池条目不联动 01/02/03 章（不改动地图与地球的选中）',
+    d2.querySelectorAll('#map, #globe, #chart').length === 3);   // 存在性 + 下面查源码守卫
+  assert('A19 页面侧：poolJump 只跳 06 卫星表格（源码守卫：不出现 sec-map/sec-orbits/sec-chart 的跳转）',
+    (function () {
+      const src = (appSrc.match(/function poolJump\([\s\S]*?\n\}/) || [''])[0];
+      return /sec-table/.test(src) && !/sec-map|sec-orbits|sec-chart/.test(src);
+    })());
+
+  // ⑨ V1.9.1（A19-S）：多词搜索修复 —— 修前判断用的是"候选条数 ≥ 词数"，
+  //   而候选按 NORAD 去重 → 同一对象被 N 个词命中也只留一条 → **多词搜索永远返回空**
+  //   （实测 'HULIANWANG DIGUI-01' / '长征八号甲 Y1' 全空）。
+  const hMulti = typeQ('HULIANWANG DIGUI');
+  assert('V1.9.1（A19-S）：多词搜索不再是空的（真实多词名 HYLIANWANG·DIGUI 能命中）',
+    /data-kind="sat"/.test(hMulti) && !/没有匹配的卫星/.test(hMulti), hMulti.slice(0, 140));
+  assert('V1.9.1（A19-S）：交集按**命中词数**判断（源码守卫：旧的 arr.length 判据必须消失）',
+    /Object\.keys\(hitWords\[k\] \|\| \{\}\)\.length < words\.length/.test(appSrc) &&
+    /function markHit\(o\) \{/.test(appSrc) &&
+    /curW = w;/.test(appSrc) &&
+    !/arr\.length >= words\.length/.test(appSrc));
+  assert('V1.9.1（A19-S）：markHit 在三处 push（sat/group/pool）里都调用了',
+    (appSrc.match(/markHit\(o\);/g) || []).length === 3);
+  dom2.window.close();
+}
+
 $('#themeBtn').dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
 
 

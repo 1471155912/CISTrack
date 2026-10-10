@@ -478,6 +478,13 @@ section.fs-mobile .canvas-wrap { margin-top:0 !important; }
 .sug-note b { font-weight:800 !important; color:var(--row-sel); }
 .sug-item:hover { background:var(--row-hover); color:var(--fg); }
 .sug-item b { color:var(--fg); font-weight:600; }
+/* V1.9.1（A19）：搜索补池条目 —— 「已再入」（红）/「尚未编目」（琥珀）。
+   刻意**不复用** .sug-note 的主题色：那两类的语义是"库里没有它"，用主题色会看着像正常结果。
+   只加左边一条 3px 竖线 + 尾标注着色，不改动 .sug-item 本身。 */
+.sug-item.sug-pool { border-left:3px solid var(--st-gone); }
+.sug-item.sug-pool[data-kind="pend"] { border-left-color:#f59f00; }
+.sug-item.sug-pool .sug-norad { color:var(--st-gone); font-weight:600; }
+.sug-item.sug-pool[data-kind="pend"] .sug-norad { color:#f59f00; }
 .hero-search { margin-top:0; }   /* V1.7.0 第三轮（需求6）：第 0 章四段间距统一为 24px —— 原来 gap24+22=46 */   /* V1.3.8：去掉 520px 上限，输入框拉满到右边界 */
 .hero-search .lbl { display:block; margin-bottom:7px; }
 /* 搜索栏下一行、靠右对齐的「还原所有默认设置」；初始就是默认配置时暗淡不可点 */
@@ -852,6 +859,10 @@ footer .foot-celes:hover { color:var(--fg); border-bottom-color:var(--fg); }
   transition:opacity .26s var(--ease), transform .26s var(--ease);
 }
 #selToast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+/* V1.9.1（A19）：搜索补池条目的两种提示色 —— 「已再入」红（与卫星表 st-gone 同色）、
+   「尚未编目」琥珀。**只新增这两个类**，既有的 .cross 行为与观感一字未动。 */
+#selToast.pool-dead { background:rgba(255,92,92,0.94); border-color:rgba(255,92,92,1); }
+#selToast.pool-pend { background:rgba(245,159,0,0.94); border-color:rgba(245,159,0,1); }
 /* V1.3.6：页脚作者（B 站 ID）用橙色 —— 中英文两版、星网千帆两页都一样 */
 #footLink { color:#ff8c1a; border-bottom-color:rgba(255,140,26,0.45); }
 #footLink:hover { color:#ffa94d; border-bottom-color:#ffa94d; }
