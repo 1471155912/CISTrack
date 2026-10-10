@@ -158,10 +158,17 @@ jobs:
             exit 0
           fi
           git commit -m "data: TLE 自动刷新（$(date -u +'%Y-%m-%d %H:%M UTC')）"
-          # 本机任务可能刚推过 → 先 rebase 再推；仍失败就整体重试一次
-          if ! git pull --rebase --autostash origin ${GITHUB_REF_NAME} || ! git push origin HEAD:${GITHUB_REF_NAME}; then
+          # 本机任务可能刚推过 → 先 rebase 再推；仍失败就整体重试一次。
+          # ★ V1.9.1：**必须带 `-X theirs`** —— 产物是**生成物**（三个 HTML + history 分片），
+          #   本机任务与 CI 都会重新生成它们，两边同时提交 → rebase 时**必然冲突**。
+          #   2026-10-10 实测：`CISTrack.html` / `CISTrack_v1.9.0.html` / `星网与千帆在轨追踪.html`
+          #   三处 CONFLICT → 整个 run 以 exit 128 失败，**连数据都没推上去**（静默丢掉一次刷新）。
+          #   在 rebase 里 "theirs" = **本次 CI 刚构建出来的那份**，正是要保留的（比远端可能已过时的产物新）。
+          #   冲突只会发生在产物/数据上（CI 不改代码），所以这个偏向是安全的。
+          if ! git pull --rebase --autostash -X theirs origin ${GITHUB_REF_NAME} || ! git push origin HEAD:${GITHUB_REF_NAME}; then
             echo "首次推送失败，重试一次…"
-            git pull --rebase --autostash origin ${GITHUB_REF_NAME}
+            git rebase --abort 2>/dev/null || true
+            git pull --rebase --autostash -X theirs origin ${GITHUB_REF_NAME}
             git push origin HEAD:${GITHUB_REF_NAME}
           fi
           echo "已推送"
