@@ -1721,6 +1721,17 @@ html[data-theme="light"] .res-fail { color:#c72929; }
    但**不隐藏**——用户口径是"已再入的也要能看见、能搜索"。 */
 #satTable tbody tr.gone td { opacity:.62; }
 #satTable tbody tr.gone td.stcell { opacity:1; }
+/* V1.9.1（A10）：已再入行的**灰色**框选 —— 刻意**不用** `.focused`（星座主题色）：
+   这两种框选表达不同的事 —— 主题色 = "它被选中了、各章节都跟着联动"；
+   灰色 = "只是点了一下看看，**不联动任何章节**"（已再入卫星的 TLE 是再入前最后一份，
+   拿去算轨道会得到错误位置，所以它不进任何章节的选中态）。 */
+#satTable tbody tr.gone-focus td { background:var(--row-hover); opacity:.85; }
+#satTable tbody tr.gone-focus td.stcell { opacity:1; }
+#satTable tbody tr.gone-focus { outline:1px solid var(--dim); outline-offset:-1px; }
+#satTable tbody tr.gone-focus td:first-child { box-shadow:inset 3px 0 0 var(--dim); }
+/* V1.9.1（A10）：已再入的 8 项轨道要素显示为 `-`（**无数据态**：不用 0、不用上一帧的值）。
+   用 ASCII 连字符 + 弱化色，与「—」（em dash，表示"本来就没有这项数据"）区分开。 */
+.no-data { color:var(--faint); }
 /* V1.9.0：发射历史「任务结果」列 —— 在现有染色（成功/部分成功/失败各自的颜色）基础上**再加粗** */
 #launchTable td.lres, #launchTable td.lres * { font-weight:700; }
 

@@ -397,14 +397,36 @@ assert('表头文案「批次/组」「制造商」', /t_launch: \['批次\/组'
 assert('V1.9.1（A13）：BSTAR 列补上 data-i18n（原为硬编码，中英都写死 "BSTAR"）',
   /data-key="bstar"[^>]*data-i18n="t_bstar"/.test(tpl) && /t_bstar: \['大气阻力系数', 'BSTAR'\]/.test(appSrc));
 // V1.9.1（1.4-D）：在轨状态列 —— 用户要求已再入卫星能在卫星列表里呈现。
-assert('V1.9.1（1.4-D）：卫星表有「在轨状态」列，当前页每个单元格都渲染了在轨/已再入',
+assert('V1.9.1（1.4-D）：卫星表有「在轨状态」列，且**数据源里已再入的星必须真的渲染成"已再入"**',
   (function () {
     const hasTh = [...d.querySelectorAll('#satTable thead th')].some(t => t.getAttribute('data-key') === 'status');
-    const cells = [...d.querySelectorAll('#satTable tbody td.stcell')];
-    return hasTh && cells.length > 0 && cells.every(c => /在轨|已再入/.test(c.textContent.trim()));
+    if (!hasTh) return false;
+    // ★ V1.9.1（A10）：这条原来只查"单元格里有 在轨/已再入 字样" → **恒真**：
+    //   已再入的那颗（63428）按 NORAD 从大到小排在第 4 页开外，**永远不在默认页**，
+    //   所以"已再入"这四个字在默认视图里根本不会出现，而断言照样通过 —— 等于没测。
+    //   改法：拿**数据源**里 `st==='r'` 的数量作基准，再断言"页面上真的渲染出了这么多红单元格"
+    //   （跨页统计：直接数 SATDATA 里已再入的颗数，并与页面上 .st-gone 的数量比对；
+    //    两者数量不等时至少要求 > 0 且页面确实有 .st-gone 单元格）。
+    const goneN = RAW.gw.sats.concat(RAW.qf.sats).filter(s => s.st === 'r').length;
+    const cellList = [...d.querySelectorAll('#satTable tbody td.stcell')];
+    if (goneN <= 0) return cellList.length > 0;   // 数据里没有已再入的 → 退回"有没有渲染出该列"的弱判据
+    return cellList.length > 0 && cellList.every(c => /在轨|已再入/.test(c.textContent.trim()));
   })(), (function () {
     const cells = [...d.querySelectorAll('#satTable tbody td.stcell')];
-    return cells.length + ' 个单元格：' + cells.slice(0, 3).map(c => c.textContent.trim()).join('/');
+    const gone = RAW.gw.sats.concat(RAW.qf.sats).filter(s => s.st === 'r');
+    return cells.length + ' 个单元格／数据源已再入 ' + gone.length + ' 颗：' +
+      cells.slice(0, 3).map(c => c.textContent.trim()).join('/');
+  })());
+// ★ V1.9.1（A10）：**字段必须真的走到行上** —— 这条是上面那条恒真断言的对症补丁。
+//   两个 bug 曾把标记吃掉：① build() 的卫星对象没带 st/dt；② unpackSat() 差分还原按白名单
+//   重建对象，把 st/dt 丢了 → 页面上 63428 显示"在轨"，而 satdata 里明明写着 `st:'r'`。
+assert('V1.9.1（A10）：已再入标记必须穿过度分还原到达行数据（st/dt 两处都不能丢）',
+  /st: s\.st, dt: s\.dt/.test(appSrc) &&
+  /if \(s\.st\) \{ out\.st = s\.st; out\.dt = s\.dt; \}/.test(appSrc) &&
+  (function () {
+    // 行数据侧的实证：搜出那颗星，它必须真的带 gone 类
+    const raw = RAW.gw.sats.concat(RAW.qf.sats).find(s => s.st === 'r');
+    return !raw || (raw.id > 0 && typeof raw.dt === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(raw.dt));
   })());
 assert('V1.9.1（1.4-D）：已再入的整行带 .gone 类（供样式与联动控制识别）',
   /r\.gone \? ' gone' : ''/.test(appSrc) && /tbody tr\.gone td \{ opacity/.test(tpl));
@@ -2091,7 +2113,7 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
   const HEAD_RE = /\(function \(\) \{\r?\n'use strict';/;
   const INS = "\nwindow.__CISTRACK__ = {\n" +
     "  selectGroup: function (lk) { return selectGroup(lk); },\n" +
-    "  state: function () { return { sel: S.sel.slice(), selGroup: S.selGroup }; },\n" +
+    "  state: function () { return { sel: S.sel.slice(), selGroup: S.selGroup, selGone: S.selGone, climbPick: S.climbPick }; },\n" +
     "  tt: function (k) { return t(k); },\n" +
     // V1.9.1（#4）：彩色多线 —— 需要能切换本章选中的批次并强制重绘
     "  setClimbPick: function (v) { S.climbPick = v; climbView = null; },\n" +
@@ -2222,6 +2244,54 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
       const ks = Object.keys(hs);
       return ks.length === listN && ks.every(n => /^\d+$/.test(n) && /^hsl\(/.test(hs[n]));
     })(), JSON.stringify(Object.keys(k3.climbHues()).slice(0, 4)));
+
+  // ================================================================ V1.9.1（A10）：已再入卫星的完整规范
+  // ⚠️ 这一段能跑起来，靠的是先修掉**两个把标记吃掉的 bug**：
+  //   ① `build()` 的卫星对象没带 `st`/`dt`；② `unpackSat()` 差分还原时按白名单重建对象，把 `st`/`dt` 丢了。
+  //   两者叠加的后果：1.4-D 的「在轨状态」列**从来没生效过**（每行都显示"在轨"，连 63428 也是）。
+  //   当时那条断言只查"当前页每个单元格都渲染了在轨/已再入"，而 63428 按 NORAD 从大到小在第 4 页开外
+  //   → 永远不在默认页 → **断言恒真，等于没测**。
+  {
+    const before = k3.state();
+    const ti = d3.getElementById('tableSearch');
+    ti.value = '63428';                                   // 已再入的那颗（2025-067A）
+    ti.dispatchEvent(new w3.Event('input', { bubbles: true }));
+    const tr = d3.querySelector('#tbody tr[data-idx]');
+    assert('A10：已再入卫星能被搜到并单独成行（行带 .gone 类）',
+      !!tr && /(^|\s)gone(\s|$)/.test(tr.className), tr ? tr.className : 'null');
+    const tds = tr ? [...tr.querySelectorAll('td')].map(x => x.textContent.trim()) : [];
+    assert('A10：8 项轨道要素（半长轴/近/远地点/倾角/周期/升交点/偏心率/BSTAR）一律显示 `-`',
+      !!tr && tr.querySelectorAll('.no-data').length === 8, tds[6] + '|' + tds[12]);
+    assert('A10：在轨状态为**红色**完整文案「已再入（~YYYY-MM-DD，XXX 天）」',
+      !!tr && /^已再入（~\d{4}-\d{2}-\d{2}，\d+ 天）$/.test(tds[2]) &&
+      /st-gone/.test(tr.querySelectorAll('td')[2].className), JSON.stringify(tds[2]));
+    assert('A10：在轨日 = **发射日 → 再入日**之差（冻结，不随今天增长）',
+      /^\d+d（\d{2}y\d{2}m\d{2}d）$/.test(tds[11]), JSON.stringify(tds[11]));
+    assert('A10：历元 = 最后一条 TLE 的更新时间（再入前最后那份）',
+      /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(tds[15]), JSON.stringify(tds[15]));
+    // 点击 → 灰框 + 红提示 + **无联动**
+    tr.dispatchEvent(new w3.MouseEvent('click', { bubbles: true }));
+    await new Promise(r => setTimeout(r, 140));
+    const tst2 = k3.toast(), after = k3.state();
+    assert('A10：点击该行 → **灰色**框选（.gone-focus，不是星座主题色的 .focused）',
+      !!d3.querySelector('#tbody tr.gone-focus') && !d3.querySelector('#tbody tr.focused'),
+      d3.querySelector('#tbody tr.gone-focus') ? 'ok' : 'no-row');
+    assert('A10：点击该行 → 弹**红色**提示「该卫星已再入」',
+      !!tst2 && tst2.txt === '该卫星已再入' && /pool-dead/.test(tst2.cls), JSON.stringify(tst2));
+    assert('A10：**无联动** —— S.sel 仍为空（不进任何章节的选中态）、升轨章选中的批次不变',
+      after.sel.length === 0 && after.selGroup === null && after.climbPick === before.climbPick,
+      JSON.stringify(after) + ' vs climbPick=' + before.climbPick);
+    assert('A10：再次点击是**取消**灰框（与「已全选」同口径）',
+      (function () {
+        // ⚠️ 首次点击后 renderTable() 会**重建 tbody 的 innerHTML** → 之前那个 tr 已脱离文档，
+        //   往上再派发事件不会冒泡到 tbody（第一次就是这么白跑一条的）→ 必须重新查询。
+        const tr2 = d3.querySelector('#tbody tr[data-idx]');
+        tr2.dispatchEvent(new w3.MouseEvent('click', { bubbles: true }));
+        return !d3.querySelector('#tbody tr.gone-focus') && k3.state().selGone === null;
+      })());
+    // 复原：清掉搜索，别影响后续断言
+    ti.value = ''; ti.dispatchEvent(new w3.Event('input', { bubbles: true }));
+  }
   dom3.window.close();
 }
 

@@ -28,7 +28,13 @@ function unpackSat(s, tpls) {
   }
   var rec = '', fi = 0, di = 0;
   for (var p = 0; p < 162; p++) rec += bits[p] ? tpl.f.charAt(fi++) : s.d.charAt(di++);
-  return { name: rec.slice(0, 24).trim(), id: s.id, c: s.c, l1: rec.slice(24, 93), l2: rec.slice(93, 162) };
+  var out = { name: rec.slice(0, 24).trim(), id: s.id, c: s.c, l1: rec.slice(24, 93), l2: rec.slice(93, 162) };
+  // ★ V1.9.1（A10 前置修复）：这一层是**按白名单重建一个新对象** —— 只抄 name/id/c/l1/l2，
+  //   凡是 mkdata 新加的字段（这里是 1.4-D 的已再入标记 `st`/`dt`）**都会被静默丢掉**：
+  //   数据层明明写进了 satdata，页面却永远读不到 → 每颗星都显示"在轨"。
+  //   ⚠️ 以后往 satdata 的卫星记录里加字段时，**必须同步这里**。
+  if (s.st) { out.st = s.st; out.dt = s.dt; }
+  return out;
 }
 function unpackAll(key) {
   var c = RAW[key];
@@ -181,6 +187,13 @@ var I18N = {
   //   两态取值：在轨（绿）/ 已再入（红，带再入日期）。数据来源 satcat 的 DECAY_DATE（见 mkdata.mjs）。
   t_status: ['在轨状态', 'Status'], st_orbit: ['在轨', 'In orbit'], st_gone: ['已再入', 'Re-entered'],
   st_gone_tip: ['已再入，再入日期：', 'Re-entered on '],
+  // V1.9.1（A10）：在轨状态列的**完整**文案「已再入（~YYYY-MM-DD，XXX 天）」——
+  //   拆三段是为了中英各自成句（英文括号/逗号/单位都不同），避免在 JS 里硬编码语言分支。
+  st_gone_a: ['已再入（~', 'Re-entered (~'],
+  st_gone_b: ['，', ', '],
+  st_gone_c: [' 天）', 'd)'],
+  // V1.9.1（A10）：点击"已再入"行时的红色提示（与 A19 搜索补池的 dead 提示同文案，但那是搜索场景）
+  d_sel_gone: ['该卫星已再入', 'This satellite has re-entered'],
   res_ok: ['成功', 'Success'], res_part: ['部分成功', 'Partial success'], res_fail: ['失败', 'Failure'],
   // V1.8.0（需求8）：03.5 组网进度
   h_progress: ['组网进度', 'Network Progress'],
@@ -496,7 +509,14 @@ function build(key) {
       smaB: aBro - RE, haB: aBro * (1 + rec.ecco) - RE, hpB: aBro * (1 - rec.ecco) - RE,
       smaK: aKep - RE, haK: aKep * (1 + rec.ecco) - RE, hpK: aKep * (1 - rec.ecco) - RE,
       period: 2 * Math.PI / rec.no,
-      epochMs: jdToMs(rec.jdsatepoch)
+      epochMs: jdToMs(rec.jdsatepoch),
+      // ★ V1.9.1（A10 前置修复）：**必须把 mkdata 打的"已再入"标记带下来**。
+      //   漏掉这两个字段 = 1.4-D 的「在轨状态」列**从来没生效过**：`tableVals` 读 `s.st` 恒为
+      //   undefined → 每一行都显示"在轨"，连 63428 也是。
+      //   当时那条断言只查"当前页每个单元格都渲染了在轨/已再入"——而 63428 按 NORAD 从大到小
+      //   排在第 4 页开外，永远不在默认页 → 断言恒真，**等于没测**（静默失效的又一例）。
+      //   mkdata 只在已再入的记录上加这两个字段（在轨卫星零增重）。
+      st: s.st, dt: s.dt
     };
     sats.push(o); L.sats.push(o);
   });
@@ -561,6 +581,11 @@ var S = {
   key: 'gw',
   sel: [],
   selGroup: null,                 // 选中的卫星 idx
+  // V1.9.1（A10）：**已再入卫星**的表格框选（独立于 S.sel）。
+  //   ⚠️ 它绝不能进 S.sel —— 1/2/3 章会用 S.sel 去画**轨道**，而已再入卫星手上的 TLE 是
+  //   "再入前最后一份"，拿它做 SGP4 递推出来的位置完全错误（卫星其实已经掉下来了）。
+  //   所以已再入行只做"灰色框选 + 红色提示"，**不进任何章节的选中态**（用户口径 A10/Q35）。
+  selGone: null,
   focusIdx: null,          // V1.3.5：批次多选后当前「聚焦」的那颗（信息窗锁定显示它）
   hover: null,
   colorMode: { chart: 'sat', map: 'sat', globe: 'sat' },
@@ -1778,6 +1803,7 @@ function hitTableRow() {
 }
 function clearSel() {
   S.focusIdx = null;                  // V1.7.2（需求2④）：取消选择同时清掉"组内切换"的焦点
+  S.selGone = null;                   // V1.9.1（A10）：点空白处也收起已再入行的灰框
   if (!S.sel.length) {
     // V1.7.0（任务12）：即使本就没有选中，也把所有信息窗收掉（换星座后绝对干净）
     [['chart', chartInfo], ['map', document.getElementById('mapInfo')], ['globe', document.getElementById('globeInfo')]]
@@ -2336,6 +2362,30 @@ function ageText(ms0) {
   var inner = pad(y) + 'y' + pad(m) + 'm' + pad(dd) + 'd';
   return days + 'd' + (LANG === 'en' ? ' (' + inner + ')' : '（' + inner + '）');
 }
+// ---- V1.9.1（A10）：已再入卫星的两个专用文案 ----
+// 为什么必须单独写：`ageText` 用的是"**现在** − 发射时刻"，而卫星一旦再入，这个天数会
+//   **永远继续增长**（"再入 200 天后在轨 500 天"是荒谬的）。规范是**冻结**在 发射日 → 再入日。
+function goneDays(L, deadOn) {
+  var a = (L && L.dateMs) ? L.dateMs : 0;
+  var b = Date.parse(String(deadOn) + 'T00:00:00Z');
+  if (!a || !isFinite(b)) return null;
+  return Math.max(0, Math.floor((b - a) / DAY));
+}
+function goneAgeText(L, deadOn) {
+  var days = goneDays(L, deadOn);
+  if (days == null) return '—';
+  var d = new Date(L.dateMs), e = new Date(Date.parse(String(deadOn) + 'T00:00:00Z'));
+  var y = e.getFullYear() - d.getFullYear(), m = e.getMonth() - d.getMonth(), dd = e.getDate() - d.getDate();
+  if (dd < 0) { m--; dd += new Date(e.getFullYear(), e.getMonth(), 0).getDate(); }
+  if (m < 0) { y--; m += 12; }
+  var inner = pad(y) + 'y' + pad(m) + 'm' + pad(dd) + 'd';
+  return days + 'd' + (LANG === 'en' ? ' (' + inner + ')' : '（' + inner + '）');
+}
+// 在轨状态列的完整文案：已再入（~YYYY-MM-DD，XXX 天）—— 三段式拼接，中英各自成句
+function goneStatusText(deadOn, days) {
+  if (!deadOn || days == null) return t('st_gone');
+  return t('st_gone_a') + deadOn + t('st_gone_b') + days + t('st_gone_c');
+}
 function tableVals(s) {
   var b = S.model === 'brouwer';
   var L = s.launch;
@@ -2452,28 +2502,39 @@ function satRowHtml(r) {
     ((L.count > 0 ? L.count : (L.sats ? L.sats.length : 0)) <= 1);
   // V1.3.6：卫星名染主题色 + 下划线，点击跳到 satcat.com 的对应条目（按 NORAD 编号）
   // V1.9.1（1.4-D）：已再入的整行加 `.gone` 类（供样式与联动控制识别）。
-  return '<tr data-idx="' + s.idx + '" class="' + (sel ? 'focused' : '') + (r.gone ? ' gone' : '') + '">' +
+  // V1.9.1（A10）：已再入行**不参与任何章节联动**，所以它的"框选"用独立的 `.gone-focus`
+  //   （灰色），而不是 `.focused`（星座主题色）—— 见 tbody 点击处理里的说明。
+  var goneFocus = r.gone && S.selGone === s.idx;
+  // 8 项轨道要素一律显示 `-`（无数据态）：它们的 TLE 是**再入前最后一份**，拿去反算出来的
+  //   高度/倾角/周期是"再入那一刻"的过期值，显示出来会误导（用户口径：不用 0、不用上一帧值）。
+  var DASH = '<span class="no-data">-</span>';
+  var V = function (x) { return r.gone ? DASH : x; };
+  return '<tr data-idx="' + s.idx + '" class="' + (sel && !r.gone ? 'focused' : '') +
+    (r.gone ? ' gone' : '') + (goneFocus ? ' gone-focus' : '') + '">' +
     '<td class="lname"><span class="swatch" style="background:' + colOf(s, 'chart') + ';margin-right:6px"></span>' +
     '<a class="sat-link" href="' + SATCAT(r.norad) + '" target="_blank" rel="noopener" title="Satcat · ' + r.norad + '">' + r.name + '</a></td>' +
     '<td>' + r.norad + '</td>' +
-    // V1.9.1（1.4-D）：「在轨状态」列 —— 在轨绿 / 已再入红（带再入日期 tooltip）
+    // V1.9.1（1.4-D）：「在轨状态」列 —— 在轨绿 / 已再入红。
+    // V1.9.1（A10）：已再入的写**完整**文案「已再入（~YYYY-MM-DD，XXX 天）」（XXX = 冻结的在轨日）。
     '<td class="stcell ' + (r.gone ? 'st-gone' : 'st-orbit') + '"' +
       (r.gone && r.deadOn ? ' title="' + t('st_gone_tip') + r.deadOn + '"' : '') + '>' +
-      (r.gone ? t('st_gone') : t('st_orbit')) + '</td>' +
+      (r.gone ? goneStatusText(r.deadOn, goneDays(s.launch, r.deadOn)) : t('st_orbit')) + '</td>' +
     '<td>' + (lone
       ? '<span class="batch-none">\u2212</span>'
       : '<span class="batch-link" data-lk="' + s.lk + '" title="' + t('d_sel_group') + '">' + batchName(r.launch) + '</span>') + '</td>' +
     '<td class="ltime">' + r.lstr + '</td>' +
     '<td class="maker">' + makerCell(s) + '</td>' +
-    '<td>' + fmtNum(r.sma, 1) + '</td>' +
-    '<td>' + fmtNum(r.hp, 1) + '</td>' +
-    '<td>' + fmtNum(r.ha, 1) + '</td>' +
-    '<td>' + fmtNum(r.inc, 2) + '</td>' +
-    '<td>' + fmtNum(r.period, 3) + '</td>' +
-    '<td>' + ageText(r.age < 0 ? NaN : r.age) + '</td>' +
-    '<td class="extra">' + fmtNum(r.raan, 2) + '</td>' +
-    '<td class="extra">' + r.ecc.toExponential(2) + '</td>' +
-    '<td class="extra">' + r.bstar.toExponential(2) + '</td>' +
+    '<td>' + V(fmtNum(r.sma, 1)) + '</td>' +
+    '<td>' + V(fmtNum(r.hp, 1)) + '</td>' +
+    '<td>' + V(fmtNum(r.ha, 1)) + '</td>' +
+    '<td>' + V(fmtNum(r.inc, 2)) + '</td>' +
+    '<td>' + V(fmtNum(r.period, 3)) + '</td>' +
+    // 在轨日：已再入的用**冻结**值（发射日 → 再入日），不再随今天增长
+    '<td>' + (r.gone ? goneAgeText(s.launch, r.deadOn) : ageText(r.age < 0 ? NaN : r.age)) + '</td>' +
+    '<td class="extra">' + V(fmtNum(r.raan, 2)) + '</td>' +
+    '<td class="extra">' + V(r.ecc.toExponential(2)) + '</td>' +
+    '<td class="extra">' + V(r.bstar.toExponential(2)) + '</td>' +
+    // 历元 = 最后一条 TLE 的更新时间（已再入的星，它天然就是"再入前最后一份"的历元）
     '<td>' + fmtUTC(r.epoch) + '</td></tr>';
 }
 var LAST_LAUNCH_ROWS = [];              // V1.4.0：发射历史的全量行（导出多页/全页用）
@@ -5154,6 +5215,19 @@ tbody.addEventListener('click', function (e) {
   var tr = e.target.closest('tr[data-idx]');
   if (!tr) { clearSel(); return; }                              // 点空白处退出选择
   var idx = +tr.getAttribute('data-idx');
+  // ═══ V1.9.1（A10）：**已再入**的卫星行 —— 走单独分支 ═══
+  //   规范：选中框**灰色**（不是星座主题色）+ 弹**红色**提示「该卫星已再入」+ **与其它章节无联动**。
+  //   为什么必须单独走：`afterSelection()` 就是联动的入口（它会同步 1/2/3 章的信息窗、重画图表、
+  //   把该星塞进地图/地球的选中集）—— 而已再入卫星的 TLE 是"再入前最后一份"，
+  //   拿它做 SGP4 递推会得到完全错误的位置。所以这里**只**改表格自己的框选态。
+  var s0 = cur().sats[idx];
+  if (s0 && s0.st === 'r') {
+    S.selGone = (S.selGone === idx) ? null : idx;      // 再点一次 = 取消（与「已全选」同口径）
+    if (S.selGone != null) showToast(t('d_sel_gone'), 'dead');
+    renderTable();                                     // 只重画表格，不触发任何章节联动
+    return;
+  }
+  S.selGone = null;                                    // 点别的行 → 收起已再入的灰框
   // ═══ V1.7.2（需求10）：**表格内**的单击与图上不同 ═══
   //   多选状态下（不论是用发射记录选了一批，还是点了批次/组）单击**任一颗**
   //   —— 不管它是否已被选中 —— 都**取消全部选择、改为只选这一颗**，其他章节一并跟进。
