@@ -72,8 +72,15 @@ function assert(name, cond, extra) {
 
 await new Promise(r => setTimeout(r, 2500));
 
-const tpl = fs.readFileSync(B + '/template.html', 'utf8');
-const appSrc = fs.readFileSync(B + '/app.js', 'utf8');
+// ★ V1.9.1：读源码时**统一把 CRLF 归一成 LF**。
+//   为什么必须有这一步：仓库 `core.autocrlf=true` 会把**工作区**文件翻成 CRLF（仓库里存的是 LF），
+//   于是凡是断言里写了 "\n" 字面量的地方（`.sug-list {\n  z-index:62`、`var XX = …;\n`、
+//   逐行 `/^\s*if (…\s*\{\$/`）在**本机**一律匹配不到、在 Linux CI 上却通过 —— 4 条本来正确的
+//   守卫因此在本地报 FAIL。这类"平台差异"极难归因（曾让我把 4 条既有 FAIL 误记成"0 FAIL 全绿"）。
+//   `.gitattributes` 已把仓库策略定为 LF，这里再加一道防线：**断言不再依赖 checkout 的换行符**。
+const lf = s => s.replace(/\r\n/g, '\n');
+const tpl = lf(fs.readFileSync(B + '/template.html', 'utf8'));
+const appSrc = lf(fs.readFileSync(B + '/app.js', 'utf8'));
 const rawSrc = fs.readFileSync(B + '/build/satdata.json', 'utf8');
 const RAW = w.SATDATA;
 
@@ -130,6 +137,7 @@ assert('待编目批次为空（非空 = 6 位编目号通路又断了）',
 console.log('--- 章节与导航 ---');
 // V1.8.0（需求8）：新增 03.5「组网进度」章节（插在 03 倾角分布之后、04 卫星表格之前）
 // V1.9.0（R17）：新增 05 章「升轨情况」并把组网进度从 03.5 提到 04、其后顺延为 06 / 07
+// V1.9.1（A15）：04 与 05 **互换并改名** → 本章现为 **04 变轨情况**（`Orbits Change Status`），组网进度为 05
 // V1.9.1（A15）：04/05 互换 —— 变轨情况前移到 04、组网进度后移到 05。
 assert('章节顺序 = 地图/轨道/倾角分布/变轨情况/组网进度/卫星表格/发射历史',
   [...d.querySelectorAll('section')].map(s => s.id).join('|') === 'sec-map|sec-orbits|sec-chart|sec-climb|sec-progress|sec-table|sec-launches');
@@ -1404,7 +1412,7 @@ assert('V1.8.0（需求8）：四张图的缩放/复位走同一套通用通路�
   /data-zoom="in" data-view="progress"/.test(tplCode));
 
 // 需求5/6/12：发射历史的任务结果列 + 卫星表的发射时间列
-// ================================================================= V1.9.0（R17）：05 升轨情况
+// ================================================================= V1.9.0（R17）：04 变轨情况（A15 前为 05 升轨情况）
 // 这一章的验收分两层：① 结构与接线（本组断言，纯静态可查）；
 //   ② 算法正确性（最小二乘/断档/顶格限位），由 scripts/climb.mjs --selftest 与
 //   「离线抠函数自检」两处覆盖 —— 后者刻意**不用**只断言单调性的自检，
@@ -1737,6 +1745,40 @@ assert('V1.9.0（R17）：升轨速率算法在页面端与构建期**同一口�
   assert('V1.9.1（1.7）：本页发射数与词条口径一致（gw 244 / qf 262）',
     D.gw.stats.launched === 244 && D.qf.stats.launched === 262,
     'gw=' + D.gw.stats.launched + ' qf=' + D.qf.stats.launched);
+}
+
+// ---- V1.9.1（A19）：搜索补池（dead / pend）+ satcat 缺失的**显式**探测 ----
+// 为什么 satcatOk 是必需的：A19 的两池与 1.4-D 的 st='r' 在**输入缺失时都会退化成空**
+//   （2026-10-10 实际发生过：satcat.csv 不见了 → 已再入标记一条都没有，而构建照常成功）。
+//   若只断言"池为空"，就把"通路断了"当成了"确实没有这类对象"。两种原因必须能区分。
+{
+  const md = fs.readFileSync(B + '/mkdata.mjs', 'utf8');
+  const sp = fs.readFileSync(B + '/scripts/search_pools.mjs', 'utf8');
+  const g = JSON.parse(fs.readFileSync(B + '/build/satdata.json', 'utf8'));
+  const D = g.SATDATA || g;
+  const pools = [...(D.gw.dead || []), ...(D.gw.pend || []), ...(D.qf.dead || []), ...(D.qf.pend || [])];
+  assert('V1.9.1（A19）：搜索补池抽成纯函数模块（真实数据里池恒空 → 必须可单测）',
+    /export function searchPools\(satcatText, batchKeys, haveNorads, isStowaway\)/.test(sp) &&
+    /import \{ searchPools \} from '\.\/scripts\/search_pools\.mjs'/.test(md));
+  assert('V1.9.1（A19）：satdata 输出 dead / pend 两池（两星座都有）',
+    Array.isArray(D.gw.dead) && Array.isArray(D.gw.pend) &&
+    Array.isArray(D.qf.dead) && Array.isArray(D.qf.pend));
+  assert('V1.9.1（A19）：池内记录字段齐备（n/nm/c/bk；dead 必有 on、pend 必无 on）',
+    pools.every(r => r.n && r.nm && /^\d{5}[A-Z]*$/.test(r.c) && r.bk) &&
+    [...D.gw.dead, ...D.qf.dead].every(r => /^\d{4}-\d{2}-\d{2}$/.test(r.on || '')) &&
+    [...D.gw.pend, ...D.qf.pend].every(r => r.on === undefined),
+    JSON.stringify(pools.slice(0, 3)));
+  assert('V1.9.1（A19）：搭车星不进池（26128B=69473 中国移动02星 / 24226A=62185）',
+    !pools.some(r => r.n === 69473 || r.n === 62185));
+  assert('V1.9.1（A19）：已在库对象不进补池（否则同一条搜索结果会出现两次）',
+    (function () {
+      const have = new Set([...(D.gw.sats || []), ...(D.qf.sats || [])].map(s => s.id));
+      return !pools.some(r => have.has(r.n));
+    })());
+  assert('V1.9.1：satdata 记录 satcat 是否可用（satcatOk，布尔）', typeof D.satcatOk === 'boolean');
+  assert('V1.9.1：satcat 可用时已再入链路必须有货（否则恒空的分支等于没被验证过）',
+    !D.satcatOk || (D.gw.sats.some(s => s.st === 'r') && Object.keys(D.gw.goneCount || {}).length > 0),
+    D.satcatOk ? '已再入 ' + D.gw.sats.filter(s => s.st === 'r').length + ' 颗' : '（satcat 缺失，mkdata 已给醒目警告）');
 }
   // ⚠️ CI 工作流文件只存在于**仓库**里；本地工作区（开发目录）通常没有 `.github/`。
   //   smoke 两边都会跑（本地自审 + CI），所以这里必须容错 —— 不存在就视为通过并注明。

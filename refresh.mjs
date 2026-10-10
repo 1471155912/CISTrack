@@ -174,7 +174,13 @@ if (forceCat || age > 7) {
   if (r.ok && r.text.split('\n').length > 1000 && /OBJECT_NAME,OBJECT_ID/.test(r.text.split('\n')[0])) {
     fs.writeFileSync(catPath, r.text, 'utf8');
     console.log('  satcat.csv saved', r.text.length, 'bytes');
-  } else console.log('  !! satcat 异常（status ' + r.status + '），沿用旧文件');
+  } else if (!fs.existsSync(catPath)) {
+    // V1.9.1：拉不到 **且本机没有旧副本** → 三处功能（已再入标记 / 台账扣减 / 搜索补池）会静默失效，
+    //   产物看起来却完全正常。所以这里主动失败（非零退出，CI 的 `set -e` 会截断后续步骤）。
+    console.error('  ✗ satcat.csv 拉取失败（status ' + r.status + '）且本机无旧副本 ——' +
+      '已再入标记/台账扣减/搜索补池将静默失效，故主动失败而非产出残缺产物。');
+    process.exitCode = 4;
+  } else console.log('  !! satcat 异常（status ' + r.status + '），沿用旧文件（' + age.toFixed(1) + ' 天）');
 } else console.log('satcat.csv 仅 ' + age.toFixed(1) + ' 天，跳过（--force-cat 可强制）');
 
 // 从目录里按名称反查两个星座的所有对象，按 COSPAR 前缀归批
@@ -474,7 +480,7 @@ for (const key of ['gw', 'qf']) {
 
   // ---------------------------------------------------------------- V1.9.0（R17）：自建历史库
   // 每次刷新都把「这一刻每颗星的半长轴」存档一条，历史库就一天天自己长起来 ——
-  //   这样 05 章「升轨情况」不依赖任何外部历史源（Space-Track 的 GP 历史有严格限流，
+  //   这样 04 章「变轨情况」（V1.9.1 A15 前的「升轨情况」）不依赖任何外部历史源（Space-Track 的 GP 历史有严格限流，
   //   且命令行一律 401；免登录源又只给最新一条，实测 tle.ivanstanojevic.me 的历史端点 404）。
   // 口径与页面端完全一致：布劳威尔半长轴（altFromOmm 已剥掉 J2 长期项，量级错误修过一次，
   //   **不要在这里另写一份换算**）。

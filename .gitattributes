@@ -1,0 +1,15 @@
+# ---------------------------------------------------------------- 换行符统一（V1.9.1）
+# 背景：本机 git 的 core.autocrlf=true 会把**工作区**文件从 LF 翻成 CRLF，而仓库里存的一直是 LF。
+# 后果：CI（Ubuntu，LF）全绿，本机却出现一批"假失败" —— 凡是断言里写了 "\n" 字面量的地方
+#   （例如 `.sug-list {\n  z-index:62`、`var SWIPE_BLANK_SEL = …;\n`、逐行 `if (…) {$`）
+#   在本机一律匹配不到，于是 4 条本来**正确**的守卫在本地报 FAIL、在 CI 通过。
+#   这类"平台差异"最难归因，曾导致我把 4 条既有 FAIL 误记成"0 FAIL 全绿"。
+# 处置：仓库内一律 LF（工作区也 LF），与 Linux CI 完全一致；二进制显式声明，避免被当文本改写。
+#   ⚠️ 本仓库内**不含 .bat/.cmd**（批处理在工作区根目录、不进版本控制）——
+#     否则必须为它们单独写 `*.bat text eol=crlf`，因为 cmd.exe 只认 CRLF。
+* text=auto eol=lf
+*.jpg binary
+*.png binary
+*.ico binary
+*.gif binary
+*.zip binary

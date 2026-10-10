@@ -54,6 +54,13 @@ jobs:
         run: |
           set -e
           node scripts/omm_check.mjs
+          # V1.9.1（A19）：搜索补池的纯函数自检（真实数据里 dead/pend 恒空 → 只能靠合成 satcat 验证）
+          node scripts/search_pools.mjs
+          # V1.9.1：**引用完整性体检** —— 专治"测试脚本引用一个仓库里不存在的文件"。
+          #   scripts/climb.mjs 就这么漏提交过（V1.9.0 e6c9fb0），直到该文件在工作区丢失才暴露。
+          #   注意必须用 `-z`：默认输出会给非 ASCII 文件名加八进制转义 → 体检自己变误报源。
+          git ls-files -z > "$RUNNER_TEMP/tracked.txt"
+          node scripts/audit_refs.mjs "$RUNNER_TEMP/tracked.txt"
 
       - name: 刷新 TLE 并重新打包单文件
         env:
@@ -126,6 +133,19 @@ jobs:
           if (!(n > 1000)) throw new Error("历史源库只有 " + n + " 条记录，疑似重建失败");
           console.log("历史源库体检 OK：" + n + " 条 / 范围 " + min.toFixed(2) + " ~ " + max.toFixed(2) + " km");
           '
+
+      - name: 冒烟测试（jsdom 全量断言 —— V1.9.1 起纳入 CI）
+        # 为什么现在才挂上来：jsdom 与 ws 早就在 devDependencies 里、本地也一直在跑 smoke，
+        #   但 **CI 从来没跑过它**。后果是"仓库自己的测试引用了仓库里不存在的文件"这种状态
+        #   （scripts/climb.mjs 漏提交）既无人发现也无人报警 —— 直到该文件在工作区丢失，
+        #   smoke 才当场崩在 readFileSync。凡是"只在本地跑过"的测试，都要当成"没跑过"。
+        #   放在 build/release 之后：这样它校验的是**本次刚构建出来的产物**。
+        env:
+          CISTRACK_TMP: ${{ runner.temp }}
+        run: |
+          set -e
+          npm install --no-audit --no-fund --loglevel=error
+          node smoke.mjs
 
       - name: 有变化才提交并推送
         run: |

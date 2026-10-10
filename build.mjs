@@ -5,6 +5,17 @@ const ROOT = path.dirname(fileURLToPath(import.meta.url));   // 脚本所在目�
 const B = ROOT;
 const R = B + '/data';
 
+// ---- V1.9.1：satcat 缺失时**拒绝出产物** ----
+// 为什么要把"警告"升级成"硬失败"：satcat.csv 缺失会让 已再入标记 / 台账已再入扣减 / 搜索补池
+// 三处**静默退化成空**（构建依然成功、产物看起来正常），极易把残缺产物直接提交上去。
+// 产物是要发布的，所以在这里拦。CI 每次先跑 refresh.mjs 拿 satcat，正常路径不受影响。
+// 确实想在无 satcat 的情况下出产物（例如只想看样式）：设 CISTRACK_ALLOW_NO_SATCAT=1。
+if (!fs.existsSync(`${R}/satcat.csv`) && !process.env.CISTRACK_ALLOW_NO_SATCAT) {
+  console.error('!! data/satcat.csv 缺失：已再入标记 / 台账已再入扣减 / 搜索补池 会静默失效，拒绝出产物。');
+  console.error('   先跑 `node refresh.mjs --force-cat` 重建，或设 CISTRACK_ALLOW_NO_SATCAT=1 明确接受降级。');
+  process.exit(2);
+}
+
 // ---- V1.7.0 三轮：构建前自动清理「与现版本 / 留档版本都无关」的一次性产物 ----
 // 只搬不删（进 junk/<时间戳>/，随时整包搬回），且**绝不阻断构建**。
 // 想跳过这次清理：设环境变量 CISTRACK_NO_CLEAN=1。

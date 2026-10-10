@@ -4,8 +4,24 @@ import { fileURLToPath } from 'node:url';
 // V1.9.0（R17）：历史库的容量治理与发布打包，见 scripts/histstore.mjs / scripts/histpack.mjs
 import { pruneRecords, CAP } from './scripts/histstore.mjs';
 import { packAll } from './scripts/histpack.mjs';
+// V1.9.1（A19）：搜索补池（dead / pend）
+import { searchPools } from './scripts/search_pools.mjs';
 const ROOT = path.dirname(fileURLToPath(import.meta.url));   // 脚本所在目录（发布包内任意位置可用）
 const D = path.join(ROOT, 'data');
+
+// ---------------------------------------------------------------- V1.9.1：satcat 缺失必须"喊出来"
+// `data/satcat.csv` 是 .gitignore 的（6.7 MB，由 refresh.mjs 下载），但它支撑**三处功能**：
+//   ① 已再入标记 `st:'r'` / `dt`（1.4-D）  ② 台账"已再入"扣减 `goneCount`（1.7）  ③ 搜索补池 dead/pend（A19）
+// 它一旦缺失，上面三处**全部静默退化成空**：不报错、构建照常成功、产物看起来完全正常。
+// 2026-10-10 实际发生过一次（文件不在回收站，来源不明）→ 本地重建时 `st:'r'` 一条都没有，
+// 差一步就把"已再入功能失效"的产物提交上去了。→ 现在显式探测：打印醒目横幅 + 写进产物供断言。
+const SATCAT = path.join(D, 'satcat.csv');
+const SATCAT_OK = fs.existsSync(SATCAT);
+if (!SATCAT_OK) {
+  console.warn('\n⚠️⚠️⚠️ satcat.csv 缺失 —— 以下功能会**静默失效**（产物缺内容，但不会报错）：');
+  console.warn('    ① 已再入标记（st/dt）  ② 台账已再入扣减（goneCount）  ③ 搜索补池（dead/pend）');
+  console.warn('    恢复办法：node refresh.mjs --force-cat（或从其它工作区拷一份 data/satcat.csv）\n');
+}
 
 // ---- 批次元数据（来源：卫星百科 星网 / 千帆星座 词条，发射记录表）----
 const GW_LAUNCH = {
@@ -251,6 +267,23 @@ function reentryMap() {
 }
 const REENTRY = reentryMap();
 
+// ---------------------------------------------------------------- V1.9.1（执行顺序 1.7）：搭车星排除表
+// 为什么需要：`pendingSummary` 是按 **satcat 的 COSPAR 前缀**数 PAY 的，而**同一次发射**里
+//   完全可能有"不属于本星座"的载荷 —— 它们共享前缀，于是被一并数进来，导致该批次的颗数虚高。
+//   实例（1.7 明确点名的）：`2026-128` = 千帆 DTC-01(A) + **中国移动02星(B)**，
+//   词条只把 DTC-01 记入千帆名单 → 该批应是 **1 颗**，而 satcat 数出 **2 颗**。
+//   而 `launchedTotal` 取 `max(counts.n, 库内颗数)`，于是这个 2 会**覆盖**掉正确的 1。
+// 口径来源：卫星百科词条表格（唯一名单）+ 任务清单 Q25。
+// ★ 位置：必须定义在 `goneCountsOf` / `searchPools` **之前**（它们都调用 isStowaway）。
+const STOWAWAY = {
+  '26128': [69473],   // 2026-128B = 中国移动02星（词条不计入千帆）
+  '24226': [62185]    // 2024-226A = 搭车星（词条 COSPAR 列虽写 A，但轨道高度指向 B；详见 V1.9.1_1.6 核对表）
+};
+function isStowaway(batchKey, norad) {
+  const l = STOWAWAY[batchKey];
+  return !!(l && l.indexOf(Number(norad)) >= 0);
+}
+
 // V1.9.1（执行顺序 1.7）：「已再入颗数」按批次统计（**动态**，不写死）。
 //   任务清单 1.7 要求"25067 标注 1 颗已再入（63428）"—— 但写死一个数字会在下次有卫星再入时过期，
 //   所以这里从 satcat 的 DECAY_DATE **现算**：同一 COSPAR 前缀下已再入的 PAY 颗数。
@@ -277,6 +310,17 @@ function goneCountsOf(batchKeys) {
     (out[key] = out[key] || []).push({ n: +c[iNo], id: id, on: dec.slice(0, 10) });
   });
   return out;
+}
+
+// ---------------------------------------------------------------- V1.9.1（A19）：搜索补池（dead / pend）
+// 实现已抽到 scripts/search_pools.mjs（纯函数 + 自检），这里只负责把 satcat 文本与搭车星判据喂进去。
+// 为什么抽出去：真实数据里这两池当前**恰好都是空的**（1.1/1.4/1.6 之后已 100% 归位），
+//   一个恒为空的分支**跑真实数据验证不了** → 抽成纯函数后用合成 satcat 逐条断言分流正确。
+function gwSearchPools(batchKeys, haveNorads) {
+  const file = `${D}/satcat.csv`;
+  let text = '';
+  try { text = fs.readFileSync(file, 'utf8'); } catch (e) { text = ''; }
+  return searchPools(text, batchKeys, haveNorads, isStowaway);
 }
 
 function pack(sats) {
@@ -323,6 +367,13 @@ const gw = parse('ct_hulianwang.tle');
 const qf = parse('ct_qianfan.tle');
 console.log('gw sats=', gw.length, 'qf sats=', qf.length);
 
+// V1.9.1（A19）：搜索补池 —— 「已再入」与「尚未编目」这两类库内没有 TLE 的对象，
+//   页面搜索也要能搜到（现池只有 `cur().sats`）。
+const GW_POOLS = gwSearchPools(Object.keys(GW_LAUNCH), new Set(gw.map(s => s.id)));
+const QF_POOLS = gwSearchPools(Object.keys(QF_LAUNCH), new Set(qf.map(s => s.id)));
+console.log('搜索补池：gw 已再入(库内无 TLE)', GW_POOLS.dead.length, '尚未编目', GW_POOLS.pend.length,
+  '｜ qf 已再入', QF_POOLS.dead.length, '尚未编目', QF_POOLS.pend.length);
+
 // 校验：所有 COSPAR 前缀都有元数据
 for (const [tag, sats, meta] of [['GW', gw, GW_LAUNCH], ['QF', qf, QF_LAUNCH]]) {
   const missing = [...new Set(sats.map(s => s.c.slice(0, 5)))].filter(k => !meta[k]);
@@ -341,22 +392,6 @@ function linkMap(meta) {
 // 待编目批次的可公开摘要（来自 data/satcat.csv：周期 / 倾角 / 近远地点 / 临时编号段）
 // 说明：这些对象在目录里已有临时编号（100xxx）与摘要轨道参数，但公开渠道不发布其完整 TLE，
 // 因此页面只能给出这些摘要，无法推算位置。
-// ---------------------------------------------------------------- V1.9.1（执行顺序 1.7）：搭车星排除表
-// 为什么需要：`pendingSummary` 是按 **satcat 的 COSPAR 前缀**数 PAY 的，而**同一次发射**里
-//   完全可能有"不属于本星座"的载荷 —— 它们共享前缀，于是被一并数进来，导致该批次的颗数虚高。
-//   实例（1.7 明确点名的）：`2026-128` = 千帆 DTC-01(A) + **中国移动02星(B)**，
-//   词条只把 DTC-01 记入千帆名单 → 该批应是 **1 颗**，而 satcat 数出 **2 颗**。
-//   而 `launchedTotal` 取 `max(counts.n, 库内颗数)`，于是这个 2 会**覆盖**掉正确的 1。
-// 口径来源：卫星百科词条表格（唯一名单）+ 任务清单 Q25。
-const STOWAWAY = {
-  '26128': [69473],   // 2026-128B = 中国移动02星（词条不计入千帆）
-  '24226': [62185]    // 2024-226A = 搭车星（词条 COSPAR 列虽写 A，但轨道高度指向 B；详见 V1.9.1_1.6 核对表）
-};
-function isStowaway(batchKey, norad) {
-  const l = STOWAWAY[batchKey];
-  return !!(l && l.indexOf(Number(norad)) >= 0);
-}
-
 function pendingSummary(keys, slim) {
   const file = `${D}/satcat.csv`;
   if (!fs.existsSync(file)) return {};
@@ -530,12 +565,17 @@ function makerMap(launches) {
 const DATA = {
   generated: new Date().toISOString(),
   source: 'CelesTrak GP（NORAD 空间目标目录）· 多源补漏（分组 + 名称 + 编号反查）',
+  // V1.9.1：satcat 是否可用。false ⇒ 已再入标记 / goneCount / 搜索补池 三处为空是"输入缺失"导致的，
+  //   不是"确实没有这类对象"—— smoke 与 CI 靠这个字段区分这两种情况（否则恒空的断言毫无意义）。
+  satcatOk: SATCAT_OK,
   gw: {
     key: 'gw', name: '星网', en: 'SatNet / CSCN', org: '中国卫星网络集团有限公司',
     sub: '低轨互联网星座',
     launches: GW_LEDGER, pending: gwPend, pendingInfo: gwSum, launchCounts: gwCounts, stats: gwStats,
     // V1.9.1（1.7）：按批次的"已再入"清单（动态；页面据此标注批次行、并在在轨数量里扣除）
     goneCount: goneCountsOf(Object.keys(GW_LAUNCH)),
+    // V1.9.1（A19）：搜索补池 —— 库内没有 TLE 的「已再入」/「尚未编目」对象（页面并联进搜索）
+    dead: GW_POOLS.dead, pend: GW_POOLS.pend,
     wiki: WIKI_STAT.gw,
     links: linkMap(GW_LAUNCH),
     makers: makerMap(GW_LAUNCH),
@@ -546,6 +586,7 @@ const DATA = {
     sub: '低轨互联网星座',
     launches: QF_LEDGER, pending: qfPend, pendingInfo: qfSum, launchCounts: qfCounts, stats: qfStats,
     goneCount: goneCountsOf(Object.keys(QF_LAUNCH)),
+    dead: QF_POOLS.dead, pend: QF_POOLS.pend,
     wiki: WIKI_STAT.qf,
     links: linkMap(QF_LAUNCH),
     makers: makerMap(QF_LAUNCH),

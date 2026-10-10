@@ -116,7 +116,7 @@ window.__CISTRACK__ = (function () {
     drawNet: function () { return drawNet(); },
     netDateLabel: function (ms) { return netDateLabel(ms); },
     netColors: function () { return netColors(); },
-    // --- V1.9.0（R17）：05 升轨情况 ---
+    // --- V1.9.0（R17）：04 变轨情况 ---
     climbView: function () { return climbView; },
     climbRect: function () { return climbRect; },
     setClimbView: function (v) { climbView = v; },
@@ -166,7 +166,7 @@ try {
 // ★ V1.9.1：**外挂历史分片也要复制进探针目录**。
 //   为什么必须补这一步：探针目录以前只放 wiki.json，于是页面在真浏览器里
 //   **取不到 history/index-*.json** → `HIST_IDX` 恒为空 → 所有断言都只覆盖了
-//   "内置兜底"那条路径。而「变轨/升轨情况」章节的**默认选中批次**恰恰只走外挂索引
+//   "内置兜底"那条路径。而「变轨情况」章节的**默认选中批次**恰恰只走外挂索引
 //   （app.js:7625 / 8425：`ix.batches[0].k`）—— 也就是说：1.8 修的那个排序 bug
 //   在这个测试环境下**根本不可见**。补上分片后，真浏览器才会真正走到那条路。
 try {
@@ -288,8 +288,8 @@ const overFn = `(function(){
 
 async function probe(tag, expectTwoLinePager, expectEn) {
   console.log('\n===== ' + tag + ' =====');
-  // V1.8.0（需求8）：新增 03.5「组网进度」章节（放在 03 倾角分布之后、04 卫星表格之前）
-  ck('章节顺序', (await ev(`[...document.querySelectorAll("section")].map(s=>s.id).join("|")`)) === 'sec-map|sec-orbits|sec-chart|sec-progress|sec-climb|sec-table|sec-launches');
+  // V1.9.0（需求8）：新增 03.5「组网进度」章节（V1.9.1 A15 换位后为 **05**，04 让给「变轨情况」）
+  ck('章节顺序', (await ev(`[...document.querySelectorAll("section")].map(s=>s.id).join("|")`)) === 'sec-map|sec-orbits|sec-chart|sec-climb|sec-progress|sec-table|sec-launches');
   ck('章节号 01/02/03/04/05/06/07', (await ev(`[...document.querySelectorAll(".sec-num")].map(s=>s.textContent).join("")`)) === '01020304050607');
   // 手机上顶栏会换行变高、品牌字号也会被断点调小，这两项只在宽屏量
   if (!expectTwoLinePager) {
@@ -321,7 +321,7 @@ async function probe(tag, expectTwoLinePager, expectEn) {
     const enTitles = `[...document.querySelectorAll('.sec-head h2')].map(function(h){
       var s = h.querySelector('span'); return (s ? s.textContent : h.textContent).trim(); }).join('|')`;
     ck('英文章节标题 Title Case',
-      (await ev(enTitles)) === 'Map|Orbits|Inclination Distribution|Network Progress|Orbits Raising Status|Satellite Table|Launch History', await ev(enTitles));
+      (await ev(enTitles)) === 'Map|Orbits|Inclination Distribution|Orbits Change Status|Network Progress|Satellite Table|Launch History', await ev(enTitles));
     // V1.7.2 第七轮（需求2）：顶栏章节切换按钮已删，英文 Title Case 改到主标题下的历元行上校验
     ck('英文顶栏：章节切换按钮已移除、历元行在主标题下',
       (await ev(`document.querySelectorAll('.topnav .navlinks a').length`)) === 0 &&
@@ -957,11 +957,11 @@ ck('V1.8.0：探针注入点在 app 主 IIFE 作用域内（能看见 VERSION / 
   await ev(`JSON.stringify(window.__CISTRACK__._probe())`));
 
 // --- 03.5 章节本体 ---
-// V1.9.0（R17）：组网进度已从 03.5 提到 **04**（05 让给新的「升轨情况」章）
-ck('V1.9.0（R17）：04 章节标题为「组网进度」且编号 04', await ev(`(function(){
+// V1.9.0（R17）组网进度从 03.5 提到 04；V1.9.1（A15）与「变轨情况」互换 → 变轨情况 04 / 组网进度 05
+ck('V1.9.1（A15）：05 章节标题为「组网进度」且编号 05', await ev(`(function(){
   var s = document.getElementById('sec-progress'); if (!s) return false;
   var n = s.querySelector('.sec-num');
-  return !!n && n.textContent.trim() === '04';
+  return !!n && n.textContent.trim() === '05';
 })()`));
 ck('V1.8.0（需求8）：曲线图真的画出来了（画布上有非背景像素）', await ev(`(function(){
   var cv = document.getElementById('netCv'); if (!cv) return false;
@@ -1079,17 +1079,17 @@ ck('V1.8.0（需求⑱）：倾角分布 —— 9 种视图下绘图区外均无
 const clipNet = await clipProbe('netCv', 'net');
 ck('V1.8.0（需求⑱）：组网进度 —— 9 种视图下绘图区外均无高饱和曲线/光点像素（不漏点）',
   Array.isArray(clipNet) && clipNet.length === 0, clipNet);
-// V1.9.0（R17）：05 升轨情况同样要裁剪到绘图区（半长轴模式纵向锁死，
+// V1.9.0（R17）：04 变轨情况同样要裁剪到绘图区（半长轴模式纵向锁死，
 //   所以纵向那几档状态对它等价于基准视图 —— 这本身也是一次"纵向锁死生效"的验证）。
 // ⚠️ 本断言**依赖历史数据**：当前产物还没有真实历史（等浏览器取数），
 //   climbView 恒为 null → 探针报 no-view。无数据时跳过并明说，等数据到位后重跑补测。
 const climbHasData = await ev(`window.__CISTRACK__.climbSeries().list.length > 0`);
 if (!climbHasData) {
-  ckSkip('V1.9.0（R17）：升轨情况 —— 9 种视图下绘图区外均无高饱和像素（不漏点）',
+  ckSkip('V1.9.0（R17）：变轨情况 —— 9 种视图下绘图区外均无高饱和像素（不漏点）',
     '本章暂无历史轨道数据（climbView=null），真实数据到位后重跑本测试补测');
 } else {
   const clipClimb = await clipProbe('climbCv', 'climb');
-  ck('V1.9.0（R17）：升轨情况 —— 9 种视图下绘图区外均无高饱和曲线/光点像素（不漏点）',
+  ck('V1.9.0（R17）：变轨情况 —— 9 种视图下绘图区外均无高饱和曲线/光点像素（不漏点）',
     Array.isArray(clipClimb) && clipClimb.length === 0, clipClimb);
 }
 // 复位，别影响后面的用例
@@ -1125,13 +1125,13 @@ ck('V1.8.0（需求8）：03.5 全屏时画布下移量正好等于控件条实�
 await ev(`(function(){ window.__CISTRACK__.applyPseudoFull(false, null); })()`);
 await sleep(300);
 
-// --- V1.9.0（R17）：05 升轨情况 ---
+// --- V1.9.0（R17）：04 变轨情况 ---
 // 这一章的真浏览器断言分四组：① 结构与编号；② 算法绝对量级（真像素无关，直接问函数）；
 // ③ 纵轴 0~2000 顶格限位与横轴「发射日～今天」；④ 全屏让位（.climb-bar 固定、画布不被压住）。
-ck('V1.9.0（R17）：05 章节标题为「升轨情况」且编号 05', await ev(`(function(){
+ck('V1.9.1（A15）：04 章节标题为「变轨情况」且编号 04', await ev(`(function(){
   var s = document.getElementById('sec-climb'); if (!s) return false;
   var n = s.querySelector('.sec-num');
-  return !!n && n.textContent.trim() === '05';
+  return !!n && n.textContent.trim() === '04';
 })()`));
 ck('V1.9.0（R17）：05 章节不设任何设置项（无抽屉 / 无时间药丸 / 无 controls 行）', await ev(`(function(){
   var s = document.getElementById('sec-climb'); if (!s) return false;
