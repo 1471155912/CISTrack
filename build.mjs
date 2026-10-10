@@ -58,10 +58,35 @@ console.log('placeholders left:', (html.match(/<!--INJECT/g) || []).length);
 
 // V1.4.0：把 wiki.json 复制到 HTML 同级目录 —— 只要这两个文件一起发布，
 // 页面打开就会自动读 wiki.json 覆盖顶部词条计数（只改 JSON 里的数字、不必重建 HTML）。
+// ★ V1.9.1：加**"不倒退"守卫** —— 详见下面 wikiCounts 的注释（这文件是"双身份"的）。
+function wikiCounts(o) {
+  try {
+    return ['gw', 'qf'].reduce(function (a, k) {
+      var c = o && o[k];
+      if (!c) return a;
+      return a + ((c.launched && c.launched.n) || 0) + ((c.inOrbit && c.inOrbit.n) || 0);
+    }, 0);
+  } catch (e) { return 0; }
+}
 const wj = `${B}/build/wiki.json`;
 if (fs.existsSync(wj)) {
-  fs.copyFileSync(wj, `${B}/wiki.json`);
-  console.log('copied wiki.json →', fs.statSync(`${B}/wiki.json`).size, 'bytes');
+  const tgt = `${B}/wiki.json`;
+  let skip = false;
+  if (fs.existsSync(tgt) && !process.env.CISTRACK_ALLOW_WIKI_REGRESS) {
+    let a = null, b2 = null;
+    try { a = JSON.parse(fs.readFileSync(wj, 'utf8')); b2 = JSON.parse(fs.readFileSync(tgt, 'utf8')); } catch (e) {}
+    const na = wikiCounts(a), nb = wikiCounts(b2);
+    if (a && b2 && na < nb) {
+      skip = true;
+      console.log('!! wiki.json **拒绝覆盖**：build/wiki.json 的计数 ' + na + ' < 现有 wiki.json 的 ' + nb +
+        '（疑似 build/wiki.json 过期 —— 先跑 `node mkdata.mjs` 再构建）');
+      console.log('   如确实要下调（例如词条被更正），设 CISTRACK_ALLOW_WIKI_REGRESS=1 或直接改 wiki.json 后跑 mkdata。');
+    }
+  }
+  if (!skip) {
+    fs.copyFileSync(wj, `${B}/wiki.json`);
+    console.log('copied wiki.json →', fs.statSync(`${B}/wiki.json`).size, 'bytes');
+  }
 }
 
 // V1.9.0（R17）：历史轨道要素库**外挂 + 按批次分片** —— 与 wiki.json 同一套路，但是一个目录。

@@ -746,11 +746,17 @@ console.log('satdata.json bytes=', fs.statSync(path.join(ROOT, 'build', 'satdata
 // 用途：把这一小段 JSON 传到 GitHub Pages / 任意静态托管，以后只改这里的数字，
 // 所有访客刷新就能看到新统计，不需要重新构建 HTML，也不需要我维护任何自动更新。
 const WIKI_JSON = {
+  gw: WIKI_STAT.gw,
+  qf: WIKI_STAT.qf,
+  // ★ V1.9.1：三个**元字段放在末尾** —— 与仓库里现有的 wiki.json **同一字段顺序**。
+  //   为什么要在意顺序：`JSON.stringify` 保序，而仓库那份是**人工整理过的**（把 gw/qf 放前面，
+  //   打开就先看到数字）；mkdata 若按自己的顺序输出，每次构建都会产生"只挪了三行"的**无意义 diff**，
+  //   真实变更反而被噪音淹没。以仓库为准 → mkdata 跟随。
   _readme: '改这里就能更新网页顶部的词条计数（launched=已发射, inOrbit=在轨, launches=发射成功/总）。改完保存，访客刷新即可看到。',
   asOf: WIKI_STAT.gw.asOf,
-  checkedAt: WIKI_CHECKED_AT,
-  gw: WIKI_STAT.gw,
-  qf: WIKI_STAT.qf
+  checkedAt: WIKI_CHECKED_AT
 };
-fs.writeFileSync(path.join(ROOT, 'build', 'wiki.json'), JSON.stringify(WIKI_JSON, null, 1), 'utf8');
+// ★ V1.9.1：末尾补一个换行 —— `JSON.stringify` 不产出行尾换行，而仓库里的 wiki.json 是
+//   带换行的（编辑器保存的正常产物）→ 不加就会永远留下"最后一行少了 \n"的 diff。
+fs.writeFileSync(path.join(ROOT, 'build', 'wiki.json'), JSON.stringify(WIKI_JSON, null, 1) + '\n', 'utf8');
 console.log('wiki.json bytes=', fs.statSync(path.join(ROOT, 'build', 'wiki.json')).size);

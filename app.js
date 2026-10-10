@@ -57,6 +57,9 @@ var I18N = {
   // V1.9.0（需求9）：选中提示语 —— 批次/组全选、单颗选中、跨星座三种
   d_sel_all: ['已全选', 'All selected'],
   d_sel_one: ['已选择', 'Selected'],
+  // V1.9.1（A3）：黄框行（`pend-part` / `pend-none`：本星座有这条发射记录，但库内**没有任何轨道要素**）
+  //   被点击时弹的**反色**提示 —— 用 `.inv` 变体（暗色=白底黑字 / 亮色=黑底白字）。
+  d_sel_notle: ['当前暂无TLE数据', 'No TLE data yet'],
   d_sel_cross: ['已全选，请切换星座页面查看', 'All selected — switch constellation to view'],
   // V1.9.0（需求18）：**导出图片**底栏 CISTrack 行里的星座名 —— 英文必须用 CSCN / SpaceSail，
   //   此前那行用的是 st.name（星座对象自带的中文名），所以英文图里一直漏出「星网 / 千帆」。
@@ -232,8 +235,13 @@ var I18N = {
     ' satellites\nAltitudes are above the mean Earth radius (6378.135 km)\nSGP4 / WGS-72\n'],
   d_tbl_bro: ['半长轴取布劳威尔（与目录一致）', 'Semi-major axis: Brouwer mean (catalog convention)'],
   d_tbl_kep: ['半长轴取开普勒（由平均运动直接反算）', 'Semi-major axis: Keplerian (from the mean motion directly)'],
-  d_sel_all: ['全部批次（', 'All groups ('],
-  d_sel_all2: [' 颗）', ')'],
+  // ★ V1.9.1（A3）键名分离：这两条**原本叫 `d_sel_all` / `d_sel_all2`**，与上面 L58 的
+  //   「已全选 / All selected」**重名** → 对象字面量里后写的**覆盖**前者，于是选中提示
+  //   （`showToast(t('d_sel_all'))`）显示的是「全部批次（」而不是「已全选」（现存 bug）。
+  //   但它们本身是 03 章批次下拉「全部批次（N 颗）」要用的（F2：**不能删**，只能改名）。
+  //   → 改名为 `d_grp_all` / `d_grp_all2`，两处各用各的，互不覆盖。
+  d_grp_all: ['全部批次（', 'All groups ('],
+  d_grp_all2: [' 颗）', ')'],
   d_row_batch: ['批次/组', 'Batch/Group'], d_row_cat: ['目录名', 'Catalog name'],
   d_row_sub: ['星下点', 'Sub-satellite point'], d_row_alt: ['瞬时高度', 'Altitude now'],
   d_row_el: ['观测点仰角', 'Elevation at site'],
@@ -3665,7 +3673,7 @@ function rebuild() {
 }
 function fillGroupSelect() {
   var sel = document.getElementById('groupSel'), st = cur();
-  sel.innerHTML = '<option value="all">' + t('d_sel_all') + st.sats.length + t('d_sel_all2') + '</option>' +
+  sel.innerHTML = '<option value="all">' + t('d_grp_all') + st.sats.length + t('d_grp_all2') + '</option>' +
     st.launches.filter(function (L) { return L.sats.length; }).map(function (L) {
       return '<option value="' + L.key + '">' + batchName(L.name) + ' · ' + L.sats.length + ' · ' + L.dateStr.slice(0, 10) + '</option>';
     }).join('');
@@ -6293,6 +6301,8 @@ Object.keys(NUMB).forEach(function (kind) {
 var toastEl = null, toastTimer = 0;
 // V1.9.1（A19）：第二个参数升级为"模式"（原先只有布尔）——
 //   'dead' → 红（.pool-dead，与卫星表「已再入」同色）／'pend' → 琥珀（.pool-pend）。
+//   V1.9.1（A3）再加 'inv' → **反色**（暗色模式=白底黑字 / 亮色模式=黑底白字），
+//   用于"无 TLE 的黄框行"点击提示。
 //   旧的 `true/false` 语义原样保留（true 仍映射到 .cross），所以既有调用点一个都不用改。
 function showToast(txt, mode) {
   try {
@@ -6306,6 +6316,7 @@ function showToast(txt, mode) {
     toastEl.classList.toggle('cross', isCross);
     toastEl.classList.toggle('pool-dead', mode === 'dead');
     toastEl.classList.toggle('pool-pend', mode === 'pend');
+    toastEl.classList.toggle('inv', mode === 'inv');
     var pill = document.getElementById('clockPill');
     if (pill) {
       var r = pill.getBoundingClientRect();
@@ -6369,9 +6380,13 @@ function selectGroup(lk) {
       return;
     }
     // V1.6.3：该批次暂无入轨卫星（待编目 / 尚无 TLE）—— 仍给出行级选中反馈，不再毫无反应
-    S.selGroup = (S.selGroup === lk) ? null : lk;
+    // V1.9.1（A3）：**无 TLE 的黄框行**（`pend-part` / `pend-none`）→ 行级反馈 +
+    //   **反色**药丸「当前暂无TLE数据」。再次点击是取消，不再提示（与「已全选」同口径）。
+    var wasOn = (S.selGroup === lk);
+    S.selGroup = wasOn ? null : lk;
     S.sel = [];
     afterSelection();
+    if (!wasOn) showToast(t('d_sel_notle'), 'inv');
     return;
   }
   S.selGroup = null;
@@ -6380,7 +6395,9 @@ function selectGroup(lk) {
   var allSel = idxs.every(function (i) { return S.sel.indexOf(i) >= 0; });
   S.sel = allSel ? [] : idxs;      // 再次点击同一批次 = 取消
   // V1.9.0（需求9）：只有"真的全选了"才提示；再点一次是取消，不该说"已全选"
-  if (!allSel) showToast(t('d_sel_all'), false);
+  // V1.9.1（A3）：**单颗**（该条发射记录在库内只有 1 颗）改说「已选择」，且由 afterSelection
+  //   统一负责 —— 这样"图上点选 / 表里点选 / 搜索选中 / 选择框选单星"四条路径共用同一句提示（Q12）。
+  if (!allSel && idxs.length > 1) showToast(t('d_sel_all'), false);
   afterSelection();
 }
 function afterSelection() {
@@ -6403,6 +6420,11 @@ function afterSelection() {
   // V1.9.0（R17）：04 变轨情况**跟随全局选中** —— 这是需求里的"双向联动"的一个方向。
   //   用户没显式选批次/单星时才跟随（显式选了就以用户意图为准，不被别处的操作改掉）。
   try { climbFollowSelection(); } catch (e) {}
+  // V1.9.1（A3 + Q12）：**单颗**选定统一在这里提示「已选择」——
+  //   收口在此处的原因：四条路径（图上点选 / 表里点选 / 搜索选中 / 选择框选单星）**都会**走到
+  //   afterSelection，放在这里才可能真的做到"全局应用"，否则要在四个入口各写一遍、漏一个就少一路。
+  //   多颗（>1）与"无 TLE"两种情况各自在 selectGroup 里提示（它们的文案不同、且要区分"取消"语义）。
+  if (S.sel.length === 1) showToast(t('d_sel_one'), false);
 }
 
 // ---- 搜索（两个输入框同步联想，候选项竖向列出）
@@ -6509,6 +6531,20 @@ function rocketSerial(str) {
   }
   return 0;
 }
+// V1.9.1（A19-F43）：判断一个词是否是**某个火箭别名的完整写法**（精确相等，不用前缀/子串）。
+//   只服务于"连写遥号"的提取：`长征八号甲Y8` 剥掉尾部的 `Y8` 后得到 `长征八号甲` → 精确命中 ✓。
+//   ★ 为什么**必须**是精确相等：`gravity1`（引力一号的别名）里就含 `y1`，用前缀/子串判断会让
+//     它被误当成"引力一号 遥号1"，然后 `rocketSerial('引力一号 Y3')=3 !== 1` → 把结果**全部过滤光**。
+//     这是"为了让新场景工作而引入回归"的典型坑，所以判据刻意收得最紧。
+function rocketNameExact(s) {
+  var w = String(s || '').trim().toLowerCase();
+  if (!w) return false;
+  for (var i = 0; i < ROCKET_ALIAS.length; i++) {
+    var ns = ROCKET_ALIAS[i][1];
+    for (var j = 0; j < ns.length; j++) if (String(ns[j]).toLowerCase() === w) return true;
+  }
+  return false;
+}
 // 一句话判断：这个词是不是命中了某个别名组（返回别名组，否则 null）
 // V1.7.0：拼音支持 —— 允许「子串命中」（yinghe → yinhehangtian / yhht），不再只认前缀；
 //         同时把数据里的「原名」（含（N颗）后缀）也并入匹配集合。
@@ -6556,6 +6592,12 @@ function b(s) { return '<b>' + s + '</b>'; }
 // ============================================================ V1.5.0：主搜索
 // 输入：任意字符串（中英、别名、拼音、数字、空格分隔的多个词）
 // 输出：候选数组，每项 { kind, launch|sat, score, note }，已按「接近度 → 新到旧」排序
+// V1.9.1（A19-F43）★ 两个**已裁决的口径**，改代码前先看这里：
+//   ① **星座名（星网 / 千帆）不做关键词匹配** —— 搜索本来就在各自的星座页面内独立进行
+//      （页面自身已经决定了星座），所以「星网」「千帆」这类词**没有任何匹配意义**，故不实现。
+//      由此 `千帆 极轨11组` 这类混写会因「千帆」无命中而交集为空 —— 这是**预期行为**，不是缺陷；
+//      正确用法是只搜「极轨11组」。
+//   ② **遥号是合理的模糊搜索类别** —— `遥8` / `Y8` / `遥八`，单独搜或与火箭名一起搜都必须有效（见 ⓪ 分支）。
 function searchCandidates(q) {
   var st = cur();
   var raw = String(q || '').trim();
@@ -6623,9 +6665,38 @@ function searchCandidates(q) {
     curW = w;                                        // V1.9.1（A19-S）：供 markHit 记录"哪个词命中的"
     var num = w.match(/^[0-9]+$/) ? w : '';
 
+    // —— ⓪ V1.9.1（A19-F43）：**遥号**独立成词（`Y8` / `遥8` / `遥八`）
+    //   用户裁决：遥号是**合理的模糊搜索类别** —— 单独搜遥号、或与火箭名一起搜，都必须有效。
+    //   为什么原先单独成词无效：`Y8` 既不是纯数字（走不了 ④），也不出现在任何名称/COSPAR 里（走不了 ⑤）
+    //     → 这个词一个候选都推不出来 → 与火箭名做交集时**恒为空**（实测 `长征八号甲 Y1` 全空）。
+    //   三个判据缺一不可：
+    //     · `serialOnly > 0` —— 提取不到遥号就交给后面的分支（`遥0` / `yabc` 之类都不该在这里命中）；
+    //     · `!aliasHit(w, ROCKET_ALIAS)` —— 这个词本身**不是**火箭型号名。
+    //       连写形式（`长征八号甲Y8`）会因"输入包含别名"而命中火箭名 → 让它继续走 ① 的连写通路（那里本就能过滤遥号）；
+    //     · `不是纯数字` —— 纯数字的语义是 NORAD / 名称里的数字，与"遥号"完全不同，不能抢。
+    //       （aliasEntry 只在 `w.length >= 3` 时才做宽松匹配，所以 `Y8` / `遥8` 这种 2 字符不会被误当型号名。）
+    var serialOnly = /^[0-9]+$/.test(w) ? 0 : rocketSerial(w);
+    if (serialOnly && !aliasHit(w, ROCKET_ALIAS)) {
+      st.launches.forEach(function (L) {
+        if (!L.sats.length) return;
+        if (rocketSerial(L.rocket) !== serialOnly) return;
+        pushLaunchSats(L, 6, b(clip(L.rocket, 14)));
+      });
+      return;
+    }
+
     // —— ① 火箭（含遥号）：命中型号 → 该型号（+遥号）发射的全部卫星
     var rk = aliasHit(w, ROCKET_ALIAS);
     var serial = rocketSerial(w);
+    // V1.9.1（A19-F43）：**连写**遥号（`长征八号甲Y8`）—— 遥号紧贴在型号名后面，
+    //   而 `rocketSerial` 的正则要求 y/遥 前面是开头或空格/连字符，认不出紧贴的 → serial 恒为 0
+    //   → 遥号过滤**失效**（退化成"命中该型号的全部批次"）。
+    //   这里补一次"末尾遥号"提取，且**要求剥掉遥号后剩下的部分是某个火箭别名的完整写法**
+    //   （精确相等，见 rocketNameExact 的注释 —— 否则 `gravity1` 会被误判成"引力一号 遥1"）。
+    if (rk && !serial) {
+      var tm = w.match(/^(.*?)(?:y|遥)\s*([0-9]{1,3})$/i);
+      if (tm && rocketNameExact(tm[1])) serial = parseInt(tm[2], 10);
+    }
     if (rk) {
       st.launches.forEach(function (L) {
         if (!L.sats.length) return;

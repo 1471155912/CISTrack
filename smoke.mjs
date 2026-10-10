@@ -99,11 +99,30 @@ console.log('--- 数据层 ---');
 //   否则数据一更新守卫就误报。真正的意义是"目录里确实有足量在轨卫星"，用下界表达更准确。
 assert('星网 ≥186 颗 / 千帆 ≥238 颗（TLE 可随刷新增长）', RAW.gw.sats.length >= 186 && RAW.qf.sats.length >= 238,
   RAW.gw.sats.length + ' / ' + RAW.qf.sats.length);
-assert('词条口径：星网 248 发射 / 244 在轨 / 40-41 次',
-  RAW.gw.wiki.launched.n === 248 && RAW.gw.wiki.inOrbit.n === 244 && RAW.gw.wiki.launches === '40/41');
-assert('词条口径：千帆 262 / 262 / 19-19',
-  RAW.qf.wiki.launched.n === 262 && RAW.qf.wiki.inOrbit.n === 262 && RAW.qf.wiki.launches === '19/19');
-assert('顶部在轨卫星数取自词条', /244 颗/.test($('#mSats').textContent), $('#mSats').textContent.slice(0, 40));
+// ★ V1.9.1：这两条**不再写死具体数字** —— 词条计数本来就会随每周发射增长
+//   （2026-10-10 实测：星网从 248 → 257、发射次数 40/41 → 41/42），
+//   写死等于"每次词条更新都必然 FAIL"，逼着人来改断言，久而久之就没人看了。
+//   改为断言**结构与口径**：三项都是正整数、发射次数形如 "N/M" 且 N ≤ M、
+//   且**页面显示的与数据源一致**（单一来源，见下面 mSats 那条）。
+assert('词条口径：星网三项都是有效数值（不写死 —— 计数会随发射增长）',
+  Number.isInteger(RAW.gw.wiki.launched.n) && Number.isInteger(RAW.gw.wiki.inOrbit.n) &&
+  RAW.gw.wiki.launched.n > 100 && RAW.gw.wiki.inOrbit.n > 0 && RAW.gw.wiki.inOrbit.n <= RAW.gw.wiki.launched.n,
+  'launched=' + RAW.gw.wiki.launched.n + ' inOrbit=' + RAW.gw.wiki.inOrbit.n);
+assert('词条口径：星网发射次数形如 "成功/总" 且成功 ≤ 总',
+  /^\d+\/\d+$/.test(RAW.gw.wiki.launches) &&
+  +RAW.gw.wiki.launches.split('/')[0] <= +RAW.gw.wiki.launches.split('/')[1], RAW.gw.wiki.launches);
+assert('词条口径：千帆三项都是有效数值',
+  Number.isInteger(RAW.qf.wiki.launched.n) && Number.isInteger(RAW.qf.wiki.inOrbit.n) &&
+  RAW.qf.wiki.launched.n > 100 && RAW.qf.wiki.inOrbit.n <= RAW.qf.wiki.launched.n,
+  'launched=' + RAW.qf.wiki.launched.n + ' inOrbit=' + RAW.qf.wiki.inOrbit.n);
+assert('词条口径：千帆发射次数形如 "成功/总"（词条口径是全部成功：19/19）',
+  /^\d+\/\d+$/.test(RAW.qf.wiki.launches) &&
+  +RAW.qf.wiki.launches.split('/')[0] === +RAW.qf.wiki.launches.split('/')[1], RAW.qf.wiki.launches);
+// 顶部「在轨卫星数」必须**来自词条**（而不是本页推算的颗数）——
+//   这条是真正的单一来源断言：改词条数字后页面必须跟着变。
+assert('顶部在轨卫星数取自词条（页面值 === 数据源值，不写死具体数字）',
+  $('#mSats').textContent.indexOf(String(RAW.gw.wiki.inOrbit.n) + ' 颗') >= 0,
+  '页面=' + $('#mSats').textContent.slice(0, 40) + ' 数据源=' + RAW.gw.wiki.inOrbit.n);
 assert('TLE 按批次差分（sats 只存差异串 + tleTpl）',
   /"d":"/.test(rawSrc) && RAW.gw.tleTpl && Object.keys(RAW.gw.tleTpl).length > 10);
 assert('差分还原：每颗星都是两行 69 字符',
@@ -1996,7 +2015,174 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
     !/arr\.length >= words\.length/.test(appSrc));
   assert('V1.9.1（A19-S）：markHit 在三处 push（sat/group/pool）里都调用了',
     (appSrc.match(/markHit\(o\);/g) || []).length === 3);
+
+  // ---- V1.9.1（A19-F43）：**遥号**是合理的模糊搜索类别（用户裁决）----
+  //   单独搜遥号、或与火箭名一起搜，都必须有效。原先 `Y8` 这个"词"一个候选都推不出来
+  //   （既不是纯数字、也不在任何名称/COSPAR 里）→ 与火箭名求交集时恒为空。
+  const satIdxSet = () => [...sug.querySelectorAll('.sug-item[data-kind="sat"]')]
+    .map(x => x.getAttribute('data-idx')).sort((a, b) => a - b).join(',');
+  typeQ('Y8'); const setY8 = satIdxSet();
+  typeQ('遥8'); const setYao8 = satIdxSet();
+  typeQ('遥八'); const setYaoba = satIdxSet();
+  assert('F43：单独搜遥号 `Y8` 能命中（真实数据里是 长征八号甲Y8 + 长征十二号Y8 两批）',
+    setY8.length > 0 && !/没有匹配的卫星/.test(typeQ('Y8')), setY8);
+  assert('F43：`Y8` / `遥8` / `遥八` 三种写法结果**完全一致**',
+    setY8 === setYao8 && setY8 === setYaoba, 'Y8=' + setY8 + ' 遥8=' + setYao8 + ' 遥八=' + setYaoba);
+  typeQ('长征八号甲 Y8'); const setCz8aY8 = satIdxSet();
+  assert('F43：`长征八号甲 Y8` = 火箭名 ∩ 遥号的**交集**（比单搜 `Y8` 更窄，只留 CZ-8A 那批）',
+    setCz8aY8.length > 0 && setCz8aY8 !== setY8 &&
+    setCz8aY8.split(',').every(i => setY8.split(',').indexOf(i) >= 0),
+    'CZ-8A Y8=' + setCz8aY8 + ' ⊂ Y8=' + setY8);
+  assert('F43：`遥8 长征八号甲`（顺序颠倒）结果一致',
+    (function () { typeQ('遥8 长征八号甲'); return satIdxSet() === setCz8aY8; })());
+  typeQ('长征八号甲Y8'); const setJoin = satIdxSet();
+  assert('F43：连写 `长征八号甲Y8` 也精确落到 Y8（原先遥号被忽略 → 退化成"命中该型号全部批次"）',
+    setJoin === setCz8aY8, '连写=' + setJoin);
+  // ⚠️ 引力一号是**千帆**的火箭（极轨26组 = 26211）→ 必须切到千帆页才有对照，
+  //   否则两边都空、断言恒真（首版就是这么写的，白跑一条）。
+  assert('F43：`gravity1` 不被误当成"引力一号 遥1"（内含 y1 —— 精确别名判据必须挡住它）',
+    await (async function () {
+      const toQf = d2.querySelector('#constelSeg button[data-c="qf"]');
+      const toGw = d2.querySelector('#constelSeg button[data-c="gw"]');
+      if (!toQf || !toGw) return false;
+      toQf.dispatchEvent(new w2.MouseEvent('click', { bubbles: true }));
+      await new Promise(r => setTimeout(r, 1000));      // 星座切换是 520ms 动画、半程换数据
+      typeQ('引力一号'); const y3 = satIdxSet();
+      typeQ('gravity1'); const g1 = satIdxSet();
+      toGw.dispatchEvent(new w2.MouseEvent('click', { bubbles: true }));   // 切回星网，别污染后面的断言
+      await new Promise(r => setTimeout(r, 1000));
+      return y3.length > 0 && g1 === y3;
+    })());
+  assert('F43：连写遥号走的是"精确别名 + 末尾遥号"提取（源码守卫：rocketNameExact 用 === 比对）',
+    /if \(String\(ns\[j\]\)\.toLowerCase\(\) === w\) return true;/.test(appSrc) &&
+    /if \(rk && !serial\) \{/.test(appSrc));
+  assert('F43：不存在的遥号（`遥99`）返回空，不得误命中',
+    /没有匹配的卫星/.test(typeQ('遥99')));
+  assert('F43：纯数字不作为遥号拦截（`8` 的语义是名称/NORAD 里的数字，交回原分支）',
+    /var serialOnly = \/\^\[0-9\]\+\$\/\.test\(w\) \? 0 : rocketSerial\(w\);/.test(appSrc) &&
+    /if \(serialOnly && !aliasHit\(w, ROCKET_ALIAS\)\) \{/.test(appSrc));
+  // ★ 口径守卫：星座名**不参与**关键词匹配（页内搜索天然已限定星座，故无意义）——
+  //   用户明确裁决"这个确实没有必要"。这条断言是为了防止以后有人把它当 bug 重新"修"回来。
+  assert('F43（口径已裁决）：星座名不参与匹配 —— `星网 低轨20组` 为空，`低轨20组` 有命中',
+    /没有匹配的卫星/.test(typeQ('星网 低轨20组')) && !/没有匹配的卫星/.test(typeQ('低轨20组')));
+  assert('F43（口径已裁决）：searchCandidates 里没有星座名匹配逻辑（源码守卫）',
+    (function () {
+      const src = (appSrc.match(/function searchCandidates\(q\) \{[\s\S]*?\n\}/) || [''])[0];
+      return src.length > 0 && !/cn_gw|cn_qf|st\.name/.test(src);
+    })());
   dom2.window.close();
+}
+
+// ================================================================ V1.9.1（A3）：选择提示药丸三态
+// 三态定义（任务清单 A3）：整批全选（多颗）→「已全选」绿；只有单颗的批次 →「已选择」绿；
+//   无 TLE 的发射记录 →「当前暂无TLE数据」**反色**。
+// 做法：像 visual.mjs 那样**注入一个只读探针**（紧跟主 IIFE 的 'use strict'; 之后）——
+//   app.js 整体是 IIFE，内部函数不挂 window，不注入就没法精确触发 selectGroup / 读 S.sel。
+{
+  const HEAD_RE = /\(function \(\) \{\r?\n'use strict';/;
+  const INS = "\nwindow.__CISTRACK__ = {\n" +
+    "  selectGroup: function (lk) { return selectGroup(lk); },\n" +
+    "  state: function () { return { sel: S.sel.slice(), selGroup: S.selGroup }; },\n" +
+    "  tt: function (k) { return t(k); },\n" +
+    "  toast: function () { var e = document.getElementById('selToast'); return e ? { txt: e.textContent, cls: e.className } : null; }\n" +
+    "};\n";
+  const hm = HEAD_RE.exec(html);
+  assert('A3：探针注入锚点定位成功（与 visual.mjs 同一处：主 IIFE 的 "use strict"; 之后）', !!hm);
+  const html3 = hm ? (html.slice(0, hm.index + hm[0].length) + INS + html.slice(hm.index + hm[0].length)) : html;
+
+  const err3 = [];
+  const vc3 = new VirtualConsole();
+  vc3.on('jsdomError', e => err3.push('jsdomError: ' + ((e.detail && (e.detail.stack || e.detail.message)) || e.message)));
+  vc3.on('error', (...a) => err3.push('console.error: ' + a.join(' ')));
+  const dom3 = new JSDOM(html3, {
+    runScripts: 'dangerously', pretendToBeVisual: true, url: 'http://localhost/', virtualConsole: vc3,
+    beforeParse(window) {
+      window.HTMLCanvasElement.prototype.getContext = function () { if (!this.__ctx) this.__ctx = makeCtx(); return this.__ctx; };
+      window.HTMLCanvasElement.prototype.toBlob = function (cb) { cb(null); };
+      window.Element.prototype.getBoundingClientRect = function () {
+        var h = (this.tagName === 'TR') ? 41 : 460;
+        return { left: 0, top: 0, x: 0, y: 0, width: 900, height: h, right: 900, bottom: h };
+      };
+      window.scrollTo = () => {}; window.scrollBy = () => {};
+      Object.defineProperty(window, 'innerHeight', { value: 4000, configurable: true });
+      Object.defineProperty(window, 'innerWidth', { value: 1400, configurable: true });
+      window.addEventListener('error', e => err3.push('window.error: ' + e.message));
+    }
+  });
+  const w3 = dom3.window, d3 = w3.document;
+  await new Promise(r => setTimeout(r, 2000));
+  const k3 = w3.__CISTRACK__;
+  assert('A3：探针可用，且注入是唯一差异（去掉注入段后与发布产物逐字符相同）',
+    !!k3 && err3.length === 0 && html3.replace(INS, '') === html,
+    (err3.slice(0, 2).join(' | ') || 'no-error'));
+
+  // ① 键名分离：`d_sel_all` 必须是「已全选」——
+  //    此前它与 03 章批次下拉的「全部批次（」**重名**，后者在对象字面量里后写 → **覆盖**前者，
+  //    于是选中提示显示的是「全部批次（」（现存 bug，本轮修）。
+  assert('A3：键名分离后 `d_sel_all` = 「已全选」（不再被 03 章下拉的同名键覆盖）',
+    k3.tt('d_sel_all') === '已全选', k3.tt('d_sel_all'));
+  assert('A3：新键 `d_grp_all` = 「全部批次（」+ `d_grp_all2`（03 章下拉专名）',
+    k3.tt('d_grp_all') === '全部批次（' && k3.tt('d_grp_all2') === ' 颗）');
+  const opt0 = d3.querySelector('#groupSel option');
+  assert('A3：03 章批次下拉首项文案**未被改坏**（仍是「全部批次（N 颗）」）',
+    !!opt0 && /^全部批次（\d+ 颗）$/.test(opt0.textContent.trim()), opt0 && opt0.textContent.trim());
+
+  // ② 整批全选（多颗）→ 绿药丸「已全选」
+  k3.selectGroup('25030');                       // 低轨02组：9 颗
+  let tst = k3.toast();
+  assert('A3：整批全选（多颗）→ 绿药丸「已全选」（不带动画期间新增的反色/补池类）',
+    !!tst && tst.txt === '已全选' && !/inv|pool-dead|pool-pend/.test(tst.cls), JSON.stringify(tst));
+
+  // ③ 只有单颗的批次 → 「已选择」
+  k3.selectGroup('26158');                       // 试验星12：1 颗（69972）
+  tst = k3.toast();
+  const st1 = k3.state();
+  assert('A3：只有单颗的批次全选 → 「已选择」（复用既有零引用键 d_sel_one）',
+    !!tst && tst.txt === '已选择' && !/inv/.test(tst.cls) && st1.sel.length === 1,
+    JSON.stringify(tst) + ' sel=' + JSON.stringify(st1));
+
+  // ④ 无 TLE 的发射记录 → 反色药丸
+  k3.selectGroup('25F05');                       // 朱雀二号E Y3 失利：库内一颗都没有
+  tst = k3.toast();
+  const stNo = k3.state();
+  assert('A3：无 TLE 的发射记录 → 反色（.inv）药丸「当前暂无TLE数据」',
+    !!tst && tst.txt === '当前暂无TLE数据' && /(^|\s)inv(\s|$)/.test(tst.cls) && stNo.sel.length === 0 && stNo.selGroup === '25F05',
+    JSON.stringify(tst) + ' state=' + JSON.stringify(stNo));
+  k3.selectGroup('25F05');                       // 再点一次 = 取消，不该重复提示
+  assert('A3：无 TLE 行再次点击是**取消**（selGroup 置空），语义与「已全选」一致',
+    k3.state().selGroup === null, JSON.stringify(k3.state()));
+
+  // ⑤ 反色变体的实现：暗色模式=白底黑字 / 亮色模式=黑底白字 + 文字居中
+  const toastCss = (tpl.match(/#selToast \{[\s\S]*?\n\}/) || [''])[0];
+  assert('A3：`#selToast` 文字显式居中（text-align:center）', /text-align:center/.test(toastCss));
+  assert('A3：反色变体 .inv —— 暗色=白底黑字、亮色=黑底白字（两条规则都要在）',
+    /#selToast\.inv \{ background:#ffffff; color:#000000; border-color:#ffffff; \}/.test(tpl) &&
+    /:root\[data-theme="light"\] #selToast\.inv \{ background:#000000; color:#ffffff; border-color:#000000; \}/.test(tpl));
+  // ⑥ Q12：单颗提示**收口在 afterSelection**（图上点选/表里点选/搜索选中/选择框选单星四条路径共用）
+  assert('A3/Q12：单颗「已选择」收口在 afterSelection（四入口共用，漏一个就少一路）',
+    /if \(S\.sel\.length === 1\) showToast\(t\('d_sel_one'\), false\);/.test(appSrc));
+  assert('A3/Q12：多颗提示只在 selectGroup 且**仅当 >1 颗**时弹（单颗交给 afterSelection）',
+    /if \(!allSel && idxs\.length > 1\) showToast\(t\('d_sel_all'\), false\);/.test(appSrc));
+  dom3.window.close();
+}
+
+// ---- V1.9.1：wiki.json 的"不倒退"守卫（build.mjs）----
+// wiki.json 是**双身份**文件：既是 mkdata 的输入（抓到的词条统计），又是 build 的输出
+//   （把 build/wiki.json 复制回来）。"只跑 build、没跑 mkdata"时，build/wiki.json 是**上一次**
+//   的陈旧产物 → 复制回去会把源文件倒退成旧值（2026-10-10 实测：257/253 被覆盖回 248/244）。
+{
+  const bc = fs.readFileSync(B + '/build.mjs', 'utf8');
+  assert('V1.9.1：build.mjs 有 wiki.json "不倒退"守卫（计数变小则拒绝覆盖 + 明确告警）',
+    /function wikiCounts/.test(bc) && /na < nb/.test(bc) && /拒绝覆盖/.test(bc) &&
+    /CISTRACK_ALLOW_WIKI_REGRESS/.test(bc));
+  assert('V1.9.1：wiki.json 与 build/wiki.json 当前同步（若不同步=守卫拦下过，应先跑 mkdata）',
+    (function () {
+      try {
+        return fs.readFileSync(B + '/wiki.json', 'utf8') === fs.readFileSync(B + '/build/wiki.json', 'utf8');
+      } catch (e) { return false; }
+    })());
+  assert('V1.9.1：mkdata 输出 wiki.json 的字段顺序与末尾换行都与仓库版一致（否则每次构建都是无意义 diff）',
+    /JSON.stringify\(WIKI_JSON, null, 1\) \+ '\\n'/.test(fs.readFileSync(B + '/mkdata.mjs', 'utf8')));
 }
 
 $('#themeBtn').dispatchEvent(new w.MouseEvent('click', { bubbles: true }));

@@ -854,6 +854,7 @@ footer .foot-celes:hover { color:var(--fg); border-bottom-color:var(--fg); }
   z-index:140; pointer-events:none; opacity:0;
   padding:7px 16px; border-radius:999px;
   font-family:var(--sans); font-size:13px; letter-spacing:0.04em; white-space:nowrap;
+  text-align:center;                     /* V1.9.1（A3）：文字在药丸内**显式居中** */
   background:rgba(47,158,68,0.92); color:#fff; border:1px solid rgba(47,158,68,1);
   box-shadow:0 6px 20px rgba(0,0,0,0.35);
   transition:opacity .26s var(--ease), transform .26s var(--ease);
@@ -863,6 +864,12 @@ footer .foot-celes:hover { color:var(--fg); border-bottom-color:var(--fg); }
    「尚未编目」琥珀。**只新增这两个类**，既有的 .cross 行为与观感一字未动。 */
 #selToast.pool-dead { background:rgba(255,92,92,0.94); border-color:rgba(255,92,92,1); }
 #selToast.pool-pend { background:rgba(245,159,0,0.94); border-color:rgba(245,159,0,1); }
+/* V1.9.1（A3）：**反色**药丸 —— 无 TLE 的黄框行（`pend-part` / `pend-none`）点击提示用。
+   暗色模式 = 白底黑字；亮色模式 = 黑底白字（与页面底色相反，故称"反色"）。
+   放在 .pool-* 之后：同一元素同时命中多个类时以"反色"为准（showToast 每次只按 mode 加一个类，
+   这里只是给"万一"留一个确定的优先级）。 */
+#selToast.inv { background:#ffffff; color:#000000; border-color:#ffffff; }
+:root[data-theme="light"] #selToast.inv { background:#000000; color:#ffffff; border-color:#000000; }
 /* V1.3.6：页脚作者（B 站 ID）用橙色 —— 中英文两版、星网千帆两页都一样 */
 #footLink { color:#ff8c1a; border-bottom-color:rgba(255,140,26,0.45); }
 #footLink:hover { color:#ffa94d; border-bottom-color:#ffa94d; }
