@@ -1489,6 +1489,68 @@ var chartPts = [], chartView = null, chartRect = null;
 //   旧版只有『最小缩放下限』（0.05°），没有最大缩放/平移边界 → 图可以无限缩小、拖到哪儿都行。
 var CHART_X_MIN = 0, CHART_X_MAX = 180;       // 倾角（°）—— V1.7.2（需求8）：90 → 180
 var CHART_Y_MIN = 0, CHART_Y_MAX = 36500;     // 轨道高度（km，上界 = GEO）
+
+// ---------------------------------------------------------------- V1.9.1（A18）：GEO **断轴**
+// 03 倾角分布与 04 变轨情况**共用同一套参数**（Q43 定稿）。
+// 为什么必须断轴：GEO 高度 35786 km 与 LEO（450~1171 km）**差一个数量级**，同一根线性轴装不下 ——
+//   实测（2026-10-10，GEO 三星入库后）：03 章纵轴被撑到 0~36500，LEO 全部挤在底部 **3%** 的高度里，
+//   整张图等于废掉；04 章选到 GEO 批次时纵轴 0~37576，「超 2000 才放宽」的安全网真的被触发。
+// 口径（Q43）：**断轴区 2000~35750 隐藏**，**上段 35750~35850** 放 GEO 卫星；两图共用；上下比 70/30。
+// ★ 设计上刻意做成**数据驱动的最小侵入**：只有视图上界越过 2000 才启用断轴 ——
+//   纯 LEO 的视图（y1 ≤ 2000）走原来的线性映射，观感与旧版**逐像素一致**，
+//   所以这个改动不会扰动既有画面，也不会让已有的视觉回归断言变红。
+var BRK_LO = 2000;          // 断轴区下沿（km，离地高度）
+var BRK_HI = 35750;         // 断轴区上沿（km）
+var BRK_TOP = 35850;        // 上段上限（km）—— GEO（35786）落在这里
+var BRK_RATIO = 0.70;       // 下段占绘图区高度的比例（Q43：上下 70 / 30）
+function brkOn(v) { return !!v && v.y1 > BRK_LO + 1e-9; }
+/** 该视图的纵向映射：返回 { on, cut, bands, Y(v)→px|null, yAt(px)→v }
+ *  ★ 落在断轴区（2000~35750）里的值 **Y 返回 null** —— 上层据此**不画**该点/该段，
+ *    于是曲线在断轴处自然断开（Q47 的处置），而不是被"夹"到轴上伪装成有一个点。 */
+function brkYMap(v, PT, ph) {
+  var normal = function (y) { return PT + ph - (y - v.y0) / (v.y1 - v.y0) * ph; };
+  if (!brkOn(v)) {
+    return { on: false, cut: null, Y: normal,
+      bands: [{ v0: v.y0, v1: v.y1, py0: PT, py1: PT + ph }],
+      yAt: function (px) { return v.y0 + (PT + ph - px) / ph * (v.y1 - v.y0); } };
+  }
+  var phTop = ph * (1 - BRK_RATIO);                 // 上段高度
+  var phLow = ph * BRK_RATIO;                        // 下段高度
+  var cut = PT + phTop;                              // 分界行（断轴处）
+  var lo0 = Math.min(v.y0, BRK_LO);
+  var loSpan = Math.max(BRK_LO - lo0, 1e-6);
+  var hi1 = Math.max(v.y1, BRK_HI + 1);
+  var hiSpan = Math.max(hi1 - BRK_HI, 1e-6);
+  return {
+    on: true, cut: cut,
+    bands: [
+      { v0: lo0, v1: BRK_LO, py0: cut, py1: PT + ph },      // 下段：LEO
+      { v0: BRK_HI, v1: hi1, py0: PT, py1: cut }            // 上段：GEO
+    ],
+    Y: function (y) {
+      if (y <= BRK_LO) return cut + (BRK_LO - y) / loSpan * phLow;
+      if (y >= BRK_HI) return PT + (hi1 - y) / hiSpan * phTop;
+      return null;                                          // 断轴区内 → 不画
+    },
+    yAt: function (px) {
+      if (px >= cut) return lo0 + (PT + ph - px) / phLow * loSpan;
+      return hi1 - (px - PT) / phTop * hiSpan;
+    }
+  };
+}
+/** 断轴处的**斜杠标记**（国际通用画法：两根平行斜线；不需要文字，因此不引入 i18n 键） +
+ *  一行 `2000~35750` 的小字（纯数字，中英同形），避免读者误读量级。 */
+function brkDrawMark(ctx, PL, cut, pw) {
+  ctx.save();
+  ctx.setLineDash([]); ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  [0, 4].forEach(function (o) {
+    ctx.moveTo(PL - 5 + o, cut + 4);
+    ctx.lineTo(PL + 5 + o, cut - 4);
+  });
+  ctx.stroke();
+  ctx.restore();
+}
 function clampChartView(v) {
   if (!v) return v;
   // 视口比整个定义域还宽/高 → 直接钉到定义域（这就是「不能无限缩小」的硬闸）
@@ -1561,6 +1623,15 @@ function chartAutoView() {
   yy0 = Math.max(yy0, Math.min(500, y0 - pad));
   yy1 = Math.min(yy1, Math.max(1800, y1 + pad));
   if (yy1 - yy0 < 20) { yy0 -= 10; yy1 += 10; }
+  // V1.9.1（A18）：数据跨到 GEO 时改走**断轴量程** ——
+  //   上界钉在 BRK_TOP（35850，正好把 GEO 35786 装进上段），下界回到 LEO 的真实下沿。
+  //   否则线性量程会把 LEO 压成底部 3% 的一条线（实测）。断轴映射再把这个跨度里的
+  //   2000~35750 压掉，于是下段（LEO）重新拿到 70% 的高度。
+  if (yy1 > BRK_LO) {
+    yy0 = Math.max(0, y0 - pad);
+    if (yy0 > BRK_LO) yy0 = 0;                 // 下界不能高过断轴下沿（否则下段是空的）
+    yy1 = BRK_TOP;
+  }
   chartView = clampChartView({ x0: x0, x1: x1, y0: yy0, y1: yy1 });   // V1.7.0 第四轮（需求3）
 }
 function chartVisiblePts() {
@@ -1655,20 +1726,33 @@ function drawChart() {
   var pts = chartVisiblePts();
   var v = chartView;
   var X = function (x) { return PL + (x - v.x0) / (v.x1 - v.x0) * pw; };
-  var Y = function (y) { return PT + ph - (y - v.y0) / (v.y1 - v.y0) * ph; };
+  // V1.9.1（A18）：纵向映射改走断轴感知的 mapper（纯 LEO 视图下与旧版完全一致）
+  var YM = brkYMap(v, PT, ph);
+  var Y = YM.Y;
 
   // 网格
   ctx.font = '11px ' + MONO;
   ctx.lineWidth = 1;
-  var yt = niceTicks(v.y0, v.y1, 6);
+  // V1.9.1（A18）：断轴时**分段取刻度**（下段 4 条、上段 2 条），并把断轴处的斜杠标记画出来
+  var yt = YM.on
+    ? niceTicks(YM.bands[0].v0, YM.bands[0].v1, 4).concat(niceTicks(YM.bands[1].v0, YM.bands[1].v1, 2))
+    : niceTicks(v.y0, v.y1, 6);
   ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
   yt.forEach(function (t) {
     var y = Y(t);
+    if (y == null) return;
     if (y < PT - 2 || y > PT + ph + 2) return;
     ctx.strokeStyle = C.gridY; ctx.beginPath(); ctx.moveTo(PL, y); ctx.lineTo(PL + pw, y); ctx.stroke();
     ctx.fillStyle = C.tick;
     ctx.fillText(t.toFixed(MODE_FMT), PL - 8, y);
   });
+  if (YM.on) {
+    ctx.strokeStyle = C.dim;
+    brkDrawMark(ctx, PL, YM.cut, pw);
+    ctx.font = '10px ' + MONO; ctx.fillStyle = C.tick;
+    ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    ctx.fillText(BRK_LO + '~' + BRK_HI, PL + 8, YM.cut);
+  }
   // V1.3.6：X 轴 = 轨道倾角（°），数值刻度（不再是日期）
   var xt = niceTicks(v.x0, v.x1, 6);
   var xdec = (v.x1 - v.x0) < 4 ? 2 : ((v.x1 - v.x0) < 20 ? 1 : 0);
@@ -1717,7 +1801,7 @@ function drawChart() {
       ctx.fillStyle = C.theme; ctx.textAlign = 'right'; ctx.textBaseline = 'top';
       ctx.fillText('180°', bx - 4, PT + 4);
   }
-  if (v.y1 > CHART_Y_MAX - 1e-6 && CHART_Y_MAX >= v.y0) {
+  if (v.y1 > CHART_Y_MAX - 1e-6 && CHART_Y_MAX >= v.y0 && !YM.on) {
     var by = Y(CHART_Y_MAX);
     ctx.beginPath(); ctx.moveTo(PL, by); ctx.lineTo(PL + pw, by); ctx.stroke();
     ctx.fillStyle = C.theme; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
@@ -1738,6 +1822,7 @@ function drawChart() {
       var a = chartClusterAlpha(_spanX, cl.spanX);
       if (a <= 0.01) return;
       var cx = X(cl.x), cy = Y(cl.y);
+      if (cy == null) return;                       // V1.9.1（A18）：圆心落在断轴区 → 不画
       var rx = Math.abs(X(cl.x + cl.rx) - cx), ry = Math.abs(Y(cl.y + cl.ry) - cy);
       // 整个圈都在视口外就跳过（不白画）
       if (cx + rx < PL || cx - rx > PL + pw || cy + ry < PT || cy - ry > PT + ph) return;
@@ -1757,6 +1842,7 @@ function drawChart() {
   var scope = 'chart';
   pts.forEach(function (p) {
     var x = X(p.x), y = Y(p.y);
+    if (y == null) return;                                  // V1.9.1（A18）：落在断轴区 → 不画
     if (x < PL - 4 || x > PL + pw + 4 || y < PT - 4 || y > PT + ph + 4) return;
     var sel = S.sel.indexOf(p.sat.idx) >= 0;
     var col = colOf(p.sat, scope);
@@ -1777,15 +1863,18 @@ function drawChart() {
     ghost.forEach(function (g) {
       var p = g.p, gx = X(p.x), gy = Y(p.y);
       if (gx < PL - 4 || gx > PL + pw + 4) return;
+      if (gy == null) return;                                 // V1.9.1（A18）：落在断轴区 → 不画
       ctx.globalAlpha = S.sel.length ? 0.3 : 0.8;
       if (p.lo != null && p.hi != null && p.hi > p.lo) {
         var ya = Y(p.hi), yb = Y(p.lo);
-        // V1.7.1（需求8）：待编目批次的高度区间线一并改用星座主题色，与上面两条边界线统一
-        ctx.setLineDash([3, 3]); ctx.strokeStyle = C.theme; ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.moveTo(gx, ya); ctx.lineTo(gx, yb); ctx.stroke();
-        ctx.beginPath(); ctx.moveTo(gx - 3.5, ya); ctx.lineTo(gx + 3.5, ya);
-        ctx.moveTo(gx - 3.5, yb); ctx.lineTo(gx + 3.5, yb); ctx.stroke();
-        ctx.setLineDash([]);
+        if (ya != null && yb != null) {                       // V1.9.1（A18）：区间跨断轴时不画（免得画到轴上）
+          // V1.7.1（需求8）：待编目批次的高度区间线一并改用星座主题色，与上面两条边界线统一
+          ctx.setLineDash([3, 3]); ctx.strokeStyle = C.theme; ctx.lineWidth = 1;
+          ctx.beginPath(); ctx.moveTo(gx, ya); ctx.lineTo(gx, yb); ctx.stroke();
+          ctx.beginPath(); ctx.moveTo(gx - 3.5, ya); ctx.lineTo(gx + 3.5, ya);
+          ctx.moveTo(gx - 3.5, yb); ctx.lineTo(gx + 3.5, yb); ctx.stroke();
+          ctx.setLineDash([]);
+        }
       }
       ctx.beginPath(); ctx.arc(gx, gy, 3.4, 0, 6.2832);
       ctx.fillStyle = C.bg; ctx.fill();
@@ -1803,6 +1892,7 @@ function drawChart() {
       for (var k = 0; k < pts.length; k++) if (pts[k].sat === s) { p = pts[k]; break; }
       if (!p) return;
       var x = X(p.x), y = Y(p.y);
+      if (y == null) return;                                  // V1.9.1（A18）：落在断轴区 → 不标注
       if (x < PL || x > PL + pw) return;
       ctx.fillStyle = C.fg; ctx.fillText(s.name.replace(/^HULIANWANG /, '').replace(/^QIANFAN/, 'QF'), x + 9, y);
     });
@@ -1813,7 +1903,8 @@ function chartHit(mx, my) {
   if (!chartRect || !chartView) return null;
   var v = chartView, r = chartRect;
   var x = v.x0 + (mx - r.PL) / r.pw * (v.x1 - v.x0);
-  var y = v.y0 + (r.PT + r.ph - my) / r.ph * (v.y1 - v.y0);
+  // V1.9.1（A18）：纵向要**反查断轴映射** —— 否则断轴视图下鼠标上方那半张图的命中区会整体错位
+  var y = brkYMap(v, r.PT, r.ph).yAt(my);
   var dx = (v.x1 - v.x0) * 14 / r.pw, dy = (v.y1 - v.y0) * 14 / r.ph;
   var best = null, bd = Infinity;
   chartVisiblePts().forEach(function (p) {
@@ -8906,8 +8997,11 @@ function climbBounds(list, take) {
     var padv = (mx - mn) * 0.12;                   // 上下各留 12% 余量，曲线不贴边
     return { y0: mn - padv, y1: mx + padv, fixed: false };
   }
-  // 半长轴：0~2000 km 顶格限位（需求 Q47）。但若真有曲线超出 2000（异常高轨），
-  //   也不能把曲线裁掉 —— 此时才放宽，且至少留到数据最大值。
+  // 半长轴：0~2000 km 顶格限位。
+  // ★ V1.9.1（A18/Q43）：原来这里有一条"**超 2000 就放宽到数据最大值**"的安全网 —— 它正是
+  //   GEO 入库后**真的被触发**的那条路径（实测 GEO 批次 → 纵轴 0~37576，LEO 全压平）。
+  //   **已删除安全网**：改成"数据跨到 GEO 时切到**断轴量程**"（上界 BRK_TOP 把 GEO 装进上段；
+  //   断轴映射负责把 2000~35750 压掉）。
   var top = CLIMB_TOP;
   list.forEach(function (c) {
     c.pts.forEach(function (p) {
@@ -8915,7 +9009,8 @@ function climbBounds(list, take) {
       if (alt > top) top = alt;
     });
   });
-  return { y0: 0, y1: Math.max(CLIMB_TOP, top * 1.05), fixed: true };
+  if (top > CLIMB_TOP) return { y0: 0, y1: BRK_TOP, fixed: true, brk: true };
+  return { y0: 0, y1: CLIMB_TOP, fixed: true };
 }
 /** 当前选中要画的曲线列表：批次（含全部成员星） */
 function climbSeries() {
@@ -9057,20 +9152,36 @@ function drawClimb() {
   var v = clampClimbView(climbView);
   var take = S.climbTake || 'sma';
   var X = function (ms) { return PL + (ms - v.x0) / (v.x1 - v.x0) * pw; };
-  var Y = function (val) { return PT + ph - (val - v.y0) / (v.y1 - v.y0) * ph; };
+  // V1.9.1（A18）：与 03 章**共用**断轴映射（Q43：两图共用同一套参数）——
+  //   半长轴模式的数据跨到 GEO 时，断轴区 2000~35750 被压掉，LEO 重新拿回 70% 的高度；
+  //   落在断轴区里的点（GTO 转移段等）`Y` 返回 null → 上层不画，曲线自然断开（Q47）。
+  var YM = brkYMap(v, PT, ph);
+  var Y = function (val) { var r = YM.Y(val); return r == null ? null : r; };
   var COL = climbColors();
 
   // ---- 网格 + 纵轴刻度（半长轴模式画"离地高度"，读数直观）
   ctx.font = '11px ' + MONO; ctx.lineWidth = 1;
   ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
-  niceTicks(v.y0, v.y1, 6).forEach(function (tk) {
+  var yTicks = YM.on
+    ? niceTicks(YM.bands[0].v0, YM.bands[0].v1, 4).concat(niceTicks(YM.bands[1].v0, YM.bands[1].v1, 2))
+    : niceTicks(v.y0, v.y1, 6);
+  yTicks.forEach(function (tk) {
     var y = Y(tk);
+    if (y == null) return;                        // V1.9.1（A18）：断轴区内的刻度不画
     if (y < PT - 2 || y > PT + ph + 2) return;
     var zero = Math.abs(tk) < 1e-9;
     ctx.strokeStyle = zero ? C.dim : C.gridY;
     ctx.beginPath(); ctx.moveTo(PL, y); ctx.lineTo(PL + pw, y); ctx.stroke();
     ctx.fillStyle = C.tick; ctx.fillText(climbYLabel(take, tk), PL - 8, y);
   });
+  if (YM.on) {                                    // 断轴标记（斜杠 + 纯数字量程，中英同形 → 不需要新文案键）
+    ctx.strokeStyle = C.dim;
+    brkDrawMark(ctx, PL, YM.cut, pw);
+    ctx.font = '10px ' + MONO; ctx.fillStyle = C.tick;
+    ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    ctx.fillText(BRK_LO + '~' + BRK_HI, PL + 8, YM.cut);
+    ctx.font = '11px ' + MONO;
+  }
   // ---- 横轴刻度：从粗到细按目标刻度数挑（与 04 章同一套档位梯，任何缩放档位都是 4~6 条）
   var spanD = (v.x1 - v.x0) / CLIMB_DAY;
   var LADDER = [1, 2, 3, 7, 14, 28, 56, 91, 182, 365, 730, 1825];
@@ -9158,9 +9269,13 @@ function drawClimb() {
       ctx.lineWidth = hi ? 2.4 : 1.1;
       ctx.lineJoin = 'round';
       ctx.beginPath();
+      // V1.9.1（A18/Q47）：落在断轴区（2000~35750）里的点 `Y` 返回 null →
+      //   **在此处断开**（重新 moveTo），曲线不会跨过被隐藏的那一段连成一条假线。
+      var pen = false;
       for (var k2 = 0; k2 < c.pts.length; k2++) {
         var px3 = X(c.pts[k2].ms), py3 = Y(c.pts[k2].v - CLIMB_RE);
-        if (k2 === 0) ctx.moveTo(px3, py3); else ctx.lineTo(px3, py3);
+        if (py3 == null) { pen = false; continue; }
+        if (!pen) { ctx.moveTo(px3, py3); pen = true; } else ctx.lineTo(px3, py3);
       }
       ctx.stroke();
       ctx.globalAlpha = 1;
@@ -9168,7 +9283,9 @@ function drawClimb() {
         var sparse = c.pts.length <= 200;
         for (var m3 = 0; m3 < c.pts.length; m3++) {
           if (!sparse && m3 !== c.pts.length - 1) continue;
-          ctx.beginPath(); ctx.arc(X(c.pts[m3].ms), Y(c.pts[m3].v - CLIMB_RE), 1.8, 0, 6.2832);
+          var dy3 = Y(c.pts[m3].v - CLIMB_RE);
+          if (dy3 == null) continue;               // V1.9.1（A18）：断轴区内的点不画
+          ctx.beginPath(); ctx.arc(X(c.pts[m3].ms), dy3, 1.8, 0, 6.2832);
           ctx.fillStyle = own; ctx.fill();
         }
       }
@@ -9180,10 +9297,11 @@ function drawClimb() {
         for (var z = c.rates.length - 1; z >= 0; z--) if (isFinite(c.rates[z])) return c.rates[z];
         return null;
       })() : (last.v - CLIMB_RE);
-      if (lv != null) {
+      var ly = (lv == null) ? null : Y(lv);
+      if (lv != null && ly != null) {              // V1.9.1（A18）：末端点在断轴区里 → 不标
         ctx.font = '11px ' + MONO; ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
         ctx.fillStyle = own;                       // V1.9.1（#4）：标签也用**该星自己的颜色**（线色进标签）
-        ctx.fillText(fmtNum(lv, take === 'rate' ? 2 : 0), X(last.ms) - 4, Y(lv) - 4);
+        ctx.fillText(fmtNum(lv, take === 'rate' ? 2 : 0), X(last.ms) - 4, ly - 4);
       }
     }
     if (c.pts.length > maxPts) maxPts = c.pts.length;
@@ -9238,9 +9356,12 @@ function climbHitAt(mx, my) {
       ? c.rates.map(function (rr, k) { return isFinite(rr) ? { ms: c.pts[k].ms, v: rr } : null; }).filter(Boolean)
       : c.pts.map(function (p) { return { ms: p.ms, v: p.v - CLIMB_RE }; });
     // 先按纵向距离筛掉明显不在附近的曲线（最多留 4 条候选），再比横向
+    // V1.9.1（A18）：纵向改走**断轴感知**的映射（否则断轴视图下命中的是"屏幕上另一处"的点）
+    var YM = brkYMap(v, r.PT, r.ph);
     var cand = [];
     for (var j = 0; j < arr.length; j++) {
-      var py = r.PT + r.ph - (arr[j].v - v.y0) / (v.y1 - v.y0) * r.ph;
+      var py = YM.Y(arr[j].v);
+      if (py == null) continue;                        // 断轴区内的点不参与命中
       var dy = Math.abs(py - my);
       if (dy < r.ph * 0.5) cand.push({ j: j, dy: dy });
     }

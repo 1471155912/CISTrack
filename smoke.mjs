@@ -1024,7 +1024,10 @@ assert('需求3+V1.7.2（需求8）：画出边界线（180\u00b0 与 36500 km (
   /ctx\.fillText\('180\u00b0', bx - 4, PT \+ 4\)/.test(appSrc) &&
   /ctx\.fillText\('36500 km \(GEO\)', PL \+ 6, by \+ 3\)/.test(appSrc) &&
   /if \(v\.x1 > CHART_X_MAX - 1e-6 && CHART_X_MAX >= v\.x0\)/.test(appSrc) &&
-  /if \(v\.y1 > CHART_Y_MAX - 1e-6 && CHART_Y_MAX >= v\.y0\)/.test(appSrc));
+  // ★ V1.9.1（A18）：纵轴那条 36500 线**只在非断轴时画** —— 断轴启用后上段（35750~35850）
+  //   本身就是"GEO 带"，而 36500 已落在上段之外（画出来也会被裁掉）；
+  //   此时由断轴标记（斜杠 + `2000~35750`）承担同样的告知作用。
+  /if \(v\.y1 > CHART_Y_MAX - 1e-6 && CHART_Y_MAX >= v\.y0 && !YM\.on\)/.test(appSrc));
 // 需求4：未编目行只留黄色边框
 assert('需求4：未编目行不再染黄/弱化文字（COSPAR、待编目数量、日期列全部恢复普通样式），黄框保留',
   !/tr\.pend-part \./.test(tpl) && !/tr\.pend-none \./.test(tpl) && !/\.ltable td\.pend/.test(tpl) &&
@@ -2173,6 +2176,16 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
     "  chartSpan: function () { if (!chartView) chartAutoView(); return +(chartView.x1 - chartView.x0).toFixed(2); },\n" +
     "  chartSetSpan: function (x0, x1) { chartView = { x0: x0, x1: x1, y0: chartView.y0, y1: chartView.y1 }; },\n" +
     "  chartHitNoCluster: function () { return typeof chartHoverAt; },\n" +
+    // V1.9.1（A18）：断轴
+    "  brkOn: function (y0, y1) { return brkOn({ y0: y0, y1: y1 }); },\n" +
+    "  brkMap: function (y0, y1, PT, ph) { var m = brkYMap({ y0: y0, y1: y1 }, PT, ph);\n" +
+    "    return { on: m.on, cut: m.cut, bands: m.bands,\n" +
+    "      at: function (y) { var r = m.Y(y); return r == null ? null : +r.toFixed(3); },\n" +
+    "      inv: function (px) { return +m.yAt(px).toFixed(3); } }; },\n" +
+    "  climbB: function () { return climbBounds(climbSeries().list, S.climbTake || 'sma'); },\n" +
+    "  chartBrkOn: function () { if (!chartView) chartAutoView(); return brkOn(chartView); },\n" +
+    "  chartY1: function () { if (!chartView) chartAutoView(); return Math.round(chartView.y1); },\n" +
+    "  climbY1: function () { if (!climbView) climbAutoView(); clampClimbView(climbView); return Math.round(climbView.y1); },\n" +
     "  climbAuto: function () { return climbAutoPick(); },\n" +
     "  climbSelValue: function () { var s = document.getElementById('climbSel'); return s ? s.value : null; },\n" +
     "  climbSelText: function () { var s = document.getElementById('climbSel'); return s ? s.options[s.selectedIndex].textContent : null; },\n" +
@@ -2617,6 +2630,56 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
       })(), 'chartHit 长度=' + (appSrc.match(/function chartHit\(mx, my\) \{[\s\S]*?\n\}/) || [''])[0].length);
     assert('A9：导出图同样绘制（导出走同一个 drawChart）',
       /else drawChart\(\);/.test(appSrc));
+  }
+
+  // ================================================================ V1.9.1（A18）：GEO 断轴（03 / 04 共用）
+  // Q43 定稿：断轴区 2000~35750 隐藏、上段 35750~35850；两图共用参数；上下比 70/30；
+  //   `climbBounds` 的"超 2000 放宽"安全网**删除**；Q47：断轴区内的点不画（曲线自然断开）。
+  {
+    assert('A18：断轴只在视图上界越过 2000 时启用（纯 LEO 视图与旧版逐像素一致，不扰动既有画面）',
+      k3.brkOn(0, 2000) === false && k3.brkOn(0, 2001) === true);
+    const PT = 16, ph = 400;
+    const M = k3.brkMap(0, 35850, PT, ph);
+    assert('A18：断轴启用后分界行 = PT + ph×30%（下段 70% / 上段 30%，Q43 定稿比例）',
+      M.on === true && Math.abs(M.cut - (PT + ph * 0.3)) < 1e-9, 'cut=' + M.cut);
+    assert('A18：下段顶端（2000）与上段底端（35750）都落在分界行上（两段相接、中间是隐藏区）',
+      M.at(2000) === M.cut && M.at(35750) === M.cut, M.at(2000) + ' / ' + M.at(35750));
+    assert('A18：**断轴区（2000~35750）内的值映射为 null** → 上层不画（Q47：曲线在此断开，而不是被夹到轴上）',
+      M.at(2001) === null && M.at(18000) === null && M.at(35749) === null);
+    assert('A18：LEO 重新拿回下段高度（高度 0 落在绘图区底边、2000 落在分界行）',
+      Math.abs(M.at(0) - (PT + ph)) < 1e-9 && M.at(2000) === M.cut, M.at(0) + ' / ' + M.at(2000));
+    assert('A18：GEO（35786）落在**上段**（分界行之上、绘图区顶边之下）',
+      M.at(35786) > PT && M.at(35786) < M.cut, 'Y(35786)=' + M.at(35786));
+    assert('A18：两段各自单调（值越大越高），且断轴处不跨越',
+      M.at(500) > M.at(1171) && M.at(1171) > M.at(2000) && M.at(35786) > M.at(35849),
+      [M.at(500), M.at(1171), M.at(2000), M.at(35786), M.at(35849)].join(' > '));
+    assert('A18：反向映射（命中测试用）能还原同一竖直位置',
+      Math.abs(M.inv(M.at(1149)) - 1149) < 1 && Math.abs(M.inv(M.at(35786)) - 35786) < 1,
+      M.inv(M.at(1149)) + ' / ' + M.inv(M.at(35786)));
+    // 真实数据：GEO 三星入库后，两章的纵轴都应进入断轴量程
+    assert('A18：03 章实测纵轴上界 = BRK_TOP（35850）且已启用断轴（GEO 数据把轴撑到了 35787）',
+      k3.chartY1() === 35850 && k3.chartBrkOn() === true,
+      'y1=' + k3.chartY1() + ' brk=' + k3.chartBrkOn());
+    assert('A18：04 章选 GEO 批次 → 纵轴 = BRK_TOP（原先被"超 2000 放宽"撑到 37576）',
+      (function () { k3.setClimbPick('b:24181'); return k3.climbY1() === 35850; })(),
+      'y1=' + k3.climbY1());
+    assert('A18：04 章选纯 LEO 批次 → 纵轴仍是 2000（断轴不启用，观感与旧版一致）',
+      (function () { k3.setClimbPick('b:24240'); return k3.climbY1() === 2000; })(),
+      'y1=' + k3.climbY1());
+    assert('A18：`climbBounds` 的"超 2000 放宽"安全网已删除（不再出现 `top * 1.05`）',
+      !/top \* 1\.05/.test(appSrc) && /if \(top > CLIMB_TOP\) return \{ y0: 0, y1: BRK_TOP, fixed: true, brk: true \};/.test(appSrc));
+    assert('A18：两章共用同一套参数（BRK_LO / BRK_HI / BRK_TOP / BRK_RATIO 只有一处定义，03 与 04 都调 brkYMap）',
+      (appSrc.match(/var BRK_LO = 2000;/g) || []).length === 1 &&
+      (appSrc.match(/brkYMap\(/g) || []).length >= 3 &&
+      /brkYMap\(v, r\.PT, r\.ph\)\.yAt\(my\)/.test(appSrc) &&
+      /brkYMap\(v, PT, ph\)/.test(appSrc));
+    assert('A18：断轴处画了标记（两根平行斜杠 + `2000~35750` 纯数字量程；纯数字 → 不需要新 i18n 键）',
+      /function brkDrawMark/.test(appSrc) && /ctx\.fillText\(BRK_LO \+ '~' \+ BRK_HI/.test(appSrc));
+    assert('A18：04 章的折线在断轴区**断开**（用 pen 标记 moveTo 重开，而不是跨过隐藏段连成假线）',
+      /var pen = false;/.test(appSrc) && /if \(py3 == null\) \{ pen = false; continue; \}/.test(appSrc));
+    assert('A18：36500 km 物理边界虚线在断轴模式下不再重复画（上段本身就是 GEO 带）',
+      /if \(v\.y1 > CHART_Y_MAX - 1e-6 && CHART_Y_MAX >= v\.y0 && !YM\.on\) \{/.test(appSrc));
+    k3.setClimbPick('b:24240');
   }
 
   dom3.window.close();
