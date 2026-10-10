@@ -158,7 +158,29 @@ body { overflow-x:hidden;   /* V1.4.5：同上（部分浏览器需要 body 上�
    内联 color:transparent + background-clip:text 的双色渐变，一旦收尾的 setTimeout 没按时跑
    （切后台/rAF 被节流/连续快速切星座），渐变就永久留在屏幕上，中间混合色比 --row-sel 更艳。
    现在品牌色**只有 --row-sel 一个来源**（renderHeader 按星座写成红/蓝），没有第二条路可走。 */
-.brand-name { color:var(--row-sel); font-family:var(--brand); font-weight:400; font-size:32px; letter-spacing:0.04em; line-height:1.0; -webkit-text-stroke:0.85px currentColor; paint-order:stroke fill; }
+.brand-name { position:relative; display:inline-block; color:var(--row-sel); font-family:var(--brand); font-weight:400; font-size:32px; letter-spacing:0.04em; line-height:1.0; }
+/* ★ V1.9.1：品牌扫过改**双层**实现（用户 2026-10-10 反馈"切换不流畅、中间卡顿一下、时间不够长"）。
+   为什么必须是两层：旧实现是单层 `background-clip:text` + 平移 `background-position`，
+   扫描期间要写 `color:transparent` 才能让渐变透出来 —— 而描边是
+   `-webkit-text-stroke: 0.85px currentColor`，**currentColor 跟着变透明**，
+   于是字形外轮廓瞬时少 0.85px（切换瞬间字"缩"一下，收尾又"涨"回来）。
+   现在两层各自是**完整字形**（各带自己的描边），只切可见区域 → 字形全程不变。
+   附带好处：clip-path 是**合成器友好**属性（可 GPU 加速），比 background-position（触发重绘）更流畅。 */
+.bn-a, .bn-b { display:inline-block; white-space:nowrap; -webkit-text-stroke:0.85px currentColor; paint-order:stroke fill; }
+/* 新色层：绝对定位盖在旧色层上，默认**完全裁掉**（靠 .bn-a 显示），扫描时用 clip-path 从一侧揭示。
+   注意 .bn-a 保持静态流 → .brand-name 的宽度仍由它撑开，layoutNav 的宽度测量不受影响。 */
+.bn-b { position:absolute; left:0; top:0; clip-path:inset(0 0 0 100%); -webkit-clip-path:inset(0 0 0 100%); pointer-events:none; user-select:none; -webkit-user-select:none;
+  /* V1.9.1：把这一层提升为独立图层 —— **不是为了"合成器驱动动画"**（已实测证伪：
+     加 will-change:clip-path 后主线程长任务期间它照样冻结 116ms，说明本版 Chrome/Edge
+     的 clip-path 过渡仍在主线程跑），而是为了**把重绘范围限制在这一层**，
+     不必让整个顶栏（含毛玻璃 backdrop-filter）跟着逐帧重绘。
+     真正解决卡顿的是 app.js 里 `measureRowUnits` 的性能根治（半程长任务 120ms → 0）。 */
+  will-change:clip-path; transform:translateZ(0); }
+/* 扫过时长与缓动 **独立**于 --anim-half/--ease-slow-fast：
+   那两件是给"页面顶出 + 半程换数据"设计的（--ease-slow-fast 的终点斜率高达 27，
+   末段会在 2% 的时间里冲完 54% 的距离 → 看起来"啪"地一下）。
+   这里用 520ms + cubic-bezier(.4,0,.2,1)（终点斜率 0，平稳收尾）。 */
+:root { --brand-sweep: 520ms; --ease-brand: cubic-bezier(.4,0,.2,1); }
 .brand .dim { color:var(--faint); font-weight:400; }
 /* V1.3.9：删掉 .br-narrow —— 那是 V1.2 时代给副标题手动加换行用的，现在标题走 clamp 自动换行 */
 /* V1.7.1（需求3）：顶栏右侧三个按钮改为**绝对定位钉死在右边**——
@@ -183,6 +205,23 @@ body { overflow-x:hidden;   /* V1.4.5：同上（部分浏览器需要 body 上�
 /* V1.7.2 第七轮（需求2）：.navlinks（五个章节链接）与 .nav-updated（要素历元）
    连同它们的中段溢出收敛逻辑一起删除 —— 这两组规则已无对应节点，全部清理干净。 */
 .nav-right > * { display:flex; align-items:center; height:32px; }
+/* ---- V1.9.1：电脑端顶栏「章节标签」 ---- 
+   老版本顶栏本来就有一排章节入口（V1.7.2 第七轮移除，理由是"与右下角悬浮药丸重复"）。
+   现在按要求**恢复到电脑端**：触屏设备、或余量不足时自动收起（判据见 layoutNav）。
+   · 按钮全部 `white-space:nowrap` 且容器 `flex-wrap:nowrap` —— 这一行**必须是一行**，
+     绝不能换行（换行会把顶栏撑高、顶栏高度变量 --nav-h 随之失真，时钟药丸与锚点定位都会偏）；
+   · 分隔用极淡的竖线（`+ button::before`），比 gap 更省横向空间；
+   · 当前章高亮用主题色下划线（与右下角药丸的 `on` 态同一套色）。 */
+.nav-tabs { display:flex; flex-direction:row; flex-wrap:nowrap; align-items:center; gap:0; min-width:0; overflow:hidden; }
+.nav-tabs.off { display:none; }
+.nav-tabs button { position:relative; background:transparent; border:0; border-bottom:2px solid transparent; color:var(--dim); font-family:var(--mono); font-size:11px; letter-spacing:0.05em; padding:6px 8px 4px; cursor:pointer; white-space:nowrap; transition:color .24s var(--ease), border-color .24s var(--ease); }
+.nav-tabs button:hover { color:var(--fg); }
+.nav-tabs button.on { color:var(--row-sel); border-bottom-color:var(--row-sel); }
+.nav-tabs button + button::before { content:''; position:absolute; left:0; top:50%; transform:translateY(-50%); width:1px; height:11px; background:var(--hair); }
+/* 标签显示时：品牌块不再吃满剩余空间 → 标签紧随 CISTrack 之后左对齐（与用户给的判据一致：
+   判的就是"第一个标签左缘 → CISTrack 右缘"的距离）。收起时回到原布局（品牌块吃掉剩余空间）。 */
+.topnav.has-tabs .brand-box { flex:0 0 auto; }
+.topnav.has-tabs .nav-right { flex:1 1 auto; margin-left:0; justify-content:flex-start; }
 /* V1.7.2（需求5/9）：gap 与 layoutNav() 里的 G 取同一值（宽屏 12 / 窄屏 8），
    这样「CISTrack 右缘→星座段左缘」与「星座段右缘→中英文键左缘」两个间距在极窄屏相等。 */
 .nav-actions { position:absolute; right:24px; top:50%; transform:translateY(-50%);
@@ -1838,7 +1877,7 @@ html[data-theme="light"] .res-fail { color:#c72929; }
 
 <nav class="topnav">
   <div class="brand-box">
-    <div class="brand"><a class="brand-link" href="https://github.com/1471155912/CISTrack" target="_blank" rel="noopener" data-i18n-title="t_repo"><span class="brand-name">CISTrack</span></a></div>
+    <div class="brand"><a class="brand-link" href="https://github.com/1471155912/CISTrack" target="_blank" rel="noopener" data-i18n-title="t_repo"><span class="brand-name"><span class="bn-a">CISTrack</span><span class="bn-b" aria-hidden="true">CISTrack</span></span></a></div>
     <div class="brand-note" id="brandNote" data-i18n="brandNote">非官方项目 · 数据来自 NORAD 空间目标目录公开轨道要素</div>
   </div>
   <!-- V1.7.2 第七轮（需求2）：这里原来的两样东西都删了 ——
@@ -1847,7 +1886,7 @@ html[data-theme="light"] .res-fail { color:#c72929; }
        ② 「要素历元」那一行：改到主标题「中国低轨互联网卫星在轨态势」下方（#pageEpoch），
           并且**所有宽度 + 中英文**都显示（不再只在窄屏出现）。
        容器本身保留：layoutNav() 仍要读它的计算宽度来做三键让位，删节点会让那段代码报错。 -->
-  <div class="nav-right"></div>
+  <div class="nav-right"><div class="nav-tabs off" id="navTabs"></div></div>
   <!-- V1.7.1（需求3）：三个按钮移出 .nav-right，改为绝对定位钉在顶栏右侧。
        放在 .nav-right **外面**是必须的 —— 它要相对 .topnav（position:sticky 已是定位父级）定位，
        留在 .nav-right 里会被父级的 padding/宽度牵着走，又回到"内容一变宽就被推出视口"的老问题。 -->

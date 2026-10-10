@@ -1158,8 +1158,17 @@ assert('需求9：品牌渐变动画有幂等守卫 + 前台兜底收尾（否�
   /if \(el\.__sweeping\) brandSweepFinish\(\);/.test(appCode) &&
   /function brandSweepFinish\(\)/.test(appCode) &&
   /document\.addEventListener\('visibilitychange'[\s\S]{0,300}brandSweepFinish/.test(appCode));
-assert('需求9：.brand-name 只由 --row-sel 驱动（同一块里不再写两次 color）',
-  /\.brand-name \{ color:var\(--row-sel\);/.test(tplCode));
+// V1.9.1：.brand-name 现在还要承载定位与双层结构（position/display 等），
+//   所以不能再把整块写死成 `{ color:var(--row-sel);` 开头 —— **原意**改为：
+//   「这一块里 **只有一个 color: 声明**，且它就是 var(--row-sel)」
+//   （旧 bug 是同一块里写了两次 color，后一条恒赢、前一条成死代码）。
+assert('需求9：.brand-name 只由 --row-sel 驱动（同一块里只有一个 color 声明）',
+  (function () {
+    const m = tplCode.match(/\.brand-name \{[^}]*\}/);
+    if (!m) return false;
+    const decls = (m[0].match(/(?:^|[;{\s])color\s*:/g) || []).length;
+    return decls === 1 && /color:var\(--row-sel\)/.test(m[0]);
+  })());
 // 需求3：顶栏三键定宽定位
 assert('需求3：三键绝对定位钉在顶栏右侧（英文不再被推出视口）',
   /\.nav-actions \{ position:absolute; right:24px; top:50%; transform:translateY\(-50%\);/.test(tplCode) &&
@@ -1333,8 +1342,10 @@ assert('V1.7.2r7（需求2）：app.js 里不再有任何 navlinks / navUpd 逻�
   !/nav-updated/.test(appCode) && !/navUpdated/.test(appCode));
 assert('V1.7.2r7（需求2）：template 里 .navlinks / .nav-updated 的 DOM 与 CSS 全清',
   !/class="navlinks"/.test(tplCode) && !/nav-updated/.test(tplCode) && !/\.navlinks/.test(tplCode));
-assert('V1.7.2r7（需求2）：顶栏右侧留了空容器 .nav-right（layoutNav 依赖它的计算宽度）',
-  /<div class="nav-right"><\/div>/.test(tplCode));
+// V1.9.1：.nav-right 不再是空容器 —— 里面放了「顶栏章节标签」（#navTabs）。
+//   这条断言的**原意**仍然成立（而且更重要）：这个容器必须存在，layoutNav 依赖它算宽度。
+assert('V1.7.2r7（需求2）+ V1.9.1：.nav-right 容器仍在（layoutNav 依赖它算宽度），且内含顶栏标签',
+  /<div class="nav-right">/.test(tplCode) && /id="navTabs"/.test(tplCode));
 // 需求2/新需求A：历元行常驻主标题下方
 assert('V1.7.2r7（需求2）：#pageEpoch 常驻（CSS 里不得再有 display:none）',
   /id="pageEpoch"/.test(tplCode) &&
@@ -3240,6 +3251,138 @@ assert('V1.9.1（#9）：JS 起来后仍然接管（语言切换 / 真实历元�
     /html\.vt-running #sec-chart\.fs-mobile \.controls/.test(tpl) &&
     /html\.vt-running #sec-progress\.fs-mobile \.controls/.test(tpl) &&
     /html\.vt-running #sec-climb\.fs-mobile \.climb-bar/.test(tpl));
+}
+
+
+// ================================================================ V1.9.1（顶栏章节标签）
+// 老版本顶栏本来有一排章节入口（V1.7.2 第七轮移除）。现在按要求**只恢复到电脑端**：
+//   ① 顺序与名字 = 章节的最终顺序与名字（01 地图 … 07 发射历史），与右下角药丸**同源**（都从 JUMP_TITLE 取）；
+//   ② **不含「TLE 更新时间 / 要素历元」** —— 那一行已改到主标题下方（#pageEpoch），不回到顶栏；
+//   ③ 触屏设备不显示；宽度不足时自动收起。
+//   ⚠️ 几何（是否真的一行、是否与按钮区重叠）在 jsdom 里量不出来（getBoundingClientRect 被桩掉了）
+//      → 那部分放在真实浏览器里断言；这里只查结构与源码逻辑。
+{
+  const navTabs = d.getElementById('navTabs');
+  assert('顶栏标签的容器存在于 .nav-right 内（老版本的顶栏标签位）',
+    !!navTabs && navTabs.parentNode && navTabs.parentNode.className.indexOf('nav-right') >= 0);
+  const labels = navTabs ? [...navTabs.querySelectorAll('button')].map(b => b.textContent) : [];
+  assert('顶栏标签 = 7 个章节，顺序与名字为最终版（01 地图 … 07 发射历史）',
+    labels.join('|') === '01 地图|02 轨道|03 倾角分布|04 变轨情况|05 组网进度|06 卫星表格|07 发射历史',
+    labels.join('|'));
+  assert('顶栏标签**不含「TLE 更新时间 / 要素历元」**（已移到主标题下方 #pageEpoch，不回到顶栏）',
+    !/更新时间|历元|epoch/i.test(labels.join(' ')) && /id="pageEpoch"/.test(tpl));
+  assert('顶栏标签的 data-sec 与右下角药丸的章节 id **一一对应**（同一套锚点，不会跳错章）',
+    navTabs && [...navTabs.querySelectorAll('button')].map(b => b.getAttribute('data-sec')).join(',') ===
+      'sec-map,sec-orbits,sec-chart,sec-climb,sec-progress,sec-table,sec-launches');
+
+  // 源码守卫：判据与分支
+  assert('源码：NAV_TABS 常量把 7 个章节**只写一处**（与药丸同源，改章节名不会两处漂移）',
+    (appSrc.match(/var NAV_TABS = \[/g) || []).length === 1 &&
+    /var NAV_TABS = \['sec-map', 'sec-orbits', 'sec-chart', 'sec-climb', 'sec-progress', 'sec-table', 'sec-launches'\];/.test(appSrc));
+  assert('源码：收起判据 = 用户给的那条（第一个标签左缘 − CISTrack 右缘 < G）',
+    /var gap = firstTab\.getBoundingClientRect\(\)\.left - brandEl\.getBoundingClientRect\(\)\.right;/.test(appSrc) &&
+    /show = gap >= G - 0\.5 && fits;/.test(appSrc));
+  assert('源码：**另有一条「放得下」检查**（只靠用户那条判据在窄屏永不触发：≤1150px 时 .brand-note 被隐藏，' +
+    '间隙恒等于 topnav 的 column-gap、与视口宽度无关；实测 700px 时 7 个标签会被 overflow:hidden 裁掉一半）',
+    /var fits = tabs\.scrollWidth <= tabs\.clientWidth \+ 0\.5;/.test(appSrc) &&
+    !/show = gap >= G - 0\.5;$/.test(appSrc));
+  assert('源码：触屏设备一律不显示（「电脑端单独使用」）', /if \(!isTouch\(\)\) \{/.test(appSrc));
+  assert('源码：显示时给 .topnav 加 has-tabs（品牌块不再吃满剩余空间 → 标签紧随 CISTrack 左对齐）',
+    /nav\.classList\.toggle\('has-tabs', show\);/.test(appSrc) &&
+    /\.topnav\.has-tabs \.brand-box \{ flex:0 0 auto; \}/.test(tpl));
+  assert('源码：标签**必须是一行**（容器 nowrap + 按钮 nowrap；换行会撑高顶栏 → --nav-h 失真、时钟药丸与锚点全偏）',
+    /\.nav-tabs \{ display:flex; flex-direction:row; flex-wrap:nowrap;/.test(tpl) &&
+    /\.nav-tabs button \{[^}]*white-space:nowrap;/.test(tpl));
+  assert('源码：当前章高亮由药丸与顶栏标签**共用同一份判定**（setJumpActive）',
+    /function setJumpActive\(id\)/.test(appSrc) &&
+    (appSrc.match(/setJumpActive\(/g) || []).length >= 3 &&
+    /function refreshJumpTitles\(\) \{ buildJumpPill\(\); buildNavTabs\(\); \}/.test(appSrc));
+
+  // 触屏分支：jsdom 里可以精确控制 isTouch() 的第二个子句
+  //   （CDP 覆盖不了 pointer/hover 媒体特性，所以这一条只能在 jsdom 里测）
+  const errsT = [];
+  const domT = new JSDOM(html, {
+    runScripts: 'dangerously', pretendToBeVisual: true, url: 'http://localhost/',
+    beforeParse(window) {
+      window.ontouchstart = null;                       // 让 'ontouchstart' in window 为真
+      Object.defineProperty(window.navigator, 'maxTouchPoints', { value: 5, configurable: true });
+      window.HTMLCanvasElement.prototype.getContext = function () { if (!this.__ctx) this.__ctx = makeCtx(); return this.__ctx; };
+      window.HTMLCanvasElement.prototype.toBlob = function (cb) { cb(null); };
+      window.Element.prototype.getBoundingClientRect = function () {
+        var h = (this.tagName === 'TR') ? 41 : 460;
+        return { left: 0, top: 0, x: 0, y: 0, width: 900, height: h, right: 900, bottom: h };
+      };
+      window.scrollTo = () => {}; window.scrollBy = () => {};
+      Object.defineProperty(window, 'innerHeight', { value: 4000, configurable: true });
+      Object.defineProperty(window, 'innerWidth', { value: 1400, configurable: true });
+      window.addEventListener('error', e => errsT.push(e.message));
+    }
+  });
+  const dT = domT.window.document;
+  await new Promise(r => setTimeout(r, 2200));
+  const navT = dT.getElementById('navTabs');
+  assert('**触屏设备：顶栏标签不显示**（off 已挂上，「电脑端单独使用」）',
+    !!navT && navT.classList.contains('off') && errsT.length === 0,
+    navT ? navT.className + ' | err=' + errsT.slice(0, 2).join(',') : 'no node');
+  assert('触屏下 .topnav 不带 has-tabs（布局回到「品牌块吃满剩余空间」的原样）',
+    !dT.querySelector('.topnav').classList.contains('has-tabs'));
+  domT.window.close();
+}
+
+
+// ================================================================ V1.9.1（品牌扫过卡顿 · 性能根治）
+// 用户报「顶栏 CISTrack 切换时不流畅、中间卡顿一下」→ 真浏览器实测定位到根因：
+//   切星座半程（ANIM.half=260ms）会跑一次重量级重建，**实测长任务 120ms**；
+//   而品牌扫过（clip-path 过渡，主线程驱动 —— 已实测排除合成器路径）正好在那时
+//   **在 25% 处冻结 133ms**。元凶是 `measureRowUnits`：它把**全部 262 行**渲染进离屏表格
+//   逐行量高度（单次 renderTable 43~52ms，半程被调两次）。
+//   修法：行高只由**可换行的制造商列**决定（`.ltable td` 全是 nowrap，只有 `.ltable td.maker`
+//   覆写为 normal），而制造商按**批次**挂 → 同批次行高必然相同 ⇒ **只按批次抽一行量**。
+//   实测：长任务 120ms → **0**，最大帧间隔 133ms → 17~33ms，renderTable 95ms → 16ms。
+{
+  assert('性能根治：`measureRowUnits` 按**批次去重**量行高（不再渲染全部 262 行）',
+    /var reps = \{\}, repRows = \[\];/.test(appSrc) &&
+    /tb\.innerHTML = repRows\.map\(satRowHtml\)\.join\(''\);/.test(appSrc) &&
+    !/tb\.innerHTML = rows\.map\(satRowHtml\)\.join\(''\);/.test(appSrc));
+  assert('性能根治：量尺结果按**批次**（byLk）缓存并复用（旧实现按 idx，且两次调用都没命中）',
+    /var _rowUnitCache = \{ sig: '', byLk: null \};/.test(appSrc) &&
+    /return function \(r\) \{ return byLk\[r\._s\.lk\] \|\| 1; \}/.test(appSrc) &&
+    /_rowUnitCache = \{ sig: sig, byLk: byLk \};/.test(appSrc));
+  assert('性能根治：缓存签名用 **clientWidth**（布局宽度、不含 transform）—— ' +
+    '切星座时整页在位移，getBoundingClientRect().width 会带上变换导致缓存永不命中',
+    /var w = tbl \? \(tbl\.clientWidth \|\| Math\.round\(tbl\.getBoundingClientRect\(\)\.width\) \|\| 0\) : 0;/.test(appSrc) &&
+    /var sig = rows\.length \+ '\|' \+ LANG \+ '\|' \+ w \+ '\|' \+ \(rows\[0\] \? rows\[0\]\._s\.lk : ''\);/.test(appSrc));
+  // 前提守卫：这套去重**依赖**"只有制造商列能换行"这一 CSS 事实 —— 一旦有人把别的列改成可换行，去重就不再等价
+  assert('性能根治的前提：全表 nowrap、**只有 `.ltable td.maker` 可换行**（若这条变了，按批次去重就不再等价）',
+    /\.ltable td \{ padding:7px 10px; border-bottom:1px solid var\(--hair\); white-space:nowrap;/.test(tpl) &&
+    /\.ltable td\.maker \{ text-align:center; white-space:normal; \}/.test(tpl) &&
+    (tpl.match(/white-space:normal; \}/g) || []).length >= 1);
+}
+
+// ================================================================ V1.9.1（品牌扫过重做：双层 clip-path）
+// 三个原因叠加（都已实测坐实）：
+//   ① 缓动末段过陡：--ease-slow-fast 终点斜率 27（最后 2% 冲完 54% 距离）→ 独立成 --ease-brand（终点斜率 0）
+//   ② 时长太短：--anim-half=260ms 只是四联动的半程 → 独立成 --brand-sweep=520ms
+//   ③ 字形瞬时变细：旧实现扫描时写 color:transparent，而描边是 currentColor → 描边一起透明。
+//      实测（4× 倍率、同位置、比边缘像素）：旧实现扫过时 **−264**，新实现 **+174**，差 438 像素。
+//      改成**双层各自完整字形 + clip-path**后，扫过帧与静态帧的外接框**逐像素一致**（405×79）。
+{
+  assert('品牌扫过：结构为**双层**（.bn-a 旧色 / .bn-b 新色），各自带完整字形与描边',
+    /<span class="brand-name"><span class="bn-a">CISTrack<\/span><span class="bn-b" aria-hidden="true">CISTrack<\/span><\/span>/.test(tpl) &&
+    /\.bn-a, \.bn-b \{ display:inline-block; white-space:nowrap; -webkit-text-stroke:0\.85px currentColor; paint-order:stroke fill; \}/.test(tpl));
+  assert('品牌扫过：时长/缓动**独立**于 --anim-half/--ease-slow-fast（520ms + 终点斜率 0 的贝塞尔）',
+    /--brand-sweep: 520ms;/.test(tpl) && /--ease-brand: cubic-bezier\(\.4,0,\.2,1\);/.test(tpl));
+  assert('品牌扫过：JS 用 clip-path 揭示新色层，且时长常量与 CSS 一致（BRAND_SWEEP = 520）',
+    /var BRAND_SWEEP = 520;/.test(appSrc) &&
+    /nb\.style\.transition = 'clip-path var\(--brand-sweep\) var\(--ease-brand\)';/.test(appSrc));
+  assert('品牌扫过：**不再**用 background-clip:text + color:transparent 的老做法（那会连描边一起透明）',
+    !/el\.style\.color = 'transparent';/.test(appSrc) &&
+    !/backgroundClip = 'text'/.test(appSrc.replace(/^.*\/\/.*$/gm, '')));
+  assert('品牌扫过：收尾会清掉两层的内联色与 clip（不让半程色留在屏幕上）',
+    /if \(nb\) \{ nb\.style\.transition = ''; nb\.style\.clipPath = ''; nb\.style\.webkitClipPath = ''; nb\.style\.color = ''; \}/.test(appSrc) &&
+    /if \(na\) na\.style\.color = '';/.test(appSrc));
+  assert('品牌扫过：方向与页面一致（星网→千帆时新色从右往左扫入）',
+    /var from = dir === 1 \? 'inset\(0 0 0 100%\)' : 'inset\(0 100% 0 0\)';/.test(appSrc));
 }
 
 $('#themeBtn').dispatchEvent(new w.MouseEvent('click', { bubbles: true }));

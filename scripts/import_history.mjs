@@ -214,8 +214,9 @@ if (isMain && process.argv.includes('--selftest')) {
     // 临时目录**每次运行都新建**：用固定目录会让"首次导入"在第二次运行时必然是 0（因为已经写过了），
     //  自检就会变得**不可重复运行** —— 这类"测试自己把状态搞脏"的问题必须从根上去掉。
     // ★ V1.9.1（2026-10-10）：改用 tmproot 统一收口 + 块末显式删除 —— 原来写的是
-    //   `process.env.TEMP || 'D:/Temp'`，而本机 `TEMP` **就在 C 盘**，且**从不清理**
-    //   → 每跑一次自检就往紧张的 C 盘留一个目录（实测残留 4 个）。
+    //   `process.env.TEMP || '<某回退路径>'`，而在 Windows 上 `TEMP` 默认指向系统盘，且从不清理
+    //   → 每跑一次自检就往紧张的系统盘留一个目录（实测残留 4 个）。
+    //   （注释里刻意不写具体机器路径：本脚本会随仓库发布。）
     const dir = mkTmpDir('cistrack-hist-imp-selftest-');
     const batches = [{ key: 25101, records: densify([mkOmm('2026-01-01T00:00:00.000Z', 15.2), mkOmm('2026-01-01T06:00:00.000Z', 15.25)], 100203, 2) }];
     const s1 = mergeInto(dir, batches);

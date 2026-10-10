@@ -1,9 +1,11 @@
 # CISTrack · 星网与千帆在轨追踪
 
-![version](https://img.shields.io/badge/version-1.9.0-ff6b6b?style=flat-square)
-![license](https://img.shields.io/badge/license-MIT-4dabf7?style=flat-square)
-[![星网](https://img.shields.io/badge/%E6%98%9F%E7%BD%91-CSCN-ff6b6b?style=flat-square)](https://sat.huijiwiki.com/wiki/%E6%98%9F%E7%BD%91)
-[![千帆](https://img.shields.io/badge/%E5%8D%83%E5%B8%86-G60-4dabf7?style=flat-square)](https://sat.huijiwiki.com/wiki/%E5%8D%83%E5%B8%86%E6%98%9F%E5%BA%A7)
+![version](https://img.shields.io/badge/version-1.9.1-ff6b6b?style=flat-square) ![license](https://img.shields.io/badge/license-MIT-4dabf7?style=flat-square) [![星网](https://img.shields.io/badge/%E6%98%9F%E7%BD%91-CSCN-ff6b6b?style=flat-square)](https://sat.huijiwiki.com/wiki/%E6%98%9F%E7%BD%91) [![千帆](https://img.shields.io/badge/%E5%8D%83%E5%B8%86-G60-4dabf7?style=flat-square)](https://sat.huijiwiki.com/wiki/%E5%8D%83%E5%B8%86%E6%98%9F%E5%BA%A7)
+
+
+<div align="center">
+  <img src="assets/cistrack-logo.gif" alt="CISTrack 顶栏字标 · 星网↔千帆切换时的非线性变色扫过" width="720">
+</div>
 
 > 🌐 **中文** | [English](README.en.md)
 
@@ -22,8 +24,6 @@
 > 非官方项目。数据来自公开的 NORAD 空间目标目录与卫星百科，仅用于科普与观测参考，**不适用于轨道预报、工程或研究用途**。
 
 ---
-
-![顶栏与简介](shots/v139_top.jpg)
 
 ## ✨ 它有什么
 
@@ -260,11 +260,10 @@ build.mjs       # 把上面几块注入 template → 单文件 HTML
 ```
 CISTrack.html           ★ 最新版（不带版本号）—— 固定链接就用它：
                           https://1471155912.github.io/CISTrack/CISTrack.html
-CISTrack_v1.9.0.html    当前版本快照（回滚 / 对照用）
-CISTrack_v1.5.2 … v1.8.0.html
-                        更早的历史快照（v1.5.2 / v1.5.3 / v1.6.3 / v1.7.0 /
-                        v1.7.1 / v1.7.2 / v1.7.3 / v1.8.0，同样用于回滚与对照）
+CISTrack_v1.9.1.html    当前版本快照
+CISTrack_v1.9.0.html    上一版快照（回滚 / 对照用）
 index.html              入口页（自动跳转到 CISTrack.html）
+assets/                 README 用到的素材（顶栏字标动图 cistrack-logo.gif）
 README.md / README.en.md
                         本说明：中文版（默认）/ 英文版（V1.9.1 A16 起拆出，顶部可互跳）
 history/                历史轨道数据库发布分片（04 变轨情况的数据，按需加载；详见「历史轨道数据库」）
@@ -291,7 +290,9 @@ release.mjs             路径无关的产物同步（CISTrack.html + CISTrack_v
 > **关于链接**：GitHub Pages 的地址规则是 `https://<用户名>.github.io/<仓库>/<文件名>`，
 > 所以只要仓库里有一份 **`CISTrack.html`**，链接就永远是
 > `https://1471155912.github.io/CISTrack/CISTrack.html` —— **以后更新版本，这个链接不用变**。
-> 带版本号的 `CISTrack_vX.Y.Z.html` 只是历史快照，用于回滚与对照。
+> **V1.9.1 起只保留「当前版 + 上一版」两份带版本号的 HTML** —— 仓库根原先堆着 v1.5.2 ~ v1.8.0
+> 共 8 个旧快照（合计约 5 MB，且每次 clone 都要拉下来），已删除；回滚职责改由 **git 历史**
+> 与本地 `archive/` 基座快照（不进仓库）承担：要更早的版本用 `git log` 找到对应提交即可。
 
 > 构建与测试脚本（`build.mjs` / `mk*.mjs` / `smoke.mjs` / `visual.mjs` / `scripts/*.mjs`）
 > **随仓库一起维护**，方便任何人本地重建与复测；运行测试需要 `jsdom` 与 `ws`

@@ -11,7 +11,7 @@ var DAY = 86400000;
 var SGP4 = window.satellite;
 var RAW = window.SATDATA;
 var COAST = window.COAST_DATA || [];
-var VERSION = 'V1.9.0';          // 页脚版本号，后续更新在此改动
+var VERSION = 'V1.9.1';          // 页脚版本号，后续更新在此改动
 
 // ---------------------------------------------------------------- V1.3.7：TLE 分组差分解码
 // 构建脚本按发射批次（COSPAR 前缀）把「名称+两行要素」压成公共模板 + 每颗星的差异串，
@@ -2861,13 +2861,32 @@ function launchRowHtml(L) {
 // V1.7.0（任务1）：实测每一行的真实像素高 → 换算成「行单元」（1 单元 = 41px 单行基准）。
 // 做法：把当前表里已有的一个 tbody 克隆出来做「离屏量尺」，逐行渲染再量高。
 // 返回 function(r) → 单元数；供 pageBounds / pageCount 使用。
-var _rowUnitCache = { sig: '', map: null };
+// ★★ V1.9.1（性能根治 · 2026-10-10 实测）：**只按批次抽一行来量**，不再渲染全部行。
+//   为什么可以这样（依据是 CSS，不是猜）：
+//     `.ltable td { white-space:nowrap }` 把**所有列**都钉成不换行，**唯一**的例外是
+//     `.ltable td.maker { white-space:normal }` —— 于是**行高只是「制造商单元格」的函数**；
+//     而制造商是按批次挂的（`cur().makers[s.lk]`）→ **同一批次内所有卫星的行高必然完全相同**。
+//   为什么必须改（实测数据，真浏览器 1440×900 @2x）：
+//     旧实现把**全部 262 行**都渲染进离屏表格再逐行量高度 → 单次 `renderTable()` 就要 43~52ms；
+//     而切星座的半程会连续调用两次（`rebuild()` 一次、`afterConstelSwap({jump:true})` 一次）
+//     → 合计 **95ms**，加上 renderHeader/layoutNav 等，半程长任务 **120ms**。
+//     这段时间主线程被占满，品牌扫过（clip-path 过渡是**主线程**驱动的，已实测排除合成器路径）
+//     就在 ~25% 处**冻结 133ms** 再跳过去 —— 正是用户报的"明显的卡顿"。
+//     现在只渲染**每批次一行**（gw 40 / qf 19 → ≤59 行，比 262 行少 4~14 倍），
+//     并把结果按批次缓存（第二次调用直接命中）。
+var _rowUnitCache = { sig: '', byLk: null };
 function measureRowUnits(rows) {
   var tbl = document.getElementById('satTable');
-  // 量尺只依赖「列宽」，而列宽由表格结构决定；用当前表格做一次克隆即可。
-  var sig = rows.length + '|' + (tbl ? Math.round(tbl.getBoundingClientRect().width) : 0) + '|' + LANG;
-  if (_rowUnitCache.sig === sig && _rowUnitCache.map) return function (r) { return _rowUnitCache.map[r._s.idx] || 1; };
-  var map = {};
+  // 量尺只依赖「列宽」。⚠️ 宽度取 **clientWidth**（布局宽度，**不含 transform**）——
+  //   切星座时整页正在做位移动画，`getBoundingClientRect().width` 会带上变换，
+  //   缓存签名因此每次都变、缓存等于没有（这正是旧实现两次调用都没命中的原因之一）。
+  var w = tbl ? (tbl.clientWidth || Math.round(tbl.getBoundingClientRect().width) || 0) : 0;
+  var sig = rows.length + '|' + LANG + '|' + w + '|' + (rows[0] ? rows[0]._s.lk : '');
+  if (_rowUnitCache.sig === sig && _rowUnitCache.byLk) {
+    var byLk0 = _rowUnitCache.byLk;
+    return function (r) { return byLk0[r._s.lk] || 1; };
+  }
+  var byLk = {};
   try {
     var box = document.createElement('div');
     box.style.cssText = 'position:absolute;left:-99999px;top:0;visibility:hidden;';
@@ -2876,8 +2895,14 @@ function measureRowUnits(rows) {
     clone.appendChild(tb);
     box.appendChild(clone);
     document.body.appendChild(box);
-    // 逐行渲染、逐行量高（批量挂载后一次量完，减少重排）
-    tb.innerHTML = rows.map(satRowHtml).join('');
+    // 每个批次抽**第一行**做代表（同批次行高相同，见上面的依据）
+    var reps = {}, repRows = [];
+    rows.forEach(function (r) {
+      var lk = r._s.lk;
+      if (!(lk in reps)) { reps[lk] = 1; repRows.push(r); }
+    });
+    // 批量挂载后一次量完（减少重排）
+    tb.innerHTML = repRows.map(satRowHtml).join('');
     var trs = tb.children;
     var STD = 41;
     // V1.9.0（翻页等高根治）：**这里原本是 Math.round(h / STD)，就是"多行制造商的那页被顶高"的病根** ——
@@ -2888,20 +2913,20 @@ function measureRowUnits(rows) {
     //   ② 单元粒度从「1 行」细化到「1/4 行」（见 SAT_PAGE = 40），避免"只高一点点就翻倍占格"，
     //      从而使每页尽量填满（例：58px 的行占 6/4 格 → 一页放 6 行 = 348px，填到 85%），
     //      放不满的差额由表格下方留白补齐，**翻页控件的位置因此恒定**。
-    for (var i = 0; i < rows.length && i < trs.length; i++) {
+    for (var i = 0; i < repRows.length && i < trs.length; i++) {
       var h = trs[i].getBoundingClientRect().height || STD;
-      map[rows[i]._s.idx] = Math.max(1, Math.ceil(h / (STD / 4)));
+      byLk[repRows[i]._s.lk] = Math.max(1, Math.ceil(h / (STD / 4)));
     }
     document.body.removeChild(box);
   } catch (e) {
     // 量尺失败时退化为「按文本长度估算」，保证功能不中断（同样按 1/4 行粒度返回）
     rows.forEach(function (r) {
       var a = String(r.maker || '').length, b = String(r.name || '').length;
-      map[r._s.idx] = Math.max(4, Math.ceil(a / 12) * 4, Math.ceil(b / 30) * 4);
+      byLk[r._s.lk] = Math.max(4, Math.ceil(a / 12) * 4, Math.ceil(b / 30) * 4);
     });
   }
-  _rowUnitCache = { sig: sig, map: map };
-  return function (r) { return map[r._s.idx] || 1; };
+  _rowUnitCache = { sig: sig, byLk: byLk };
+  return function (r) { return byLk[r._s.lk] || 1; };
 }
 function renderTable(opts) {
   var jump = opts && opts.jump;
@@ -4178,49 +4203,56 @@ function themeAccent(key) {
 //   ① 幂等守卫：动画期间再来一次，先立刻收尾上一次，绝不叠加两个渐变；
 //   ② 收尾函数幂等 + 显式清每一项内联属性（原来只 cssText='' 全清，会把别的代码写的内联样式也抹掉）；
 //   ③ 页面切回前台时若动画还挂着，立即收尾（防后台节流）。
+// ★ V1.9.1（品牌扫过重做）：从「单层 background-clip:text + 平移 background-position」
+//   改为「**双层 clip-path**」。用户 2026-10-10 反馈："切换不流畅、中间卡顿一下、时间也不够长"，
+//   查下来是**三个原因叠加**：
+//     ① **缓动末段过陡**：旧代码用 `--ease-slow-fast`（cubic-bezier(.92,.02,.98,.46)），
+//        它的**终点斜率 = (1−0.46)/(1−0.98) = 27** —— 最后 2% 的时间里冲完 54% 的距离，
+//        看起来就是"啪"地一下完成。这条曲线本是给"页面顶出"设计的（要在半程换数据），
+//        拿来做"扫过"并不合适。现在改用 cubic-bezier(.4,0,.2,1)（**终点斜率 0**，平稳收尾）。
+//     ② **时长太短**：旧的是 `--anim-half`（260ms）—— 那只是四联动的**半程**，
+//        拿来当"整段扫过"用自然显得仓促。现在独立成 `--brand-sweep`（520ms）。
+//     ③ **字形会瞬时变细**：旧实现扫描期间必须写 `color:transparent` 才能让背景渐变透出来，
+//        而描边是 `-webkit-text-stroke: .85px currentColor` → **currentColor 跟着变透明**，
+//        字形外轮廓瞬时少 0.85px（切换瞬间字"缩"、收尾又"涨"，也是一次可感的跳变）。
+//        现在两层各自是**完整字形**（各带自己的描边），只切可见区域 → 字形全程不变。
+//   附带收益：clip-path 是**合成器友好**属性（可 GPU 加速），而 background-position 会触发重绘。
 var SWEEP_TID = 0;
+var BRAND_SWEEP = 520;          // ⚠️ 必须与 CSS 的 --brand-sweep 保持一致
 function brandSweepFinish() {
   if (SWEEP_TID) { clearTimeout(SWEEP_TID); SWEEP_TID = 0; }
-  var e = document.querySelector('.brand-name'); if (!e) return;
-  e.style.backgroundImage = '';
-  e.style.backgroundSize = '';
-  e.style.backgroundPosition = '';
-  e.style.webkitBackgroundClip = '';
-  e.style.backgroundClip = '';
-  e.style.transition = '';
-  e.style.color = '';              // 交回 CSS 的 --row-sel
-  e.__sweeping = false;
+  var el = document.querySelector('.brand-name'); if (!el) return;
+  var nb = el.querySelector('.bn-b'), na = el.querySelector('.bn-a');
+  if (nb) { nb.style.transition = ''; nb.style.clipPath = ''; nb.style.webkitClipPath = ''; nb.style.color = ''; }
+  if (na) na.style.color = '';
+  el.__sweeping = false;          // 外层 color 由 --row-sel 驱动，清掉内联后自然跟随新星座
 }
 function sweepBrandColor(dir, toKey) {
   var el = document.querySelector('.brand-name'); if (!el) return;
+  var nb = el.querySelector('.bn-b'), na = el.querySelector('.bn-a');
+  if (!nb || !na) return;          // 结构异常 → 不做动画（保底：不挂住、也不报错）
   if (el.__sweeping) brandSweepFinish();      // ① 上一次没收尾就先收干净
   var newC = themeAccent(toKey);
   // 旧色只认 CSS 的计算值；收尾后已清掉内联 color，这里读到的就是 --row-sel
   var oldC = getComputedStyle(el).color;
   if (!oldC || oldC === 'rgba(0, 0, 0, 0)' || oldC === 'transparent') oldC = newC;
-  // 双色各占一半、紧贴无缝；靠 background-position 平移完成扫过
-  var stops = dir === 1
-    ? oldC + ' 0 50%, ' + newC + ' 50% 100%'
-    : newC + ' 0 50%, ' + oldC + ' 50% 100%';
-  var startPos = (dir === 1 ? '0%' : '100%') + ' 0';
-  var endPos = (dir === 1 ? '100%' : '0%') + ' 0';
   el.__sweeping = true;
-  el.style.backgroundImage = 'linear-gradient(90deg, ' + stops + ')';
-  el.style.backgroundSize = '200% 100%';
-  el.style.webkitBackgroundClip = 'text';
-  el.style.backgroundClip = 'text';
-  el.style.color = 'transparent';
-  el.style.transition = 'none';
-  el.style.backgroundPosition = startPos;
-  void el.offsetWidth;                  // 起点先落地（强制重排）
-  // V1.6.0：终点放到下一帧再设 —— 同一帧内设起点与终点会被浏览器合并，导致"瞬间变色"（反向时尤其明显）
+  na.style.color = oldC;           // 旧色层固化旧色（避免外层 color 变化影响它）
+  nb.style.color = newC;           // 新色层用新色
+  nb.style.transition = 'none';
+  // dir=1（星网→千帆）：新色**从右往左**扫入 → 起点只露最右侧、终点全显
+  // dir=−1（千帆→星网）：新色**从左往右**扫入 → 起点只露最左侧、终点全显
+  var from = dir === 1 ? 'inset(0 0 0 100%)' : 'inset(0 100% 0 0)';
+  nb.style.clipPath = from; nb.style.webkitClipPath = from;
+  void nb.offsetWidth;                  // 起点先落地（强制重排）
+  // 终点放到下一帧再设 —— 同一帧内设起点与终点会被浏览器合并，导致"瞬间变色"（反向时尤其明显）
   requestAnimationFrame(function () {
     if (!el.__sweeping) return;         // 期间已被收尾（快速连点），别再启动
-    el.style.transition = 'background-position var(--anim-half) var(--ease-slow-fast)';
-    el.style.backgroundPosition = endPos;
+    nb.style.transition = 'clip-path var(--brand-sweep) var(--ease-brand)';
+    nb.style.clipPath = 'inset(0 0 0 0)';
   });
-  // ③ 兜底：动画时长的一半 + 一点余量。visibilitychange 里还会再补一刀。
-  SWEEP_TID = setTimeout(brandSweepFinish, ANIM.half + 60);
+  // 兜底：动画时长 + 一点余量。visibilitychange 里还会再补一刀。
+  SWEEP_TID = setTimeout(brandSweepFinish, BRAND_SWEEP + 80);
 }
 document.addEventListener('visibilitychange', function () {
   // 切回前台时若品牌渐变还挂着（后台节流导致收尾没跑），立刻收干净，别让用户看见半程色
@@ -7628,7 +7660,39 @@ function buildJumpPill() {
 }
 buildJumpPill();
 // 切语言时重建档位条（字母与 title 都跟语言走）
-function refreshJumpTitles() { buildJumpPill(); }
+function refreshJumpTitles() { buildJumpPill(); buildNavTabs(); }
+
+// ---------------------------------------------------------------- 顶栏章节标签（V1.9.1）
+// 老版本顶栏本来就有一排章节入口（V1.7.2 第七轮移除，理由是与右下角悬浮药丸重复）。
+// 现在按要求**只恢复到电脑端**，三条约束：
+//   ① 顺序与名字 = 章节的**最终顺序与名字**（01 地图 / 02 轨道 / 03 倾角分布 / 04 变轨情况 /
+//      05 组网进度 / 06 卫星表格 / 07 发射历史），与右下角药丸**同源**（都从 JUMP_TITLE 取）
+//      —— 以后改章节名只改一处，两处不会漂移；
+//   ② **不含「TLE 更新时间」**：那一行已改到主标题下方（#pageEpoch），不回到顶栏；
+//   ③ 触屏设备不显示；宽度不够时自动收起（判据在 layoutNav）。
+var NAV_TABS = ['sec-map', 'sec-orbits', 'sec-chart', 'sec-climb', 'sec-progress', 'sec-table', 'sec-launches'];
+function buildNavTabs() {
+  var el = document.getElementById('navTabs');
+  if (!el) return;
+  el.innerHTML = NAV_TABS.map(function (id) {
+    var tt = JUMP_TITLE[id] || {};
+    var label = LANG === 'en' ? (tt.en || id) : (tt.zh || id);
+    return '<button data-sec="' + id + '" type="button" title="' + label + '">' + label + '</button>';
+  }).join('');
+}
+buildNavTabs();
+(function () {
+  var el = document.getElementById('navTabs');
+  if (!el) return;
+  el.addEventListener('click', function (e) {
+    var b = e.target.closest('button[data-sec]');
+    if (!b) return;
+    var id = b.getAttribute('data-sec');
+    var s = document.getElementById(id);
+    if (s) smoothScrollTo(s.getBoundingClientRect().top + window.scrollY - navHeight() - 8, 720);
+    updateJumpActive(id);
+  });
+})();
 function navHeight() {
   var n = document.querySelector('.topnav');
   return n ? n.offsetHeight : 60;
@@ -7663,13 +7727,18 @@ jumpPill.addEventListener('click', function (e) {
   updateJumpActive(id);
 });
 var jumpTick = false, jumpHideT = null;
+// 当前章高亮：右下角药丸与顶栏标签**共用同一份判定**，两处的高亮永远一致
+function setJumpActive(id) {
+  jumpPill.querySelectorAll('button').forEach(function (b) {
+    b.classList.toggle('on', b.getAttribute('data-j') === id);
+  });
+  var tabs = document.getElementById('navTabs');
+  if (tabs) tabs.querySelectorAll('button').forEach(function (b) {
+    b.classList.toggle('on', b.getAttribute('data-sec') === id);
+  });
+}
 function updateJumpActive(forceId) {
-  if (forceId) {
-    jumpPill.querySelectorAll('button').forEach(function (b) {
-      b.classList.toggle('on', b.getAttribute('data-j') === forceId);
-    });
-    return;
-  }
+  if (forceId) { setJumpActive(forceId); return; }
   var mid = window.scrollY + window.innerHeight * 0.5;
   var active = 'top';
   JUMP.forEach(function (j) {
@@ -7678,9 +7747,7 @@ function updateJumpActive(forceId) {
     if (el && el.getBoundingClientRect().top + window.scrollY <= mid) active = j[0];
   });
   if (window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 4) active = 'bottom';
-  jumpPill.querySelectorAll('button').forEach(function (b) {
-    b.classList.toggle('on', b.getAttribute('data-j') === active);
-  });
+  setJumpActive(active);
 }
 window.addEventListener('scroll', function () {
   if (jumpTick) return;
@@ -7759,8 +7826,45 @@ function layoutNav() {
   //   收敛逻辑失去对象，一并清掉。**L1–L3 必须保留** —— 那是窄屏下"CISTrack 与三键不打架"
   //   的唯一保障（320px 实测仍在生效）。
 
+  // ── V1.9.1：顶栏章节标签的显隐（电脑端专用 + 余量不足自动收起）──
+  //   判据（用户指定）：**「第一个文字标签的左侧边缘」到「CISTrack 右边缘」的距离 < 顶栏按钮间距 G**
+  //     就收起。
+  //   为什么不用"视口宽度"当判据：视口宽度只是间接量 —— 中英文字符宽度差很大
+  //     （英文 Inclination Distribution 比中文「倾角分布」宽一倍），同一个视口宽度下，
+  //     中英文的真实剩余空间完全不同。按**真实余量**判，两种语言都恰好在"快贴上"的那一刻收起，
+  //     不会出现"中文已经挤了还硬撑 / 英文明明还够却提前收起"。
+  //   阈值取 G（而不是 0）：G 是顶栏所有控件之间的统一间距；等于 G 时标签已经贴到 CISTrack 上，
+  //     观感与"按钮之间没有间距"一样糟，所以在 < G 时就收。
+  //   ⚠️ **必须再加一条"放得下"的检查**（实测踩到）：≤1150px 的媒体查询会把
+  //     `.brand-note`（CISTrack 下面那行小字）`display:none`，于是 `.brand-box` 一下缩到
+  //     只剩 CISTrack 的宽度 —— 此时「标签左缘 − CISTrack 右缘」**恒等于 topnav 的 column-gap(14px)**，
+  //     与视口宽度**无关**（实测 1024 / 900 / 700 / 360px 全是 14）。也就是只靠用户给的那条判据，
+  //     窄屏**永远不会触发收起**，而 7 个标签在 700px 根本放不下 → 被 `.nav-right` 的
+  //     `overflow:hidden` **裁掉一半**（不是收起，是"显示着一半"，比不显示更糟）。
+  //     所以补一条 `fits`：标签的自然宽度超出可用宽度就直接收起（用 scrollWidth/clientWidth 判定，
+  //     这也是"能不能放下"的**直接**判据，而不是拿视口宽度去猜）。
+  //   触屏设备一律不显示（"电脑端单独使用"）。
+  var tabs = document.getElementById('navTabs');
+  if (tabs) {
+    var show = false;
+    if (!isTouch()) {
+      var firstTab = tabs.querySelector('button');
+      var brandEl = document.querySelector('.brand-name') || brand;
+      if (firstTab && brandEl) {
+        tabs.classList.remove('off');                  // 先按"显示"量一次真实余量与自然宽度
+        nav.classList.add('has-tabs');
+        var gap = firstTab.getBoundingClientRect().left - brandEl.getBoundingClientRect().right;
+        var fits = tabs.scrollWidth <= tabs.clientWidth + 0.5;
+        show = gap >= G - 0.5 && fits;
+      }
+    }
+    tabs.classList.toggle('off', !show);
+    nav.classList.toggle('has-tabs', show);
+  }
+
   if (vw >= NAV_W0) { navFollowUp(); return; }        // ═══ L0：不调 ═══
 
+  if (vw >= NAV_W0) { navFollowUp(); return; }        // ═══ L0：不调 ═══
   // ── L1–L3 改成「迭代收敛」而不是逐档递进 ──
   //   逐档递进有个实测出来的坑：L1 收窄后如果还差一点，L2 缩 CISTrack 让出的空间往往已经够用，
   //   于是永远进不到 L3（或者进了 L3 但 targetSegW3 被前面几档的残留影响），

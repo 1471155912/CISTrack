@@ -68,7 +68,9 @@ const SCRATCH_DIR = [/^shots$/, /^\.edgeprof\d*$/, /^tmp$/, /^\.cdp-/];
 // 混合目录：目录本身要留（里面有现版本还在用的东西），但里面的"其余文件"是一次性产物。
 // shots/ 就是这种 —— README 引用的是 v139/v140 那三张图（build_release.mjs 会同步到发布区），
 // 其余的截图与"导出下载样本"都是排查时的临时产物，该清。
-const MIXED_DIR = { shots: ['v139_top.jpg', 'v140_footer_table.jpg', 'v140_footer_map.jpg'] };
+// V1.9.1：shots/ 里那三张 README 截图已删除（用户：过时且不完整）→ 不再需要例外；
+//   现有 README 素材统一放 assets/（不在 SCRATCH_DIR，也不会被搬走）。
+const MIXED_DIR = {};
 // --deep：过程归档里的一次性补丁脚本（fix_* / patch_* / rename_* 等）与探针的输出 txt
 const DEEP_FILE = [/\.cjs$/, /\.txt$/];
 const DEEP_DIR = [/^开发杂项$/];

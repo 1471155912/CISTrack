@@ -36,6 +36,7 @@ _*.png
 .edgecdp/
 .cdp-*/
 # 本机测试用到的临时输出
+# shots/ 已废弃（V1.9.1：README 截图删除，素材改放 assets/）
 shots/
 *.smoke.txt
 .visual_out*.txt
@@ -53,3 +54,7 @@ _secrets/
 # 历史轨道数据库的原始 TLE 拉取缓存（fetch_history.mjs 用，62MB+，可再生）
 data/history_cache/
 data/history/*.bak
+
+# README 素材（**必须入库**，GitHub 要不就能渲染）
+!assets/
+!assets/**
