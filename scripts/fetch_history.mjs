@@ -23,6 +23,8 @@
  *                                                 #   报文池重算全部历史（0 请求、不需要凭据、
  *                                                 #   按 NORAD 匹配，不依赖分块下标）
  *      node scripts/fetch_history.mjs --net        # 在线增量：按分块窗口取数（需要凭据）
+ *      node scripts/fetch_history.mjs --missing    # ★ V1.9.1：**只补缺历史的卫星**（需要凭据）
+ *                                                 #   任务清单 1.5 就用它；见下面 --missing 的说明
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -55,20 +57,46 @@ async function login() {
       + '或用 SPACETRACK_CREDS 指向 JSON 文件（见文件头）。');
     process.exit(2);
   }
+  // ★ V1.9.1 修复（**静默失效**，2026-10-10 实测）：原来这里读的是 `SEC.username / SEC.password`，
+  //   而 `loadCreds()` 返回的字段是 **`user` / `pass`** → 两个都是 `undefined`，于是 POST 的
+  //   body 变成 `identity=undefined&password=undefined`。
+  //   Space-Track 对未登录的 `/ajaxauth/login` 也回 **200 且给一个匿名 cookie**，
+  //   而旧代码只检查"cookie 是否非空"就打印 `登录 OK` → 后续查询全部 **HTTP 401**，
+  //   报错信息却只说"某个窗口失败"，完全指不到登录这一步。
+  //   现在：① 字段名两种写法都认；② 登录后**必须做一次最小查询验证**（见下面 verify）。
+  const secUser = SEC.user || SEC.username;
+  const secPass = SEC.pass || SEC.password;
+  if (!secUser || !secPass) {
+    throw new Error('凭据对象缺少用户名或密码（loadCreds 返回了不完整的对象）');
+  }
   let lastErr = null;
   for (let att = 0; att < 3; att++) {
     try {
       const r = await fetch(BASE + '/ajaxauth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'Mozilla/5.0' },
-        body: new URLSearchParams({ identity: SEC.username, password: SEC.password }).toString(),
+        body: new URLSearchParams({ identity: secUser, password: secPass }).toString(),
         redirect: 'manual',
       });
       const sc = r.headers.getSetCookie ? r.headers.getSetCookie() : [];
       cookie = sc.map(c => c.split(';')[0]).join('; ');
       // ★ 登录后**不要**再 GET 重定向目标：实测那一步可能反而扰动会话（下次查询 401）。
       //   POST 拿到的 Cookie 直接用于查询即可（已实测 200）。
-      if (cookie) { log('登录 OK，cookie_len=' + cookie.length); return; }
+      if (cookie) {
+        // ★ 关键：**必须真查一次**才算登录成功。
+        //   为什么不能只看 cookie：未登录时 /ajaxauth/login 一样返回 200 + 匿名 cookie
+        //   （实测），于是"有 cookie"是个**假阳性**。这里用 ISS（NORAD 25544）做探针 ——
+        //   它永远在编、一定查得到，返回空/非 200 就说明会话没建立起来。
+        const vr = await fetch(BASE + '/basicspacedata/query/class/satcat/NORAD_CAT_ID/25544/format/json',
+          { headers: { Cookie: cookie, 'User-Agent': 'Mozilla/5.0' } });
+        const vt = vr.status === 200 ? await vr.text() : '';
+        if (vt.indexOf('25544') >= 0) { log('登录 OK（已用 satcat 25544 验证），cookie_len=' + cookie.length); return; }
+        lastErr = new Error('登录**未通过验证**：探针查询返回 status=' + vr.status +
+          '、长度 ' + vt.length + ' —— 多半是账号/密码不对，或账号被限流');
+        cookie = '';
+        log('  ! ' + lastErr.message);
+        break;                                    // 凭据问题重试无意义，直接失败
+      }
       lastErr = new Error('登录未获得 Cookie（status=' + r.status + '）');
     } catch (e) { lastErr = e; }
     await new Promise(r => setTimeout(r, 5000 * (att + 1)));
@@ -84,7 +112,29 @@ async function login() {
 const OMM_IDS = (() => {
   try { return JSON.parse(fs.readFileSync(path.join(DATA, 'omm_norad.json'), 'utf8')); } catch (e) { return {}; }
 })();
-const realNorad = (raw5) => OMM_IDS[raw5] || Number(raw5);
+// ★ V1.9.1 修复（**第二处静默失效**，2026-10-10 实测）：Space-Track 的 `gp_history` 对
+//   6 位编目号返回的是 **Alpha-5 格式** —— NORAD 字段写成 `A0211` 而不是 `00211`。
+//   旧代码 `realNorad = (raw5) => OMM_IDS[raw5] || Number(raw5)` 对 `A0211` 只会得到 `NaN`，
+//   于是匹配 `sats.find(s => s.norad === r.norad)` 必然落空 → 记录被 `continue` **静默丢弃**。
+//   实测后果：chunk 里全是 6 位号卫星时，"解析 0 条"，而缓存文件里明明躺着 92 KB 的 TLE。
+//   Alpha-5 规则：字母（**不含 I、O**，避免与 1/0 混）+ 4 位数字 → 字母映射成两位前缀。
+//     A=10 → `A0211` = 10 + "0211" = **100211**（与 mkdata 侧 omm_norad.json 的 100211 对得上）。
+const ALPHA5 = 'ABCDEFGHJKLMNPQRSTUVWXYZ';           // 去掉 I、O 的 24 个字母
+function alpha5Decode(raw) {
+  const t = String(raw).trim().toUpperCase();
+  if (/^\d{5}$/.test(t)) return Number(t);
+  const m = /^([A-HJ-NP-Z])(\d{4})$/.exec(t);
+  if (!m) return NaN;
+  const i = ALPHA5.indexOf(m[1]);
+  return i < 0 ? NaN : Number(String(10 + i) + m[2]);
+}
+const realNorad = (raw) => {
+  const t = String(raw).trim();
+  if (OMM_IDS[t]) return OMM_IDS[t];                   // 库里 .tle 用的 5 位占位串（如 00211）
+  const n = alpha5Decode(t);
+  if (!isFinite(n)) return NaN;
+  return OMM_IDS[String(n).slice(-5)] || n;            // 100211 → 00211 → 100211
+};
 function loadSats() {
   const sats = [];
   for (const f of ['ct_hulianwang.tle', 'ct_qianfan.tle']) {
@@ -103,6 +153,7 @@ function loadSats() {
 
 // ---------- 3LE → 伪 OMM ----------
 function tle2omm(l1, l2) {
+  // `l1.slice(2, 7)` 对 Alpha-5 是 "A0211"、对传统格式是 "00211" —— realNorad 两种都认
   const norad = realNorad(l1.slice(2, 7));
   const yy = Number(l1.slice(18, 20));
   const year = yy < 57 ? 2000 + yy : 1900 + yy;
@@ -128,7 +179,10 @@ function parse3le(text) {
   //   旧写法 `i + 2 < lines.length` 会在**每个缓存文件的最后一对**上退出 → 每块少一颗星，
   //   静默、且随文件数放大（78 个缓存 → 累计丢失可观）。
   for (let i = 0; i + 1 < lines.length; i++) {
-    if (/^1 \d/.test(lines[i]) && /^2 \d/.test(lines[i + 1])) {
+    // ★ V1.9.1：行首要认 **Alpha-5 的字母**（`1 A0211U …`）。
+    //   旧写法 `/^1 \d/` 只认数字 → 6 位编目号卫星的整行被跳过，表现为"解析 0 条"
+    //   （而缓存里其实有数据）。
+    if (/^1 [0-9A-Z]/.test(lines[i]) && /^2 [0-9A-Z]/.test(lines[i + 1])) {
       const r = tle2omm(lines[i], lines[i + 1]);
       if (r) out.push(r);
       i++; // 消费掉已处理的 l2 行
@@ -154,8 +208,84 @@ async function fetchWindow(sats, year) {
 }
 
 // ---------- 主流程 ----------
-const satList = loadSats();
-log('在编卫星 ' + satList.length + ' 颗，分块大小 ' + CHUNK);
+// ⚠️ `MISSING_ONLY` 必须定义在这里（**在 `const satList = …` 之前**）：
+//   它参与筛选卫星清单，若放到下面"运行模式"那一段（与 NET / PRUNE 并列、读起来更整齐），
+//   就会踩 `Cannot access 'MISSING_ONLY' before initialization` —— 本轮已经踩过一次。
+// ★ V1.9.1（任务清单 1.5）：`--missing` —— **只补"库里还没有任何历史"的卫星**。
+//   为什么需要它（实测数据）：库里已覆盖 506 颗、只缺 55 颗（全是新入编的 6 位编目号批次）。
+//   而 `--net` 的老行为是**遍历全部 50 个分块 × 每块的整个年份跨度**（最早块 2019→2026 = 8 个窗口），
+//   合计 200~400 次请求、按 3 s 间隔要跑十几分钟，且**绝大多数请求拉的是早就入库的卫星**
+//   —— Space-Track 是有配额的，"为了 55 颗新星把明天的额度也用光"是不可接受的。
+//   本选项把卫星清单先过滤成"缺历史的那些"，并且**只查它们自己的年份窗口**
+//   （批次号前两位就是年份：26176 → 2026 → 从 2026 查起），请求数因此降到十几次。
+//
+//   ⚠️ 判据的演进（**别退回"库里有没有该 NORAD"**）：
+//     第一版判据是"库里完全没有这颗星"，实测只命中 0 颗 —— 因为 refresh.mjs 每天都会把
+//     当天要素追加进源库，所以**每颗在编卫星都至少有 1 个点**，"有没有"永远为真。
+//     实测证据（2026-10-10）：19077 的 KL-Alpha 在轨 **2519 天**、库里只有 **1 个点、跨度 0 天**；
+//     GEO 三颗（24040/24135/24181，在轨 730~954 天）各 2 个点；26176 批 9 颗在轨 67 天、2 个点。
+//     这类"孤点"在页面上就是一条**画不出来的曲线**（一个点连不成线）—— 那才是要补的。
+//     所以判据改成：**历史跨度 < 该批次可能的最长在轨期的一半**。
+//       可能的最长在轨期用**批次号前两位的年份**估算（不依赖任何外部数据）：
+//         estMax(lk) = 现在 − (20XX-01-01)   （20XX = lk 前两位；再对 365 天上限取小）
+//       例：19077 → 上界 2832 天 → 阈值 365/2 ≈ 182 天 → 实测跨度 0 天 → **判定要补** ✓
+//           24185（2024 年、18 颗、跨度 695 天）→ 阈值约 506 天 → 695 > 506 → **不动它** ✓
+//     实测该判据命中 33 颗（跨 13 个批次），与本轮人工核查的结论一致。
+//   缓存前缀也换成 `miss-`：避免与存量 `--net` 缓存（键是"当时的分块下标 + 年份"）互相污染。
+const MISSING_ONLY = process.argv.includes('--missing');
+
+const satListAll = loadSats();
+// `--missing`：先按 NORAD 汇总"库内现有历史的跨度"，再只保留**跨度明显不足**的那些
+const histSpan = new Map();   // norad → { first, last, n }
+for (const k of fs.readdirSync(HIST)) {
+  if (!k.endsWith('.json')) continue;
+  for (const r of readShard(HIST, k.replace('.json', ''))) {
+    const norad = Array.isArray(r) ? r[0] : r.norad;
+    const ms = Array.isArray(r) ? r[1] : r.ms;
+    const cur2 = histSpan.get(norad) || { first: Infinity, last: 0, n: 0 };
+    cur2.n++; if (ms < cur2.first) cur2.first = ms; if (ms > cur2.last) cur2.last = ms;
+    histSpan.set(norad, cur2);
+  }
+}
+const NOW_MS = NOW.getTime();
+// 批次的**真实发射时刻**（口径与页面一致：`build/satdata.json` 的 launches，北京时间）。
+//   ⚠️ 为什么不能只用"批次号前两位的年份"：那一年的**1 月 1 日**远比真实发射日早，
+//   于是"可能在轨期"被高估 → 阈值虚高 → **误判一大批正常卫星**。实测：只用年份上界时
+//   命中 177 颗，换成真实发射时间后是 33 颗（与本轮人工逐颗核查的结论一致）。
+//   177 颗要多发十几倍的请求、把额度浪费在本来就有完整历史的卫星上。
+const LAUNCH_MS = (() => {
+  const out = {};
+  try {
+    const sd = JSON.parse(fs.readFileSync(path.join(ROOT, 'build', 'satdata.json'), 'utf8'));
+    for (const k of ['gw', 'qf']) {
+      const L = (sd[k] && sd[k].launches) || {};
+      for (const lk of Object.keys(L)) {
+        const ms = Date.parse(L[lk][1] + ':00+08:00');
+        if (isFinite(ms)) out[lk] = ms;
+      }
+    }
+  } catch (e) { /* 没有构建产物时退回下面的年份上界 */ }
+  return out;
+})();
+// 该批次"可能的最长在轨期"：优先用真实发射时间；缺台账才退回"发布年份的 1 月 1 日"（保守）
+const estMaxOrbitDays = (lk) => {
+  const lm = LAUNCH_MS[lk];
+  if (isFinite(lm)) return Math.max(0, (NOW_MS - lm) / DAY);
+  return Math.max(0, (NOW_MS - Date.UTC(2000 + Number(String(lk).slice(0, 2)), 0, 1)) / DAY);
+};
+// "历史过薄"：有足够的可能跨度，却只攒下不到一半的历史
+const isThin = (sat) => {
+  const h = histSpan.get(sat.norad);
+  const cap = Math.min(estMaxOrbitDays(sat.lk), 365);      // 老批次封顶 365 天
+  if (cap <= 30) return false;                             // 太年轻，数据本来就该少
+  if (!h) return true;                                     // 一个点都没有（理论上少见）
+  return (h.last - h.first) / DAY < cap * 0.5;
+};
+const satList = MISSING_ONLY ? satListAll.filter(isThin) : satListAll;
+log('在编卫星 ' + satListAll.length + ' 颗，分块大小 ' + CHUNK +
+  (MISSING_ONLY ? '；--missing：判据 = 历史跨度 < 可能在轨期的一半 → 命中 ' + satList.length + ' 颗（批次 ' +
+    [...new Set(satList.map(s2 => s2.lk))].join(', ') + '）' : ''));
+if (MISSING_ONLY && !satList.length) { log('没有需要补历史的卫星，无需联网。'); process.exit(0); }
 const chunks = [];
 for (let i = 0; i < satList.length; i += CHUNK) chunks.push(satList.slice(i, i + CHUNK));
 
@@ -251,7 +381,8 @@ if (!NET) {
     const sats = chunks[ci];
     const minY = Math.min(...sats.map(s => Number(s.lk.slice(0, 2)))) + 2000;
     for (let y = minY; y <= CUR_YEAR; y++) {
-      const ck = String(ci).padStart(2, '0') + '-' + y;
+      // --missing 用独立前缀：存量缓存是旧分块下标的语义，两者不能混用
+      const ck = (MISSING_ONLY ? 'miss-' : '') + String(ci).padStart(2, '0') + '-' + y;
       const cf = path.join(CACHE, ck + '.txt');
       let text = null;
       if (fs.existsSync(cf)) {                       // 缓存存在即用（含空文件 = 已知无数据的窗口）

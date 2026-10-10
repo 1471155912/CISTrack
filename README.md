@@ -2,9 +2,8 @@
 
 ![version](https://img.shields.io/badge/version-1.9.0-ff6b6b?style=flat-square)
 ![license](https://img.shields.io/badge/license-MIT-4dabf7?style=flat-square)
-![single file](https://img.shields.io/badge/single--file-offline-4dabf7?style=flat-square)
-![星网](https://img.shields.io/badge/%E6%98%9F%E7%BD%91-CSCN-ff6b6b?style=flat-square)
-![千帆](https://img.shields.io/badge/%E5%8D%83%E5%B8%86-G60-4dabf7?style=flat-square)
+[![星网](https://img.shields.io/badge/%E6%98%9F%E7%BD%91-CSCN-ff6b6b?style=flat-square)](https://sat.huijiwiki.com/wiki/%E6%98%9F%E7%BD%91)
+[![千帆](https://img.shields.io/badge/%E5%8D%83%E5%B8%86-G60-4dabf7?style=flat-square)](https://sat.huijiwiki.com/wiki/%E5%8D%83%E5%B8%86%E6%98%9F%E5%BA%A7)
 
 > 🌐 **中文** | [English](README.en.md)
 
@@ -13,12 +12,12 @@
 > 顶栏左上角的 **CISTrack** 标志可直接点击跳转到项目主页。
 
 
-一个**单文件、纯离线、零后端**的网页，用真实的公开轨道数据（NORAD 目录 / TLE）实时推算并可视化中国两个低轨互联网星座：
+一个**单文件、零后端**的网页，用真实的公开轨道数据（NORAD 目录 / TLE）实时推算并可视化中国两个低轨互联网星座：
 
 - **星网（国网 / GW / GuoWang / SatNet，代号 CSCN）** —— 中国卫星网络集团
 - **千帆星座（千帆 / Qianfan / Thousand Sails / SpaceSail，G60）** —— 上海垣信卫星
 
-打开一个 HTML 文件即可，不需要服务器、不需要联网（联网时会自动拉取最新轨道要素）。
+打开一个 HTML 文件即可 —— **不需要服务器，也不需要构建**。联网时页面会在浏览器里现拉最新的轨道要素、按需加载历史轨道分片，并读取同目录的 `wiki.json` 覆盖顶部统计数字；**完全离线也能打开**，此时改用打包时内置的快照与精简历史库，各章节照常可用。
 
 > 非官方项目。数据来自公开的 NORAD 空间目标目录与卫星百科，仅用于科普与观测参考，**不适用于轨道预报、工程或研究用途**。
 
@@ -198,7 +197,7 @@ build.mjs       # 把上面几块注入 template → 单文件 HTML
 - **轨道计算全在浏览器里**：用 satellite-js 跑 SGP4（WGS-72），零 API 调用。
 - **TLE 按批次差分**：同一次发射的卫星两行要素大半字符相同，因此按 COSPAR 前缀做字符级模板，`satdata.json` 因此小了约 44%。
 - **多源 TLE 合并**：CelesTrak 的分组会漏掉早期试验星，所以再加「按名称前缀查询」与「按编号反查」，同一颗取历元最新的一份。
-- **只拿 HTML 也能用**：联网刷新是可选增强，离线打开一切照常。
+- **只拿 HTML 也能用**：运行时联网取得的每一份数据都是增强而非前提 —— 断网时回落到打包内置的快照与精简历史库，各章节照常可用。
 
 ## 🗄️ 历史轨道数据库（V1.9.0 起）
 

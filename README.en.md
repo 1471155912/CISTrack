@@ -2,9 +2,8 @@
 
 ![version](https://img.shields.io/badge/version-1.9.0-ff6b6b?style=flat-square)
 ![license](https://img.shields.io/badge/license-MIT-4dabf7?style=flat-square)
-![single file](https://img.shields.io/badge/single--file-offline-4dabf7?style=flat-square)
-![星网](https://img.shields.io/badge/%E6%98%9F%E7%BD%91-CSCN-ff6b6b?style=flat-square)
-![千帆](https://img.shields.io/badge/%E5%8D%83%E5%B8%86-G60-4dabf7?style=flat-square)
+[![星网](https://img.shields.io/badge/%E6%98%9F%E7%BD%91-CSCN-ff6b6b?style=flat-square)](https://sat.huijiwiki.com/wiki/%E6%98%9F%E7%BD%91)
+[![千帆](https://img.shields.io/badge/%E5%8D%83%E5%B8%86-G60-4dabf7?style=flat-square)](https://sat.huijiwiki.com/wiki/%E5%8D%83%E5%B8%86%E6%98%9F%E5%BA%A7)
 
 > 🌐 [中文](README.md) | **English**
 
@@ -13,12 +12,12 @@
 > The **CISTrack** wordmark at the top-left links to the project home.
 
 
-A **single-file, fully offline, zero-backend** web page that uses real public orbit data (the NORAD catalogue / TLEs) to compute and visualise, in real time, two Chinese low-Earth-orbit internet constellations:
+A **single-file, zero-backend** web page that uses real public orbit data (the NORAD catalogue / TLEs) to compute and visualise, in real time, two Chinese low-Earth-orbit internet constellations:
 
 - **GuoWang / SatNet (CSCN)** — China Satellite Network Group
 - **Qianfan / Thousand Sails (SpaceSail, G60)** — Shanghai Yuanxin Satellite
 
-Just open the HTML file — no server, no network needed (when online it fetches the latest orbital elements by itself).
+Just open the HTML file — **no server and no build step**. When online, the page fetches the latest orbital elements itself in the browser, loads the historical-orbit shards on demand and reads `wiki.json` next to it for the headline figures; with **no network at all** it still opens, falling back to the snapshot and condensed history bundled at build time, and every chapter keeps working.
 
 > Unofficial project. Data comes from the public NORAD space-object catalogue and the satellite wiki; it is intended for outreach and observation reference only and **must not be used for orbit prediction, engineering, or research**.
 
@@ -186,7 +185,7 @@ A few design notes worth mentioning:
 - **All orbit maths happens in the browser**: satellite-js runs SGP4 (WGS-72), with zero API calls.
 - **TLEs are delta-packed per batch**: satellites from one launch share most characters in their two lines, so a character-level template keyed on the COSPAR prefix makes `satdata.json` about 44% smaller.
 - **TLEs merged from several sources**: CelesTrak's groupings miss early test satellites, so the build also queries by name prefix and by catalogue number, keeping the newest epoch for each object.
-- **The HTML alone is enough**: the online refresh is an optional enhancement — opening it offline works exactly the same.
+- **The HTML alone is enough**: every piece of data fetched at runtime is an enhancement, not a precondition — with no network the page falls back to the snapshot and condensed history bundled at build time, and every chapter still works.
 
 ## 🗄️ Historical orbit database (since V1.9.0)
 
