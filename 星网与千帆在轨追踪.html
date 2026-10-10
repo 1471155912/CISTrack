@@ -2448,9 +2448,10 @@ var I18N = {
     'Pick one satellite or one batch/group and see how its orbital semi-major axis changes over time — the climb from a low initial altitude up to the working height.'],
   climb_pick: ['对象', 'Object'], climb_take: ['纵轴量', 'Y axis'], climb_rate: ['升轨速度', 'Climb rate'],
   // ↓ R17 画布与说明行用到的键（全部成对，缺一个就会在页面上显示键名本身）
-  climb_pick_auto: ['跟随选中（默认）', 'Follow selection (default)'],
-  climb_sel_tip: ['选择要查看升轨过程的批次/组；留空则跟随你在其它章节的选中',
-    'Pick the batch/group to inspect; leave empty to follow your selection elsewhere'],
+  // V1.9.1（A6/F3）：`climb_pick_auto`（「跟随选中（默认）」）已**删除** —— 那个空选项已被
+  //   "直接默认选中最新批次"取代（Q13），键留着就是死键。
+  climb_sel_tip: ['选择要查看变轨过程的批次/组；默认选中最新发射的批次',
+    'Pick the batch/group to inspect; defaults to the newest launch'],
   climb_none: ['本章暂无历史轨道数据', 'No historical orbit data yet'],
   climb_n_sats: ['曲线', 'curves'],
   climb_n_hist: ['历史点', 'points'],
@@ -5977,8 +5978,17 @@ function rebuild() {
 }
 function fillGroupSelect() {
   var sel = document.getElementById('groupSel'), st = cur();
+  // V1.9.1（Q19）：**「全部批次（N 颗）」恒置顶**，其余按**发射时间倒序**（并列取批次号大者）。
+  //   原先是直接按 `st.launches` 的键序渲染 → 实测是**最旧在最前**（23095 试验星01组 …），
+  //   与同页的卫星表格/发射历史（都按发射时间倒序）**方向相反**，用起来很别扭（F6）。
+  var ls = st.launches.filter(function (L) { return L.sats.length; }).slice();
+  ls.sort(function (a, b) {
+    var ma = a.dateMs || 0, mb = b.dateMs || 0;
+    if (mb !== ma) return mb - ma;
+    return String(a.key) < String(b.key) ? 1 : (String(a.key) > String(b.key) ? -1 : 0);
+  });
   sel.innerHTML = '<option value="all">' + t('d_grp_all') + st.sats.length + t('d_grp_all2') + '</option>' +
-    st.launches.filter(function (L) { return L.sats.length; }).map(function (L) {
+    ls.map(function (L) {
       return '<option value="' + L.key + '">' + batchName(L.name) + ' · ' + L.sats.length + ' · ' + L.dateStr.slice(0, 10) + '</option>';
     }).join('');
   sel.value = S.launchFilter;
@@ -11374,27 +11384,60 @@ function climbShowInfoAt(h) {
 }
 
 // ---------------------------------------------------------------- 选择器
-function climbPickOptions() {
-  var C = climbCurve(), st = cur(), out = [];
-  // ★ 优先用**外挂索引**：它包含所有批次（含尚未加载的），否则选择器只会列出已加载的那几个。
-  //   索引里已按"最新在前"排好（packAll 里 sort 过），与需求 Q49 一致。
-  var ix = HIST_IDX[S.key];
-  if (ix && ix.batches && ix.batches.length) {
-    ix.batches.forEach(function (b) {
-      var L = climbBatchMeta(b.k);
-      var nm = (L && L.name) ? batchName(L.name) : b.k;
-      out.push({ v: 'b:' + b.k, label: nm + paren(b.n) });
+// V1.9.1（A6）：本选择器重做，三条口径：
+//   ① **按发射时间倒序**（并列时**批次号倒序**）—— 与 06 章发射历史表（`renderLaunchTable` 按 `dateMs desc`）
+//      完全同口径。原先用外挂索引的**批次号降序**，对"同一天的多个批次"会给出与表格不一致的顺序。
+//   ② **不再有「跟随选中（默认）」这一项**（`climb_pick_auto` 键已删）—— 它只是个"空值"占位符，
+//      而"最新发射的批次"**本身就是**默认项（Q13）。现在自动模式 = 选择框直接显示最新批次。
+//   ③ 选项 = 有历史数据的批次 **＋ 不属于任何批次/组的单星**（Q14；见 `climbLoneOptions` 的说明）。
+function climbLoneOptions(C, seen) {
+  // A6-4：**不属于任何批次/组的单星**（Q14 口径：有组属的按组、无组属的一颗一项）。
+  //   ⚠️ 当前**恒为空**，属**前瞻支持**：历史库按"批次 key"分片存储，而 mkdata 的 `loadHistory()`
+  //   只接受**台账里有的** key（否则不知道该归到哪个星座）→ 单星的曲线根本进不了 `climbCurve()`。
+  //   要真正支持，需在数据层给历史分片带上星座信息（或 allowlist）；本次实测 0 颗，故只把
+  //   **UI 侧通路**铺好：`'s:<norad>'` 分支本就是现成的（选择器选中单星会同步全局选中）。
+  var out = [];
+  Object.keys(C).forEach(function (k) {
+    if (seen[k]) return;                       // 已在批次列表里
+    (C[k] || []).forEach(function (c) {
+      var idx = climbSatIdx(c.norad);
+      var nm = idx >= 0 ? cnName(cur().sats[idx]) : String(c.norad);
+      out.push({ v: 's:' + c.norad, label: nm + paren(1), lone: true });
     });
-    return out;
-  }
-  var ls = (st.launches || []).slice();
-  // 只列出**有历史数据**的批次，且按发射时间**倒序**（需求 Q49：最新的在最上）
-  ls.sort(function (a, b) { return (b.dateMs || 0) - (a.dateMs || 0); });
-  ls.forEach(function (L) {
-    if (!C[L.key]) return;
-    out.push({ v: 'b:' + L.key, label: batchName(L.name) + paren(C[L.key].length) });
   });
   return out;
+}
+/** A6：自动模式下的默认项 = **最新发射的批次/组**（发射时间最大；并列取批次号最大者） */
+function climbAutoPick() {
+  var opts = climbPickOptions();
+  for (var i = 0; i < opts.length; i++) if (opts[i].v.indexOf('b:') === 0) return opts[i].v;
+  return opts.length ? opts[0].v : '';
+}
+function climbPickOptions() {
+  var C = climbCurve(), st = cur(), out = [], seen = {};
+  // ★ 优先用**外挂索引**：它包含所有批次（含尚未加载的），否则选择器只会列出已加载的那几个。
+  var ix = HIST_IDX[S.key];
+  var keys;
+  if (ix && ix.batches && ix.batches.length) {
+    keys = ix.batches.map(function (b) { return { k: b.k, n: b.n }; });
+  } else {
+    keys = Object.keys(C).map(function (k) { return { k: k, n: (C[k] || []).length }; });
+  }
+  // ① 排序：发射时间**倒序**，并列时批次号**倒序**（批次号本身是时间序，且不随每日刷新漂移）
+  keys.sort(function (a, b) {
+    var ma = climbBatchMeta(a.k).dateMs || 0, mb = climbBatchMeta(b.k).dateMs || 0;
+    if (mb !== ma) return mb - ma;
+    return String(a.k) < String(b.k) ? 1 : (String(a.k) > String(b.k) ? -1 : 0);
+  });
+  keys.forEach(function (b) {
+    var L = climbBatchMeta(b.k);
+    // 台账查不到名字的（理论不该有）就退回批次号，别显示成 "undefined"
+    var nm = (L && L.name && L.name !== b.k) ? batchName(L.name) : b.k;
+    out.push({ v: 'b:' + b.k, label: nm + paren(b.n) });
+    seen[b.k] = 1;
+  });
+  // ③ 单星（前瞻，见函数注释）
+  return out.concat(climbLoneOptions(C, seen));
 }
 /** 选中批次后：若数据未加载则异步拉取，拉完重画（规模方案下这是唯一的取数时机） */
 function climbEnsureAndDraw(lk) {
@@ -11407,15 +11450,21 @@ function renderClimbSel() {
   var sel = document.getElementById('climbSel');
   if (!sel) return;
   var opts = climbPickOptions(), C = climbCurve();
-  // 当前选中的批次若已无历史数据（切星座后），回落到"跟随选中"
+  // 当前选中的批次若已无历史数据（切星座后），回落到"自动"（= 最新批次）
   var cur_ = S.climbPick || '';
   var valid = (cur_ === '') || (cur_.indexOf('b:') === 0 && !!C[cur_.slice(2)]) ||
               (cur_.indexOf('s:') === 0 && climbSatIdx(+cur_.slice(2)) >= 0);
   if (!valid) S.climbPick = '';
-  var html = '<option value="">' + t('climb_pick_auto') + '</option>';
+  // A6-2：**不再有「跟随选中（默认）」空选项** —— 自动模式下直接**显示最新发射的批次**
+  //   （它"本身就是默认项"，Q13），所以列表最顶端那项在首屏就是被选中的状态。
+  var html = '';
   opts.forEach(function (o) { html += '<option value="' + o.v + '">' + o.label + '</option>'; });
   sel.innerHTML = html;
-  sel.value = S.climbPick || '';
+  // A6-3：自动模式（S.climbPick 为空）→ 选中**最新批次**；显式选了 → 显示该项
+  var want = S.climbPick || climbAutoPick();
+  sel.value = want;
+  // 选不到（例如索引还没有数据）→ 退回第一项，避免显示空
+  if (sel.value !== want && opts.length) sel.value = opts[0].v;
   // 悬停某个批次名 → 列出该批次的成员星（不改变当前选择，避免误触）
   sel.title = t('climb_sel_tip');
 }
@@ -11431,7 +11480,13 @@ function climbFollowSelection() {
   drawClimb();
 }
 function climbSelect(v) {
-  S.climbPick = v || '';
+  // V1.9.1（A6）：**选中"最新批次"就等于回到自动模式**——
+  //   因为自动模式显示的**就是**最新批次（Q13："最新项本身就等于默认项"）。
+  //   若不这样处理：用户点开下拉、又选了那同一个最新项 → `S.climbPick` 变成显式的 'b:最新'，
+  //   于是 `climbFollowSelection()` 里的 `if (S.climbPick) return;` 会让**跟随全局选中失效**
+  //   （Q21=C 的"有选中则跟"被无声破坏）。归一成空值后，"选最新项"与"初始默认"行为完全一致。
+  var def = climbAutoPick();
+  S.climbPick = (v && v !== def) ? v : '';
   climbView = null;
   // 规模方案下批次数据是**按需拉取**的：先切过去（画面立即响应），数据到了再重画
   if (v && v.indexOf('b:') === 0) climbEnsureAndDraw(v.slice(2));

@@ -1508,9 +1508,16 @@ assert('V1.9.0（R17）：纵轴 0~2000km **顶格限位**（需求 Q47），且
   /Y\(c\.pts\[k2\]\.v - CLIMB_RE\)/.test(appCode));
 assert('V1.9.0（R17）：横轴 = 发射日～今天（右端至少到今天，需求 Q45）',
   /var now = Date\.now\(\);[\s\S]{0,120}?if \(now > t1\) t1 = now;/.test(appCode));
-assert('V1.9.0（R17）：批次选择器**倒序**（最新发射在最上）且只列有历史数据的批次',
-  /ls\.sort\(function \(a, b\) \{ return \(b\.dateMs \|\| 0\) - \(a\.dateMs \|\| 0\); \}\);/.test(appCode) &&
-  /if \(!C\[L\.key\]\) return;/.test(appCode));
+// V1.9.1（A6）：这条断言原来按**旧实现**的写法（`ls.sort(...dateMs...)` + `if (!C[L.key]) return;`）
+//   做源码匹配，A6 重做选择器后那两个字面量都不在了 → 更新为**新结构**，但把"倒序 + 只列有历史数据的"这条**原意**保留。
+//   "只列有历史数据"的判据在两处：① 外挂索引 `ix.batches` 本身就只含**有分片**的批次；
+//   ② 无索引时退化为 `Object.keys(C)`（C 即已加载的历史曲线）。
+assert('V1.9.1（A6，原 R17 口径）：批次选择器**按发射时间倒序**（并列取批次号大者）且只列有历史数据的批次',
+  /keys\.sort\(function \(a, b\) \{/.test(appCode) &&
+  /if \(mb !== ma\) return mb - ma;/.test(appCode) &&
+  /return String\(a\.k\) < String\(b\.k\) \? 1 :/.test(appCode) &&
+  /ix\.batches\.map\(function \(b\) \{ return \{ k: b\.k, n: b\.n \}; \}\)/.test(appCode) &&
+  /Object\.keys\(C\)\.map\(function \(k\) \{ return \{ k: k, n: \(C\[k\] \|\| \[\]\)\.length \}; \}\)/.test(appCode));
 assert('V1.9.0（R17）：与全局选中**双向联动**（选中→本章跟随；本章选单星→回写 S.sel）',
   /function climbFollowSelection\(\)[\s\S]{0,700}?if \(S\.climbPick\) return;/.test(appCode) &&
   /function afterSelection\(\)[\s\S]{0,900}?climbFollowSelection\(\);/.test(appCode) &&
@@ -1528,13 +1535,19 @@ assert('V1.9.0（R17）：章级过场映射含 05 章（默认设置按钮走 p
   /climb: 'sec-climb'/.test(appCode) && /data-defsec="climb"/.test(tplCode));
 assert('V1.9.0（R17）：i18n 三段式键位齐备（缺一个就会把键名当文字画在页面上）',
   ['h_climb', 'lead_climb', 'climb_pick', 'climb_take', 'climb_rate', 't_defclimb',
-   'climb_pick_auto', 'climb_sel_tip', 'climb_none', 'climb_n_sats', 'climb_n_hist',
-   'climb_take_sma', 'climb_take_rate', 'climb_y_alt', 'climb_y_rate']
+   'climb_sel_tip', 'climb_none', 'climb_n_sats', 'climb_n_hist',
+   'climb_take_sma', 'climb_take_rate', 'climb_y_alt', 'climb_y_rate',
+   // V1.9.1（A1）：信息窗新行
+   'climb_delta']
    // ⚠️ 不能用 ^\s* 锚行首：climb_pick / climb_take / climb_rate 三个键写在**同一行**
    //   （逗号连排），锚行首会把后两个误判为缺失（V1.9.0 就因此误报过一次）。
    //   同时要求键后面紧跟 [ 才算命中，避免 climb_take 误配到 climb_take_sma。
+   //   V1.9.1（A6/F3）：`climb_pick_auto` 已从清单里**移除**（键本身也删了）。
    .every(k => new RegExp('(^|[{,\\s])' + k + ': \\[').test(appSrc)),
   '15 个键');
+// V1.9.1（A6/F3）：死键必须真的删掉 —— 只从断言清单里删掉是不够的
+assert('V1.9.1（A6/F3）：`climb_pick_auto` 键已彻底删除（源码里除注释外不再出现）',
+  !/climb_pick_auto: \[/.test(appSrc));
 assert('V1.9.0（R17）：信息窗复用**已有**键名（不得凭空造 d_name / d_launch —— 表里没有）',
   /t\('t_name'\)/.test(appCode) && /t\('d_row_batch'\)/.test(appCode) &&
   /t\('d_row_epoch_sat'\)/.test(appCode) && !/t\('d_name'\)/.test(appCode) && !/t\('d_launch'\)/.test(appCode));
@@ -2135,6 +2148,12 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
     "    return s ? { n: s.norad, pts: s.pts.map(function (p) { return { ms: p.ms, v: p.v }; }) } : null; },\n" +
     "  climbInfoAt: function (n, i) { var s = climbSeries().list.filter(function (c) { return c.norad === n; })[0];\n" +
     "    climbShowInfoAt({ norad: s.norad, ms: s.pts[i].ms, v: s.pts[i].v }); },\n" +
+    // V1.9.1（A6）：选择框的验证入口
+    "  climbOpts: function () { return climbPickOptions().map(function (o) { return { v: o.v, label: o.label }; }); },\n" +
+    "  climbAuto: function () { return climbAutoPick(); },\n" +
+    "  climbSelValue: function () { var s = document.getElementById('climbSel'); return s ? s.value : null; },\n" +
+    "  climbSelText: function () { var s = document.getElementById('climbSel'); return s ? s.options[s.selectedIndex].textContent : null; },\n" +
+    "  climbSelect: function (v) { climbSelect(v); },\n" +
     "  toast: function () { var e = document.getElementById('selToast'); return e ? { txt: e.textContent, cls: e.className } : null; }\n" +
     "};\n";
   const hm = HEAD_RE.exec(html);
@@ -2402,6 +2421,72 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
       s11b.climbPick === 'b:26137', 'climbPick=' + s11b.climbPick);
     setQ('');                                      // 复原搜索
   }
+  // ================================================================ V1.9.1（A6）：升轨章选择框重做
+  {
+    const sel = d3.getElementById('climbSel');
+    assert('A6：选择框**不再有**「跟随选中（默认）」空选项（`value=""` 的项应为 0 个）',
+      !!sel && [...sel.options].filter(o => o.value === '').length === 0,
+      'options=' + (sel ? [...sel.options].map(o => JSON.stringify(o.value)).slice(0, 4).join(',') : 'null'));
+    assert('A6：首屏**默认选中最新发射的批次**（= climbAutoPick()，且它就是列表第一项）',
+      (function () {
+        k3.climbSelect('');                      // ⚠️ 先归零：前面的 A11 用例调过 climbSelect('b:26137')，
+                                                 //    不复位会把"首屏默认"测成那个残留值（第一次就这么误报的）
+        const auto = k3.climbAuto(), v = k3.climbSelValue(), opts = k3.climbOpts();
+        return !!auto && v === auto && opts.length > 0 && opts[0].v === auto;
+      })(), 'value=' + k3.climbSelValue() + ' auto=' + k3.climbAuto() + ' 首项=' + (k3.climbOpts()[0] || {}).v);
+    assert('A6：选项按**发射时间倒序**（并列取批次号大者），与 06 章发射历史表同口径',
+      (function () {
+        const opts = k3.climbOpts().filter(o => o.v.indexOf('b:') === 0).map(o => o.v.slice(2));
+        // 用页面自己的 api 取每个批次的 dateMs（climbBatchMeta 不在探针里，这里用 launches 查）
+        const meta = {};
+        RAW.gw.launches && Object.keys(RAW.gw.launches).forEach(k => { meta[k] = Date.parse(RAW.gw.launches[k][1] + ':00+08:00'); });
+        for (let i = 1; i < opts.length; i++) {
+          const a = meta[opts[i - 1]] || 0, b = meta[opts[i]] || 0;
+          if (a < b) return false;                                  // 必须单调不增
+          if (a === b && String(opts[i - 1]) < String(opts[i])) return false;  // 并列时批次号降序
+        }
+        return opts.length > 10;
+      })(), '前 5 项=' + k3.climbOpts().slice(0, 5).map(o => o.v).join(' '));
+    assert('A6：最旧的那批**不在首位**（原 bug：23095 试验星01组排在最前）',
+      k3.climbOpts()[0].v !== 'b:23095', '首项=' + k3.climbOpts()[0].v);
+    // Q13/Q21：选中"最新项" = 回到自动模式（否则会无声破坏"跟随全局选中"）
+    k3.climbSelect(k3.climbAuto());
+    assert('A6/Q21：点选"最新批次"→ 归一成**自动模式**（S.climbPick 为空，跟随全局选中仍有效）',
+      k3.state().climbPick === '', 'climbPick=' + JSON.stringify(k3.state().climbPick));
+    k3.climbSelect('b:25030');
+    assert('A6：显式选一个非默认批次 → S.climbPick 记为该批次（用户意图优先，不再被跟随覆盖）',
+      k3.state().climbPick === 'b:25030', 'climbPick=' + k3.state().climbPick);
+    assert('A6：单星选项的通路已铺好（`climbLoneOptions` 存在；当前数据 0 颗 → 列表里没有 s: 项）',
+      /function climbLoneOptions/.test(appSrc) && /out\.concat\(climbLoneOptions\(C, seen\)\)/.test(appSrc) &&
+      k3.climbOpts().filter(o => o.v.indexOf('s:') === 0).length === 0,
+      's: 项数=' + k3.climbOpts().filter(o => o.v.indexOf('s:') === 0).length);
+    k3.climbSelect('');                            // 复原自动
+  }
+
+  // ---- V1.9.1（Q19）：03 章批次下拉 —— 「全部批次」置顶 + 其余按发射时间倒序 ----
+  assert('Q19：03 章批次下拉「全部批次（N 颗）」**恒置顶**',
+    (function () {
+      const gs = d3.getElementById('groupSel');
+      return !!gs && gs.options.length > 1 && gs.options[0].value === 'all' &&
+        /^全部批次（\d+ 颗）$/.test(gs.options[0].textContent.trim());
+    })(), (function () {
+      const gs = d3.getElementById('groupSel');
+      return gs ? JSON.stringify(gs.options[0].textContent.trim()) : 'null';
+    })());
+  assert('Q19：03 章其余选项按**发射时间倒序**（原为最旧在前 —— 与同页表格方向相反）',
+    (function () {
+      const gs = d3.getElementById('groupSel');
+      const keys = [...gs.options].slice(1).map(o => o.value);
+      const meta = {};
+      Object.keys(RAW.gw.launches).forEach(k => { meta[k] = Date.parse(RAW.gw.launches[k][1] + ':00+08:00'); });
+      for (let i = 1; i < keys.length; i++) {
+        const a = meta[keys[i - 1]] || 0, b = meta[keys[i]] || 0;
+        if (a < b) return false;
+        if (a === b && String(keys[i - 1]) < String(keys[i])) return false;
+      }
+      return keys.length > 10;
+    })(), '前 5 项=' + [...d3.getElementById('groupSel').options].slice(1, 6).map(o => o.value).join(' '));
+
   dom3.window.close();
 }
 
