@@ -8513,9 +8513,7 @@ function netBuild() {
       // V1.9.0（需求8）：把批次 key（5 位发射编号）一并带上 —— 信息窗里「新增卫星」的批次/组名
       //   要能点击 = 全选该批次（与表格里的批次链接同款行为），而旧版这里只带了 name。
       evs.push({ ms: L.dateMs, key: key, n: netCountOf(L, mode), name: L.name, lk: L.key,
-        res: L.res, pend: L.pending || 0, cnt: L.count || 0, wn: L.wn || 0,
-        // ★ V1.9.1（#6 / Q2）：另外记一份「在轨」口径的贡献 —— 下面用它算轴起点。
-        nOrbit: netCountOf(L, 'orbit') });
+        res: L.res, pend: L.pending || 0, cnt: L.count || 0, wn: L.wn || 0 });
       if (L.dateMs < minMs) minMs = L.dateMs;
       if (L.dateMs > maxMs) maxMs = L.dateMs;
     });
@@ -8542,32 +8540,17 @@ function netBuild() {
     });
     lastN[key] = cum;
   });
-  // ★ V1.9.1（#6 / Q2）：横轴起点 = **各星座「首个在轨 > 0」日期中的较晚者**。
-  //   口径用 **orbit**（与当前显示模式无关）→ 切换「发射量 / 在轨数量」时横轴**不会跳**。
-  //   实测（2026-10-10）：
-  //     · 星网首个 = **2023-07-09**（批次 23095「试验星01组」，2 颗在库）
-  //     · 千帆首个 = **2019-11-17**（批次 19077 KL-Alpha）
-  //   ⚠️ 两点如实记录：
-  //     ① 清单里写「2019/2021 两条 KL 试验星**无在轨数据**」——**与实测不符**，
-  //        它们确实有 TLE 在库（所以才被算成"在轨 > 0"）；
-  //     ② 若按"两星座合并取最早"（= 2019-11），首屏仍会有近 4 年空白（其间只有 2 个点），
-  //        等于 Q2 的目的一点没达成。故取**较晚者**：从"两个星座都真正开始有在轨数据"起画。
-  //        2019/2021 那两条孤立试验星的数据点落在轴外（被裁剪），这正是 Q2 想要的。
+  // ★ V1.9.1（#6 / Q2 的最终口径，2026-10-10 用户拍板）：
+  //   横轴起点 = **最早一条发射记录**（即 weeks[0]，千帆 2019-11 的 KL 试验星）——
+  //   **早期卫星一律保留在图上**，试验星阶段与首个组网星之间用**虚线**区分（见 A8 的
+  //   netSolidSplit / netDraw 两段折线），这是既定的表达方式，不再靠"把早期点切到轴外"来回避空白。
+  //   沿革（如实记录）：Q15 原本就是"前移到最早试验星"；Q2 曾想改成"首个在轨>0"，
+  //   我当时按"两星座合并取最早"实现后实测发现千帆 2019 的 KL-Alpha **确有 TLE 在库**，
+  //   与清单里"无在轨数据"的记载不符，于是退而取"较晚者"（2023-07）—— 但那样会把
+  //   2019/2021 两颗试验星挤到轴外、虚线试验星段整段消失，与"早期卫星都要记载"相悖。
+  //   用户 2026-10-10 明确：**早期卫星都要记载**，试验星↔首个组网星用虚线连接即可。
+  //   → 起点回到最早发射记录；刻度梯（tickStepDays）保证这段长跨度下仍是年刻度、可读。
   var originMs = weeks[0];
-  ['gw', 'qf'].forEach(function (key) {
-    var ls2 = evs.filter(function (e) { return e.key === key; })
-      .sort(function (a, b) { return a.ms - b.ms; });
-    var acc = 0;
-    for (var i2 = 0; i2 < ls2.length; i2++) {
-      acc += ls2[i2].nOrbit || 0;
-      if (acc > 0) {
-        var mon = netMonday(ls2[i2].ms);
-        if (mon > originMs) originMs = mon;
-        break;
-      }
-    }
-  });
-  if (originMs < weeks[0]) originMs = weeks[0];
   return { mode: mode, weeks: weeks, series: series, delta: delta, lastN: lastN, now: now, originMs: originMs };
 }
 // V1.9.1（A8）：各星座「**第一颗正式星**」的发射时刻 —— 组网进度里它以**第一个实线点**出现，

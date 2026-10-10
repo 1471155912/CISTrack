@@ -2204,7 +2204,6 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
     "  netSolidFrom: function (k) { return netSolidFrom(k); },\n" +
     // V1.9.1（#6）：横轴刻度梯 + 轴起点
     "  netOrigin: function () { var d = netData(); return { x0min: netX0Min(d), weeks0: d.weeks[0], origin: d.originMs }; },\n" +
-    "  netModeNow: function () { return (S.netMode || '-') + '/' + NET.mode + '/evs=' + (typeof netBuild === 'function' ? 'fn' : '?'); },\n" +
     "  tickStep: function (spanD, want) { return tickStepDays(spanD, want); },\n" +
     "  tickLadder: function () { return TICK_LADDER.slice(); },\n" +
     "  netAxisNow: function () { netAutoView(); return { x0: netView.x0, x1: netView.x1 }; },\n" +
@@ -2613,16 +2612,26 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
     assert('A8：分界周落在正确的相对位置（星网早于千帆；两者都远小于总周数的一半之后）',
       sGw > 0 && sQf > sGw && sGw < k3.netWeeks() && sQf < k3.netWeeks(),
       'gw=' + sGw + ' qf=' + sQf + ' 总周数=' + k3.netWeeks());
-    // 轴起点：★ V1.9.1（#6 / Q2）**覆盖** Q15 —— 旧口径"前移到最早试验星（2019-11）"已被否决，
-    //   改为「首个**在轨数量 > 0** 的日期」。理由：2019/2021 那两条 KL 试验星没有在轨数据，
-    //   却让首屏出现 4 年空白、整条横轴全是"年"刻度，与倾角分布章（niceTicks 连续档）观感差距很大。
+    // 轴起点（最终口径，2026-10-10 用户拍板）：**早期卫星都要记载** ——
+    //   2019/2021 的 KL 试验星必须留在图上，试验星阶段与首个组网星之间用**虚线**区分（A8）。
+    //   沿革：Q15 = 前移到最早试验星；Q2 曾想改「首个在轨>0」，但实测千帆 2019 的 KL-Alpha
+    //   **确有 TLE 在库**（与清单里"无在轨数据"的记载不符），取"首个在轨>0"会把这两点
+    //   挤到轴外、虚线试验星段整段消失 → 与用户要求相悖，故回到最早一条发射记录。
     const og = k3.netOrigin(), axn = k3.netAxisNow();
-    assert('#6（Q2 覆盖 Q15）：横轴起点 = 首个「在轨数量 > 0」的周，且晚于数据最早周（不再被 2019 的试验星占位）',
-      Math.abs(axn.x0 - og.x0min) < 1 && og.x0min > og.weeks0,
+    assert('#6：横轴起点 = **最早一条发射记录**（早期卫星全部保留在图上，不被切到轴外）',
+      Math.abs(axn.x0 - og.weeks0) < 1 && og.origin === og.weeks0 &&
+      new Date(og.weeks0).getUTCFullYear() === 2019,
       '轴起点=' + new Date(og.x0min).toISOString().slice(0, 10) +
       '，数据最早周=' + new Date(og.weeks0).toISOString().slice(0, 10) +
-      '，origin=' + new Date(og.origin).toISOString().slice(0, 10) +
-      '，netMode=' + k3.netModeNow());
+      '（早期试验星保留在轴上，用虚线与首个组网星分隔）');
+    // 虚线段必须真的落在**可视范围内**（否则等于把试验星阶段藏起来了 —— 这正是取"较晚起点"的后果）
+    assert('#6：试验星阶段的**虚线段完全落在可视范围内**（起点回退后不再被切到轴外）',
+      new Date(k3.netSolidFrom('qf')).getTime() > axn.x0 &&
+      new Date(k3.netSolidFrom('gw')).getTime() > axn.x0 &&
+      new Date(og.weeks0).getTime() >= axn.x0 - 1,
+      'qf 首个组网星=' + new Date(k3.netSolidFrom('qf')).toISOString().slice(0, 10) +
+      ' / gw=' + new Date(k3.netSolidFrom('gw')).toISOString().slice(0, 10) +
+      ' vs 轴起点=' + new Date(axn.x0).toISOString().slice(0, 10));
     // 真的画了虚线：分别只看一个星座，绘制时曲线段应有**一次** [5,5]（试验星段）
     const dashProbe = (key) => {
       k3.netOnly(key);
