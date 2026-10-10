@@ -1638,19 +1638,21 @@ function chartAutoView() {
   var x0 = rawMin - px, x1 = rawMax + px;
   // 纵轴：默认只看 500–1800 km；若数据本身越界则以数据为准（并留一点余量）
   var pad = dy * 0.12;
-  var yy0 = y0 - pad, yy1 = y1 + pad;
-  yy0 = Math.max(yy0, Math.min(500, y0 - pad));
+  // ★ V1.9.1（用户口径，2026-10-10）：03 章纵轴**默认下界恒为 0**。
+  //   原来下界取"数据下沿 − 12%"（`yy0 = y0 - pad`），于是**千帆页**（无 GEO、数据下沿约 767 km）
+  //   的视图从 ~700 km 起 —— A12 那条 100 km 大气层虚线就落在视口外看不见。
+  //   用户明确要求"默认下界就应该是 0"：高度轴从 0 起也更符合直觉，两页都稳定。
+  //   ⚠️ 一处事先担心的副作用，**实测并不成立**（如实记录）：我怕曲线被压到顶部窄带，
+  //     但真实数据的跨度本来就大（含升轨中的卫星）——实测视图 0~1164、数据 410~1083，
+  //     曲线占 **35%~93%**，既没变扁又让 100 km 线可见。所以这个改法是安全的。
+  var yy0 = 0;
+  var yy1 = y1 + pad;
   yy1 = Math.min(yy1, Math.max(1800, y1 + pad));
-  if (yy1 - yy0 < 20) { yy0 -= 10; yy1 += 10; }
-  // V1.9.1（A18）：数据跨到 GEO 时改走**断轴量程** ——
-  //   上界钉在 BRK_TOP（35850，正好把 GEO 35786 装进上段），下界回到 LEO 的真实下沿。
-  //   否则线性量程会把 LEO 压成底部 3% 的一条线（实测）。断轴映射再把这个跨度里的
-  //   2000~35750 压掉，于是下段（LEO）重新拿到 70% 的高度。
-  if (yy1 > BRK_LO) {
-    yy0 = Math.max(0, y0 - pad);
-    if (yy0 > BRK_LO) yy0 = 0;                 // 下界不能高过断轴下沿（否则下段是空的）
-    yy1 = BRK_TOP;
-  }
+  if (yy1 - yy0 < 20) { yy1 = 20; }
+  // V1.9.1（A18）：数据跨到 GEO 时改走**断轴量程** —— 上界钉在 BRK_TOP（35850，正好把 GEO 35786
+  //   装进上段）。断轴映射再把跨度里的 2000~35750 压掉，于是下段（LEO）拿回 70% 的高度；
+  //   否则线性量程会把 LEO 压成底部 3% 的一条线（实测）。
+  if (yy1 > BRK_LO) yy1 = BRK_TOP;
   chartView = clampChartView({ x0: x0, x1: x1, y0: yy0, y1: yy1 });   // V1.7.0 第四轮（需求3）
 }
 function chartVisiblePts() {
@@ -4272,7 +4274,13 @@ function afterConstelSwap() {
   try { renderLaunchTable(true); } catch (e) {}
   // V1.9.0（R17）：换星座后 05 章必须**重建曲线缓存并重画** —— 它的数据挂在 RAW[key].hist 上，
   //   两个星座的历史完全不同；缓存里还记着 S.key，不清就会画出上一章星座的曲线。
-  try { CLIMB = null; climbView = null; climbHover = null; climbAutoView(); renderClimbSel(); renderClimbTake(); drawClimb(); } catch (e) {}
+  // V1.9.1（A20）：同时**复位固定态并收起信息窗** —— 曲线换了之后，旧窗口里那个点已不属于当前视图。
+  try {
+    CLIMB = null; climbView = null; climbHover = null;
+    climbPinned = false;
+    if (climbInfo) hideInfo(climbInfo, 'climb');
+    climbAutoView(); renderClimbSel(); renderClimbTake(); drawClimb();
+  } catch (e) {}
   try { tickClock(); } catch (e) {}
   try { mapDirty = true; globeDirty = true; } catch (e) {}
   try { drawChart(); } catch (e) {}
@@ -9547,6 +9555,10 @@ function climbSelect(v) {
   var def = climbAutoPick();
   S.climbPick = (v && v !== def) ? v : '';
   climbView = null;
+  // V1.9.1（A20）：换了要看的曲线 → 固定态失效、旧信息窗收起（它显示的是**上一条曲线**上的点）
+  climbPinned = false;
+  climbHover = null;
+  if (climbInfo) hideInfo(climbInfo, 'climb');
   // 规模方案下批次数据是**按需拉取**的：先切过去（画面立即响应），数据到了再重画
   if (v && v.indexOf('b:') === 0) climbEnsureAndDraw(v.slice(2));
   // 选了单星 → 同步全局选中（另一个方向的联动）
@@ -9619,7 +9631,10 @@ function climbInit() {
     var same = (h && climbHover) ? (h.norad === climbHover.norad && h.ms === climbHover.ms) : !h && !climbHover;
     if (!same) {
       climbHover = h;
-      if (h) climbShowInfoAt(h); else if (climbInfo && !climbPinned) hideInfo(climbInfo, 'climb');
+      // ★ V1.9.1（A20，用户反馈）：**悬停不再弹信息窗** —— 只移动十字线与高亮。
+      //   原实现这里是 `if (h) climbShowInfoAt(h)`，于是鼠标一放到图上就按横轴匹配最近的曲线点、
+      //   弹出那一颗卫星的信息窗 —— 而用户并没有"选定任何曲线"。现在与 05 章组网进度**完全一致**：
+      //   hover 只做视觉提示，**单击**才显示并固定该点信息窗（见下面的 climbUp）。
       drawClimb();
     }
   });
@@ -9629,7 +9644,16 @@ function climbInit() {
       var h = climbHitAt(e.clientX - r.left, e.clientY - r.top);
       if (h) {
         var idx = climbSatIdx(h.norad);
-        if (idx >= 0) { toggleSel(idx, e.ctrlKey || e.metaKey); climbPinned = true; }
+        // 选中该卫星（本就有）；判据放宽到"命中即用"，不再要求它必须在卫星表里 ——
+        //   否则"曲线有、表里没有"的点会变成点了没反应。
+        if (idx >= 0) toggleSel(idx, e.ctrlKey || e.metaKey);
+        // V1.9.1（A20）：单击 = **显示该点信息窗并固定**（对齐 05 章：`if (i != null) { netPinned = true; netShowInfoAt(i); }`）
+        climbPinned = true;
+        climbShowInfoAt(h);
+      } else {
+        // 点空白 = 取消固定并收起（同样对齐 05 章）
+        climbPinned = false;
+        if (climbInfo) hideInfo(climbInfo, 'climb');
       }
     }
     drag = null;

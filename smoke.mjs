@@ -3,6 +3,7 @@
 // 中文标签不可逆损坏，故整份重写。教训：**永远不要用 PowerShell 处理 UTF-8 源码文件**，
 // 要改文本就用 Edit 工具或 Node 的 fs。
 import fs from 'node:fs';
+import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 const require = createRequire(import.meta.url);
@@ -99,6 +100,30 @@ const lf = s => s.replace(/\r\n/g, '\n');
 const tpl = lf(fs.readFileSync(B + '/template.html', 'utf8'));
 const appSrc = lf(fs.readFileSync(B + '/app.js', 'utf8'));
 const rawSrc = fs.readFileSync(B + '/build/satdata.json', 'utf8');
+
+// ★ V1.9.1：**产物新鲜度闸门** —— 这是我自己反复踩的坑：smoke 读的是**产物 HTML**（不是源码），
+//   所以"改了 app.js / template.html 却忘了 `node build.mjs`"时，跑出来的仍然是**旧行为**，
+//   于是断言会给出"改动没生效"的假象（2026-10-10 我在 A20 上连续跑了 4 次才反应过来）。
+//   这里用 mtime 直接判：源码比产物新 → **明确报错并给出修复命令**，而不是让人去猜。
+//   ⚠️ 路径必须用 `path.join`：`B` 来自 fileURLToPath（**反斜杠结尾**），拼 `B + '/x'` 会得到
+//     `…\CISTrack\/x` 这种混合分隔符，本机的 fs 代理会直接抛错 → 闸门静默失效（首版就是这样）。
+{
+  const gate = ['app.js', 'template.html'].map(f => {
+    try {
+      const sm = fs.statSync(path.join(B, f)).mtimeMs;
+      const pm = fs.statSync(path.join(B, '星网与千帆在轨追踪.html')).mtimeMs;
+      return { f: f, stale: sm > pm + 1000 };
+    } catch (e) { return { f: f, stale: false, err: e.code || e.message }; }
+  });
+  const bad = gate.filter(x => x.stale);
+  if (bad.length) {
+    console.log('\n!! 产物比源码旧：' + bad.map(x => x.f).join(' / ') + ' 有更新但未重新构建。');
+    console.log('   smoke 校验的是**产物 HTML**，现在跑的是旧行为 —— 先执行 `node build.mjs` 再跑本测试。\n');
+    process.exitCode = 1;
+  } else {
+    console.log('产物新鲜度：OK（' + gate.map(x => x.f + (x.err ? '?' + x.err : '')).join(' / ') + '）');
+  }
+}
 const RAW = w.SATDATA;
 
 console.log('--- 基础 ---');
@@ -1540,8 +1565,11 @@ assert('V1.9.0（R17）：本章两项按星座各存一份，且纳入章级/�
   /S\.climbPick = ''; S\.climbTake = 'sma';/.test(appCode) &&
   /if \(sec === 'climb'\)/.test(appCode) &&
   /resetAllPrefs\(\)[\s\S]{0,2600}?renderClimbSel\(\); renderClimbTake\(\); climbView = null; climbAutoView\(\); drawClimb\(\);/.test(appCode));
-assert('V1.9.0（R17）：切星座时重建曲线缓存（不清就会画出上一星座的曲线）',
-  /CLIMB = null; climbView = null; climbHover = null; climbAutoView\(\); renderClimbSel\(\)/.test(appCode));
+// V1.9.1（A20）：这段从单行改成了多行块（同时要复位固定态、收起旧信息窗）→ 断言同步为**结构式**，
+//   把"重建缓存 + 复位固定态 + 收起信息窗 + 重画"四件事一起要求（原意不减，且新增了后两件）。
+assert('V1.9.0（R17）+ V1.9.1（A20）：切星座时重建曲线缓存**并**复位固定态、收起旧信息窗',
+  /CLIMB = null; climbView = null; climbHover = null;/.test(appCode) &&
+  /climbPinned = false;\s*\n\s*if \(climbInfo\) hideInfo\(climbInfo, 'climb'\);\s*\n\s*climbAutoView\(\); renderClimbSel\(\); renderClimbTake\(\); drawClimb\(\);/.test(appCode));
 assert('V1.9.0（R17）：章级过场映射含 05 章（默认设置按钮走 playSectionCurtain）',
   /climb: 'sec-climb'/.test(appCode) && /data-defsec="climb"/.test(tplCode));
 assert('V1.9.0（R17）：i18n 三段式键位齐备（缺一个就会把键名当文字画在页面上）',
@@ -2196,6 +2224,23 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
     "  chartViewY0: function () { if (!chartView) chartAutoView(); return Math.round(chartView.y0); },\n" +
     "  chartMode: function (m) { if (m) S.mode = m; return S.mode; },\n" +
     "  climbTake: function (m) { if (m) S.climbTake = m; return S.climbTake || 'sma'; },\n" +
+    // V1.9.1（A20）：04 章 hover / 单击的交互验证入口
+    "  climbPointXY: function (norad, k) {\n" +
+    "    var s = climbSeries().list.filter(function (c) { return c.norad === norad; })[0];\n" +
+    "    if (!s || !climbRect || !climbView) return null;\n" +
+    "    var v = climbView, r = climbRect, i = k || 0;\n" +
+    "    var p = s.pts[i];\n" +
+    "    var x = r.PL + (p.ms - v.x0) / (v.x1 - v.x0) * r.pw;\n" +
+    "    var take = S.climbTake || 'sma';\n" +
+    "    var alt = (take === 'rate') ? s.rates[i] : (p.v - CLIMB_RE);\n" +
+    "    if (!isFinite(alt)) return null;\n" +
+    "    var y = brkYMap(v, r.PT, r.ph).Y(alt);\n" +
+    "    return (y == null) ? null : { x: Math.round(x), y: Math.round(y), ms: p.ms };\n" +
+    "  },\n" +
+    "  climbInfoShown: function () { var e = document.getElementById('climbInfo');\n" +
+    "    return !!e && e.style.display !== 'none' && !!e.querySelector('.si-row'); },\n" +
+    "  climbInfoText: function () { var e = document.getElementById('climbInfo'); return e ? e.textContent.trim().slice(0, 40) : ''; },\n" +
+    "  climbPinnedNow: function () { return climbPinned; },\n" +
     "  chartY1: function () { if (!chartView) chartAutoView(); return Math.round(chartView.y1); },\n" +
     "  climbY1: function () { if (!climbView) climbAutoView(); clampClimbView(climbView); return Math.round(climbView.y1); },\n" +
     "  climbAuto: function () { return climbAutoPick(); },\n" +
@@ -2742,6 +2787,89 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
     assert('A12：断轴视图下也落在**下段**（下段就是 0~2000 km 的真实高度段）—— 03 默认视图 y0 = 0 时可见',
       k3.chartViewY0() === 0 && k3.chartBrkOn() === true,
       'y0=' + k3.chartViewY0() + ' brk=' + k3.chartBrkOn());
+  }
+
+  // ================================================================ V1.9.1（A20）：04 章 hover 不再弹信息窗
+  // 用户反馈的 bug：**不选定任何曲线**时，鼠标一放到图上就按横轴匹配最近的曲线点、弹出信息窗。
+  // 期望：与 05 章组网进度**完全一致** —— hover 只做视觉提示，**单击**才显示并固定。
+  // 这里派发**真实 pointer 事件**验证（不是只查源码字面量）。
+  {
+    // 前置：先复位（前面的 A1 段落调过 climbInfoAt 显示过信息窗，不复位会把它当成"hover 弹出来的"）
+    k3.climbSelect('b:24240');
+    k3.climbDraw();
+    const pt = k3.climbPointXY(62323, 5);
+    assert('A20：能取到曲线上的像素坐标（行为测试的前置）', !!pt, JSON.stringify(pt));
+    assert('A20：起点是"未固定且未显示"的干净状态（复位逻辑生效）',
+      k3.climbInfoShown() === false && k3.climbPinnedNow() === false,
+      'shown=' + k3.climbInfoShown() + ' pinned=' + k3.climbPinnedNow());
+    if (pt) {
+      const mkEv = (type, x, y) => {
+        // 优先用真 PointerEvent（`pointerType` 是它的标准字段）；jsdom 若没有就退回 MouseEvent
+        //   并用 defineProperty 补上 —— 注意**必须**是 'mouse'，否则 handler 会直接 return，
+        //   drag 保持 null，pointerup 里的整段逻辑都不会执行（这一点在定位时很隐蔽）。
+        try {
+          return new w3.PointerEvent(type, {
+            bubbles: true, cancelable: true, clientX: x, clientY: y, pointerType: 'mouse', pointerId: 1
+          });
+        } catch (err) {
+          const e = new w3.MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y });
+          Object.defineProperty(e, 'pointerType', { value: 'mouse', configurable: true });
+          Object.defineProperty(e, 'pointerId', { value: 1, configurable: true });
+          return e;
+        }
+      };
+      const cv = d3.getElementById('climbCv');
+      // ① hover（未选曲线）→ **不得**弹信息窗
+      cv.dispatchEvent(mkEv('pointermove', pt.x, pt.y));
+      assert('A20：**未选中曲线时 hover 不弹信息窗**（原 bug 的直接回归守卫）',
+        k3.climbInfoShown() === false && k3.climbPinnedNow() === false,
+        'shown=' + k3.climbInfoShown() + ' pinned=' + k3.climbPinnedNow() + ' text=' + JSON.stringify(k3.climbInfoText()));
+      // ② 单击 → 显示并固定
+      cv.dispatchEvent(mkEv('pointerdown', pt.x, pt.y));
+      cv.dispatchEvent(mkEv('pointerup', pt.x, pt.y));
+      assert('A20：**单击曲线上的点 → 显示该点信息窗并固定**（pinned = true）',
+        k3.climbInfoShown() === true && k3.climbPinnedNow() === true,
+        'shown=' + k3.climbInfoShown() + ' pinned=' + k3.climbPinnedNow());
+      assert('A20：信息窗内容是"该点"的（含 NORAD 与历元行）',
+        /62323/.test(k3.climbInfoText()) || /NORAD/.test(k3.climbInfoText()), JSON.stringify(k3.climbInfoText()));
+      // ③ 固定后鼠标移出画布 → 仍保留（"固定"语义）
+      cv.dispatchEvent(new w3.MouseEvent('mouseleave', { bubbles: true }));
+      assert('A20：固定后**鼠标移出画布仍保留**（与 05 章 netPinned 同一语义）',
+        k3.climbInfoShown() === true && k3.climbPinnedNow() === true);
+      // ④ 点空白 → 取消固定并收起
+      const empty = k3.climbPointXY(62323, 5);
+      const blankX = 2, blankY = 2;                    // 画布左上角，必定没有曲线点
+      cv.dispatchEvent(mkEv('pointerdown', blankX, blankY));
+      cv.dispatchEvent(mkEv('pointerup', blankX, blankY));
+      assert('A20：点空白 → 取消固定并收起信息窗',
+        k3.climbInfoShown() === false && k3.climbPinnedNow() === false,
+        'shown=' + k3.climbInfoShown() + ' pinned=' + k3.climbPinnedNow() + ' pt=' + JSON.stringify(empty));
+      // ⑤ 换曲线 / 切星座时的清理（否则会残留"上一条曲线上的点"的旧窗口）
+      k3.climbSelect('b:25030');
+      assert('A20：换选曲线后固定态复位、旧信息窗收起',
+        k3.climbPinnedNow() === false && k3.climbInfoShown() === false);
+      // ⑥ 长按拖拽特性不变（拖动画布仍是平移，不当作点击）
+      const p0 = k3.climbPointXY(62323, 5);
+      if (p0) {
+        cv.dispatchEvent(mkEv('pointerdown', p0.x, p0.y));
+        cv.dispatchEvent(mkEv('pointermove', p0.x + 60, p0.y + 30));   // 拖动 > TAP_SLOP
+        cv.dispatchEvent(mkEv('pointerup', p0.x + 60, p0.y + 30));
+        assert('A20：拖动（>TAP_SLOP）**不当作点击** → 不弹窗、不固定（长按拖拽平移不变）',
+          k3.climbInfoShown() === false && k3.climbPinnedNow() === false,
+          'shown=' + k3.climbInfoShown() + ' pinned=' + k3.climbPinnedNow());
+      }
+    }
+    // 源码守卫：pointermove 里不得再出现 climbShowInfoAt
+    //   ⚠️ 要用**剥掉注释**的 appCode：我在那段注释里引用了旧写法 `if (h) climbShowInfoAt(h)`，
+    //   直接在 appSrc 上匹配会被注释误伤（同样的坑在 #5 那条踩过一次）。
+    assert('A20：`pointermove` 里不再调用 climbShowInfoAt（源码守卫，防止回退）',
+      (function () {
+        const seg = (appCode.match(/climbCv\.addEventListener\('pointermove'[\s\S]*?\n  \}\);/g) || []).join('\n');
+        return seg.length > 0 && !/climbShowInfoAt/.test(seg);
+      })());
+    assert('A20：单击分支里**同时**做了 toggleSel 与"显示+固定"（对齐 05 章的 netPinned 写法）',
+      /climbPinned = true;\s*\n\s*climbShowInfoAt\(h\);/.test(appSrc) &&
+      /climbPinned = false;\s*\n\s*if \(climbInfo\) hideInfo\(climbInfo, 'climb'\);/.test(appSrc));
   }
 
   dom3.window.close();
