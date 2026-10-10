@@ -24,18 +24,22 @@ function makeCtx() {
   const calls = { stroke: 0, fill: 0, fillText: 0, arc: 0, clearRect: 0 };
   // V1.9.1（#4）：记录**着色历史** —— "每星一色"这类断言只能靠它验证（jsdom 不真画，
   //   没有像素可采样）。每次绘制会往数组里追加，断言时取"本次调用之后新增的那一段"。
-  const styles = { stroke: [], fill: [], alpha: [], dash: [], ellipse: [] };
+  const styles = { stroke: [], fill: [], alpha: [], dash: [], ellipse: [], text: [] };
   const target = {};
   return new Proxy(target, {
     get(t, k) {
       if (k === 'measureText') return () => ({ width: 24 });
       if (k === '__calls') return calls;
       if (k === '__styles') return styles;
-      if (k in calls) return (...a) => { calls[k]++; };
+      // ⚠️ 这两个分支必须放在 `if (k in calls)` **之前**：`fillText` / `setLineDash` 都在 calls
+      //   里留了计数器，先命中计数器就永远拿不到参数了（A12 第一次就是这样全部空数组）。
+      // V1.9.1（A12）：`fillText` 的文本也要记下来（"某个标注画了没"只能这样验）
+      if (k === 'fillText') return (...a) => { calls.fillText++; styles.text.push(String(a[0])); };
       // V1.9.1（A8）：虚线靠 `setLineDash` 表达，jsdom 里没有像素可采样 → 记下调用参数
       if (k === 'setLineDash') return (...a) => { styles.dash.push(JSON.stringify(a[0])); };
       // V1.9.1（A9）：聚类圆圈用 ellipse，同样记下来
       if (k === 'ellipse') return (...a) => { styles.ellipse.push(a[0]); };
+      if (k in calls) return (...a) => { calls[k]++; };
       return (...a) => { };
     },
     set(t, k, v) {
@@ -2184,6 +2188,14 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
     "      inv: function (px) { return +m.yAt(px).toFixed(3); } }; },\n" +
     "  climbB: function () { return climbBounds(climbSeries().list, S.climbTake || 'sma'); },\n" +
     "  chartBrkOn: function () { if (!chartView) chartAutoView(); return brkOn(chartView); },\n" +
+    // V1.9.1（A12）：大气层分界线
+    "  chartTexts: function () { return chartCv.getContext('2d').__styles.text; },\n" +
+    "  climbTexts: function () { return climbCv.getContext('2d').__styles.text; },\n" +
+    "  chartDraw: function () { try { drawChart(); } catch (e) {} },\n" +
+    "  climbDraw: function () { try { drawClimb(); } catch (e) {} },\n" +
+    "  chartViewY0: function () { if (!chartView) chartAutoView(); return Math.round(chartView.y0); },\n" +
+    "  chartMode: function (m) { if (m) S.mode = m; return S.mode; },\n" +
+    "  climbTake: function (m) { if (m) S.climbTake = m; return S.climbTake || 'sma'; },\n" +
     "  chartY1: function () { if (!chartView) chartAutoView(); return Math.round(chartView.y1); },\n" +
     "  climbY1: function () { if (!climbView) climbAutoView(); clampClimbView(climbView); return Math.round(climbView.y1); },\n" +
     "  climbAuto: function () { return climbAutoPick(); },\n" +
@@ -2682,6 +2694,56 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
     k3.setClimbPick('b:24240');
   }
 
+  // ================================================================ V1.9.1（A12）：大气层分界线 y = 100 km
+  // Q27：画在 **04 变轨情况（仅半长轴模式）** 与 **03 倾角分布（无论纵轴量 sma/hp/ha）**；
+  //   `[4,4]` 虚线 + 中性淡色 + 线旁小字「100 km」；绘制层在**网格之上、光点之下**（与 A9 圆圈同层）。
+  {
+    // 让 canvas 替身也记录 fillText 的文本（"画没画那条线+那个标签"只能这样验）
+    const txtOf = styles => styles.text;
+    const beforeC = k3.chartTexts().length, beforeL = k3.climbTexts().length;
+    k3.chartDraw();
+    const chartNew = k3.chartTexts().slice(beforeC);
+    assert('A12：03 倾角分布画了「100 km」标注（默认纵轴量 = 半长轴高度）',
+      chartNew.indexOf('100 km') >= 0, JSON.stringify(chartNew.filter(x => /100/.test(x))));
+    // 三档纵轴量都要画（sma / ha / hp）
+    ['sma', 'ha', 'hp'].forEach(function (m) {
+      k3.chartMode(m);
+      const b = k3.chartTexts().length;
+      k3.chartDraw();
+      const now = k3.chartTexts().slice(b);
+      assert('A12：03 纵轴量切换为 `' + m + '` 时同样画 100 km 线（Q27：无论纵轴量）',
+        now.indexOf('100 km') >= 0, JSON.stringify(now.filter(x => /100/.test(x))));
+    });
+    k3.chartMode('sma');
+    // 04：半长轴模式画、升轨速度模式不画
+    k3.climbTake('sma');
+    let b2 = k3.climbTexts().length;
+    k3.climbDraw();
+    assert('A12：04 变轨情况（半长轴模式）画了「100 km」标注',
+      k3.climbTexts().slice(b2).indexOf('100 km') >= 0,
+      JSON.stringify(k3.climbTexts().slice(b2).filter(x => /100/.test(x))));
+    k3.climbTake('rate');
+    b2 = k3.climbTexts().length;
+    k3.climbDraw();
+    assert('A12：04 升轨速度模式**不画**（那是 km/天 的量纲，100 km 无意义 —— Q27）',
+      k3.climbTexts().slice(b2).indexOf('100 km') < 0);
+    k3.climbTake('sma');
+    // 层次与样式
+    assert('A12：样式 = `[4,4]` 虚线 + 中性淡色（C.dim，不抢数据线）+ 小字 10px，且**在光点之前**绘制',
+      /function atmLineDraw\(ctx, C, PL, pw, Yval, label\)/.test(appSrc) &&
+      /ctx\.setLineDash\(\[4, 4\]\); ctx\.lineWidth = 1;/.test(appSrc) &&
+      /ctx\.strokeStyle = C\.dim; ctx\.globalAlpha = 0\.85;/.test(appSrc) &&
+      (function () {
+        // 03 章里：atmLineDraw 必须出现在「点」的 forEach 之前
+        const src = (appSrc.match(/function drawChart\(\) \{[\s\S]*?\nfunction chartHit/) || [''])[0];
+        return src.indexOf('atmLineDraw(') > 0 &&
+          src.indexOf('atmLineDraw(') < src.indexOf("var scope = 'chart';");
+      })());
+    assert('A12：断轴视图下也落在**下段**（下段就是 0~2000 km 的真实高度段）—— 03 默认视图 y0 = 0 时可见',
+      k3.chartViewY0() === 0 && k3.chartBrkOn() === true,
+      'y0=' + k3.chartViewY0() + ' brk=' + k3.chartBrkOn());
+  }
+
   dom3.window.close();
 }
 
@@ -2707,6 +2769,19 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
   assert('V1.9.1：build.mjs 有 history/ "陈旧检测"（数据源比打包产物新则拒绝覆盖）',
     /newestSrc > packTime/.test(bc) && /拒绝覆盖/.test(bc) && /CISTRACK_ALLOW_STALE_HISTORY/.test(bc));
 }
+
+// V1.9.1（#9）：加载页两行字**写死进 HTML** ——
+//   原先 lmTxt 只有 data-i18n（脚本跑起来才填）、lmEpoch 完全为空 → 首帧只有一个圆环，
+//   要等 JS 解析完（单文件 1.2MB + SGP4 初始化）才出现两行字。现在从首帧起就是"两行字"版本。
+assert('V1.9.1（#9）：加载页两行字写死进 HTML（首帧就有字，不靠 JS 填）',
+  /<div class="lm-txt" id="lmTxt" data-i18n="d_loading_tle">正在获取最新轨道要素…<\/div>/.test(tpl) &&
+  /<div class="lm-epoch" id="lmEpoch">要素历元 —<\/div>/.test(tpl) &&
+  // 产物里同样在（模板 → 产物的注入过程不能把它冲掉）
+  /id="lmTxt"[^>]*>正在获取最新轨道要素…</.test(html) &&
+  /id="lmEpoch"[^>]*>要素历元 —</.test(html), '');
+assert('V1.9.1（#9）：JS 起来后仍然接管（语言切换 / 真实历元替换）—— 两条路径都保留',
+  /function refreshMaskText\(\)/.test(appSrc) && /function setLoadEpoch\(txt\)/.test(appSrc) &&
+  /tx\.textContent = t\('d_updated'\)/.test(appSrc));
 
 $('#themeBtn').dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
 

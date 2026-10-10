@@ -2201,9 +2201,15 @@ html[data-theme="light"] .res-fail { color:#c72929; }
 <div id="jumpPill"></div>
 
 <div id="loadMask">
-  <div class="lm-txt" id="lmTxt" data-i18n="d_loading_tle"></div>
+  <!-- V1.9.1（#9）：两行字**写死进 HTML**。
+       原先 `lmTxt` 只有 `data-i18n`、`lmEpoch` 完全为空 —— 而 data-i18n 是**脚本跑起来之后**
+       才被填的（applyStaticLang），于是首帧只有中间那个圆环（"只有一个加载框的页面"），
+       要等 JS 解析完（单文件 1.2MB + SGP4 初始化）才出现两行字。
+       现在从首帧起就是"两行字"版本，全加载过程只有这一种形态；
+       JS 起来后照旧接管（`refreshMaskText` 会按当前语言改写，历元也会被真实值替换）。 -->
+  <div class="lm-txt" id="lmTxt" data-i18n="d_loading_tle">正在获取最新轨道要素…</div>
   <div class="lm-ring"></div>
-  <div class="lm-epoch" id="lmEpoch"></div>
+  <div class="lm-epoch" id="lmEpoch">要素历元 —</div>
 </div>
 
 <div id="readmeMask" class="modal-mask hide">

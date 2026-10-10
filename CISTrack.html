@@ -3782,6 +3782,25 @@ function brkDrawMark(ctx, PL, cut, pw) {
   ctx.stroke();
   ctx.restore();
 }
+// ---------------------------------------------------------------- V1.9.1（A12）：大气层分界线 y = 100 km
+// Q27 裁决：画在 **04 变轨情况（仅半长轴模式）** 与 **03 倾角分布（无论纵轴量是 sma/hp/ha）**。
+// 样式：`[4,4]` 虚线 + 中性淡色（**不抢数据线**）+ 线旁小字「100 km」；
+//   绘制顺序与 A9 的聚类圆圈同一层（**网格之上、光点之下**）。
+// 断轴视图下它落在**下段**（下段就是 0~2000 km 的真实高度段），位置天然正确。
+var ATM_LINE = 100;                       // km
+function atmLineDraw(ctx, C, PL, pw, Yval, label) {
+  var y = Yval(ATM_LINE);
+  if (y == null) return;                  // 断轴区里没有它的位置（不会有：100 km 在下段）
+  ctx.save();
+  ctx.setLineDash([4, 4]); ctx.lineWidth = 1;
+  ctx.strokeStyle = C.dim; ctx.globalAlpha = 0.85;
+  ctx.beginPath(); ctx.moveTo(PL, y); ctx.lineTo(PL + pw, y); ctx.stroke();
+  ctx.setLineDash([]); ctx.globalAlpha = 1;
+  ctx.font = '10px ' + MONO; ctx.fillStyle = C.tick;
+  ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+  ctx.fillText(label, PL + 6, y - 3);
+  ctx.restore();
+}
 function clampChartView(v) {
   if (!v) return v;
   // 视口比整个定义域还宽/高 → 直接钉到定义域（这就是「不能无限缩小」的硬闸）
@@ -4041,6 +4060,9 @@ function drawChart() {
     ctx.fillText('36500 km (GEO)', PL + 6, by + 3);
   }
   ctx.setLineDash([]);
+
+  // ---- V1.9.1（A12）：大气层分界线 y = 100 km（**网格之上、光点之下**，与 A9 圆圈同层）
+  atmLineDraw(ctx, C, PL, pw, Y, '100 km');
 
   // ---- V1.9.1（A9）：**聚集区虚线圆圈** + 「高度/倾角」标签 ----
   //   画在**光点之前**（不填充 → 不遮挡；顺序上也点在上层）。
@@ -11413,6 +11435,9 @@ function drawClimb() {
     ctx.fillText(BRK_LO + '~' + BRK_HI, PL + 8, YM.cut);
     ctx.font = '11px ' + MONO;
   }
+  // ---- V1.9.1（A12）：大气层分界线 y = 100 km（**仅半长轴模式**；升轨速度模式下无意义，Q27）
+  if (take === 'sma') atmLineDraw(ctx, C, PL, pw, Y, '100 km');
+
   // ---- 横轴刻度：从粗到细按目标刻度数挑（与 04 章同一套档位梯，任何缩放档位都是 4~6 条）
   var spanD = (v.x1 - v.x0) / CLIMB_DAY;
   var LADDER = [1, 2, 3, 7, 14, 28, 56, 91, 182, 365, 730, 1825];
