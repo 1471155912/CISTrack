@@ -395,9 +395,11 @@ assert('偏好不再读取 / 不再落盘（每次打开都是默认配置）',
 assert('时间条不落盘（每次打开都是实时时刻）',
   /timeOffsetMap: 0, timeOffsetGlobe: 0/.test(appSrc) && /off: 0, frozen: null/.test(appSrc));
 assert('主题切换按钮仍在（本次会话内可切）', /themeBtn/.test(tpl) && /function refreshTheme/.test(appSrc));
-assert('顶栏毛玻璃：补 -webkit- 前缀 + 更大模糊 + 较低不透明度',
-  /-webkit-backdrop-filter:blur\(20px\) saturate\(160%\)/.test(tpl) &&
-  /backdrop-filter:blur\(20px\) saturate\(160%\)/.test(tpl) &&
+// V1.9.1（#10）：毛玻璃数值上收到 :root 的 --glass-web / --glass-std（全站统一只有一处定义）
+assert('顶栏毛玻璃：-webkit- 前缀 + 更大模糊 + 较低不透明度（V1.9.1 起数值取自 --glass-web/--glass-std）',
+  /--glass-web:blur\(20px\) saturate\(160%\)/.test(tpl) &&
+  /--glass-std:blur\(18px\) saturate\(180%\)/.test(tpl) &&
+  /-webkit-backdrop-filter:var\(--glass-web\)/.test(tpl) && /backdrop-filter:var\(--glass-std\)/.test(tpl) &&
   /--nav-bg:rgba\(5,5,5,0\.55\)/.test(tpl) && /--nav-bg:rgba\(247,247,245,0\.60\)/.test(tpl));
 assert('地图合规表述换成新句子且为粗体（中英）',
   /\*\*地图仅为粗略的地球大陆海岸线轮廓示意图，不能准确代表实际投影情况。\*\*/.test(appSrc) &&
@@ -653,8 +655,10 @@ assert('全屏常驻搜索框（无 ⌕ 圆钮）+ 搜索键', !/fs-search-btn/.
 assert('地图章节固定长宽比（含全屏）', /#sec-map \.canvas-wrap \{ height:auto; aspect-ratio:1325 \/ 620; \}/.test(tpl));
 assert('激活态为反色（含地图章节的 ghost.tgl 与全屏控件）', /button\.ghost\.tgl\.on/.test(tpl) &&
   /color:var\(--bg\); background:var\(--fg\); border-color:var\(--fg\);/.test(tpl));
-assert('浮动控件统一毛玻璃', /#jumpPill button, \.view-ctl button, \.fs-panel-btn/.test(tpl) &&
-  /backdrop-filter:blur\(8px\)/.test(tpl));
+// V1.9.1（#10）：浮动控件的毛玻璃不再是独立的 blur(8px)，改为与顶栏同一份变量
+assert('浮动控件统一毛玻璃（V1.9.1：与顶栏同一口径，不再是 blur(8px)）',
+  /#jumpPill button, \.view-ctl button, \.fs-panel-btn/.test(tpl) &&
+  /backdrop-filter:var\(--glass-std\); -webkit-backdrop-filter:var\(--glass-web\)/.test(tpl));
 
 
 assert('curKey 不再出现（当前星座用 S.key）', appSrc.indexOf('curKey') < 0 && /var k = S\.key/.test(appSrc));
@@ -709,7 +713,7 @@ assert('联想区为半透明毛玻璃且置于药丸之下', (function(){
   var i = tpl.indexOf('.sug-list {\n  z-index:62');
   if (i < 0) return false;
   var blk = tpl.slice(i, tpl.indexOf('}', i));
-  return blk.indexOf('backdrop-filter:blur(22px)') >= 0 && blk.indexOf('background:var(--sug-bg) !important') >= 0;
+  return blk.indexOf('backdrop-filter:var(--glass-std)') >= 0 && blk.indexOf('background:var(--sug-bg) !important') >= 0;
 })());
 assert('样式必须写在 </style> 内（不能落在 </html> 之后）', (function(){
   var m = tpl.indexOf('V1.5.3 最终版');
@@ -2198,6 +2202,13 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
     "  netWeeks: function () { return netData().weeks.length; },\n" +
     "  netAxis: function () { netAutoView(); return { x0: netView.x0, x1: netView.x1 }; },\n" +
     "  netSolidFrom: function (k) { return netSolidFrom(k); },\n" +
+    // V1.9.1（#6）：横轴刻度梯 + 轴起点
+    "  netOrigin: function () { var d = netData(); return { x0min: netX0Min(d), weeks0: d.weeks[0], origin: d.originMs }; },\n" +
+    "  netModeNow: function () { return (S.netMode || '-') + '/' + NET.mode + '/evs=' + (typeof netBuild === 'function' ? 'fn' : '?'); },\n" +
+    "  tickStep: function (spanD, want) { return tickStepDays(spanD, want); },\n" +
+    "  tickLadder: function () { return TICK_LADDER.slice(); },\n" +
+    "  netAxisNow: function () { netAutoView(); return { x0: netView.x0, x1: netView.x1 }; },\n" +
+    "  netLabel: function (ms) { return netDateLabel(ms); },\n" +
     // V1.9.1（A9）：倾角分布聚类圆圈
     "  chartCL: function () { return chartClusters(chartVisiblePts()).map(function (c) {\n" +
     "    return { n: c.n, x: +c.x.toFixed(3), y: Math.round(c.y), rx: +c.rx.toFixed(3), ry: Math.round(c.ry),\n" +
@@ -2247,6 +2258,12 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
     "  climbSelValue: function () { var s = document.getElementById('climbSel'); return s ? s.value : null; },\n" +
     "  climbSelText: function () { var s = document.getElementById('climbSel'); return s ? s.options[s.selectedIndex].textContent : null; },\n" +
     "  climbSelect: function (v) { climbSelect(v); },\n" +
+    // V1.9.1（A18/Q41）：02 章 3D 球体的「分段夸张」—— 暴露真实函数与常量（源码守卫之外的行为验证）
+    "  globeRad: function (r) { return +globeRad(r).toFixed(6); },\n" +
+    "  globeHi: function () { return { knee: HI_KNEE_R, kneeY: +HI_KNEE_Y.toFixed(6), ref: HI_REF_R, refY: HI_REF_Y, ex: ALT_EXAG, RE: RE }; },\n" +
+    "  globeNote: function () { return document.getElementById('globeNote').textContent; },\n" +
+    "  globeHiSats: function () { var st = cur(); return st.sats.filter(function (s) { return (s.sma || 0) > HI_KNEE_R; }).length; },\n" +
+    "  globeBase: function () { return +globeBaseR(1200, 700).toFixed(3); },\n" +
     "  toast: function () { var e = document.getElementById('selToast'); return e ? { txt: e.textContent, cls: e.className } : null; }\n" +
     "};\n";
   const hm = HEAD_RE.exec(html);
@@ -2596,11 +2613,16 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
     assert('A8：分界周落在正确的相对位置（星网早于千帆；两者都远小于总周数的一半之后）',
       sGw > 0 && sQf > sGw && sGw < k3.netWeeks() && sQf < k3.netWeeks(),
       'gw=' + sGw + ' qf=' + sQf + ' 总周数=' + k3.netWeeks());
-    // 轴起点：最早的试验星（千帆 2019-11-17）所在周的周一
-    const ax = k3.netAxis();
-    assert('A8：横轴起点前移到最早试验星所在周（Q15：2019-11 而非 2023）',
-      new Date(ax.x0).getUTCFullYear() === 2019,
-      new Date(ax.x0).toISOString().slice(0, 10) + ' → ' + new Date(ax.x1).toISOString().slice(0, 10));
+    // 轴起点：★ V1.9.1（#6 / Q2）**覆盖** Q15 —— 旧口径"前移到最早试验星（2019-11）"已被否决，
+    //   改为「首个**在轨数量 > 0** 的日期」。理由：2019/2021 那两条 KL 试验星没有在轨数据，
+    //   却让首屏出现 4 年空白、整条横轴全是"年"刻度，与倾角分布章（niceTicks 连续档）观感差距很大。
+    const og = k3.netOrigin(), axn = k3.netAxisNow();
+    assert('#6（Q2 覆盖 Q15）：横轴起点 = 首个「在轨数量 > 0」的周，且晚于数据最早周（不再被 2019 的试验星占位）',
+      Math.abs(axn.x0 - og.x0min) < 1 && og.x0min > og.weeks0,
+      '轴起点=' + new Date(og.x0min).toISOString().slice(0, 10) +
+      '，数据最早周=' + new Date(og.weeks0).toISOString().slice(0, 10) +
+      '，origin=' + new Date(og.origin).toISOString().slice(0, 10) +
+      '，netMode=' + k3.netModeNow());
     // 真的画了虚线：分别只看一个星座，绘制时曲线段应有**一次** [5,5]（试验星段）
     const dashProbe = (key) => {
       k3.netOnly(key);
@@ -2623,6 +2645,42 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
       /var firstSolid = Math\.max\(0, kCut - 1\);/.test(appSrc) &&
       /seg\(0, firstSolid, true\);/.test(appSrc) &&
       /seg\(firstSolid, arr\.length - 1, false\);/.test(appSrc));
+  }
+
+  // ================================================================ V1.9.1（#6）：横轴「时间刻度梯」
+  // 清单要求：两章统一升级为"时间 nice 步长梯"、任何缩放档位保证 ≥3 条且步长严格细化、
+  //   修掉"跨度太小 → 步长回落 1825 天 → **刻度直接消失**"的纯算术缺陷。
+  //   〔v2 裁决〕Q2 = 改从实际入轨开始（轴起点，见上）；Q3 = **不用小时级**（历史库口径本
+  //   就是"一天一条"：当天多条 TLE 取均值）→ 档位梯最细到「天」。
+  {
+    const L = k3.tickLadder();
+    assert('#6：档位梯**只此一处定义**（旧版 04/05 两章各内联一份一字不差的 LADDER，改一处漏一处）',
+      L.length === 12 && (appSrc.match(/var TICK_LADDER = \[/g) || []).length === 1 &&
+      (appSrc.match(/var stepD = tickStepDays\(spanD, want\);/g) || []).length === 2,
+      JSON.stringify(L));
+    assert('#6：档位对齐自然边界（1/2/3 日 → 周 → 双周 → 4 周 → 季 → 半年 → 年 → 两年 → 五年）',
+      L[0] === 1 && L[1] === 2 && L[2] === 3 && L.includes(7) && L.includes(14) &&
+      L.includes(28) && L.includes(91) && L.includes(365) && L.includes(1825));
+    // 核心缺陷回归守卫：跨度小于"目标条数 × 最细档"时，旧版 stepD 保持 1825 → 刻度消失
+    assert('#6：**深放大时兜底取最细档**（旧版兜最粗档 1825 天 → 刻度直接消失，纯算术必现）',
+      k3.tickStep(3, 6) === 1 && k3.tickStep(1, 6) === 1 && k3.tickStep(0.5, 6) === 1,
+      'span=3d→' + k3.tickStep(3, 6) + 'd；span=1d→' + k3.tickStep(1, 6) + 'd；span=0.5d→' + k3.tickStep(0.5, 6) + 'd');
+    // 步长随可视跨度单调细化（不会出现"放大反而变粗"的来回跳）
+    const spans = [3650, 1825, 900, 365, 180, 90, 30, 14, 7];
+    const steps = spans.map(s => k3.tickStep(s, 6));
+    assert('#6：步长随可视跨度**单调细化**（缩小 → 变粗；放大 → 变细，不会来回跳）',
+      steps.every((v, i) => i === 0 || v <= steps[i - 1]), JSON.stringify(steps));
+    const counts = spans.map(s => Math.floor(s / k3.tickStep(s, 6)));
+    assert('#6：各档位刻度条数**都至少 3 条**（深放大也不例外 —— 这正是老缺陷的现场）',
+      counts.every(c => c >= 3), JSON.stringify(spans.map((s, i) => s + 'd:' + counts[i])));
+    assert('#6：常规缩放档的条数不超上限 8（清单要求标签数落在 [3,8]，旧版"首个 ≥want"会过冲到 10）',
+      counts.every(c => c <= 8),
+      JSON.stringify(counts));
+    // 两章共用同一份实现（04 章不得再有第二份内联）
+    assert('#6：04 章与 05 章**共用同一个 tickStepDays**（源码里不再出现第二份 LADDER 定义）',
+      (appSrc.match(/var LADDER = \[/g) || []).length === 0 &&
+      /var stepD = tickStepDays\(spanD, want\);/g.test(appSrc) &&
+      (appSrc.match(/var stepD = tickStepDays\(spanD, want\);/g) || []).length === 2);
   }
 
   // ================================================================ V1.9.1（A9）：倾角分布「聚集区圆圈」
@@ -2737,6 +2795,49 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
     assert('A18：36500 km 物理边界虚线在断轴模式下不再重复画（上段本身就是 GEO 带）',
       /if \(v\.y1 > CHART_Y_MAX - 1e-6 && CHART_Y_MAX >= v\.y0 && !YM\.on\) \{/.test(appSrc));
     k3.setClimbPick('b:24240');
+
+    // ------------------------------------------------------------------
+    // ★ V1.9.1（A18 + Q41）：02 章 3D 球体**做不到断轴**（断轴是 2D 坐标轴的技术），改用**分段夸张**：
+    //   LEO 段（半长轴 ≤ 8000 km）原样保留 2.4×（与旧版**逐像素一致**，不扰动既有画面）；
+    //   高轨段改成缓坡 → GEO(42164 km) 落在 **2.2 个地球半径**（旧口径是 **14.47**，早就跑到画布外）。
+    //   这里验证的是**探针暴露的真实函数**，不是把公式复述一遍。
+    {
+      const hi = k3.globeHi();
+      assert('A18/Q41：分段参数就位（分段点 8000 km / GEO 参考 42164 km / 落点 2.2 个地球半径 / LEO 仍 2.4×）',
+        hi.knee === 8000 && hi.ref === 42164 && hi.refY === 2.2 && Math.abs(hi.ex - 2.4) < 1e-9,
+        JSON.stringify(hi));
+      const oldR = r => 1 + (r / hi.RE - 1) * hi.ex;
+      const leo = [6378.135, 6900, 7000, 7378.135, 8000];
+      assert('A18/Q41：**LEO 段与旧口径逐像素一致**（纯 LEO 视图不受任何扰动，既有视觉断言不会变红）',
+        leo.every(r => Math.abs(k3.globeRad(r) - oldR(r)) < 1e-6),
+        leo.map(r => r + ':' + k3.globeRad(r).toFixed(4)).join(' '));
+      assert('A18/Q41：分段点**连续**（8000 km 处左右极限相等 → 不会出现「内圈比外圈还靠内」的视觉回跳）',
+        Math.abs(k3.globeRad(8000) - k3.globeRad(8000 + 1e-6)) < 1e-5 &&
+        Math.abs(k3.globeRad(8000) - hi.kneeY) < 1e-6,
+        'y(8000)=' + k3.globeRad(8000) + ' kneeY=' + hi.kneeY);
+      assert('A18/Q41：GEO（42164 km）落在 2.2 个地球半径（旧口径 14.47 → 完全在画布外）',
+        Math.abs(k3.globeRad(42164) - 2.2) < 1e-6,
+        'new=' + k3.globeRad(42164) + ' old=' + oldR(42164).toFixed(2));
+      assert('A18/Q41：GTO 远地点（26600 km）落在 LEO(1.6103) 与 GEO(2.2) 之间（高轨段被压成一段而非一点）',
+        k3.globeRad(26600) > hi.kneeY && k3.globeRad(26600) < 2.2,
+        'y(26600)=' + k3.globeRad(26600));
+      let mono = true, prev = -1;
+      for (let r = 6378; r <= 60000; r += 10) { const v = k3.globeRad(r); if (v < prev - 1e-9) mono = false; prev = v; }
+      assert('A18/Q41：整段单调递增（越高的壳层画得越外，不会互相穿插）', mono);
+      assert('A18/Q41：GEO 圈在**缩放下限（0.5×）内完全可见**（1200×700 实测：2.2R×0.5 = 284 px < 半高 350）',
+        k3.globeRad(42164) * k3.globeBase() * 0.5 <= 350,
+        '2.2R = ' + (k3.globeRad(42164) * k3.globeBase()).toFixed(1) + ' px；×0.5 = ' +
+        (k3.globeRad(42164) * k3.globeBase() * 0.5).toFixed(1) + ' px');
+      assert('A18/Q41：当前数据的 sats 里**没有高轨卫星** → 图下说明**不追加**压缩提示（不把说明写长）',
+        k3.globeHiSats() === 0 && k3.globeNote().indexOf('压缩') < 0,
+        'hiSats=' + k3.globeHiSats() + ' | note=' + k3.globeNote());
+      assert('A18/Q41：压缩提示键中英齐备，且**只在确有高轨卫星时才出现**（源码守卫）',
+        /d_globe_hi_note: \['[^']*压缩[^']*',\s*'[^']*compressed[^']*'\]/.test(appSrc) &&
+        /if \(\(st\.sats\[i\]\.sma \|\| 0\) > HI_KNEE_R\) return s \+ ' ' \+ t\('d_globe_hi_note'\)/.test(appSrc));
+      assert('A18/Q41：映射只有一处定义（02 章画轨道圈、卫星点、命中测试共用同一个 globeRad）',
+        (appSrc.match(/function globeRad\(/g) || []).length === 1 &&
+        (appSrc.match(/var ALT_EXAG = 2\.4;/g) || []).length === 1);
+    }
   }
 
   // ================================================================ V1.9.1（A12）：大气层分界线 y = 100 km
@@ -2910,6 +3011,82 @@ assert('V1.9.1（#9）：加载页两行字写死进 HTML（首帧就有字，�
 assert('V1.9.1（#9）：JS 起来后仍然接管（语言切换 / 真实历元替换）—— 两条路径都保留',
   /function refreshMaskText\(\)/.test(appSrc) && /function setLoadEpoch\(txt\)/.test(appSrc) &&
   /tx\.textContent = t\('d_updated'\)/.test(appSrc));
+
+// ================================================================ V1.9.1（#7）：非线性过场泛化
+// 清单 #7：`chartSwap` 泛化为 `cvSwap(cvId, apply)`；04/05 两章的四个控件（05 的「发射量 / 在轨数量」
+//   「星网 / 千帆」、04 的「半长轴 / 升轨速度」）此前都是**直调重绘**（画面"啪"地跳过去）。
+//   时长与缓动必须与 03 章**完全一致**（同一条 ANIM.half）。
+{
+  assert('#7：`cvSwap(cvId, apply)` 存在，且 `chartSwap` 退化为它的 03 章包装（不是两份实现）',
+    /function cvSwap\(cvId, apply\)/.test(appSrc) &&
+    /function chartSwap\(apply\) \{ cvSwap\('chart', apply\); \}/.test(appSrc) &&
+    (appSrc.match(/wrap\.classList\.add\('chart-out'\)/g) || []).length === 1);
+  assert('#7：过场时长与 03 章同一条（都用 ANIM.half，不引入第二个时长常量）',
+    /wrap\.classList\.remove\('chart-out'\);\s*\}, ANIM\.half\);/.test(appSrc) &&
+    !/}, ANIM\.half\);/.test(appSrc.slice(appSrc.indexOf('function cvSwap') + 600, appSrc.indexOf('function chartSwap'))));
+  assert('#7：05 章「发射量/在轨数量」（netSetMode）走 cvSwap，按钮高亮**立即**响应',
+    /function netSetMode\(m\) \{[\s\S]{0,400}?cvSwap\('netCv', function \(\) \{ netAutoView\(\); drawNet\(\); \}\);/.test(appSrc));
+  assert('#7：05 章「星网/千帆」（netShowSeg）走 cvSwap', /cvSwap\('netCv', function \(\) \{ netView = null; netAutoView\(\); drawNet\(\); \}\);/.test(appSrc));
+  assert('#7：04 章「半长轴/升轨速度」（climbTakeSeg）走 cvSwap', /cvSwap\('climbCv', function \(\) \{ drawClimb\(\); \}\);/.test(appSrc));
+  assert('#7：过场只作用于 `.chart-wrap`（画布）—— 不把整章或表格一起淡掉',
+    /\.chart-wrap\.chart-out canvas \{ opacity:0; \}/.test(tpl));
+}
+
+// ================================================================ V1.9.1（#8）：全屏几何与重绘
+// 两个根因（清单 #8，真机实测）：
+//   根因 A：drawClimb **从未**在 fullscreenchange / resize / applyPseudoFull 里被调用 →
+//           backing store 停在旧尺寸 → 浏览器把旧位图拉伸（横 1.43× / 纵 0.65×）。
+//   根因 B：变轨章 chart-wrap 几何在 border-box 下**多减了一个 climb-bar** → 底边比视口高 64 px。
+{
+  assert('#8（根因 A）：全屏两条计时器路径都补上了 drawClimb',
+    (appSrc.match(/try \{ drawClimb\(\); \} catch \(e\) \{\}/g) || []).length >= 4,
+    '出现次数=' + (appSrc.match(/try \{ drawClimb\(\); \} catch \(e\) \{\}/g) || []).length);
+  assert('#8（根因 A）：伪全屏路径（applyPseudoFull）也重画 net + climb',
+    /try \{ drawNet\(\); \} catch \(e\) \{\}\s*try \{ drawClimb\(\); \} catch \(e\) \{\}\s*mapDirty = true; globeDirty = true;/.test(appSrc));
+  assert('#8（根因 A）：resize 有防抖重绘（redrawCanvasesLater，160ms，三张画布全覆盖）',
+    /function redrawCanvasesLater\(\)/.test(appSrc) &&
+    /}, 160\);/.test(appSrc) &&
+    (appSrc.match(/redrawCanvasesLater\(\)/g) || []).length >= 2);
+  assert('#8（根因 B）：变轨章几何与对照章**对齐**（height:100vh + padding-top:climbbar-h，去掉 −8px 与 padding-bottom）',
+    /#sec-climb\.fs-mobile \.chart-wrap \{[\s\S]{0,1400}?height:100vh;[\s\S]{0,80}?padding-top:var\(--climbbar-h, 40px\);[\s\S]{0,30}?\}/.test(tpl) &&
+    !/height:calc\(100vh - var\(--climbbar-h/.test(tpl));
+  assert('#8（Q6）：全屏按钮列底距加触屏安全值（max(24px + 安全区, 48px)）',
+    /--fs-ctl-bottom: max\(calc\(24px \+ env\(safe-area-inset-bottom, 0px\)\), 48px\);/.test(tpl));
+}
+
+// ================================================================ V1.9.1（#2 + #10 + A5）：毛玻璃统一
+{
+  assert('#10：毛玻璃口径**只有一处定义**（:root 的两个变量），全站不再有散落的 blur(Npx)',
+    /--glass-web:blur\(20px\) saturate\(160%\);/.test(tpl) &&
+    /--glass-std:blur\(18px\) saturate\(180%\);/.test(tpl) &&
+    // 只剩两个遮罩类按清单"不参与统一"：#loadMask（saturate(120%)）与 .modal-mask
+    (tpl.match(/(?<!-)[-a-z]*backdrop-filter:blur\(\d+px\)/g) || []).length === 4,
+    '残留=' + JSON.stringify((tpl.match(/(?<!-)[-a-z]*backdrop-filter:blur\(\d+px\)/g) || [])));
+  assert('#10：-webkit- 前缀与标准属性**成对**（Safari 与 Chrome 各取所需，不能只剩一个）',
+    (tpl.match(/-webkit-backdrop-filter:var\(--glass-web\)/g) || []).length ===
+    (tpl.match(/(?<!-webkit-)backdrop-filter:var\(--glass-std\)/g) || []).length,
+    'web=' + (tpl.match(/-webkit-backdrop-filter:var\(--glass-web\)/g) || []).length +
+    ' std=' + (tpl.match(/(?<!-webkit-)backdrop-filter:var\(--glass-std\)/g) || []).length);
+  assert('#2 + A5：切换期间**全站禁用过渡**（根治"星网/千帆"按钮文字短暂消失：底色与文字色相向插值撞在同一个灰上）',
+    /html\.vt-running \* \{ transition:none !important; \}/.test(tpl));
+  assert('#2：切换期间的毛玻璃例外名单**覆盖全部玻璃件**（顶栏 + 药丸 + 浮动控件 + 搜索 + 联想 + 抽屉）',
+    ['html.vt-running #clockPill,', 'html.vt-running #jumpPill,', 'html.vt-running #jumpPill button,',
+      'html.vt-running .view-ctl button,', 'html.vt-running .fs-panel-btn,', 'html.vt-running .fs-clock,',
+      'html.vt-running .fs-exit-btn,', 'html.vt-running .search-wrap,', 'html.vt-running .sug-list,',
+      'html.vt-running #sec-chart.fs-mobile .controls,', 'html.vt-running #sec-progress.fs-mobile .controls,',
+      'html.vt-running #sec-climb.fs-mobile .climb-bar,', 'html.vt-running section.fs-mobile .fs-search-wrap,',
+      'html.vt-running section.fs-mobile .fs-search-wrap .fs-sug,', 'html.vt-running section.fs-mobile .sec-head {'
+    ].every(x => tpl.includes(x)),
+    ['#clockPill', '#jumpPill', '.view-ctl button', '.fs-panel-btn', '.fs-clock', '.fs-exit-btn',
+      '.search-wrap', '.sug-list', 'section.fs-mobile .fs-search-wrap', 'section.fs-mobile .sec-head',
+      '#sec-chart.fs-mobile .controls', '#sec-progress.fs-mobile .controls', '#sec-climb.fs-mobile .climb-bar'
+    ].filter(x => !tpl.includes('html.vt-running ' + x)).join(',') || 'all-present');
+  assert('#2 + A5：例外名单的 specificity 高于 `html.vt-running *`（否则 !important 相同、比不过就白写）',
+    // 名单里带 id 的三条必须写成 `html.vt-running #id...`，纯 class 的写成 `html.vt-running .cls`
+    /html\.vt-running #sec-chart\.fs-mobile \.controls/.test(tpl) &&
+    /html\.vt-running #sec-progress\.fs-mobile \.controls/.test(tpl) &&
+    /html\.vt-running #sec-climb\.fs-mobile \.climb-bar/.test(tpl));
+}
 
 $('#themeBtn').dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
 

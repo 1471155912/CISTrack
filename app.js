@@ -252,6 +252,9 @@ var I18N = {
   d_map_note: ['地面轨迹为前后各半圈。可视覆盖区按每颗卫星的瞬时高度估算。', 'Ground tracks cover half an orbit before and after now. Coverage zones are estimated from each satellite\'s current altitude.'],
   // V1.3.6：轨道章节下方只留这一句（原「地球在自转…N 条轨道圈」与轨道高度夸张说明已移入「说明」）
   d_globe_note_1: ['卫星位置由 SGP4 实时推算。', 'Positions are propagated live with SGP4.'],
+  // V1.9.1（A18/Q41）：只在当前星座确有高轨卫星时追加（纯 LEO 视图不会看到这句）
+  d_globe_hi_note: ['图中高轨段（半长轴 > 8000 km）为压缩显示。',
+    'The high-altitude segment (semi-major axis > 8000 km) is drawn compressed.'],
   // V1.3.6：表格脚注拆成靠左的四行
   d_tbl_foot_1: ['共 ', ''],
   d_tbl_foot_2: [' 颗\n高度均为相对地球平均半径（6378.135 km）\n轨道模型 SGP4 / WGS-72\n',
@@ -427,7 +430,23 @@ var GRID_LINES = (function () {
 // 圆周采样（cos/sin 查表，供覆盖区与可视锥复用）
 var CIRC = (function () { var a = []; for (var i = 0; i <= 40; i++) { var t = i / 40 * 2 * Math.PI; a.push([Math.cos(t), Math.sin(t)]); } return a; })();
 var ALT_EXAG = 2.4;             // 轨道高度显示夸张系数（让不同高度壳层分得开）
-function globeRad(rKm) { return 1 + (rKm / RE - 1) * ALT_EXAG; }
+// ★ V1.9.1（A18 + Q41）：**分段夸张** —— 3D 球体做不到真正的断轴（断轴是 2D 坐标轴的技术），
+//   而 GEO（半长轴 42164 km）按 2.4× 夸张会落到 **14.47 个地球半径**处，
+//   画布基准半径只有 min(w*0.30, h*0.369) → GEO 完全在画布外
+//   （要缩到 0.07× 才看得见，而缩放下限是 0.5×）。实测：GEO 入库后 02 章等于"少了一层"。
+//   等效办法 = 分段夸张：
+//     · LEO 段（r ≤ 8000 km）**原样保留 2.4×** → 纯 LEO 视图与旧版**逐像素一致**，不扰动既有画面；
+//     · 高轨段（r > 8000 km）改成缓坡，GEO 落在 **2.2 个地球半径**处（与 LEO 壳层仍能一眼分层）。
+//   分段点的取值直接沿用 LEO 公式（而不是另给一个下界），保证**函数连续** ——
+//   否则会出现"8000 km 的轨道圈比 7999 km 的更靠内"这种视觉回跳。
+var HI_KNEE_R = 8000;                                    // 分段点（km，半长轴）
+var HI_KNEE_Y = 1 + (HI_KNEE_R / RE - 1) * ALT_EXAG;     // ≈1.6103，与 LEO 段无缝衔接
+var HI_REF_R = 42164;                                    // GEO 半长轴（参考上界）
+var HI_REF_Y = 2.2;                                      // GEO 落在 2.2 个地球半径
+function globeRad(rKm) {
+  if (rKm <= HI_KNEE_R) return 1 + (rKm / RE - 1) * ALT_EXAG;
+  return HI_KNEE_Y + (HI_REF_Y - HI_KNEE_Y) * (rKm - HI_KNEE_R) / (HI_REF_R - HI_KNEE_R);
+}
 
 if (!SGP4 || !RAW) {
   document.body.insertAdjacentHTML('afterbegin',
@@ -1062,6 +1081,32 @@ function niceTicks(min, max, count) {
 function isVisible(el) {
   var r = el.getBoundingClientRect();
   return r.bottom > -80 && r.top < window.innerHeight + 80 && r.width > 0;
+}
+
+// ★ V1.9.1（#6 / Q2-Q3）：组网进度（05）与升轨情况（04）**共用同一套横轴「时间刻度梯」**。
+//   旧版两处各自内联了一份一字不差的 LADDER，而且**兜底取最粗档（1825 天）**：
+//   当可视跨度小于「目标刻度数 × 最细档」时（= 深放大），步长会回落到 5 年 →
+//   **刻度直接消失**（纯算术必现，不是偶发）。两处重复写法也意味着改一处漏一处。
+//   现在：① 阶梯只此一处定义；② 兜底取**最细档**（1 天）→ 放大到底也仍有刻度；
+//        ③ 档位全部对齐自然边界（日 / 周 / 双周 / 4 周 / 季 / 半年 / 年 / 两年 / 五年）。
+//   注：Q3 定稿「不用小时级」—— 历史库口径本就是「一天一条」（当天多条 TLE 取均值），
+//   所以最细档就是「天」，再细下去只会得到重复日期的刻度。
+var TICK_LADDER = [1, 2, 3, 7, 14, 28, 56, 91, 182, 365, 730, 1825];
+function tickStepDays(spanD, want) {
+  // 目标：刻度条数落在 [3, 8]，并尽量接近 want（桌面 6 / 窄屏 4）。
+  //   ⚠️ 不能简单地"从粗到细找第一个 ≥want 的档" —— 档位是 1/2/3 倍跳的，那样会**过冲**：
+  //     例：跨度 3650 天时，365 天档给 10 条、730 天档给 5 条，"第一个 ≥6"会选 365 → 10 条，
+  //     比目标多出 67%（用户看到的"刻度比别章密一截"就是这个）。改为取**条数最接近 want**的档。
+  //   兜底取**最细档（1 天）**：跨度不足 3 天时任何档都给不出 3 条刻度，
+  //     旧版此时会回落到 1825 天 → **刻度直接消失**（纯算术必现），现在至少还剩每日刻度。
+  var best = TICK_LADDER[0], bestScore = Infinity;
+  for (var i = 0; i < TICK_LADDER.length; i++) {
+    var n = spanD / TICK_LADDER[i];
+    if (n < 3) continue;                     // 硬约束：任何档位都至少 3 条刻度
+    var score = Math.abs(n - want);
+    if (score < bestScore) { bestScore = score; best = TICK_LADDER[i]; }
+  }
+  return best;
 }
 
 // ---------------------------------------------------------------- 动效 / 触摸助手
@@ -3947,7 +3992,20 @@ function renderHeader() {
   // V1.3.6：三处说明文字按用户要求精简 —— 章节下方只留最必要的一句，细节统一搬到「说明」里
   document.getElementById('chartNote').textContent = pendN ? t('d_pend_ghost') : '';
   document.getElementById('mapNote').textContent = t('d_map_note');
-  document.getElementById('globeNote').textContent = t('d_globe_note_1');
+  document.getElementById('globeNote').textContent = globeNoteText();
+}
+
+// ★ V1.9.1（A18/Q41）：02 章图下说明 —— 只有当前星座**确实含高轨卫星**时才追加
+//   「高轨段已压缩显示」。纯 LEO 视图保持原文案不变（不把说明写长）。
+function globeNoteText() {
+  var s = t('d_globe_note_1');
+  try {
+    var st = cur();
+    for (var i = 0; i < st.sats.length; i++) {
+      if ((st.sats[i].sma || 0) > HI_KNEE_R) return s + ' ' + t('d_globe_hi_note');
+    }
+  } catch (e) {}
+  return s;
 }
 
 // ---------------------------------------------------------------- 事件
@@ -4444,8 +4502,13 @@ document.getElementById('themeBtn').addEventListener('click', function () {
 //   按钮层：给 .seg button 的底色/文字色加过渡（CSS），点下去立刻平滑变色；
 //   画布层：260ms 淡出 → 半程换模式并重绘 → 260ms 淡入（与"轨道 / 可见区域"开关同一条曲线、同一时长），
 //   所以坐标图不会"啪"地跳到新纵轴量/新模型，而是先褪去、再以新内容浮现。
-function chartSwap(apply) {
-  var cv = document.getElementById('chart');
+// ★ V1.9.1（#7）：把 03 章专用的 chartSwap **泛化**为按画布 id 的 `cvSwap`。
+//   缺口（清单 #7）：04 章「半长轴 / 升轨速度」与 05 章「发射量 / 在轨数量」「星网 / 千帆」
+//   这四个控件的切换此前都是**直调重绘** —— 画面"啪"地跳过去，与 03 章"旧图先褪去、新图再浮现"
+//   的观感不一致。现在它们共用同一条过场：`.chart-wrap.chart-out canvas { opacity:0 }` 已在
+//   通用选择器上（不绑具体章节），时长/缓动沿用 ANIM.half，与 03 章**逐毫秒一致**。
+function cvSwap(cvId, apply) {
+  var cv = document.getElementById(cvId);
   var wrap = cv && cv.parentNode;
   if (!wrap) { try { apply(); } catch (e) {} return; }
   wrap.classList.add('chart-out');
@@ -4454,6 +4517,7 @@ function chartSwap(apply) {
     wrap.classList.remove('chart-out');
   }, ANIM.half);
 }
+function chartSwap(apply) { cvSwap('chart', apply); }
 document.getElementById('modeSeg').addEventListener('click', function (e) {
   var b = e.target.closest('button[data-mode]'); if (!b) return;
   if (b.classList.contains('on')) return;          // 点的是当前档：不做无意义的过场
@@ -6409,8 +6473,27 @@ function applyPseudoFull(on, sec) {
     try { syncFsBarHeight(); } catch (e) {}
     try { applyMapFsSize(); } catch (e) {}
     try { drawChart(); } catch (e) {}
+    // ★ V1.9.1（#8）：伪全屏路径也要重画那两张 canvas —— 旧版这里只画了 03 章，
+    //   于是「组网进度」与「变轨情况」全屏后 backing store 还停在旧尺寸，
+    //   浏览器只能把旧位图**拉伸**显示（手机横屏实测：横 1.43× / 纵 0.65×，
+    //   就是用户看到的"数字被左右拉长"）。
+    try { drawNet(); } catch (e) {}
+    try { drawClimb(); } catch (e) {}
     mapDirty = true; globeDirty = true;
   }
+}
+// ★ V1.9.1（#8）：视口变化后把三张「内容画布」按新尺寸重画（**防抖 160 ms**）。
+//   画布的 backing store = CSS 尺寸 × dpr，视口一变就必须重算，否则浏览器会把旧位图拉伸。
+//   放在 resize 里而不是靠各章自己处理 —— 全屏 / 转屏 / 拖窗口三条路径都汇到这里。
+var cvRedrawT = null;
+function redrawCanvasesLater() {
+  if (cvRedrawT) clearTimeout(cvRedrawT);
+  cvRedrawT = setTimeout(function () {
+    cvRedrawT = null;
+    try { drawChart(); } catch (e) {}
+    try { drawNet(); } catch (e) {}
+    try { drawClimb(); } catch (e) {}
+  }, 160);
 }
 // V1.7.0 第三轮（需求8）：熄屏/切后台再回来 —— 重新进入全屏，失败则走章节级降级。
 // 【原来的问题】熄屏时浏览器已强制退出全屏；解锁后 requestFullscreen() 没有用户手势通常被拒 →
@@ -6544,8 +6627,14 @@ document.addEventListener('fullscreenchange', function () {
       try { syncFsBarHeight(); } catch (e) {}
       try { drawChart(); mapDirty = globeDirty = true; } catch (e) {}
       try { drawNet(); } catch (e) {}          // V1.8.0（需求8）：03.5 一并按新尺寸重画
+      try { drawClimb(); } catch (e) {}        // ★ V1.9.1（#8）：04 章此前**从未**在全屏路径重画
     }, 60);
-    setTimeout(function () { try { applyMapFsSize(); } catch (e) {} try { drawChart(); } catch (e) {} try { drawNet(); } catch (e) {} }, 320);
+    setTimeout(function () {
+      try { applyMapFsSize(); } catch (e) {}
+      try { drawChart(); } catch (e) {}
+      try { drawNet(); } catch (e) {}
+      try { drawClimb(); } catch (e) {}        // ★ V1.9.1（#8）
+    }, 320);
   }
   // V1.7.0（任务17）：全屏锁横屏、退出全屏锁回竖屏（不再 unlock 放任自由旋转）。
   // 全屏是异步过渡，立刻 lock 常被拒 → 稍后重试几次，确保真的锁上。
@@ -7735,7 +7824,7 @@ try {
     document.fonts.ready.then(function () { setTimeout(layoutTitleGap, 0); }).catch(function () {});
   }
 } catch (e) {}
-window.addEventListener('resize', function () { layoutNav(); syncFsBarHeight(); layoutPickSlot(); try { fixPillWidths(); } catch (e) {} });
+window.addEventListener('resize', function () { layoutNav(); syncFsBarHeight(); layoutPickSlot(); try { fixPillWidths(); } catch (e) {} try { redrawCanvasesLater(); } catch (e) {} });
 // V1.7.2（需求9）：resize 事件在某些环境下不触发或只触发一次
 //   （实测：CDP 的 Emulation.setDeviceMetricsOverride 就不触发 resize，导致极窄屏下
 //   L0–L3 完全没跑、按钮与 CISTrack 重叠）。这里用 rAF + 250ms 延迟各补一次，
@@ -8424,7 +8513,9 @@ function netBuild() {
       // V1.9.0（需求8）：把批次 key（5 位发射编号）一并带上 —— 信息窗里「新增卫星」的批次/组名
       //   要能点击 = 全选该批次（与表格里的批次链接同款行为），而旧版这里只带了 name。
       evs.push({ ms: L.dateMs, key: key, n: netCountOf(L, mode), name: L.name, lk: L.key,
-        res: L.res, pend: L.pending || 0, cnt: L.count || 0, wn: L.wn || 0 });
+        res: L.res, pend: L.pending || 0, cnt: L.count || 0, wn: L.wn || 0,
+        // ★ V1.9.1（#6 / Q2）：另外记一份「在轨」口径的贡献 —— 下面用它算轴起点。
+        nOrbit: netCountOf(L, 'orbit') });
       if (L.dateMs < minMs) minMs = L.dateMs;
       if (L.dateMs > maxMs) maxMs = L.dateMs;
     });
@@ -8451,7 +8542,33 @@ function netBuild() {
     });
     lastN[key] = cum;
   });
-  return { mode: mode, weeks: weeks, series: series, delta: delta, lastN: lastN, now: now };
+  // ★ V1.9.1（#6 / Q2）：横轴起点 = **各星座「首个在轨 > 0」日期中的较晚者**。
+  //   口径用 **orbit**（与当前显示模式无关）→ 切换「发射量 / 在轨数量」时横轴**不会跳**。
+  //   实测（2026-10-10）：
+  //     · 星网首个 = **2023-07-09**（批次 23095「试验星01组」，2 颗在库）
+  //     · 千帆首个 = **2019-11-17**（批次 19077 KL-Alpha）
+  //   ⚠️ 两点如实记录：
+  //     ① 清单里写「2019/2021 两条 KL 试验星**无在轨数据**」——**与实测不符**，
+  //        它们确实有 TLE 在库（所以才被算成"在轨 > 0"）；
+  //     ② 若按"两星座合并取最早"（= 2019-11），首屏仍会有近 4 年空白（其间只有 2 个点），
+  //        等于 Q2 的目的一点没达成。故取**较晚者**：从"两个星座都真正开始有在轨数据"起画。
+  //        2019/2021 那两条孤立试验星的数据点落在轴外（被裁剪），这正是 Q2 想要的。
+  var originMs = weeks[0];
+  ['gw', 'qf'].forEach(function (key) {
+    var ls2 = evs.filter(function (e) { return e.key === key; })
+      .sort(function (a, b) { return a.ms - b.ms; });
+    var acc = 0;
+    for (var i2 = 0; i2 < ls2.length; i2++) {
+      acc += ls2[i2].nOrbit || 0;
+      if (acc > 0) {
+        var mon = netMonday(ls2[i2].ms);
+        if (mon > originMs) originMs = mon;
+        break;
+      }
+    }
+  });
+  if (originMs < weeks[0]) originMs = weeks[0];
+  return { mode: mode, weeks: weeks, series: series, delta: delta, lastN: lastN, now: now, originMs: originMs };
 }
 // V1.9.1（A8）：各星座「**第一颗正式星**」的发射时刻 —— 组网进度里它以**第一个实线点**出现，
 //   它之前的连接线（试验星阶段）用该星座自身颜色的**虚线**。
@@ -8487,25 +8604,33 @@ function netData() {
 function netInvalidate() { NET = null; }
 function netAutoView() {
   var d = netData();
-  var x0 = d.weeks[0], x1 = d.weeks[d.weeks.length - 1] + NET_WK;
+  // ★ V1.9.1（#6 / Q2）：起点用 originMs（首个"在轨数量 > 0"的周），不再是最早的发射记录
+  var x0 = netX0Min(d), x1 = d.weeks[d.weeks.length - 1] + NET_WK;
   var hi = Math.max(S.netGw ? d.lastN.gw : 0, S.netQf ? d.lastN.qf : 0, 1);
   var top = hi * 1.10;
   netView = clampNetView({ x0: x0, x1: x1, y0: 0, y1: top, auto: hi });
 }
+/** ★ V1.9.1（#6）：组网进度横轴**允许的最早位置**（数据起点与「首个在轨 > 0」取较晚者） */
+function netX0Min(d) {
+  var w0 = d.weeks[0];
+  var o = (d.originMs && isFinite(d.originMs)) ? d.originMs : w0;
+  return Math.max(w0, o);
+}
 function clampNetView(v) {
   if (!v) return v;
   var d = netData();
-  var fullX = (d.weeks[d.weeks.length - 1] + NET_WK) - d.weeks[0];
-  if (v.x1 - v.x0 >= fullX) { v.x0 = d.weeks[0]; v.x1 = d.weeks[d.weeks.length - 1] + NET_WK; }
+  var x0min = netX0Min(d);
+  var fullX = (d.weeks[d.weeks.length - 1] + NET_WK) - x0min;
+  if (v.x1 - v.x0 >= fullX) { v.x0 = x0min; v.x1 = d.weeks[d.weeks.length - 1] + NET_WK; }
   var topMost = Math.max(v.auto || 0, d.lastN.gw, d.lastN.qf, 1) * 1.35;
   if (v.y1 - v.y0 >= topMost * 1.6 || v.y1 - v.y0 >= topMost) {
     // 放到最大范围时钉住 0 下界（不会出现负的颗数）
     v.y1 = Math.min(topMost, v.y1); v.y0 = Math.max(0, v.y1 - (topMost));
     v.y0 = Math.max(0, v.y0);
   }
-  if (v.x0 < d.weeks[0]) { v.x1 += d.weeks[0] - v.x0; v.x0 = d.weeks[0]; }
+  if (v.x0 < x0min) { v.x1 += x0min - v.x0; v.x0 = x0min; }
   if (v.x1 > d.weeks[d.weeks.length - 1] + NET_WK) { v.x0 -= v.x1 - (d.weeks[d.weeks.length - 1] + NET_WK); v.x1 = d.weeks[d.weeks.length - 1] + NET_WK; }
-  if (v.x0 < d.weeks[0]) { v.x0 = d.weeks[0]; }
+  if (v.x0 < x0min) { v.x0 = x0min; }
   if (v.y0 < 0) { v.y1 += -v.y0; v.y0 = 0; }
   if (v.y1 > topMost) { v.y0 -= v.y1 - topMost; v.y1 = topMost; if (v.y0 < 0) { v.y1 -= v.y0; v.y0 = 0; } }
   if (v.y1 - v.y0 < 4) { v.y1 = v.y0 + 4; }
@@ -8552,17 +8677,15 @@ function drawNet() {
   //   并保证**至少 3 个刻度**（避免放大后只剩孤零零一条）；刻度对齐到步长边界（如整周、整月起点）。
   var spanD = (v.x1 - v.x0) / 86400000;
   var nWeeks = d.weeks.length;          // 下方"年初分隔线"那一段仍要用到它（别删）
-  var LADDER = [1, 2, 3, 7, 14, 28, 56, 91, 182, 365, 730, 1825];
   // ⚠️ 搜索方向必须是**从粗到细**：取"仍能满足目标刻度数的最小步长"。
   //   上一版我写成从细到粗（`spanD / LADDER[li] >= 3` 就 break）→ 一上来就命中 1 天，
   //   于是最大尺度下几百条刻度糊成一片灰（用户当场看到的现象）。现在按目标刻度数挑，
   //   与倾角分布章的 niceTicks 同一种思路：任何缩放档位下都是大约 4–6 条刻度，
   //   放大 → 自动换到更细的档，缩小 → 自动换回更粗的档。
+  // ★ V1.9.1（#6）：阶梯与挑档逻辑上收到 `tickStepDays()`（04 章共用同一份），
+  //   并修掉"深放大时步长回落 1825 天 → 刻度消失"的老缺陷（现在兜底是最细档）。
   var want = narrow ? 4 : 6;
-  var stepD = LADDER[LADDER.length - 1];
-  for (var li = LADDER.length - 1; li >= 0; li--) {
-    if (spanD / LADDER[li] >= want) { stepD = LADDER[li]; break; }
-  }
+  var stepD = tickStepDays(spanD, want);
   var stepMs = stepD * 86400000;
   ctx.textAlign = 'center'; ctx.textBaseline = 'top';
   for (var tm = Math.ceil(v.x0 / stepMs) * stepMs; tm <= v.x1; tm += stepMs) {
@@ -8663,7 +8786,7 @@ function drawNet() {
     var keys = [];
     if (S.netGw) keys.push('<span class="net-key"><i style="background:' + NC.gw + '"></i>' + t('n_gw') + ' ' + d.lastN.gw + '</span>');
     if (S.netQf) keys.push('<span class="net-key"><i style="background:' + NC.qf + '"></i>' + t('n_qf') + ' ' + d.lastN.qf + '</span>');
-    note.innerHTML = keys.join('') + '<span class="net-key">' + t('d_net_span') + ' ' + netDateLabel(d.weeks[0]) + ' – ' + netDateLabel(d.now) + '</span>';
+    note.innerHTML = keys.join('') + '<span class="net-key">' + t('d_net_span') + ' ' + netDateLabel(netX0Min(d)) + ' – ' + netDateLabel(d.now) + '</span>';
   }
 }
 function netWeekAt(mx) {
@@ -8737,9 +8860,10 @@ function syncNetControls() {
   });
 }
 function netSetMode(m) {
+  // ★ V1.9.1（#7）：按钮高亮**立即**响应（与 03 章 modeSeg 同款），只有画布走过场
   S.netMode = m;
   syncNetControls();
-  netAutoView(); drawNet();
+  cvSwap('netCv', function () { netAutoView(); drawNet(); });
   touchPrefs();
 }
 function zoomNetAt(fx, fy, factor) {
@@ -8773,8 +8897,9 @@ function netInit() {
     if (!b) return;
     if (b.getAttribute('data-net') === 'gw') S.netGw = !S.netGw; else S.netQf = !S.netQf;
     if (!S.netGw && !S.netQf) { S.netGw = S.netQf = true; }     // 两条都关掉没有意义 → 至少留一条
-    syncNetControls();
-    netView = null; netAutoView(); drawNet();
+    syncNetControls();                                          // 按档状态立即响应
+    // ★ V1.9.1（#7）：画布走过场（旧图褪去 → 换数据 → 新图浮现），与 03 章同一条曲线
+    cvSwap('netCv', function () { netView = null; netAutoView(); drawNet(); });
     touchPrefs();
     syncSectionResetBtns();
   });
@@ -9215,14 +9340,11 @@ function drawClimb() {
   // ---- V1.9.1（A12）：大气层分界线 y = 100 km（**仅半长轴模式**；升轨速度模式下无意义，Q27）
   if (take === 'sma') atmLineDraw(ctx, C, PL, pw, Y, '100 km');
 
-  // ---- 横轴刻度：从粗到细按目标刻度数挑（与 04 章同一套档位梯，任何缩放档位都是 4~6 条）
+  // ---- 横轴刻度：从粗到细按目标刻度数挑（**与 05 章共用同一套档位梯**，任何缩放档位都是 4~6 条）
+  //   ★ V1.9.1（#6）：这里原来内联了第二份 LADDER（与 05 章一字不差）→ 收口到 tickStepDays()。
   var spanD = (v.x1 - v.x0) / CLIMB_DAY;
-  var LADDER = [1, 2, 3, 7, 14, 28, 56, 91, 182, 365, 730, 1825];
   var want = narrow ? 4 : 6;
-  var stepD = LADDER[LADDER.length - 1];
-  for (var li = LADDER.length - 1; li >= 0; li--) {
-    if (spanD / LADDER[li] >= want) { stepD = LADDER[li]; break; }
-  }
+  var stepD = tickStepDays(spanD, want);
   var stepMs = stepD * CLIMB_DAY;
   ctx.textAlign = 'center'; ctx.textBaseline = 'top';
   for (var tm = Math.ceil(v.x0 / stepMs) * stepMs; tm <= v.x1; tm += stepMs) {
@@ -9588,8 +9710,10 @@ function climbInit() {
     if (!b) return;
     var v = b.getAttribute('data-take');
     if ((S.climbTake || 'sma') === v) return;
+    // ★ V1.9.1（#7）：按钮状态立即响应，画布走通用过场（与 03 / 05 章同一条曲线、同一时长）
     S.climbTake = v; climbView = null;
-    renderClimbTake(); drawClimb();
+    renderClimbTake();
+    cvSwap('climbCv', function () { drawClimb(); });
     touchPrefs();
     syncSectionResetBtns();
   });
