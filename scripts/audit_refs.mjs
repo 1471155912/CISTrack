@@ -28,6 +28,9 @@ const SKIP_DIR = new Set(['.git', 'node_modules', 'build', 'archive', 'junk', 's
 
 // ★ 已知的"引用得到、但按设计就不存在于仓库"的文件 —— 必须是**穷尽列举**，不能写成通配，
 //   否则这个体检会自己变成静默放行器。每条都要写明理由。
+//   ⚠️ 键按**文件名**登记，比对时也只看 basename：引用写法有 `satdata.json` 与 `build/satdata.json`
+//     两种，而这两种指的都是同一个"由构建生成、此刻还不存在"的产物。
+//     （本体检跑在 CI 的**第一步**，那时 refresh/mkdata 都还没跑 —— 首版就是因此误报失败。）
 const OPTIONAL = {
   'satdata.json': '构建中间产物（build/，由 mkdata.mjs 生成，.gitignore）',
   'cat_objs.json': '可选输入（.gitignore，缺了只影响"按编号反查"补漏）',
@@ -102,7 +105,8 @@ for (const f of sources) {
   let m;
   while ((m = REF_RE.exec(s))) {
     const r = m[2];
-    if (NOT_A_PATH.has(r) || OPTIONAL[r]) continue;
+    const base = r.split('/').pop();
+    if (NOT_A_PATH.has(r) || OPTIONAL[r] || OPTIONAL[base]) continue;
     if (r.startsWith('http')) continue;
     const cands = [r, 'scripts/' + r, 'data/' + r, r.replace(/^\.\//, '')];
     if (cands.some(c => fs.existsSync(path.join(ROOT, c)))) continue;
