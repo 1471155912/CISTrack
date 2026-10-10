@@ -1567,6 +1567,83 @@ function chartVisiblePts() {
   if (S.launchFilter === 'all') return chartPts;
   return chartPts.filter(function (p) { return p.sat.lk === S.launchFilter; });
 }
+// ---- V1.9.1（A9）：倾角分布「聚集区」虚线圆圈 ----
+// 口径（实测数据支持）：按 **(倾角取整 1°) × (高度取整 25 km)** 分箱 → 只给**成员 ≥ 8** 的箱画圈
+//   （阈值是为了滤掉噪声小圈，实测这样正好剩下 6 个有意义的簇）。
+//   圆心与标签取**簇内均值**；半轴 = 该簇在 x/y 上的**标准差 × 2.2**，
+//   再夹一个**最小半径**（否则细得像一条线）与**最大半径**（否则会吞并相邻簇）。
+//   ⚠️ 圈与标签**不参与命中测试** —— 命中只走 `chartHoverAt()` 里的"最近点"，这里不往里塞任何东西。
+var CHART_CL_MIN = 8;          // 成簇阈值（成员数）
+var CHART_CL_BIN_INC = 1;      // 倾角分箱宽度（度）
+var CHART_CL_BIN_ALT = 25;     // 高度分箱宽度（km）
+// ★ 最小半径必须按**视觉可见性**定，不能直接用 2.2σ：
+//   真实星群是"站位保持"的，成员极紧（实测 50° 簇的横向标准差只有 ~0.16°、纵向 ~4 km）——
+//   严格按 2.2σ 画出来的"椭圆"只有 8×2 像素，等于没画。用户要的是"**适度**的圆圈"（一个能看见的标记）。
+//   所以取 2.2σ 作为下界之外的**期望值**，再夹一个能看见的最小半径。
+var CHART_CL_MIN_RX = 0.9;     // 度（默认视图下约 18px）
+var CHART_CL_MIN_RY = 45;      // km（默认视图下约 12px）
+function chartClusters(pts) {
+  var bins = {};
+  pts.forEach(function (p) {
+    if (!isFinite(p.x) || !isFinite(p.y)) return;
+    var k = Math.round(p.x / CHART_CL_BIN_INC) + '|' + Math.round(p.y / CHART_CL_BIN_ALT);
+    (bins[k] || (bins[k] = [])).push(p);
+  });
+  function mkCluster(g) {
+    var n = g.length, mx = 0, my = 0;
+    g.forEach(function (p) { mx += p.x; my += p.y; });
+    mx /= n; my /= n;
+    var vx = 0, vy = 0;
+    g.forEach(function (p) { vx += (p.x - mx) * (p.x - mx); vy += (p.y - my) * (p.y - my); });
+    var sx = Math.sqrt(vx / n), sy = Math.sqrt(vy / n);
+    return {
+      x: mx, y: my, n: n, g: g,
+      // rxRaw/ryRaw = **真实散布**（2.2σ）—— 只用于"两簇是否重叠"的判据
+      rxRaw: sx * 2.2, ryRaw: sy * 2.2,
+      // rx/ry = **画出来的半径**（在真实散布与可见性之间取折中，并夹上下限防吞并相邻簇）
+      rx: Math.min(8, Math.max(CHART_CL_MIN_RX, sx * 2.2)),        // 度：0.9°~8°
+      ry: Math.min(260, Math.max(CHART_CL_MIN_RY, sy * 2.2)),      // km：45~260
+      spanX: Math.max(sx * 2, 0.5)                                 // 簇的横向跨度（判"放大后消失"用）
+    };
+  }
+  var out = [];
+  Object.keys(bins).forEach(function (k) {
+    if (bins[k].length >= CHART_CL_MIN) out.push(mkCluster(bins[k]));
+  });
+  // ★ 合并**相互重叠**的簇：分箱是按整数边界切的，而真实星群会跨边界
+  //   （实测 86.36° 与 86.65° 属于**同一片** 86.5° 星群，却被 1° 的边界切成两半、各画一个几乎重合的圈；
+  //   两者成员数 32+29 = **61**，正好等于该簇的真实规模）。
+  //   ⚠️ 判据用**真实散布**（rxRaw/ryRaw）而不是画出来的半径 —— 画出来的半径被最小半径抬大过，
+  //   拿它判重叠会把"同倾角但高度差 47km"的两个不同簇（50°/1149 与 50°/1102）误并成一个。
+  var merged = true, pass = 0;
+  while (merged && pass++ < 8) {
+    merged = false;
+    outer:
+    for (var i = 0; i < out.length; i++) {
+      for (var j = i + 1; j < out.length; j++) {
+        var a = out[i], b = out[j];
+        if (Math.abs(a.x - b.x) < (a.rxRaw + b.rxRaw) * 0.8 &&
+            Math.abs(a.y - b.y) < (a.ryRaw + b.ryRaw) * 0.8) {
+          var g = a.g.concat(b.g);
+          out.splice(j, 1); out.splice(i, 1);
+          out.push(mkCluster(g));
+          merged = true;
+          break outer;
+        }
+      }
+    }
+  }
+  return out;
+}
+/** A9：圈/标签的透明度 —— 视图跨度小于 max(簇跨度×2.5, 12°) 时淡出（smoothstep，
+ *  与站内其它过渡同一族的观感；因为是**视图的连续函数**，缩放时天然平滑，无需另设动画状态） */
+function chartClusterAlpha(spanX, clusterSpanX) {
+  var need = Math.max(clusterSpanX * 2.5, 12);
+  if (spanX >= need) return 1;
+  if (spanX <= need * 0.75) return 0;
+  var a = (spanX - need * 0.75) / (need * 0.25);
+  return a * a * (3 - 2 * a);
+}
 function drawChart() {
   var f = fitCanvas(chartCv), ctx = f.ctx, W = f.w, H = f.h, C = themeColors();
   // V1.5.0：窄屏左侧留白过多 → 绘图区左边界左移；右侧离按钮列太近 → 右边界内收
@@ -1649,6 +1726,32 @@ function drawChart() {
     ctx.fillText('36500 km (GEO)', PL + 6, by + 3);
   }
   ctx.setLineDash([]);
+
+  // ---- V1.9.1（A9）：**聚集区虚线圆圈** + 「高度/倾角」标签 ----
+  //   画在**光点之前**（不填充 → 不遮挡；顺序上也点在上层）。
+  //   放大到一定程度**自然消失**（`chartClusterAlpha`），圆圈与标签都**不参与命中测试**。
+  var _cls = chartClusters(pts);
+  if (_cls.length) {
+    var _spanX = v.x1 - v.x0;
+    ctx.setLineDash([4, 4]); ctx.lineWidth = 1;
+    _cls.forEach(function (cl) {
+      var a = chartClusterAlpha(_spanX, cl.spanX);
+      if (a <= 0.01) return;
+      var cx = X(cl.x), cy = Y(cl.y);
+      var rx = Math.abs(X(cl.x + cl.rx) - cx), ry = Math.abs(Y(cl.y + cl.ry) - cy);
+      // 整个圈都在视口外就跳过（不白画）
+      if (cx + rx < PL || cx - rx > PL + pw || cy + ry < PT || cy - ry > PT + ph) return;
+      ctx.globalAlpha = a;
+      ctx.strokeStyle = C.theme;
+      ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, 0, 6.2832); ctx.stroke();
+      // 标签写在圆圈**右上沿**（45° 方向），同色小字
+      ctx.font = '10px ' + MONO; ctx.fillStyle = C.theme;
+      ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+      ctx.fillText(Math.round(cl.y) + 'km/' + Math.round(cl.x) + '°', cx + rx * 0.707, cy - ry * 0.707);
+      ctx.globalAlpha = 1;
+    });
+    ctx.setLineDash([]);
+  }
 
   // 点
   var scope = 'chart';
@@ -8229,6 +8332,33 @@ function netBuild() {
   });
   return { mode: mode, weeks: weeks, series: series, delta: delta, lastN: lastN, now: now };
 }
+// V1.9.1（A8）：各星座「**第一颗正式星**」的发射时刻 —— 组网进度里它以**第一个实线点**出现，
+//   它之前的连接线（试验星阶段）用该星座自身颜色的**虚线**。
+//   口径（Q23=A / 用户原话「按时间一刀切」）：**2024-02-29 之前虚线、之后一律实线**
+//     （哪怕它其实是试验星 —— 例如星网试验星05 在 2024-11-30，同样画实线）。
+//     星网第一个正式星 = 卫星互联网高轨01星（批次 24040，2024-02-29）；
+//     千帆第一个正式星 = 极轨01组（批次 24140，2024-08-06）。
+//   日期**从台账里取**（不写死），台账缺这一批时退回常量 —— 避免以后台账调整后这里悄悄失真。
+var NET_SOLID_KEY = { gw: '24040', qf: '24140' };
+var NET_SOLID_FALLBACK = { gw: '2024-02-29T21:03', qf: '2024-08-06T14:42' };
+function netSolidFrom(key) {
+  try {
+    var want = NET_SOLID_KEY[key], ls = CONST[key] && CONST[key].launches;
+    if (ls) {
+      for (var i = 0; i < ls.length; i++) {
+        if (ls[i].key === want && isFinite(ls[i].dateMs)) return ls[i].dateMs;
+      }
+    }
+  } catch (e) {}
+  return Date.parse(NET_SOLID_FALLBACK[key] + ':00+08:00');
+}
+/** A8：该周序号是不是"实线期"（含）之后 —— 用于把折线拆成虚线段 + 实线段 */
+function netSolidSplit(key, weeks) {
+  var cut = netSolidFrom(key);
+  for (var k = 0; k < weeks.length; k++) if (weeks[k] + NET_WK > cut) return k;
+  return weeks.length;
+}
+
 function netData() {
   if (!NET || NET.mode !== S.netMode) NET = netBuild();
   return NET;
@@ -8359,12 +8489,26 @@ function drawNet() {
     if (!(key === 'gw' ? S.netGw : S.netQf)) return;
     var arr = d.series[key], col = NC[key];
     ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.lineJoin = 'round';
-    ctx.beginPath();
-    for (var k = 0; k < arr.length; k++) {
-      var px = X(d.weeks[k] + NET_WK / 2), py = Y(arr[k]);
-      if (k === 0) ctx.moveTo(X(d.weeks[k]), py); else ctx.lineTo(px, py);
-    }
-    ctx.stroke();
+    // V1.9.1（A8）：把折线拆成**试验星阶段的虚线段** + **正式星起的实线段**。
+    //   `kCut` = 含"第一颗正式星"的那一周的下标 → 实线段从 `kCut-1` 开始画，
+    //   这样"进入第一颗正式星"的那一段本身就是实线（用户原话：第一颗正式星是**第一个实线点**）。
+    var kCut = netSolidSplit(key, d.weeks);
+    var seg = function (from, to, dashed) {
+      if (to <= from) return;
+      ctx.setLineDash(dashed ? [5, 5] : []);
+      ctx.beginPath();
+      for (var k = from; k <= to; k++) {
+        // 几何与旧版**逐点一致**：只有 k=0 从周首起笔，其余都取周中（不能因为拆段而整体偏移）
+        var px = (k === 0) ? X(d.weeks[k]) : X(d.weeks[k] + NET_WK / 2);
+        var py = Y(arr[k]);
+        if (k === from) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      }
+      ctx.stroke();
+      ctx.setLineDash([]);
+    };
+    var firstSolid = Math.max(0, kCut - 1);
+    seg(0, firstSolid, true);                 // 试验星阶段：虚线
+    seg(firstSolid, arr.length - 1, false);   // 正式星起：实线
     // 周节点：点太密时只画最后一个 + 悬停那个
     var sparse = arr.length <= 90;
     for (var m = 0; m < arr.length; m++) {

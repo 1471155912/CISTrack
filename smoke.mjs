@@ -24,7 +24,7 @@ function makeCtx() {
   const calls = { stroke: 0, fill: 0, fillText: 0, arc: 0, clearRect: 0 };
   // V1.9.1（#4）：记录**着色历史** —— "每星一色"这类断言只能靠它验证（jsdom 不真画，
   //   没有像素可采样）。每次绘制会往数组里追加，断言时取"本次调用之后新增的那一段"。
-  const styles = { stroke: [], fill: [], alpha: [] };
+  const styles = { stroke: [], fill: [], alpha: [], dash: [], ellipse: [] };
   const target = {};
   return new Proxy(target, {
     get(t, k) {
@@ -32,6 +32,10 @@ function makeCtx() {
       if (k === '__calls') return calls;
       if (k === '__styles') return styles;
       if (k in calls) return (...a) => { calls[k]++; };
+      // V1.9.1（A8）：虚线靠 `setLineDash` 表达，jsdom 里没有像素可采样 → 记下调用参数
+      if (k === 'setLineDash') return (...a) => { styles.dash.push(JSON.stringify(a[0])); };
+      // V1.9.1（A9）：聚类圆圈用 ellipse，同样记下来
+      if (k === 'ellipse') return (...a) => { styles.ellipse.push(a[0]); };
       return (...a) => { };
     },
     set(t, k, v) {
@@ -2150,6 +2154,25 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
     "    climbShowInfoAt({ norad: s.norad, ms: s.pts[i].ms, v: s.pts[i].v }); },\n" +
     // V1.9.1（A6）：选择框的验证入口
     "  climbOpts: function () { return climbPickOptions().map(function (o) { return { v: o.v, label: o.label }; }); },\n" +
+    // V1.9.1（A8）：组网进度虚线段
+    "  netDash: function () { return netCv.getContext('2d').__styles.dash; },\n" +
+    "  netOnly: function (k) { S.netGw = (k === 'gw'); S.netQf = (k === 'qf'); },\n" +
+    "  netBoth: function () { S.netGw = true; S.netQf = true; },\n" +
+    "  netDraw: function () { try { drawNet(); } catch (e) {} },\n" +
+    "  netSplit: function (k) { return netSolidSplit(k, netData().weeks); },\n" +
+    "  netWeeks: function () { return netData().weeks.length; },\n" +
+    "  netAxis: function () { netAutoView(); return { x0: netView.x0, x1: netView.x1 }; },\n" +
+    "  netSolidFrom: function (k) { return netSolidFrom(k); },\n" +
+    // V1.9.1（A9）：倾角分布聚类圆圈
+    "  chartCL: function () { return chartClusters(chartVisiblePts()).map(function (c) {\n" +
+    "    return { n: c.n, x: +c.x.toFixed(3), y: Math.round(c.y), rx: +c.rx.toFixed(3), ry: Math.round(c.ry),\n" +
+    "      rxRaw: +c.rxRaw.toFixed(3), ryRaw: +c.ryRaw.toFixed(2), spanX: +c.spanX.toFixed(3) }; }); },\n" +
+    "  chartAlpha: function (span, cs) { return +chartClusterAlpha(span, cs).toFixed(3); },\n" +
+    "  chartEll: function () { return chartCv.getContext('2d').__styles.ellipse; },\n" +
+    "  chartDraw: function () { try { drawChart(); } catch (e) {} },\n" +
+    "  chartSpan: function () { if (!chartView) chartAutoView(); return +(chartView.x1 - chartView.x0).toFixed(2); },\n" +
+    "  chartSetSpan: function (x0, x1) { chartView = { x0: x0, x1: x1, y0: chartView.y0, y1: chartView.y1 }; },\n" +
+    "  chartHitNoCluster: function () { return typeof chartHoverAt; },\n" +
     "  climbAuto: function () { return climbAutoPick(); },\n" +
     "  climbSelValue: function () { var s = document.getElementById('climbSel'); return s ? s.value : null; },\n" +
     "  climbSelText: function () { var s = document.getElementById('climbSel'); return s ? s.options[s.selectedIndex].textContent : null; },\n" +
@@ -2486,6 +2509,115 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
       }
       return keys.length > 10;
     })(), '前 5 项=' + [...d3.getElementById('groupSel').options].slice(1, 6).map(o => o.value).join(' '));
+
+  // ================================================================ V1.9.1（A8）：组网进度「试验星阶段虚线」
+  // 规范：从最早的试验星发射到**第一颗正式星**为止，节点之间用**该星座自身颜色**的虚线连接；
+  //   第一颗正式星是**第一个实线点**。口径 Q23=A（按时间一刀切）：星网 2024-02-29、
+  //   千帆 2024-08-06；之前虚线、之后一律实线（哪怕那几发其实还是试验星）。
+  //   轴起点随之前移到最早的试验星（千帆 2019-11-17 所在周）。
+  {
+    const cutGw = k3.netSolidFrom('gw'), cutQf = k3.netSolidFrom('qf');
+    assert('A8：两个星座的「第一颗正式星」日期取自台账（星网 2024-02-29 / 千帆 2024-08-06）',
+      new Date(cutGw).toISOString().slice(0, 10) === '2024-02-29' &&
+      new Date(cutQf).toISOString().slice(0, 10) === '2024-08-06',
+      new Date(cutGw).toISOString().slice(0, 10) + ' / ' + new Date(cutQf).toISOString().slice(0, 10));
+    // 分界周：星网应在 2024-02-29 所在周（约第 224 周）、千帆在其后（约第 247 周）
+    const sGw = k3.netSplit('gw'), sQf = k3.netSplit('qf');
+    assert('A8：分界周落在正确的相对位置（星网早于千帆；两者都远小于总周数的一半之后）',
+      sGw > 0 && sQf > sGw && sGw < k3.netWeeks() && sQf < k3.netWeeks(),
+      'gw=' + sGw + ' qf=' + sQf + ' 总周数=' + k3.netWeeks());
+    // 轴起点：最早的试验星（千帆 2019-11-17）所在周的周一
+    const ax = k3.netAxis();
+    assert('A8：横轴起点前移到最早试验星所在周（Q15：2019-11 而非 2023）',
+      new Date(ax.x0).getUTCFullYear() === 2019,
+      new Date(ax.x0).toISOString().slice(0, 10) + ' → ' + new Date(ax.x1).toISOString().slice(0, 10));
+    // 真的画了虚线：分别只看一个星座，绘制时曲线段应有**一次** [5,5]（试验星段）
+    const dashProbe = (key) => {
+      k3.netOnly(key);
+      k3.netDash().length = 0;
+      k3.netDraw();
+      return k3.netDash().slice();
+    };
+    const dGw = dashProbe('gw'), dQf = dashProbe('qf');
+    // 曲线段是最后 4 次调用（虚线段：设 [5,5] → 复位 []；实线段：设 [] → 复位 []）
+    assert('A8：星网曲线含**1 段虚线**（试验星阶段）+ 1 段实线 —— 最后一个 [5,5] 出现在曲线段里',
+      dGw.slice(-4)[0] === '[5,5]' && dGw.slice(-4).filter(x => x === '[5,5]').length === 1,
+      JSON.stringify(dGw.slice(-4)));
+    assert('A8：千帆同理（虚线段的 setLineDash = [5,5]）',
+      dQf.slice(-4)[0] === '[5,5]' && dQf.slice(-4).filter(x => x === '[5,5]').length === 1,
+      JSON.stringify(dQf.slice(-4)));
+    k3.netBoth();                            // 复原为"两个都画"（导出图/矩阵断言可能还要用）
+    k3.netDraw();
+    assert('A8：源码里虚线只在**曲线段**使用（不污染其它线条的 dash —— 数值取自同一处 seg()）',
+      /ctx\.setLineDash\(dashed \? \[5, 5\] : \[\]\);/.test(appSrc) &&
+      /var firstSolid = Math\.max\(0, kCut - 1\);/.test(appSrc) &&
+      /seg\(0, firstSolid, true\);/.test(appSrc) &&
+      /seg\(firstSolid, arr\.length - 1, false\);/.test(appSrc));
+  }
+
+  // ================================================================ V1.9.1（A9）：倾角分布「聚集区圆圈」
+  // 口径：按 (倾角取整 1°) × (高度取整 25 km) 分箱 → 只给**成员 ≥ 8** 的箱画圈；圆心/标签取簇内均值；
+  //   半径在真实散布（2.2σ）与**可见性**之间折中并夹上下限；重叠的簇要合并（否则同一片星群画两个几乎重合的圈）；
+  //   放大到 viewSpanX < max(簇跨度×2.5, 12°) 时淡出；**不填充、不参与命中测试**；全屏与导出同样绘制。
+  {
+    const cls = k3.chartCL();
+    assert('A9：聚出了有意义的簇（星网页实测 5 个，且每个成员 ≥ 8）',
+      cls.length >= 3 && cls.every(c => c.n >= 8),
+      cls.length + ' 个簇：' + cls.map(c => c.n).sort((a, b) => b - a).join('/'));
+    assert('A9：任一簇的成员数不超过其星座总点数（分箱不重复计数）',
+      (function () {
+        const total = cls.reduce((a, c) => a + c.n, 0);
+        const pts = k3.chartCL && d3.querySelectorAll('#chartCv').length;   // 只做存在性；点数另取
+        return total <= 244 && total > 0;                                   // 星网共 244 颗
+      })(), cls.reduce((a, c) => a + c.n, 0) + ' / 244');
+    assert('A9：**重叠的簇已合并**（实测：86.36° 与 86.65° 被 1° 分箱切开的 32+29 已并成 1 个 61 颗的簇）',
+      (function () {
+        const at86 = cls.filter(c => c.x >= 86 && c.x < 87);
+        return at86.length === 1 && at86[0].n === 61;
+      })(), JSON.stringify(cls.filter(c => c.x >= 86).map(c => [c.x, c.n])));
+    assert('A9：**高度不同的相邻簇不被误并**（实测 50° 上有 1102 / 1127 / 1149 三个高度档，应保持独立）',
+      (function () {
+        const at50 = cls.filter(c => Math.abs(c.x - 50) < 0.1).map(c => c.y).sort((a, b) => a - b);
+        return at50.length === 3 && at50[0] < at50[1] && at50[1] < at50[2];
+      })(), JSON.stringify(cls.filter(c => Math.abs(c.x - 50) < 0.1).map(c => [c.x, c.y, c.n])));
+    assert('A9：半径夹在合理区间（倾角 0.9°~8° / 高度 45~260 km）—— 最小半径按**可见性**定，不然只有几像素',
+      cls.every(c => c.rx >= 0.9 - 1e-9 && c.rx <= 8 + 1e-9 && c.ry >= 45 - 1e-9 && c.ry <= 260 + 1e-9),
+      JSON.stringify(cls.map(c => [c.rx, c.ry])));
+    assert('A9：合并判据用的是**真实散布**（rxRaw/ryRaw）而不是被最小半径抬大的 display 半径',
+      /Math\.abs\(a\.x - b\.x\) < \(a\.rxRaw \+ b\.rxRaw\) \* 0\.8/.test(appSrc) &&
+      /Math\.abs\(a\.y - b\.y\) < \(a\.ryRaw \+ b\.ryRaw\) \* 0\.8/.test(appSrc));
+    // 淡出：默认跨度可见；缩到 3° 全部消失；12° 阈值参与判定
+    const span = k3.chartSpan();
+    assert('A9：默认视图下圆圈可见（alpha = 1）',
+      cls.every(c => k3.chartAlpha(span, c.spanX) === 1),
+      'span=' + span + ' cls=' + JSON.stringify(cls.map(c => [c.spanX, k3.chartAlpha(span, c.spanX)])));
+    assert('A9：放大到 3° 时**全部消失**（viewSpanX < 12° 这条判据生效）',
+      cls.every(c => k3.chartAlpha(3, c.spanX) === 0));
+    assert('A9：淡出是**视图的连续函数**（中间量 0<a<1，缩放时平滑，无需另设动画状态）',
+      (function () { const a = k3.chartAlpha(11, 1); return a > 0 && a < 1; })(),
+      'alpha(11,1)=' + k3.chartAlpha(11, 1));
+    // 真的画了：默认视图下 ellipse 调用数 === 簇数（都在视口内）
+    const before9 = k3.chartEll().length;
+    k3.chartDraw();
+    const drewN = k3.chartEll().length - before9;
+    assert('A9：绘制时每个簇都画了一个椭圆（ellipse 调用数 = 簇数）',
+      drewN === cls.length, 'ellipse=' + drewN + ' 簇=' + cls.length);
+    assert('A9：圆圈**不填充**（该段只有 stroke，没有 fill）且用星座主题色 + [4,4] 虚线',
+      /ctx\.setLineDash\(\[4, 4\]\); ctx\.lineWidth = 1;/.test(appSrc) &&
+      /ctx\.beginPath\(\); ctx\.ellipse\(cx, cy, rx, ry, 0, 0, 6\.2832\); ctx\.stroke\(\);/.test(appSrc) &&
+      /ctx\.strokeStyle = C\.theme;/.test(appSrc));
+    assert('A9：标签写在圆圈**右上沿**、内容 =「高度km/倾角°」、同色小字 10px',
+      /ctx\.fillText\(Math\.round\(cl\.y\) \+ 'km\/' \+ Math\.round\(cl\.x\) \+ '°', cx \+ rx \* 0\.707, cy - ry \* 0\.707\);/.test(appSrc) &&
+      /ctx\.font = '10px ' \+ MONO; ctx\.fillStyle = C\.theme;/.test(appSrc));
+    // 不参与命中测试：命中函数只找"最近点"，圆圈不进任何数组
+    assert('A9：圆圈与标签**不参与命中测试**（命中走 chartHit 的"最近点"，里面不得出现 clusters）',
+      (function () {
+        const hit = (appSrc.match(/function chartHit\(mx, my\) \{[\s\S]*?\n\}/) || [''])[0];
+        return hit.length > 0 && !/chartClusters|chartClusterAlpha/.test(hit);
+      })(), 'chartHit 长度=' + (appSrc.match(/function chartHit\(mx, my\) \{[\s\S]*?\n\}/) || [''])[0].length);
+    assert('A9：导出图同样绘制（导出走同一个 drawChart）',
+      /else drawChart\(\);/.test(appSrc));
+  }
 
   dom3.window.close();
 }

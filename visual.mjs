@@ -584,16 +584,25 @@ for (const [cid, iid] of [['globe', 'globeInfo'], ['map', 'mapInfo'], ['chart', 
     //   低轨卫星每秒移动约 0.8px，加上 hover 30Hz 节流，落到点击时那个点可能已经移开，
     //   于是这条断言在 map 上偶发失败（同一份代码 84/0FAIL 与 83/1FAIL 交替）。
     // 现在：清完选中**紧接着在同一个 zone 里重扫一次并直接用这一次的坐标**，点完再立刻确认选中。
-    await clearSelection(cid);
-    const pcFresh = await findPoint(cid, iid, true, pc.zone);
+    // ✅ V1.9.1：**重扫要重试，而不是退回旧坐标**。
+    //   原实现在"重扫未命中"时用第一次扫到的 `pc.x/pc.y` 去点 —— 而那几百毫秒里那颗低轨卫星
+    //   已经移开（~0.8px/s + hover 30Hz 节流），于是偶发落空；
+    //   实测 2026-10-10 一次运行挂了 **3 条 globe**（本条 + 后面两条级联依赖选中态）。
+    //   现在最多试 3 次：每次重新清选中 → 重扫（先同一 zone、再放开到全画布）→ 点 → 立刻验证。
+    let c2 = null, pcFresh = null, cpx = 0, cpy = 0, top = 'null';
+    for (let attempt = 0; attempt < 3 && !c2; attempt++) {
+      await clearSelection(cid);
+      pcFresh = (await findPoint(cid, iid, true, pc.zone)) || (await findPoint(cid, iid, true));
+      if (!pcFresh) { await sleep(220); continue; }        // 这一刻整块画布都没光点？下一轮再试
+      cpx = pcFresh.x; cpy = pcFresh.y;
+      top = await ev(`(function(){var e=document.elementFromPoint(${cpx},${cpy});return e?(e.id||e.className||e.tagName):'null';})()`);
+      await mouse('mouseMoved', cpx, cpy);
+      await sleep(60);
+      await mouse('mousePressed', cpx, cpy); await mouse('mouseReleased', cpx, cpy);
+      await sleep(450);
+      c2 = await focused();
+    }
     zoneLog.push(cid + '=' + pc.zone);
-    const px = pcFresh ? pcFresh.x : pc.x, py = pcFresh ? pcFresh.y : pc.y;
-    const top = await ev(`(function(){var e=document.elementFromPoint(${px},${py});return e?(e.id||e.className||e.tagName):'null';})()`);
-    await mouse('mouseMoved', px, py);
-    await sleep(60);
-    await mouse('mousePressed', px, py); await mouse('mouseReleased', px, py);
-    await sleep(450);
-    const c2 = await focused();
     ck(cid + ' 图内光点可选中（悬停浮窗不挡点击）', !!c2,
       c2 + ' | 落点=' + pc.zone + (pcFresh ? '' : '（重扫未命中，用了旧坐标）') + ' | 最上层=' + top);
     // V1.3.8：刚选中一颗，趁状态明确 —— 把鼠标移到画布角落，窗口必须留着
