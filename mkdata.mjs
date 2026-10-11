@@ -665,6 +665,156 @@ for (const [bk, LED] of [['gw', GW_LEDGER], ['qf', QF_LEDGER]]) {
 }
 const HIST = loadHistory();
 
+// ---------------------------------------------------------------- V1.9.2（A7）：在轨状态三态
+// 任务清单 A7 要求卫星表「在轨状态」列分**三态**（在轨 / 正在变轨 / 已再入），
+// 其中前两态在构建期由本段算好（第三态「已再入」走 satcat 的 DECAY_DATE，见 reentryMap）。
+//
+// ★ 判据是**用真实数据校准**出来的，中间换过两版（都留档，避免以后有人"优化"回去）：
+//   ① 先用「最小二乘斜率」（与升轨章 climbRates 同口径）→ **失败**：
+//      实测 26108 批的高度序列在 1071.4 ↔ 1086.5 之间**反复跳变**（14 天内来回 4~5 次，
+//      而净变化只有 0.04 km），斜率被带偏成 -1.3 km/d → 该批 18 颗**已到位**的星全被判"变轨中"。
+//   ② 改「净漂移」（窗口内**前 1/3 与后 1/3 的中位高度之差**）→ 对抖动免疫：26108 全部修正为在轨。
+//   ③ 再补一条「是否已到该批工作高度」：**只在动 或 未到位** 才算变轨中——
+//      否则一颗暂时静止、但明显偏低 58 km 的星（实测 26120 的 69322）会被误判成"在轨"。
+//
+// ★ 工作轨道高度**按批次取、不按全局**（这是清单里点明的关键结论）：
+//   实测 gw 有 450/508 km（55° 新试验星，设计高度就这么低）与 1100~1171 km（组网星）两簇，
+//   qf 有 800~890 km（仍在升轨）与 1071 km（工作轨道）两簇 —— 用全局范围必然误判。
+//   同批多星取中位数后再档位化（Q26a：取整到 **10 km**），保证"同批同高"读起来干净。
+const ORBIT_ST = (() => {
+  const DAY = 86400000, RE = 6378.137;
+  const WIN = 30;        // 漂移窗口（天）
+  const EPS_LEO = 1.0;   // LEO 净漂移阈值（km）：轨道维持只在 ±1 km 内浮动
+  const EPS_GEO = 3.0;   // GEO 位置保持的浮动更大，阈值放宽
+  const NEAR = 30;       // 「已到该批工作高度」的容差（km）
+  const CLUSTER_GAP = 30;// 工作高度聚类：相邻高度差 <= 它算同一簇
+  const MIN_PTS = 4;     // 点数少于它 → 数据不足，改按"是否近期首现"判
+  const GEO_SMA = 42000; // GEO 判据：半长轴 ≥ 42000 km（对应周期 ≈1436 min，即 Q46 的口径）
+  const now = Date.now();
+
+  // UTC+8 日期（清单要求「进入工作轨道日期」按 UTC+8）
+  const ymd8 = ms => new Date(ms + 8 * 3600000).toISOString().slice(0, 10);
+  const median = a => {
+    const b = a.slice().sort((x, y) => x - y), m = b.length >> 1;
+    return b.length % 2 ? b[m] : (b[m - 1] + b[m]) / 2;
+  };
+
+  // ① 按 NORAD 归集历史点（同一 NORAD 只属于一个批次，故同时记下它的批次 key）
+  const rows = new Map();
+  for (const bk of ['gw', 'qf']) {
+    for (const key in HIST.out[bk]) {
+      const byn = new Map();
+      for (const r of HIST.out[bk][key]) {
+        if (!byn.has(r[0])) byn.set(r[0], []);
+        byn.get(r[0]).push([r[1], r[2]]);
+      }
+      for (const [n, pts] of byn) {
+        if (REENTRY.has(n)) continue;          // 已再入走 st:'r' 通道，不在本段判定
+        pts.sort((a, b) => a[0] - b[0]);
+        // ② 净漂移：窗口内 前 1/3 中位 vs 后 1/3 中位
+        let sel = pts.filter(p => now - p[0] <= WIN * DAY);
+        if (sel.length < MIN_PTS) sel = pts.slice(-MIN_PTS);
+        const k = Math.max(1, Math.floor(sel.length / 3));
+        const d = sel.length >= 2
+          ? median(sel.slice(-k).map(p => p[1])) - median(sel.slice(0, k).map(p => p[1]))
+          : null;
+        const sma = pts[pts.length - 1][1];
+        const geo = sma >= GEO_SMA;
+        // 该星**历史最高高度** —— 用于推该批的工作轨道高度（见下）
+        let hmax = -Infinity;
+        for (const p of pts) if (p[1] > hmax) hmax = p[1];
+        // 数据不足：近期首现（<30 天）→ 判"变轨中"（刚发射的新星）；否则保守判"在轨"
+        const thin = pts.length < MIN_PTS;
+        rows.set(n, {
+          key: key, pts: pts, sma: sma, geo: geo, drift: d, hmax: hmax - RE,
+          moving: thin ? (now - pts[0][0] <= WIN * DAY)
+                       : (d === null || Math.abs(d) > (geo ? EPS_GEO : EPS_LEO))
+        });
+      }
+    }
+  }
+
+  // ③ 批次工作轨道高度（wk）—— 取**最高的一簇**的中位数，再档位化到 10 km
+  //    ★ 为什么不能取"全批中位数"：实测 24185（千帆极轨02组）18 颗里**只有 4 颗**到了
+  //      1071 km，其余 14 颗长期停在 800~974 km（例：61552 自 2024-11 发射后一直停在 846.9）。
+  //      全批中位数只有 888 → 会把这个错误的"工作高度"再拿去判定，把 4 颗**已到位**的星也判成变轨中。
+  //      改用「最高簇」：按高度降序聚合，相邻差 > CLUSTER_GAP 即断开 → 得到真正到位的那一簇。
+  //      （24185 的最高簇 = 1046/1055/1073/1073/1076 → 中位 1073 → 档位 **1070** ✓ 与同族批次一致）
+  const byKey = new Map();
+  for (const r of rows.values()) {
+    if (!byKey.has(r.key)) byKey.set(r.key, []);
+    byKey.get(r.key).push(r);
+  }
+  for (const [, g] of byKey) {
+    const geo = g[0].geo;
+    let wk;
+    if (geo) {
+      wk = 'GEO';
+    } else {
+      const hs = g.map(x => x.hmax).sort((a, b) => b - a);   // 降序
+      const cl = [hs[0]];
+      for (let i = 1; i < hs.length; i++) {
+        if (hs[i - 1] - hs[i] <= CLUSTER_GAP) cl.push(hs[i]); else break;
+      }
+      wk = Math.round(median(cl) / 10) * 10;
+    }
+    for (const x of g) x.wk = wk;
+  }
+
+  // ④ 出参：orb(0 在轨 / 1 变轨中) + wk + od(进入工作轨道日期) + rr(升轨速度)
+  const out = new Map();
+  for (const [n, x] of rows) {
+    // 修正：未到达该批工作高度的一律算变轨中（覆盖"暂时静止但明显偏低"的情形）
+    const orb = (x.moving || (!x.geo && Math.abs(x.sma - RE - x.wk) > NEAR)) ? 1 : 0;
+    // 进入工作轨道日期 = 首次落在工作带内的那条 TLE（GEO 用半长轴阈值，与 Q46 的周期口径等价）
+    //   ⚠️ 只对"在轨"态求值：变轨中的星在上升途中会**穿过**工作带，那不算"进入工作轨道"，
+    //     若照算会得到一个早于它真正到位的日期（实测 26120 的 69321 在 10-05 穿过 510 km 带）。
+    let od = null;
+    if (orb === 0) {
+      for (const p of x.pts) {
+        const ok = x.geo ? (p[1] >= GEO_SMA) : (Math.abs(p[1] - RE - x.wk) <= NEAR);
+        if (ok) { od = p[0]; break; }
+      }
+    }
+    const rec = { orb: orb, wk: x.wk, od: od ? ymd8(od) : '' };
+    if (orb) {
+      // 升轨速度：±2 天窗口最小二乘 —— 与升轨章的 climbRates(pts, 2, 2) 同一算法（清单要求）
+      const H = 2 * DAY, tail = x.pts[x.pts.length - 1][0];
+      const win = x.pts.filter(p => Math.abs(p[0] - tail) <= H);
+      const use = win.length >= 2 ? win : x.pts.slice(-2);
+      if (use.length >= 2) {
+        const t0 = use[0][0];
+        const xs = use.map(p => (p[0] - t0) / DAY), ys = use.map(p => p[1]);
+        const mx = xs.reduce((a, b) => a + b, 0) / xs.length;
+        const my = ys.reduce((a, b) => a + b, 0) / ys.length;
+        const den = xs.reduce((a, v) => a + (v - mx) * (v - mx), 0);
+        if (den > 0) {
+          const s = xs.reduce((a, v, i) => a + (v - mx) * (ys[i] - my), 0) / den;
+          rec.rr = Math.round(s * 100) / 100;
+        }
+      }
+    }
+    out.set(n, rec);
+  }
+  return out;
+})();
+
+// 把三态字段挂到 sats 记录上（DATA 里的 sats 与 gwPack.sats 是同一个数组引用，改元素即生效）
+{
+  let nOrb = 0, nRaising = 0, nGeo = 0;
+  for (const bk of ['gw', 'qf']) {
+    for (const rec of (bk === 'gw' ? gwPack : qfPack).sats) {
+      const st = ORBIT_ST.get(rec.id);
+      if (!st) continue;                       // 已再入的星没有（走 st:'r'）
+      rec.orb = st.orb; rec.wk = st.wk; rec.od = st.od;
+      if (st.rr !== undefined) rec.rr = st.rr;
+      if (st.orb) nRaising++; else nOrb++;
+      if (st.wk === 'GEO') nGeo++;
+    }
+  }
+  console.log('在轨状态（A7）：在轨 ' + nOrb + ' / 变轨中 ' + nRaising + '（其中 GEO ' + nGeo + '）');
+}
+
 // ---------------------------------------------------------------- V1.9.0（R17）：历史库**外挂**
 // 历史数据会随天数线性增长（见 scripts/histstore.mjs 的容量治理），塞进单文件 HTML
 // 会让页面逐年膨胀到几十 MB。所以走和 wiki.json 同一套路：

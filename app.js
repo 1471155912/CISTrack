@@ -193,6 +193,15 @@ var I18N = {
   // V1.9.1（1.4-D）：卫星表格新增「在轨状态」列 —— 用户要求已再入卫星也能在列表里看得出来。
   //   两态取值：在轨（绿）/ 已再入（红，带再入日期）。数据来源 satcat 的 DECAY_DATE（见 mkdata.mjs）。
   t_status: ['在轨状态', 'Status'], st_orbit: ['在轨', 'In orbit'], st_gone: ['已再入', 'Re-entered'],
+  // V1.9.2（A7）：三态化 —— 在轨（绿）/ **正在变轨**（黄）/ 已再入（红）。
+  //   前两态的判定在构建期算好（mkdata.mjs 的 ORBIT_ST），字段挂在卫星记录上：
+  //     orb = 0 在轨 / 1 变轨中，wk = 该批工作轨道高度档位（10 km）或 'GEO'，
+  //     od = 进入工作轨道日期（UTC+8），rr = 升轨速度（km/天，仅变轨中）。
+  st_orbit_a: ['在轨（~', 'In orbit (~'],
+  st_raising: ['变轨中', 'Raising'],
+  st_raising_a: ['变轨中（~', 'Raising (~'],
+  st_kmday: ['km/天', 'km/day'],
+  st_close: ['）', ')'],
   st_gone_tip: ['已再入，再入日期：', 'Re-entered on '],
   // V1.9.1（A10）：在轨状态列的**完整**文案「已再入（~YYYY-MM-DD，XXX 天）」——
   //   拆三段是为了中英各自成句（英文括号/逗号/单位都不同），避免在 JS 里硬编码语言分支。
@@ -468,6 +477,11 @@ function fmtUTC(ms) {
   var d = new Date(ms);
   return d.getUTCFullYear() + '-' + pad(d.getUTCMonth() + 1) + '-' + pad(d.getUTCDate()) +
     ' ' + pad(d.getUTCHours()) + ':' + pad(d.getUTCMinutes());
+}
+/** V1.9.2（A7）：UTC+8 的**日期**（「在轨状态」列要求按北京时间，精确到日） */
+function ymd8(ms) {
+  var d = new Date(ms + 8 * 3600000);
+  return d.getUTCFullYear() + '-' + pad(d.getUTCMonth() + 1) + '-' + pad(d.getUTCDate());
 }
 function fmtNum(v, n) { return (Math.round(v * Math.pow(10, n)) / Math.pow(10, n)).toFixed(n); }
 var MONO = getComputedStyle(document.documentElement).getPropertyValue('--mono').trim();
@@ -2669,6 +2683,31 @@ function goneStatusText(deadOn, days) {
   if (!deadOn || days == null) return t('st_gone');
   return t('st_gone_a') + deadOn + t('st_gone_b') + days + t('st_gone_c');
 }
+// V1.9.2（A7）：在轨状态**三态**的单元格内容（颜色由 td 上的类决定，这里只出文本）：
+//   在轨   → 在轨（~2024-12-20，1100km）        GEO 写 `GEO`，不写高度（Q46）
+//   变轨中 → 变轨中（~2026-10-08，1043km (+3.16km/天)）
+//             · 高度取**实际值整数**（Q26b：不档位化）
+//             · 速度片段**单独着色**（正绿 / 负黄 / 0 灰），不随整格染黄 —— 清单 A7 明文要求
+//             · 数据不足（历史池刚覆盖、点数 < 2）时没有 rr → 只显示日期与高度，不显示速度
+//   已再入 → 已再入（~2025-10-16，227天）
+function orbitStatusHtml(r) {
+  // ⚠️ 注意用 `r._s.launch`（卫星对象上挂的**发射记录对象**，含 dateMs），
+  //   不能写 `r.launch` —— tableVals 里的 `launch` 字段是**批次名字符串**，
+  //   拿它去取 dateMs 会得到 undefined，导致在轨日算不出来、只剩"已再入"三个字。
+  if (r.gone) return goneStatusText(r.deadOn, goneDays(r._s.launch, r.deadOn));
+  if (r.orb === 1) {
+    var h = Math.round(r.smaB - RE);              // 当前高度：与历史库同口径（brouwer 半长轴）
+    var txt = t('st_raising_a') + ymd8(r.epoch) + t('st_gone_b') + h + 'km';
+    if (r.rr !== undefined && r.rr !== null && isFinite(r.rr)) {
+      var cls = r.rr > 0 ? 'pos' : (r.rr < 0 ? 'neg' : 'zero');
+      txt += ' (<span class="st-rate ' + cls + '">' +
+        (r.rr > 0 ? '+' : '') + r.rr.toFixed(2) + t('st_kmday') + '</span>)';
+    }
+    return txt + t('st_close');
+  }
+  var wk = (r.wk === 'GEO') ? 'GEO' : (r.wk + 'km');
+  return t('st_orbit_a') + (r.od || '—') + t('st_gone_b') + wk + t('st_close');
+}
 function tableVals(s) {
   var b = S.model === 'brouwer';
   var L = s.launch;
@@ -2677,19 +2716,27 @@ function tableVals(s) {
     name: cnName(s), norad: s.norad, launch: L.name,
     // V1.9.1（1.4-D）：「在轨状态」列 —— 0=在轨 / 1=已再入（排序用数值：在轨排前面）。
     //   已再入的卫星在 mkdata 里带了 `st:'r'` 与 `dt`（再入日期，来自 satcat 的 DECAY_DATE）。
-    status: s.st === 'r' ? 1 : 0, gone: s.st === 'r', deadOn: s.dt || '',
+    // V1.9.2（A7）：三态化 —— 0=在轨 / 1=变轨中 / 2=已再入（升序排 → 在轨在前、已再入最后）。
+    //   变轨中的判定与工作轨道高度由 mkdata.mjs 的 ORBIT_ST 在构建期算好（见该处注释）。
+    status: s.st === 'r' ? 2 : (s.orb ? 1 : 0), gone: s.st === 'r', deadOn: s.dt || '',
+    orb: s.st === 'r' ? -1 : (s.orb || 0), wk: s.wk, od: s.od, rr: s.rr,
     // V1.8.0（需求12）：卫星表格新增「发射时间 (GMT+8)」列 —— 值取本批发射时刻（已是北京时间），
     //   排序用毫秒值（ltime），显示用 lstr；元数据缺失的批次（无台账）显示「—」。
     ltime: L.dateMs || 0, lstr: L.dateStr && L.dateStr !== '—' ? L.dateStr.replace('T', ' ') : '—',
     maker: mkRow ? mkRow.items.map(function (x) { return (LANG === 'en' && x.en) ? x.en : x.zh; }).join(' ') : '',  // V1.4.2/4.3：制造方（供排序/搜索）
     sma: b ? s.smaB : s.smaK, hp: b ? s.hpB : s.hpK, ha: b ? s.haB : s.haK,
+    // V1.9.2（A7）：额外给「在轨状态」列一份**固定 brouwer 口径**的半长轴 —— 该列的高度
+    //   必须与构建期算 wk 的历史库同口径，不能随页面 model（brouwer/kepler）切换而变，
+    //   否则同一颗星在两种模式下会显示差几 km 的"当前高度"。
+    smaB: s.smaB,
     inc: s.inc, period: s.period, age: L.dateMs || -1,
     raan: s.raan0, ecc: s.ecc, bstar: s.bstar, epoch: s.epochMs,
     // 混合搜索用：中英卫星名、目录名、NORAD、批次名（中英）、COSPAR、在轨状态
     //   （V1.9.1 / 1.4-D：把"已再入"也纳入搜索 —— 用户口径是"已再入的不可联动但可搜索"）
     q: [s.name, nameVariants(s), String(s.norad),
         L.name, batchVariants(L.name), s.cospar,
-        s.st === 'r' ? (t('st_gone') + ' ' + t('t_status')) : t('st_orbit'),
+        s.st === 'r' ? (t('st_gone') + ' ' + t('t_status'))
+                     : (s.orb ? t('st_raising') : t('st_orbit')),
         mkRow ? mkRow.items.map(function (x) { return x.zh + ' ' + x.en + ' ' + x.full; }).join(' ') : '',
         mkRow ? mkRow.full : ''].join(' ').toLowerCase(),
     _s: s
@@ -2799,9 +2846,10 @@ function satRowHtml(r) {
     '<td>' + r.norad + '</td>' +
     // V1.9.1（1.4-D）：「在轨状态」列 —— 在轨绿 / 已再入红。
     // V1.9.1（A10）：已再入的写**完整**文案「已再入（~YYYY-MM-DD，XXX 天）」（XXX = 冻结的在轨日）。
-    '<td class="stcell ' + (r.gone ? 'st-gone' : 'st-orbit') + '"' +
+    // V1.9.2（A7）：三态 —— 在轨绿 / **变轨中黄** / 已再入红，内容见 orbitStatusHtml()。
+    '<td class="stcell ' + (r.gone ? 'st-gone' : (r.orb === 1 ? 'st-raising' : 'st-orbit')) + '"' +
       (r.gone && r.deadOn ? ' title="' + t('st_gone_tip') + r.deadOn + '"' : '') + '>' +
-      (r.gone ? goneStatusText(r.deadOn, goneDays(s.launch, r.deadOn)) : t('st_orbit')) + '</td>' +
+      orbitStatusHtml(r) + '</td>' +
     '<td>' + (lone
       ? '<span class="batch-none">\u2212</span>'
       : '<span class="batch-link" data-lk="' + s.lk + '" title="' + t('d_sel_group') + '">' + batchName(r.launch) + '</span>') + '</td>' +

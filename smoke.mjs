@@ -2469,6 +2469,115 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
     ti.value = ''; ti.dispatchEvent(new w3.Event('input', { bubbles: true }));
   }
 
+  // ================================================================ V1.9.2（A7）：在轨状态**三态**
+  // 清单 A7 要求卫星表「在轨状态」列分三态：在轨（绿）/ **正在变轨**（黄）/ 已再入（红）。
+  // 前两态由 mkdata.mjs 的 ORBIT_ST 在构建期算好（字段 orb / wk / od / rr）。
+  // 本段分三层验：数据层（字段齐备且自洽）→ 源码层（文案/类/排序）→ 渲染层（三种形态真出现在 DOM）。
+  {
+    // ---------- ① 数据层 ----------
+    const SD = JSON.parse(fs.readFileSync(B + '/build/satdata.json', 'utf8'));
+    const allS = [].concat(SD.gw.sats, SD.qf.sats);
+    const liveS = allS.filter(r => r.st !== 'r');
+    const raiS = liveS.filter(r => r.orb === 1);
+    const orbS = liveS.filter(r => r.orb === 0);
+    const geoS = liveS.filter(r => r.wk === 'GEO');
+
+    assert('A7：三态字段齐备 —— 每颗在轨卫星都有 orb(0/1) / wk / od',
+      liveS.length > 0 && liveS.every(r => (r.orb === 0 || r.orb === 1) && r.wk !== undefined && typeof r.od === 'string'),
+      liveS.length + ' 颗：在轨 ' + orbS.length + ' / 变轨中 ' + raiS.length);
+    assert('A7：三态都非空（在轨 / 变轨中 / 已再入）',
+      orbS.length > 0 && raiS.length > 0 && allS.some(r => r.st === 'r'),
+      orbS.length + ' / ' + raiS.length + ' / ' + allS.filter(r => r.st === 'r').length);
+    assert('A7：变轨中的星带**升轨速度** rr（只有历史池刚覆盖、点数<2 的极少数没有）',
+      raiS.filter(r => r.rr === undefined).length < 15,
+      '缺 rr 的 ' + raiS.filter(r => r.rr === undefined).length + ' 颗');
+    assert('A7：**在轨**的星都写「进入工作轨道日期」od；**变轨中**的不写（它在上升途中会穿过工作带）',
+      orbS.every(r => /^\d{4}-\d{2}-\d{2}$/.test(r.od)) && raiS.every(r => !r.od),
+      '在轨缺日期 ' + orbS.filter(r => !/^\d{4}-\d{2}-\d{2}$/.test(r.od)).length + ' 颗');
+    assert('A7/Q46：GEO 的工作高度写 `GEO` 而非数字（周期≈1436 min，等价于半长轴 ≥42000 km）',
+      geoS.length === 3 && geoS.every(r => r.orb === 0),
+      geoS.length + ' 颗：' + geoS.map(r => r.id).join('/'));
+    assert('A7：工作轨道高度是 **10 km 档位**（Q26a）',
+      liveS.filter(r => r.wk !== 'GEO').every(r => r.wk % 10 === 0),
+      JSON.stringify([...new Set(liveS.filter(r => r.wk !== 'GEO').map(r => r.wk))].sort((a, b) => a - b).slice(0, 8)));
+    assert('A7：**同批同高**（同一批次内所有星的 wk 完全一致）',
+      (function () {
+        const byk = {};
+        for (const r of liveS) { const k = String(r.c).slice(0, 5); (byk[k] = byk[k] || []).push(r.wk); }
+        const bad = Object.keys(byk).filter(k => !byk[k].every(v => v === byk[k][0]));
+        return bad.length === 0;
+      })(), '（不一致的批次：' +
+        (function () {
+          const byk = {};
+          for (const r of liveS) { const k = String(r.c).slice(0, 5); (byk[k] = byk[k] || []).push(r.wk); }
+          return Object.keys(byk).filter(k => !byk[k].every(v => v === byk[k][0])).join(',') || '无';
+        })() + '）');
+    // 24185 是这次判据校准的关键样本：18 颗里只有 4~5 颗真到了 1071，其余长期停在 800~974。
+    //   若有人把 wk 的算法改回"全批中位数"，这条会立刻失败（那时 wk 会变 880~890）。
+    assert('A7：24185（极轨02组）工作高度 = **1070 km**（不能是"全批中位数"算出的 880）',
+      (function () {
+        const g = liveS.filter(r => String(r.c).slice(0, 5) === '24185');
+        return g.length > 0 && g.every(r => r.wk === 1070);
+      })(),
+      JSON.stringify(liveS.filter(r => String(r.c).slice(0, 5) === '24185').map(r => r.wk).slice(0, 5)));
+
+    // ---------- ② 源码层 ----------
+    assert('A7：i18n 三态文案齐全（在轨 / 变轨中 + 速率单位）',
+      /st_raising: \['变轨中', 'Raising'\]/.test(appSrc) &&
+      /st_orbit_a: \['在轨（~', 'In orbit \(~'\]/.test(appSrc) &&
+      /st_raising_a: \['变轨中（~', 'Raising \(~'\]/.test(appSrc) &&
+      /st_kmday: \['km\/天', 'km\/day'\]/.test(appSrc));
+    // ⚠️ 这条守的是我自己踩过的坑：orbitStatusHtml 里若写 `r.launch`，
+    //   拿到的是**批次名字符串**（tableVals 的 launch 字段），取不到 dateMs →
+    //   已再入行只剩"已再入"三个字，在轨日的数字全丢。必须走 `r._s.launch`。
+    assert('A7：状态列走 orbitStatusHtml，且取发射记录对象用 `r._s.launch`（不是字符串 r.launch）',
+      /orbitStatusHtml\(r\)/.test(appSrc) && /r\._s\.launch/.test(appSrc));
+    assert('A7：排序语义 = 0 在轨 / 1 变轨中 / 2 已再入',
+      /status: s\.st === 'r' \? 2 : \(s\.orb \? 1 : 0\)/.test(appSrc));
+    assert('A7：变轨的"速度片段"单独着色 —— .st-rate + pos/neg/zero 三色（不随整格染黄）',
+      /class="st-rate ' \+ cls/.test(appSrc) &&
+      /\.st-rate\.pos \{ color:var\(--st-orbit\)/.test(tpl) &&
+      /\.st-rate\.neg \{ color:var\(--st-raising\)/.test(tpl) &&
+      /\.st-rate\.zero \{ color:var\(--dim\)/.test(tpl));
+    assert('A7：三态单元格类与颜色变量齐全',
+      /--st-raising:#f59f00/.test(tpl) && /td\.st-raising \{ color:var\(--st-raising\)/.test(tpl) &&
+      /td\.st-orbit/.test(tpl) && /td\.st-gone/.test(tpl));
+
+    // ---------- ③ 渲染层：三种形态真的出现在 DOM ----------
+    const ti7 = d3.getElementById('tableSearch');
+    const cellOf = norad => {
+      ti7.value = String(norad);
+      ti7.dispatchEvent(new w3.Event('input', { bubbles: true }));
+      const tr = d3.querySelector('#tbody tr[data-idx]');
+      if (!tr) return null;
+      const td = tr.querySelectorAll('td')[2];
+      return { txt: td.textContent.trim(), cls: td.className, html: td.innerHTML };
+    };
+    // 取样（都加兜底：数据若异常也不让整份 smoke 崩在 TypeError 上，而是照常报 FAIL）
+    const raiSample = raiS.filter(r => r.rr !== undefined)[0] || raiS[0] || { id: -1, rr: 0 };
+    const orbSample = orbS.filter(r => r.wk !== 'GEO')[0] || orbS[0] || { id: -1 };
+    const geoSample = geoS[0] || { id: -1 };
+    const c1 = cellOf(raiSample.id);
+    assert('A7：**变轨中**的行 —— 单元格带 .st-raising，文案形如「变轨中（~YYYY-MM-DD，NNNkm (+X.XXkm/天)）」',
+      !!c1 && /st-raising/.test(c1.cls) &&
+      /^变轨中（~\d{4}-\d{2}-\d{2}，\d+km \([-+]?\d+\.\d{2}km\/天）\)$/.test(c1.txt),
+      c1 ? JSON.stringify(c1.txt) : 'null（搜不到 ' + raiSample.id + '）');
+    assert('A7：变轨中的**速度片段**是独立 <span class="st-rate …">（正数带 +、颜色类正确）',
+      !!c1 && /<span class="st-rate (pos|neg|zero)">/.test(c1.html) &&
+      (raiSample.rr > 0 ? /class="st-rate pos"/.test(c1.html) : true),
+      c1 ? c1.html.replace(/<[^>]*>/g, '|') : 'null');
+    const c2 = cellOf(orbSample.id);
+    assert('A7：**在轨**的行 —— 单元格带 .st-orbit，文案形如「在轨（~YYYY-MM-DD，NNNkm）」',
+      !!c2 && /st-orbit/.test(c2.cls) &&
+      /^在轨（~\d{4}-\d{2}-\d{2}，\d+km）$/.test(c2.txt),
+      c2 ? JSON.stringify(c2.txt) : 'null（搜不到 ' + orbSample.id + '）');
+    const c3 = cellOf(geoSample.id);
+    assert('A7：**GEO** 的行 —— 写 `GEO` 不写高度',
+      !!c3 && /在轨（~\d{4}-\d{2}-\d{2}，GEO）$/.test(c3.txt),
+      c3 ? JSON.stringify(c3.txt) : 'null');
+    ti7.value = ''; ti7.dispatchEvent(new w3.Event('input', { bubbles: true }));
+  }
+
   // ================================================================ V1.9.1（A1）：信息窗「轨道高度变更」行
   // 规范：升轨章信息窗（A 窗）**最末行**；值 = 当前节点 vs 该星**前一个历史节点**的半长轴变化量；
   //   两位小数、正数带 `+`；正=绿 #2f9e44 / 负=黄 #f59f00 / 0=灰 var(--dim)；首点无"前一个" → `—`。
@@ -2737,10 +2846,13 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
         const at86 = cls.filter(c => c.x >= 86 && c.x < 87);
         return at86.length === 1 && at86[0].n === 61;
       })(), JSON.stringify(cls.filter(c => c.x >= 86).map(c => [c.x, c.n])));
-    assert('A9：**高度不同的相邻簇不被误并**（实测 50° 上有 1102 / 1127 / 1149 三个高度档，应保持独立）',
+    assert('A9：**高度不同的相邻簇不被误并**（50° 上多个高度档必须各自独立，实测 1100/1127/1149 + 新发射的 935）',
       (function () {
         const at50 = cls.filter(c => Math.abs(c.x - 50) < 0.1).map(c => c.y).sort((a, b) => a - b);
-        return at50.length === 3 && at50[0] < at50[1] && at50[1] < at50[2];
+        // 判据是"档数 ≥3 且严格递增（不重复/不合并）"，**不是写死 3 个** ——
+        //   数据会演进：2026-10 新发射的「低轨25组」(26213) 9 颗停在 935 km（还在升轨），
+        //   于是 50° 上从 3 档变 4 档。写死数字会让断言随数据过期而失败（正是这一条踩到的）。
+        return at50.length >= 3 && at50.every((v, i) => i === 0 || v > at50[i - 1]);
       })(), JSON.stringify(cls.filter(c => Math.abs(c.x - 50) < 0.1).map(c => [c.x, c.y, c.n])));
     assert('A9：半径夹在合理区间（倾角 0.9°~8° / 高度 45~260 km）—— 最小半径按**可见性**定，不然只有几像素',
       cls.every(c => c.rx >= 0.9 - 1e-9 && c.rx <= 8 + 1e-9 && c.ry >= 45 - 1e-9 && c.ry <= 260 + 1e-9),

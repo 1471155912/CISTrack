@@ -1792,11 +1792,19 @@ html[data-theme="light"] .res-fail { color:#c72929; }
 #satTable td.ltime, #launchTable td.lres { white-space:nowrap; }
 /* V1.9.1（1.4-D）：「在轨状态」列 —— 在轨绿 / 已再入红。
    颜色走 CSS 变量以便深浅主题各自取值（浅色主题下要压暗一档才够对比度）。 */
-:root { --st-orbit:#3ddc84; --st-gone:#ff5c5c; }
-:root[data-theme="light"] { --st-orbit:#0f9d58; --st-gone:#d93025; }
+:root { --st-orbit:#3ddc84; --st-gone:#ff5c5c; --st-raising:#f59f00; }
+:root[data-theme="light"] { --st-orbit:#0f9d58; --st-gone:#d93025; --st-raising:#b26a00; }
 #satTable td.stcell { text-align:center; white-space:nowrap; font-weight:600; font-size:12px; }
 #satTable td.st-orbit { color:var(--st-orbit); }
 #satTable td.st-gone { color:var(--st-gone); }
+/* V1.9.2（A7）：「正在变轨」黄 —— 三态中的第二态（在轨绿 / 变轨中黄 / 已再入红） */
+#satTable td.st-raising { color:var(--st-raising); }
+/* 变轨速度片段**单独着色**（清单 A7 明文要求"该片段单独着色，不随整格染黄"）：
+   正绿 / 负黄 / 0 灰 —— 与 A1「轨道高度变更」行同一套颜色规则 */
+#satTable td.stcell .st-rate { font-weight:700; }
+#satTable td.stcell .st-rate.pos { color:var(--st-orbit); }
+#satTable td.stcell .st-rate.neg { color:var(--st-raising); }
+#satTable td.stcell .st-rate.zero { color:var(--dim); }
 /* 已再入的整行：文字淡化一档（它已不在轨，不应与在轨卫星抢注意力），
    但**不隐藏**——用户口径是"已再入的也要能看见、能搜索"。 */
 #satTable tbody tr.gone td { opacity:.62; }
