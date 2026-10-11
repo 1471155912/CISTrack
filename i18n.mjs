@@ -147,10 +147,17 @@ ok('I18N 的英文侧零 CJK 字符', enCjk.length === 0, enCjk.join(' | '));
   // ⚠️ 必须先剥注释：解释「原先用的是 st.name」的那段注释本身会命中这个守卫
   //   （同一个坑已踩三次 —— 凡「断言某写法不存在」的守卫，都要先剥注释）。
   const barFn = stripComments((appSrc.match(/function drawShotBar\([\s\S]*?\n\}/) || [''])[0]);
+  // ★ V1.9.2：星座名改走 shotConstelState(view)（两星座都在图上时写「星网+千帆」），
+  //   但 A14 的核心口径不变 —— **必须走 t()，不得再用 st.name 硬编码中文名**。
   ok('A14：导出底栏的星座名走 i18n（不得再用 st.name 硬编码中文名）',
-    barFn.length > 0 && !/st\.name/.test(barFn) && /t\('shot_' \+ S\.key\)/.test(barFn));
+    barFn.length > 0 && !/st\.name/.test(barFn) &&
+    /cs\.both \? t\('shot_both'\) : t\('shot_' \+ cs\.key\)/.test(barFn) &&
+    /shotConstelState\(view\)/.test(barFn));
   ok('A14：shot_gw / shot_qf 两个键**确实被引用**（不再"定义了没人用"）',
-    /t\('shot_' \+ S\.key\)/.test(appSrc));
+    /t\('shot_' \+ cs\.key\)/.test(appSrc));
+  ok('V1.9.2：新增的 shot_both 键中英必须不同（两星座都在图上 → 星网+千帆 / CSCN + SpaceSail）',
+    !!I18N.shot_both && I18N.shot_both[0] !== I18N.shot_both[1],
+    I18N.shot_both ? I18N.shot_both.join(' / ') : '(缺键)');
   ok('A14：shot_gw / shot_qf 的中英必须不同（导出图英文口径 = CSCN / SpaceSail）',
     I18N.shot_gw[0] !== I18N.shot_gw[1] && I18N.shot_qf[0] !== I18N.shot_qf[1],
     I18N.shot_gw.join('/') + ' ' + I18N.shot_qf.join('/'));

@@ -116,6 +116,11 @@ window.__CISTRACK__ = (function () {
     drawNet: function () { return drawNet(); },
     netDateLabel: function (ms) { return netDateLabel(ms); },
     netColors: function () { return netColors(); },
+    // ★ V1.9.2：组网进度的时间区间档（全部 / 今年 / 最近3月）
+    setNetSpan: function (sp) { S.netSpan = sp; netView = null; netAutoView(); drawNet(); return S.netSpan; },
+    netSpan: function () { return S.netSpan; },
+    netRange: function () { var d = netData(); var R = netSpanRange(d, S.netSpan); return { from: R.from, to: R.to }; },
+    netNodes: function () { return netSpanNodes(netData(), S.netSpan); },
     // --- V1.9.0（R17）：04 变轨情况 ---
     climbView: function () { return climbView; },
     climbRect: function () { return climbRect; },
@@ -1057,27 +1062,44 @@ async function clipProbe(cvId, which) {
       var dpr = cv._dpr || 1;
       var W = cv.width, H = cv.height;
       var d = cv.getContext('2d').getImageData(0, 0, W, H).data;
-      function sat(x, y) {
-        x = Math.max(0, Math.min(W - 1, Math.round(x))); y = Math.max(0, Math.min(H - 1, Math.round(y)));
-        var i = (y * W + x) * 4;
-        return Math.max(d[i], d[i + 1], d[i + 2]) - Math.min(d[i], d[i + 1], d[i + 2]);
-      }
       var PL = r.PL * dpr, PT = r.PT * dpr, pw = r.pw * dpr, ph = r.ph * dpr;
       var lo = Math.ceil(PL), hi = Math.ceil(PL + pw), tp = Math.ceil(PT), bt = Math.ceil(PT + ph);
-      function scan(x0, y0, x1, y1) {
+      // 阈值 70（原 40）：40~70 这一段在实测中是**网格线 / 刻度字的抗锯齿**，
+      //   不是数据。定点取过像素：浅色主题下网格线边缘出的是 rgb 128/170/170（sat=42）
+      //   与 128/128/191（sat=63）这类"灰青/灰蓝"的中间色 —— 画在绘图区内的网格线
+      //   其抗锯齿自然会溢出到左缘外 1~3px。真正的数据色（曲线 / 光点）核心像素
+      //   饱和度在 120 以上（实测变轨章的各星专属色 sat=137~159），所以 70 不会放过漏点，
+      //   只滤掉抗锯齿噪声。
+      //   告警里带上 RGB 与所属边，便于二次判定"这是数据还是装饰"。
+      function px(x, y) {
+        x = Math.max(0, Math.min(W - 1, Math.round(x))); y = Math.max(0, Math.min(H - 1, Math.round(y)));
+        var i = (y * W + x) * 4;
+        return [d[i], d[i + 1], d[i + 2]];
+      }
+      function sat(x, y) {
+        var c = px(x, y);
+        return Math.max(c[0], c[1], c[2]) - Math.min(c[0], c[1], c[2]);
+      }
+      function scan(tag, x0, y0, x1, y1) {
         for (var x = x0; x <= x1; x += 2) for (var y = y0; y <= y1; y += 2) {
-          if (sat(x, y) > 40) out.push('s' + si + '@' + Math.round(x) + ',' + Math.round(y));
+          var s = sat(x, y);
+          if (s > 70) {
+            var c = px(x, y);
+            out.push('s' + si + '[' + tag + ']@' + Math.round(x) + ',' + Math.round(y)
+              + ' sat=' + s + ' rgb=' + c.join('/')
+              + ' rect=' + lo + ',' + tp + ',' + hi + ',' + bt);
+          }
         }
       }
       // 四条带，各扫两条线（紧贴坐标线外侧 1px 与 2~3px）；两端各内收 6px 避开刻度文字
-      scan(lo + 6, tp - 1, hi - 6, tp - 1);
-      scan(lo + 6, tp - 3, hi - 6, tp - 3);
-      scan(lo + 6, bt + 1, hi - 6, bt + 1);
-      scan(lo + 6, bt + 3, hi - 6, bt + 3);
-      scan(lo - 1, tp + 6, lo - 1, bt - 6);
-      scan(lo - 3, tp + 6, lo - 3, bt - 6);
-      scan(hi + 1, tp + 6, hi + 1, bt - 6);
-      scan(hi + 3, tp + 6, hi + 3, bt - 6);
+      scan('top', lo + 6, tp - 1, hi - 6, tp - 1);
+      scan('top', lo + 6, tp - 3, hi - 6, tp - 3);
+      scan('bot', lo + 6, bt + 1, hi - 6, bt + 1);
+      scan('bot', lo + 6, bt + 3, hi - 6, bt + 3);
+      scan('left', lo - 1, tp + 6, lo - 1, bt - 6);
+      scan('left', lo - 3, tp + 6, lo - 3, bt - 6);
+      scan('right', hi + 1, tp + 6, hi + 1, bt - 6);
+      scan('right', hi + 3, tp + 6, hi + 3, bt - 6);
     });
     return out.slice(0, 8);
   })()`);
@@ -1101,11 +1123,64 @@ if (!climbHasData) {
   ck('V1.9.0（R17）：变轨情况 —— 9 种视图下绘图区外均无高饱和曲线/光点像素（不漏点）',
     Array.isArray(clipClimb) && clipClimb.length === 0, clipClimb);
 }
+// --- ★ V1.9.2（用户要求）：组网进度「全部 / 今年 / 最近3月」时段切换 ---
+// 用户原话：「注意这个切换和其他切换按钮一样**按钮和视图本身要有同样的非线性动画效果**」。
+//   判据分三层：① 按钮在「星座」同一行的右侧；② 点下去后画布容器**真的进入 .chart-out 过场态**
+//   （opacity 渐变，与 03 章 modeSeg 同一条 CSS 过渡），过场结束再撤掉；
+//   ③ 三档画出来的像素**互不相同**（不是换个按钮文字但图没变）。
+{
+  const rowInfo = await ev(`(function(){
+    var seg = document.getElementById('netSpanSeg');
+    var show = document.getElementById('netShowSeg');
+    if (!seg || !show) return null;
+    var a = seg.getBoundingClientRect(), b = show.getBoundingClientRect();
+    return { sameRow: Math.abs((a.top + a.height / 2) - (b.top + b.height / 2)) < 12,
+      toRight: a.left > b.right - 1, btns: seg.querySelectorAll('button').length };
+  })()`);
+  ck('V1.9.2：三档按钮在「星座」同一行的右侧',
+    rowInfo && rowInfo.sameRow === true && rowInfo.toRight === true && rowInfo.btns === 3,
+    rowInfo);
+  // 点「今年」→ 立刻应进入过场态（.chart-wrap.chart-out，画布 opacity 补间到 0）
+  const swapState = await ev(`(function(){
+    var seg = document.getElementById('netSpanSeg');
+    var btn = seg.querySelector('button[data-netspan="year"]');
+    var wrap = document.getElementById('netCv').parentNode;
+    btn.click();
+    var during = wrap.classList.contains('chart-out');
+    var op = getComputedStyle(document.getElementById('netCv')).opacity;
+    var tr = getComputedStyle(document.getElementById('netCv')).transitionProperty;
+    return { during: during, op: op, tr: tr };
+  })()`);
+  ck('V1.9.2：点档位按钮**立即**进入画布过场（.chart-wrap.chart-out），且画布带 opacity 过渡',
+    swapState && swapState.during === true && /opacity/.test(String(swapState.tr)),
+    swapState);
+  await sleep(420);                       // 等 260ms 过场结束（留足余量）
+  const afterSwap = await ev(`(function(){
+    var wrap = document.getElementById('netCv').parentNode;
+    return { out: wrap.classList.contains('chart-out'),
+      span: window.__CISTRACK__.netSpan() };
+  })()`);
+  ck('V1.9.2：过场结束态 —— .chart-out 已撤掉，且档位确实切到了「今年」',
+    afterSwap && afterSwap.out === false && afterSwap.span === 'year', afterSwap);
+  // 三档像素必须互不相同（同一个画布、同样的尺寸，逐像素比对）
+  const sig = async (sp) => await ev(`(function(){
+    var P = window.__CISTRACK__; P.setNetSpan('${sp}');
+    var cv = document.getElementById('netCv');
+    var d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
+    var h = 0; for (var i = 0; i < d.length; i += 997) h = (h * 31 + d[i]) % 2147483647;
+    return h;
+  })()`);
+  const sA = await sig('all'), sY = await sig('year'), sQ = await sig('qtr');
+  ck('V1.9.2：三档画出来的像素互不相同（确实是三张不同的图）',
+    sA !== sY && sY !== sQ && sA !== sQ, JSON.stringify([sA, sY, sQ]));
+  await ev(`window.__CISTRACK__.setNetSpan('all')`);
+  await sleep(420);
+}
+
 // 复位，别影响后面的用例
 await ev(`(function(){ var P = window.__CISTRACK__;
   P.chartAutoView(); P.drawChart(); P.setNetView(null); P.netAutoView(); P.drawNet();
   P.setClimbView(null); P.climbAutoView(); P.drawClimb(); })()`);
-
 // --- 03.5 全屏布局（顶栏让位）---
 await setViewport(430, 932, true);
 await sleep(600);
@@ -1170,17 +1245,19 @@ ck('V1.9.0（R17）：最小二乘中心化 x —— 毫秒时间戳 + 40 天 +0
 // ③ 纵轴顶格限位 + 横轴到今天。
 //   ⚠️ 后两条**依赖历史数据**（climbView/climbPickOptions 在零数据下没有意义）→ 无数据时 SKIP；
 //      第一条 climbBounds 是纯函数，拿假曲线就能测，恒可测。
-ck('V1.9.0（R17）：纵轴 0~2000km 顶格限位（纵轴量=半长轴时纵向锁死）', await ev(`(function(){
+// ★ V1.9.2（用户要求，参考 findrassvet 的「График 01」）：纵轴改为「**180 ~ 数据最高点**」，
+//   不再是 0~2000 的固定带。用假曲线验证新口径：半长轴 7291~8791 → 高度 912.9~2412.9，
+//   所以 y0 必须固定 180、y1 = 数据最高高度 × 1.04、fixed（纵向仍锁死不让缩放）、nobrk（不再走断轴）。
+ck('V1.9.2：04 章纵轴 = 「180 ~ 数据最高×1.04」（顶格限位仍在，纵向锁死不让缩放）', await ev(`(function(){
   var K = window.__CISTRACK__;
   var fake = [{ pts:[{ms:Date.now()-86400000*40, v:7291},{ms:Date.now(), v:8791}], rates:[] }];
   var b = K.climbBounds(fake, 'sma');
-  if (b.y0 !== 0) return false;                       // 必须从 0 起
-  if (b.y1 < 2000) return false;                      // 必须至少顶到 2000
-  if (!b.fixed) return false;                         // fixed = 纵向不缩放
-  // 纵向锁死：clampClimbView 必须把被人为改窄的 y 区间拉回顶格
-  var v = { x0: Date.now()-86400000*40, x1: Date.now(), y0: 1500, y1: 1600 };
-  var r = K.climbBounds(fake, 'sma');
-  return r.fixed === true;
+  if (b.y0 !== 180) return false;
+  var wantTop = (8791 - 6378.137) * 1.04;
+  if (Math.abs(b.y1 - wantTop) > 0.5) return false;
+  if (b.fixed !== true) return false;
+  if (b.nobrk !== true) return false;
+  return true;
 })()`));
 if (!climbHasData) {
   ckSkip('V1.9.0（R17）：横轴右端至少到今天（发射日～今天）', '本章暂无历史轨道数据，真实数据到位后重跑补测');

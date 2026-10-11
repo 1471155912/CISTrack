@@ -2179,6 +2179,21 @@ html[data-theme="light"] .res-fail { color:#c72929; }
         <button data-net="qf" class="on" data-i18n="n_qf">千帆</button>
       </div>
     </div>
+    <!-- ★ V1.9.2（用户要求）：时间区间档 —— 放在「星座」**同一行的右侧**。
+         为什么是**独立的一个 .ctl**（而不是塞进上面那个 .ctl 里）：`.ctl` 是 `flex-direction:column`
+         （label 在上、控件在下），塞进去会排到"星网/千帆"的**下一行**去。
+         做成同构的 .ctl（同样 label + seg）后，`.controls` 的 `align-items:flex-end` 会让两个 seg
+         的底边对齐 → 视觉上就是同一行，且排列顺序自然是"星座 → 时间段"。
+         三档：全部（现有视图 + 每年 1/1 节点）／今年（本年 1/1 至今，累计从 0 起，每月 1 日节点）／
+         最近3月（三个月前至今，累计从 0 起，从起点每 7 天一个节点）。 -->
+    <div class="ctl">
+      <span class="lbl" data-i18n="l_netspan">时间段</span>
+      <div class="seg" id="netSpanSeg">
+        <button data-netspan="all" class="on" data-i18n="ns_all">全部</button>
+        <button data-netspan="year" data-i18n="ns_year">今年</button>
+        <button data-netspan="qtr" data-i18n="ns_qtr">最近3月</button>
+      </div>
+    </div>
     <div class="ctl ctl-btns">
       <button class="ghost" data-defsec="progress" type="button" data-i18n="b_default" data-i18n-title="t_defprogress">默认设置</button>
     </div>

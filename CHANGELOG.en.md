@@ -66,16 +66,104 @@ New `CHANGELOG.en.md` (full translation, 1604 lines / 172 KB), same pattern as `
 with a language switch at the top. `CHANGELOG.en.md` was also wired into `sync_src.mjs` and
 `build_release.mjs` (otherwise the source-alignment round trip would drop it).
 
+### ★ "Orbits Change" chart rebuilt + seamless axis break + reclustered circles
+
+**(1) Orbits Change chart (section 04) rebuilt** (user request: "follow График 01 on findrassvet.ru"):
+
+| Item | Before | After |
+|---|---|---|
+| X axis | auto-fit to the data range | **left end = that batch's launch date, right end ≥ today** (launch → today) |
+| Y axis | axis break (GEO floated in the upper segment) | **180 ~ data max × 1.04**, locked vertically (only the X axis zooms) |
+| Colors | one color per batch | **an independent color per satellite** |
+| Labels | NORAD numbers | **satellite names** (Chinese names in the Chinese UI, English names in the English UI), with **overlap-avoiding layout**; the right margin **widens dynamically** based on how many labels need to fit |
+
+**(2) Axis break is now "seamless"**: the old implementation pinned the GEO segment to a fixed 70%
+and floated it above the chart, so the two segments zoomed and panned independently. The new
+`brkYMap(v, PT, ph)` allocates the upper and lower segments **in proportion to the visible range**,
+so both share one transform — they **zoom and pan together, seamlessly**, treating the chart as
+"the top of GEO directly connected to the bottom of the GEO display area, with the intermediate
+altitude range not existing" (user's words). Section 04 uses the `nobrk` path (it frames by
+180 ~ data max and does not need a break).
+
+**(3) Clustering circles re-divided**: the user reported the circles were "**too thin and
+overlapping each other**". The merge criterion moved from **screen space** (the old `rxRaw`,
+now deleted) to a **data-space distinguishability threshold** (`CL_MERGE_Y = 80` km /
+`CL_MERGE_X = 0.8°` — merge what cannot be told apart); line width **1.2 → 1.7**; labels got an
+overlap-avoiding layout.
+
+### ★ Network progress: time-range switch (All / This year / Last 3 months)
+
+Three ranges added **to the right of the constellation row, on the same line** (a separate,
+isomorphic `.ctl` aligned via `.controls{align-items:flex-end}`):
+
+| Range | X-axis span | Cumulative baseline | Nodes |
+|---|---|---|---|
+| **All** | data start ~ today | 0 (full total) | **January 1 of every year** (sitting on the year's guide line) + today at the end |
+| **This year** | **Jan 1 00:00 local of the current year** ~ today | the full total at the window start; the curve accumulates from 0 | **the 1st of every month** + today |
+| **Last 3 months** | **the day three months before today** ~ today | same as above | **every 7 days from the initial date** + today |
+
+Three design principles (so nothing existing breaks):
+
+1. **`weeks` untouched** (the weekly sampling table is the base data);
+2. **`delta` / `netShowInfoAt` untouched** — nodes carry only a **week index**
+   (`netSpanNodes()` returns `{ms, wi, kind}`), so hitting the info window still reads the
+   **full table** ⇒ the user's requirement that "**the info window still shows the full total**"
+   is met at **zero cost**;
+3. only the **curve's Y baseline** (= the full total before the window start) and the **X-axis
+   span** change with the range.
+
+Also: switching ranges goes through the **same** `cvSwap` non-linear transition as every other
+button (button highlight responds immediately); X-axis tick **anchors follow the range**
+(all → old convention; year → the 1st of each month; qtr → every stepD days from the window
+start); `clampNetView` bounds follow the range; the range joined the preference system
+(`PREF_DEF` / this section's "default settings" / snapshot / restore).
+
+### ★ Two extra segments in the export bar + three watermark color rules
+
+**Export bottom bar** (emitted only by section 05 Network progress; text follows the on-screen
+range in real time):
+
+```
+… | 选择纵轴量 发射量（累计） | 选择时间段 全部
+```
+
+**Three watermark color rules** (`shotConstelState(view)` returns `{both, key}`):
+
+| Case | Wordmark | Constellation name |
+|---|---|---|
+| Guowang only | **red** CISTrack | **星网** |
+| Qianfan only | **blue** (same for SpaceSail) | **千帆** |
+| Both selected | **left half red, right half blue, each half the length** | **星网+千帆** / `CSCN + SpaceSail` |
+
+> **A real bug was fixed in the half-half path**: the right half used to be drawn with
+> `fillText(BRAND, x + half - brandW, cy)`, shifting the whole text left by about half the
+> wordmark width → the clip window showed blank → on screen **only the red "CIST" remained and
+> the blue "rack" disappeared entirely**. The fix draws **both halves at the same x**, each taking
+> its half via complementary clips. A source-level guard now catches this (earlier than a pixel
+> assertion would).
+
 ### Tests
 
-smoke **650 → 668 PASS / 0 FAIL** (18 new A7 guards covering data layer / source layer /
-rendering layer); i18n **0 failures**; visual **128 PASS / 0 FAIL**.
+smoke **650 → 668 → 696 PASS / 0 FAIL** (+18 A7 guards; +28 V1.9.2 guards: the three windows,
+baselines and node rhythm, full-total info window, node hit priority, auto view, the two export-bar
+segments, the three watermark rules, the half-half drawing position, non-overlapping labels and
+left-edge flipping, non-intersecting clusters, and the axis-break enable condition);
+i18n **0 failures** (key union 228); visual **128 → 132 PASS / 0 FAIL**.
 
-Also fixed one **assertion that had expired with the data**: A9's "three altitude bands at 50°"
-was hard-coded as `=== 3`, but the satellites of "LEO-25 group" (26213) launched in 2026-10 sit at
-935 km (still raising) → it became 4 bands and failed. Changed to "band count ≥ 3 and strictly
-increasing" (keeps the original intent of "adjacent clusters must not be merged", without pinning
-a number).
+Also fixed two **assertions that had expired with the data/environment**:
+① A9's "three altitude bands at 50°" was hard-coded as `=== 3`, but the satellites of "LEO-25
+group" (26213) launched in 2026-10 sit at 935 km (still raising) → it became 4 bands and failed.
+Changed to "band count ≥ 3 and strictly increasing" (keeps the original intent of "adjacent
+clusters must not be merged").
+② visual's "no high-saturation pixels outside the plot area" threshold was 40; measurements showed
+the 40~70 band is **grid-line / tick-label anti-aliasing** (light theme yields
+`rgb 128/170/170 sat=42`, `128/128/191 sat=63`) while real data colors are `sat≥120` → the
+threshold was corrected to **70**, and warnings now carry an `[edge]` tag + `sat=` + `rgb=` for
+quick localization next time.
+The same batch also fixed an **anti-aliasing spill**: in the `climb` section the guide line
+(1 px wide, spilling ~1.5 px to either side) landed on the scan band
+(measured `s0[right]@1220 sat=137 rgb=85/222/131`) → the guide line now runs from
+`PL+pw+6 ~ PL+pw+10` (leaving a gap).
 
 ---
 

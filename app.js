@@ -79,6 +79,8 @@ var I18N = {
   // V1.9.0（需求18）：**导出图片**底栏 CISTrack 行里的星座名 —— 英文必须用 CSCN / SpaceSail，
   //   此前那行用的是 st.name（星座对象自带的中文名），所以英文图里一直漏出「星网 / 千帆」。
   shot_gw: ['星网', 'CSCN'], shot_qf: ['千帆', 'SpaceSail'],
+  // V1.9.2：导出图底栏在"两个星座都在图上"时（组网进度章默认如此）的星座名
+  shot_both: ['星网+千帆', 'CSCN + SpaceSail'],
   // V1.7.0 第四轮（需求5a）：英文主标题的星座名换全称/并称（只用于第0章主标题，顶栏按钮仍用 cn_gw_short）
   cn_gw_long: ['星网', 'CSCN/GW'], cn_qf_long: ['千帆', 'SpaceSail/Qianfan'],
   d_dataupd: ['TLE更新时间', 'TLE updated'],          // V1.7.2（需求7）：数据更新 → TLE更新时间
@@ -234,6 +236,13 @@ var I18N = {
   l_netmode: ['纵轴量', 'Y axis'], nm_launch: ['发射量（累计）', 'Launches (cum.)'], nm_orbit: ['在轨数量', 'In orbit'],
   nm_unit_launch: ['累计发射卫星数', 'Cumulative satellites launched'], nm_unit_orbit: ['在轨卫星数', 'Satellites in orbit'],
   l_netshow: ['星座', 'Constellation'], d_x_date: ['日期', 'Date'],
+  // ★ V1.9.2（用户要求）：组网进度的时间区间档按钮 + 导出底栏的两段留底。
+  //   ns_* 是按钮上的文字（用户指定"全部 / 今年 / 最近3月"）；
+  //   ns_qtr2 是**导出底栏**用的（用户指定那一处写"近3个月"，与按钮措辞不同，所以单列一个键）。
+  ns_all: ['全部', 'All'], ns_year: ['今年', 'This year'], ns_qtr: ['最近3月', 'Last 3 months'],
+  ns_qtr2: ['近3个月', 'Last 3 months'],
+  l_netspan: ['时间段', 'Time range'],
+  shot_netmode: ['选择纵轴量', 'Y axis'], shot_netspan: ['选择时间段', 'Time range'],
   // V1.9.1（A15）04 章「变轨情况」：由「变轨情况」改名 + 与组网进度换位。
   //   英文按 Q32 定稿用 **Orbits Change Status**（表格里那个 Orbits Change 是导出图的短标签，
   //   底栏宽度有限，见 Q32 —— 两处不是同一个字符串，别顺手统一）。
@@ -643,6 +652,11 @@ unpackAll('gw'); unpackAll('qf');          // V1.3.7：差分 TLE 还原成完�
 var CONST = { gw: build('gw'), qf: build('qf') };
 
 // ---------------------------------------------------------------- 全局状态
+// ★ V1.9.2：组网进度的时间区间档（提到这里是因为 prefApply 在启动早期就会用到它做合法性校验）。
+//   'all'  = 全部（现有视图 + 每年 1/1 一个节点）
+//   'year' = 今年（本年 1/1 至今，累计从 0 起，每月 1 日一个节点）
+//   'qtr'  = 最近 3 个月（三个月前至今，累计从 0 起，从起点起每 7 天一个节点）
+var NET_SPANS = ['all', 'year', 'qtr'];
 var S = {
   key: 'gw',
   sel: [],
@@ -683,6 +697,11 @@ var S = {
   //   按星座各存一份没有意义；它们随「默认设置 / 还原所有默认设置」还原即可。
   netMode: 'launch',          // 'launch' = 发射量累计；'orbit' = 在轨数量
   netGw: true, netQf: true,   // 两条曲线的显隐
+  // ★ V1.9.2（用户要求）：组网进度的时间区间档 —— 'all' = 全部；'year' = 今年（本年 1/1 至今）；
+  //   'qtr' = 最近 3 个月（三个月前至今）。
+  //   与 netMode 一样进 PREF_DEF / PREF_SEC.progress：它是**本章的设置项**，
+  //   「默认设置」要把它还原成 'all'（否则按了默认设置时间轴还缩着，说不通）。
+  netSpan: 'all',
   // V1.9.0（R17）：04 变轨情况的两项。**进 STATE_FIELDS** —— 与 04 的显隐同理按星座各存一份
   //   （切到千帆时看到的是千帆的批次，不是星网的）。
   climbPick: '',              // '' = 跟随全局选中；'b:<批次key>' = 指定批次；'s:<norad>' = 指定单星
@@ -702,6 +721,7 @@ var PREF_DEF = {
   coneOn: true, coneEl: 10, spin: true, showTracks: true, nameGlobe: true,
   sortKey: 'norad', sortAsc: false, allCols: false,
   netMode: 'launch',                              // V1.8.0（需求8）：03.5 组网进度
+  netSpan: 'all',                                 // V1.9.2：时间区间档（全部 / 今年 / 最近3月）
   // V1.9.0（需求3）：netGw / netQf **不再放这里** —— 它们改为按星座各存一份（见 STATE_FIELDS），
   //   出厂默认 = 只看本页星座（星网页面只显示星网、千帆页面只显示千帆），两个页面互不联动。
   // V1.9.0（R17）：05 章同理，climbPick / climbTake 也按星座各存一份（见 STATE_FIELDS），
@@ -715,7 +735,7 @@ var PREF_SEC = {
   map: ['covOn', 'covEl', 'pickOn', 'pickEl', 'mapTrack', 'nameMap', 'cMap', 'timeOffsetMap'],
   globe: ['coneOn', 'coneEl', 'spin', 'showTracks', 'nameGlobe', 'cGlobe', 'timeOffsetGlobe'],
   // V1.8.0（需求8）：03.5 组网进度自己那一章的默认设置
-  progress: ['netMode'],
+  progress: ['netMode', 'netSpan'],
   // V1.9.0（R17）：04 变轨情况本章的默认设置 = 对象选择 + 纵轴量（视图由 resetView 归位）
   climb: ['climbPick', 'climbTake'],
   table: ['sortKey', 'sortAsc', 'allCols']
@@ -738,6 +758,7 @@ function prefSnap() {
     nameGlobe: S.names.globe,
     sortKey: S.sortKey, sortAsc: S.sortAsc, allCols: S.allCols,
     netMode: S.netMode, netGw: S.netGw, netQf: S.netQf,      // V1.8.0（需求8）
+    netSpan: S.netSpan,                                      // V1.9.2：时间区间档
     // V1.9.0（R17）：05 章两项同样如实快照（章级「默认设置」要按 PREF_DEF 的值还原）
     climbPick: S.climbPick, climbTake: S.climbTake,
     // V1.7.1（需求10）：时间滑块**如实快照当前偏移**（理由见下）；V1.7.3（需求9）两章各拍各的。
@@ -760,6 +781,8 @@ function prefApply(p) {
   S.spin = p.spin; S.showTracks = p.showTracks; S.names.globe = p.nameGlobe;
   S.sortKey = p.sortKey; S.sortAsc = p.sortAsc; S.allCols = p.allCols;
   S.netMode = p.netMode; S.netGw = !!p.netGw; S.netQf = !!p.netQf;   // V1.8.0（需求8）
+  // ★ V1.9.2：时间区间档（非法值一律回落 'all'，老存档没有这一键时也一样）
+  S.netSpan = NET_SPANS.indexOf(p.netSpan) >= 0 ? p.netSpan : 'all';
   // V1.9.0（R17）：05 章两项一并落回 S（climbPick 可能是 'b:xxx'，按原样写回）
   S.climbPick = p.climbPick || ''; S.climbTake = (p.climbTake === 'rate') ? 'rate' : 'sma';
   // V1.3.6：时间恒为「现在」。存档里若带着旧版本写入的偏移也一律忽略，
@@ -1582,8 +1605,19 @@ var CHART_Y_MIN = 0, CHART_Y_MAX = 36500;     // 轨道高度（km，上界 = GE
 var BRK_LO = 2000;          // 断轴区下沿（km，离地高度）
 var BRK_HI = 35750;         // 断轴区上沿（km）
 var BRK_TOP = 35850;        // 上段上限（km）—— GEO（35786）落在这里
-var BRK_RATIO = 0.70;       // 下段占绘图区高度的比例（Q43：上下 70 / 30）
-function brkOn(v) { return !!v && v.y1 > BRK_LO + 1e-9; }
+// ★ V1.9.2（用户报"GEO 部分像顶栏一样浮在整个图像上面、影响放大时的观看"）：旧实现用
+//   **固定比例** BRK_RATIO=0.70 切两段 —— 上段永远占 30% 的高度。后果：
+//     · 只看 LEO（放大到 0~1500）时，顶上仍永远杵着一条 30% 高的空白带（就是"浮置"的观感）；
+//     · 上下两段的缩放**互不相干**，不是"一张图一起放大缩小"。
+//   现改为**按可见范围的比例分配**：两段都在视野里时按各自可见跨度分配高度，中间只留
+//   BRK_GAP 像素的断轴缝；只看到其中一段时该段占满整高（另一段自然移出视野）。
+//   ⇒ 整张图是一个刚体：缩放/平移时两段一起动，GEO 不再钉在顶上。
+var BRK_GAP = 26;           // 断轴缝的像素高度（仅两段都可见时占用）
+// 断轴只在**视野真的含到上段**时启用：否则（例如放大到 0~4000）走线性映射 ——
+//   这样"放大看 LEO"时 LEO 能占满整高，不会被一段用不到的断轴白占地方。
+//   `v.nobrk` = 该视图**主动不用断轴**（04 变轨情况就是这种：它按"180 ~ 数据最高"取景，
+//   单一批次要么全是 LEO、要么全是 GEO，不存在两簇并存，断轴只会添乱）。
+function brkOn(v) { return !!v && !v.nobrk && v.y1 > BRK_HI + 1e-9; }
 /** 该视图的纵向映射：返回 { on, cut, bands, Y(v)→px|null, yAt(px)→v }
  *  ★ 落在断轴区（2000~35750）里的值 **Y 返回 null** —— 上层据此**不画**该点/该段，
  *    于是曲线在断轴处自然断开（Q47 的处置），而不是被"夹"到轴上伪装成有一个点。 */
@@ -1594,29 +1628,46 @@ function brkYMap(v, PT, ph) {
       bands: [{ v0: v.y0, v1: v.y1, py0: PT, py1: PT + ph }],
       yAt: function (px) { return v.y0 + (PT + ph - px) / ph * (v.y1 - v.y0); } };
   }
-  var phTop = ph * (1 - BRK_RATIO);                 // 上段高度
-  var phLow = ph * BRK_RATIO;                        // 下段高度
-  var cut = PT + phTop;                              // 分界行（断轴处）
-  var lo0 = Math.min(v.y0, BRK_LO);
-  var loSpan = Math.max(BRK_LO - lo0, 1e-6);
-  var hi1 = Math.max(v.y1, BRK_HI + 1);
-  var hiSpan = Math.max(hi1 - BRK_HI, 1e-6);
+  // 两段各自的**可见范围** = 视野与物理区间的交集
+  var loLo = Math.max(v.y0, 0), loHi = Math.min(v.y1, BRK_LO);
+  var hiLo = Math.max(v.y0, BRK_HI), hiHi = Math.min(v.y1, BRK_TOP + 400);
+  var lowOn = (loHi - loLo) > 1e-6, hiOn = (hiHi - hiLo) > 1e-6;
+  var gap = (lowOn && hiOn) ? BRK_GAP : 0;              // 只有一段可见时不留缝
+  var avail = Math.max(ph - gap, 1);
+  var loSpanV = loHi - loLo, hiSpanV = hiHi - hiLo;
+  var hLow = lowOn ? (hiOn ? avail * loSpanV / (loSpanV + hiSpanV) : avail) : 0;
+  var hTop = hiOn ? (avail - hLow) : 0;
+  var lowTop = PT + hTop + gap;                         // 下段的上沿（画布 y）
+  var brkRow = PT + hTop + gap / 2;                     // 断轴标记所在行
   return {
-    on: true, cut: cut,
-    bands: [
-      { v0: lo0, v1: BRK_LO, py0: cut, py1: PT + ph },      // 下段：LEO
-      { v0: BRK_HI, v1: hi1, py0: PT, py1: cut }            // 上段：GEO
-    ],
+    on: true, cut: brkRow,
+    bands: (function () {
+      var b = [];
+      if (lowOn) b.push({ v0: loLo, v1: loHi, py0: lowTop, py1: PT + ph });
+      if (hiOn) b.push({ v0: hiLo, v1: hiHi, py0: PT, py1: PT + hTop });
+      return b;
+    })(),
     Y: function (y) {
-      if (y <= BRK_LO) return cut + (BRK_LO - y) / loSpan * phLow;
-      if (y >= BRK_HI) return PT + (hi1 - y) / hiSpan * phTop;
-      return null;                                          // 断轴区内 → 不画
+      if (hiOn && y >= BRK_HI) return PT + hTop * (hiHi - y) / hiSpanV;
+      if (lowOn && y <= BRK_LO) return lowTop + hLow * (loHi - y) / loSpanV;
+      return null;                                      // 断轴区内 → 不画
     },
     yAt: function (px) {
-      if (px >= cut) return lo0 + (PT + ph - px) / phLow * loSpan;
-      return hi1 - (px - PT) / phTop * hiSpan;
+      if (hiOn && px <= PT + hTop) return hiHi - (px - PT) / hTop * hiSpanV;
+      if (lowOn && px >= lowTop) return loHi - (px - lowTop) / hLow * loSpanV;
+      return (loHi + hiLo) / 2;                         // 落在缝里 → 给个中性值
     }
   };
+}
+/** 断轴视图的纵轴刻度：每个 band 各取若干条（旧写法硬取 bands[0]/bands[1]，
+ *  而新实现里"只有一段可见"时 bands 只有一个元素 → 会取到 undefined 而抛错）。 */
+function brkTicks(YM, nLow, nTop) {
+  var out = [];
+  YM.bands.forEach(function (b, i) {
+    if (!(b.v1 - b.v0 > 1e-9)) return;
+    out = out.concat(niceTicks(b.v0, b.v1, i === 0 && YM.bands.length > 1 ? nLow : nTop));
+  });
+  return out;
 }
 /** 断轴处的**斜杠标记**（国际通用画法：两根平行斜线；不需要文字，因此不引入 i18n 键） +
  *  一行 `2000~35750` 的小字（纯数字，中英同形），避免读者误读量级。 */
@@ -1637,7 +1688,12 @@ function brkDrawMark(ctx, PL, cut, pw) {
 //   绘制顺序与 A9 的聚类圆圈同一层（**网格之上、光点之下**）。
 // 断轴视图下它落在**下段**（下段就是 0~2000 km 的真实高度段），位置天然正确。
 var ATM_LINE = 100;                       // km
-function atmLineDraw(ctx, C, PL, pw, Yval, label) {
+function atmLineDraw(ctx, C, PL, pw, Yval, label, y0) {
+  // ★ V1.9.2：纵轴下沿可能已经高于 100 km（04 变轨情况现在是 180~数据最高）——
+  //   那时这条线在量程之外，画出来会落在坐标轴下方，属于"画错位置"，直接不画。
+  //   （Q27/A12 要求"变轨情况的半长轴模式画 100km 线"，前提是量程含 100km；
+  //     新口径把下沿提到 180km 后该前提不成立，属两处要求的取舍，已在 CHANGELOG 记录。）
+  if (isFinite(y0) && y0 > ATM_LINE) return;
   var y = Yval(ATM_LINE);
   if (y == null) return;                  // 断轴区里没有它的位置（不会有：100 km 在下段）
   ctx.save();
@@ -1782,11 +1838,20 @@ function chartClusters(pts) {
   Object.keys(bins).forEach(function (k) {
     if (bins[k].length >= CHART_CL_MIN) out.push(mkCluster(bins[k]));
   });
-  // ★ 合并**相互重叠**的簇：分箱是按整数边界切的，而真实星群会跨边界
-  //   （实测 86.36° 与 86.65° 属于**同一片** 86.5° 星群，却被 1° 的边界切成两半、各画一个几乎重合的圈；
-  //   两者成员数 32+29 = **61**，正好等于该簇的真实规模）。
-  //   ⚠️ 判据用**真实散布**（rxRaw/ryRaw）而不是画出来的半径 —— 画出来的半径被最小半径抬大过，
-  //   拿它判重叠会把"同倾角但高度差 47km"的两个不同簇（50°/1149 与 50°/1102）误并成一个。
+  // ★ 合并判据 —— V1.9.2 按用户反馈**重新划分**（原判据的初衷保留在下方注释里做沿革）。
+  //   用户原话：「画红圈区分卫星族簇的圈过细且互相重合了，没有起到区分的效果，请重新划分」。
+  //   旧判据是"**真实散布**是否重叠"（rxRaw/ryRaw 的 0.8 倍），它管不住这种情况：
+  //   实测 50° 上有 **1100 / 1127 / 1149 三个高度簇**，彼此只差 27~49 km ——
+  //   而纵轴跨度是 35000 km（GEO 也要装下），三者画出来**必然叠在一起**：
+  //   要分开就得把半径压到 ~12 km，在默认视图下不到 1 个像素，等于没画。
+  //   而它们本来就是同一族（星网 50° 倾角、1100~1150 km 工作轨道的组网星，各批次高度略有差），
+  //   所以正确处置是**合并成一个簇**，而不是硬画三个叠在一起的圈。
+  //   → 新判据：**数据空间里"分不出来"就合并** —— 纵向差 < CL_MERGE_Y 且横向差 < CL_MERGE_X。
+  //     50°/935 那簇（新试验星）离它们 165 km，远超阈值 → **仍然独立成簇**（那才是真的不同族）。
+  //   沿革（旧判据的初衷仍然成立）：分箱按整数边界切，而真实星群会跨边界 ——
+  //     实测 86.36° 与 86.65° 属同一片 86.5° 星群，被 1° 边界切成两半各画一个几乎重合的圈
+  //     （32+29 = 61，正好等于该簇真实规模）；新判据的横向阈值 0.8° 同样能合掉它。
+  var CL_MERGE_Y = 80, CL_MERGE_X = 0.8;
   var merged = true, pass = 0;
   while (merged && pass++ < 8) {
     merged = false;
@@ -1794,8 +1859,7 @@ function chartClusters(pts) {
     for (var i = 0; i < out.length; i++) {
       for (var j = i + 1; j < out.length; j++) {
         var a = out[i], b = out[j];
-        if (Math.abs(a.x - b.x) < (a.rxRaw + b.rxRaw) * 0.8 &&
-            Math.abs(a.y - b.y) < (a.ryRaw + b.ryRaw) * 0.8) {
+        if (Math.abs(a.x - b.x) < CL_MERGE_X && Math.abs(a.y - b.y) < CL_MERGE_Y) {
           var g = a.g.concat(b.g);
           out.splice(j, 1); out.splice(i, 1);
           out.push(mkCluster(g));
@@ -1805,6 +1869,34 @@ function chartClusters(pts) {
       }
     }
   }
+  // ★ V1.9.2：**强制两两分离**（兜底）—— 合并后仍可能有画出来会相交的簇。
+  //   做法：逐对检查"画出来的椭圆是否相交"（相交 = 两轴都比半径和更近），
+  //   相交就取「沿 x 分离」与「沿 y 分离」中**代价较小**的那个比例，把**成员较少的那个**等比缩小。
+  //   ⚠️ 只缩小的、不缩大的：大簇是这片区域的主体，不能因为它挨着一个小簇就被缩掉 ——
+  //     第一版把**双方**都缩，结果 50° 的主簇被反复缩小到低于可见下限而被丢弃，
+  //     等于把最重要的那个圈删了（smoke 的 A9 断言当场抓到）。
+  //   缩到低于可见下限的簇**直接丢弃**：看不见的小圈留着只会添乱，大圈已经标出那片区域了。
+  var CL_GAP = 0.86;                 // 两圈之间留 14% 的缝
+  for (var pass2 = 0; pass2 < 24; pass2++) {
+    var anyShrink = false;
+    for (var i2 = 0; i2 < out.length; i2++) {
+      for (var j2 = i2 + 1; j2 < out.length; j2++) {
+        var A = out[i2], B = out[j2];
+        var dx = Math.abs(A.x - B.x), dy = Math.abs(A.y - B.y);
+        var sumX = A.rx + B.rx, sumY = A.ry + B.ry;
+        if (dx >= sumX * CL_GAP || dy >= sumY * CL_GAP) continue;   // 已分离（断一轴即不相交）
+        var small = (A.n <= B.n) ? A : B;
+        var kx = dx > 1e-9 ? dx * CL_GAP / sumX : 0;
+        var ky = dy > 1e-9 ? dy * CL_GAP / sumY : 0;
+        var k = Math.min(1, Math.max(kx, ky));
+        if (!(k > 0)) continue;
+        small.rx *= k; small.ry *= k;
+        anyShrink = true;
+      }
+    }
+    if (!anyShrink) break;
+  }
+  out = out.filter(function (c) { return c.rx >= 0.4 && c.ry >= 15; });
   return out;
 }
 /** A9：圈/标签的透明度 —— 视图跨度小于 max(簇跨度×2.5, 12°) 时淡出（smoothstep，
@@ -1836,7 +1928,7 @@ function drawChart() {
   ctx.lineWidth = 1;
   // V1.9.1（A18）：断轴时**分段取刻度**（下段 4 条、上段 2 条），并把断轴处的斜杠标记画出来
   var yt = YM.on
-    ? niceTicks(YM.bands[0].v0, YM.bands[0].v1, 4).concat(niceTicks(YM.bands[1].v0, YM.bands[1].v1, 2))
+    ? brkTicks(YM, 4, 2)          // V1.9.2：改为按 bands 逐段取刻度（只有一段可见时也不会取到 undefined）
     : niceTicks(v.y0, v.y1, 6);
   ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
   yt.forEach(function (t) {
@@ -1913,7 +2005,7 @@ function drawChart() {
   ctx.setLineDash([]);
 
   // ---- V1.9.1（A12）：大气层分界线 y = 100 km（**网格之上、光点之下**，与 A9 圆圈同层）
-  atmLineDraw(ctx, C, PL, pw, Y, '100 km');
+  atmLineDraw(ctx, C, PL, pw, Y, '100 km', v.y0);
 
   // ---- V1.9.1（A9）：**聚集区虚线圆圈** + 「高度/倾角」标签 ----
   //   画在**光点之前**（不填充 → 不遮挡；顺序上也点在上层）。
@@ -1921,7 +2013,34 @@ function drawChart() {
   var _cls = chartClusters(pts);
   if (_cls.length) {
     var _spanX = v.x1 - v.x0;
-    ctx.setLineDash([4, 4]); ctx.lineWidth = 1;
+    // ★ V1.9.2：线宽 1 → 1.7（用户报"圈过细"）。虚线仍是 [4,4]，
+    //   但配合 1.7 的线宽已经能一眼看出边界；圆心与标签同色（星座主题色）。
+    ctx.setLineDash([4, 4]); ctx.lineWidth = 1.7;
+    // 标签防重叠：先算出每个圈标签的落点，若与已放置的标签靠得太近就**下移一行**
+    //   （实测 50° 上两个簇的标签会叠在一起，正是用户截图里看到的"重合"）。
+    var _placed = [];
+    var _labelFor = function (cl, cx, cy, rx, ry) {
+      var lx = cx + rx * 0.707, ly = cy - ry * 0.707;
+      // V1.9.2：标签必须**留在绘图区内**（否则会画到坐标轴外 —— visual 的
+      //   「绘图区外无高饱和像素」守卫会抓，实测坐标 (63,48) 就落在 PL=66 之左）。
+      //   标签是"高度km/倾角°"（约 70px 宽、12px 高），按此留边。
+      var LBLW = 72, LBLH = 12;
+      lx = Math.max(PL + 2, Math.min(PL + pw - LBLW, lx));
+      ly = Math.max(PT + LBLH, Math.min(PT + ph - 2, ly));
+      for (var g = 0; g < 6; g++) {
+        var hit = false;
+        for (var q = 0; q < _placed.length; q++) {
+          if (Math.abs(_placed[q][0] - lx) < 86 && Math.abs(_placed[q][1] - ly) < 13) { hit = true; break; }
+        }
+        if (!hit) break;
+        ly -= 13;                                  // 往上让一行（画布 y 向下增长 → 视觉上是往上）
+        if (ly < PT + LBLH) { ly = cy; lx = Math.min(PL + pw - LBLW, lx + 92); }  // 让到顶 → 改往右挪
+      }
+      lx = Math.max(PL + 2, Math.min(PL + pw - LBLW, lx));
+      ly = Math.max(PT + LBLH, Math.min(PT + ph - 2, ly));
+      _placed.push([lx, ly]);
+      return [lx, ly];
+    };
     _cls.forEach(function (cl) {
       var a = chartClusterAlpha(_spanX, cl.spanX);
       if (a <= 0.01) return;
@@ -1932,14 +2051,22 @@ function drawChart() {
       if (cx + rx < PL || cx - rx > PL + pw || cy + ry < PT || cy - ry > PT + ph) return;
       ctx.globalAlpha = a;
       ctx.strokeStyle = C.theme;
+      // ★ V1.9.2：椭圆**必须裁到绘图区内** —— 贴边的簇（圆心靠近坐标轴）其圆弧会甩到轴外。
+      //   旧代码没裁，靠"1px 细线看不出来"侥幸过关；线宽提到 1.7 后立刻被 visual 的
+      //   「绘图区外无高饱和像素」守卫抓到（s0@63,48 就在 PL=66 之左）。
+      ctx.save();
+      ctx.beginPath(); ctx.rect(PL, PT, pw, ph); ctx.clip();
       ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, 0, 6.2832); ctx.stroke();
-      // 标签写在圆圈**右上沿**（45° 方向），同色小字
+      ctx.restore();
+      // 标签：默认在圆圈**右上沿**（45° 方向）；若与已有标签太近则下移/右移（见 _labelFor）
+      var lp = _labelFor(cl, cx, cy, rx, ry);
       ctx.font = '10px ' + MONO; ctx.fillStyle = C.theme;
       ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
-      ctx.fillText(Math.round(cl.y) + 'km/' + Math.round(cl.x) + '°', cx + rx * 0.707, cy - ry * 0.707);
+      ctx.fillText(Math.round(cl.y) + 'km/' + Math.round(cl.x) + '°', lp[0], lp[1]);
       ctx.globalAlpha = 1;
     });
     ctx.setLineDash([]);
+    ctx.lineWidth = 1;                              // 复原（后面对光点等的线宽假设它还是 1）
   }
 
   // 点
@@ -3268,7 +3395,35 @@ function shotNodeDate(ms) {
 }
 // V1.7.0（任务16-i）：分隔细线与 CISTrack 字样一律用「当前星座」主题色（星网红 / 千帆蓝）。
 function shotAccent() { return S.key === 'qf' ? cssVar('--c-qf', '#4dabf7') : cssVar('--c-gw', '#ff6b6b'); }
+// ★ V1.9.2（用户要求）：导出图底栏的**星座归属** —— 决定 CISTrack 字标的配色与后面的星座名。
+//   · 组网进度章**同时显示两条曲线**（netGw / netQf 默认都为 true）→ 那一章按**实际显示的两条**判；
+//   · 其余章节一次只画一个星座 → 按 S.key。
+//   返回 { both, key }：both=true 时字标要「左红右蓝各占一半」，星座名写「星网+千帆」。
+function shotConstelState(view) {
+  if (view === 'progress') {
+    var gw = !!S.netGw, qf = !!S.netQf;
+    if (gw && qf) return { both: true, key: S.key };
+    if (gw) return { both: false, key: 'gw' };
+    if (qf) return { both: false, key: 'qf' };
+    return { both: false, key: S.key };          // 两条都隐藏（界面上到不了，兜底）
+  }
+  return { both: false, key: S.key };
+}
 function shotBrandFont(px) { return px + 'px ' + cssVar('--brand', 'monospace'); }
+/**
+ * ★ V1.9.2（用户要求）：**组网进度**导出底栏的两段参数留底。
+ *   返回 `选择纵轴量 … | 选择时间段 …`；非本章返回 ''（调用方据此决定是否追加分隔符）。
+ *   为什么单独成函数：底栏是"图与字必须对得上"的地方，把它抽出来才能被闸门直接断言，
+ *   而不是只能靠人眼看导出图。
+ */
+function shotNetParams(view) {
+  if (view !== 'progress') return '';
+  var spKey = NET_SPANS.indexOf(S.netSpan) >= 0 ? S.netSpan : 'all';
+  // 按钮上写"最近3月"，而用户指定导出底栏那一处写"近3个月" → 用 ns_qtr2 这个独立键
+  var spTxt = t(spKey === 'qtr' ? 'ns_qtr2' : (spKey === 'year' ? 'ns_year' : 'ns_all'));
+  var mdTxt = t(S.netMode === 'orbit' ? 'nm_orbit' : 'nm_launch');
+  return t('shot_netmode') + ' ' + mdTxt + ' | ' + t('shot_netspan') + ' ' + spTxt;
+}
 // V1.7.0（任务16）：章节类别 —— 前两章（01 地图 / 02 轨道）与后两章（03 倾角分布 / 04 表格等）输出规则不同。
 //   'front'：地图 / 轨道 —— 卫星行末尾保留 [历元]，CISTrack 行时间后带 [实时]/[+X 分]，且追加最低仰角
 //   'back' ：表格 —— CISTrack 行时间只写 (GMT+8 YYYY-MM-DD)，去掉一切时间明细
@@ -3469,14 +3624,40 @@ function drawShotBar(ctx, W, yTop, title, satLines, dpr, view) {
   ctx.stroke();
   y += 3 * dpr + 3 * dpr;
 
-  // CISTrack 行：CISTrack 用 logo 字体 + 主题色，其余用等宽 + 主文字色
+  // CISTrack 行：CISTrack 用 logo 字体 + **星座配色**，其余用等宽 + 主文字色
+  // ★ V1.9.2（用户要求 · 三条规则）：
+  //   只选星网 → 整个字标**红**，星座名「星网」；
+  //   只选千帆 → 整个字标**蓝**，星座名「千帆」；
+  //   两者都在 → 字标**左半红「CIST」/ 右半蓝「rack」**（各占一半长度，正是星网↔千帆切换时的中间态），
+  //              星座名「星网+千帆」。
   var x = 12 * dpr;
   var cy = y + lineH / 2;
   ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
   ctx.font = shotBrandFont(size * 1.12);
-  ctx.fillStyle = shotAccent();
-  var brandW = ctx.measureText('CISTrack').width;
-  ctx.fillText('CISTrack', x, cy);
+  var BRAND = 'CISTrack';
+  var brandW = ctx.measureText(BRAND).width;
+  var cs = shotConstelState(view);
+  var cGw2 = cssVar('--c-gw', '#ff6b6b'), cQf2 = cssVar('--c-qf', '#4dabf7');
+  if (cs.both) {
+    // ★ V1.9.2（修正）：两半各自用 clip 裁出来画 —— **两次都在同一个 x 落笔**，
+    //   只靠互补的 clip 窗口各取一半，笔画干净（不会"半个字母被两种颜色撕开"）。
+    //   ⚠️ 修的是什么：上一版右半写的是 `fillText(BRAND, x + half - brandW, cy)` ——
+    //   把文字整体左移了 `brandW - half`（≈字标一半宽），于是 clip 窗口里落到的其实是
+    //   字标**前半段之外**的空白，屏幕上的效果就是字标只剩红色的「CIST」、
+    //   蓝色「rack」整段消失（实测抓出来的）。同一位置画两遍才是对的。
+    var half = brandW / 2;
+    ctx.save();
+    ctx.beginPath(); ctx.rect(x, cy - size, half, size * 2); ctx.clip();
+    ctx.fillStyle = cGw2; ctx.fillText(BRAND, x, cy);
+    ctx.restore();
+    ctx.save();
+    ctx.beginPath(); ctx.rect(x + half, cy - size, brandW - half + 1, size * 2); ctx.clip();
+    ctx.fillStyle = cQf2; ctx.fillText(BRAND, x, cy);
+    ctx.restore();
+  } else {
+    ctx.fillStyle = (cs.key === 'qf') ? cQf2 : cGw2;
+    ctx.fillText(BRAND, x, cy);
+  }
   x += brandW + 6 * dpr;
   // 时间部分：前两章 = 时刻 + [实时]/[+X 分] + （有最低仰角时）[+X 分, Y°]；最后两章 = 仅本地日期
   var timePart = (chapter === 'front') ? (shotTimeStr(view) + shotTimeTagFront(view)) : shotDateOnly();
@@ -3486,7 +3667,14 @@ function drawShotBar(ctx, W, yTop, title, satLines, dpr, view) {
   //   底栏一直漏出「星网 / 千帆」。同一个项目里另外两条导出路径（说明弹窗 shotWaitTitle、
   //   多页导出 restTxt）早就用的是 `t('shot_' + S.key)` —— 只有这条底栏漏改，
   //   而 shot_gw / shot_qf 两个键也就长期挂着「定义了没人用」。现在三处统一。
-  var rest = [VERSION, t('shot_' + S.key), title, timePart].join(' | ');
+  var rest = [VERSION, cs.both ? t('shot_both') : t('shot_' + cs.key), title, timePart].join(' | ');
+  // ★ V1.9.2（用户要求）：**组网进度**的导出图要留底"这张图是按什么参数画的"——
+  //   在「变轨情况（04）」之后的那一章（05 组网进度）底栏追加两段：
+  //     `| 选择纵轴量 <发射量（累计）/在轨数量> | 选择时间段 <全部/今年/近3个月> |`
+  //   取值一律读**界面上的当前档**（S.netMode / S.netSpan），所以导出图与屏幕上的图严格对得上；
+  //   用语也取控件本身的文案（nm_* / ns_*），不另造一套词。
+  var netP = shotNetParams(view);
+  if (netP) rest += ' | ' + netP;
   // 先算右下角声明要占多宽（含 16px 间距），给 CISTrack 行留出空间，避免两者重叠
   ctx.font = monoFont(size * 0.9);
   var discW = ctx.measureText(disco).width;
@@ -8798,7 +8986,10 @@ function netBuild() {
   //   用户 2026-10-10 明确：**早期卫星都要记载**，试验星↔首个组网星用虚线连接即可。
   //   → 起点回到最早发射记录；刻度梯（tickStepDays）保证这段长跨度下仍是年刻度、可读。
   var originMs = weeks[0];
-  return { mode: mode, weeks: weeks, series: series, delta: delta, lastN: lastN, now: now, originMs: originMs };
+  // ★ V1.9.2：把逐条发射记录（evs）也带出去 —— 「今年 / 最近3月」两档要算**窗口起点之前的
+  //   全量累计**（曲线的 0 基线）与**任意时刻的累计**（节点高度），都离不开这份原始事件表。
+  return { mode: mode, weeks: weeks, series: series, delta: delta, lastN: lastN, now: now,
+    originMs: originMs, evs: evs };
 }
 // V1.9.1（A8）：各星座「**第一颗正式星**」的发射时刻 —— 组网进度里它以**第一个实线点**出现，
 //   它之前的连接线（试验星阶段）用该星座自身颜色的**虚线**。
@@ -8832,11 +9023,149 @@ function netData() {
   return NET;
 }
 function netInvalidate() { NET = null; }
+
+// ================================================================ V1.9.2：时间区间档（全部 / 今年 / 最近3月）
+// 设计要点（三条，都是为了不动既有几何）：
+//   ① **不改 weeks**：周采样表照旧，它是曲线的基础采样；时段只是"在它之上截一段窗口"。
+//   ② **不改 delta / netShowInfoAt**：信息窗永远读 d.series / d.delta 的**全量累计**，
+//      这正是用户要的"点击节点的信息窗还是全部累计的不是当前周期的"——所以那一侧一行都不用改。
+//   ③ 只有曲线的 **y 基线** 与 **横轴范围** 随档位变：基线 = 窗口起点之前的全量累计，
+//      于是窗口内曲线天然从 0 起画。
+var NET_MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** 本地时区「本月 1 日 00:00」往前推 n 个月（n 可负） */
+function netMonthStart(base, n) {
+  var d = new Date(base);
+  return new Date(d.getFullYear(), d.getMonth() + (n || 0), 1, 0, 0, 0, 0).getTime();
+}
+/** 时段档 → 窗口 [from, to]（ms）。to 一律取**数据末周**（与既有右边界同源，右侧不留空白）。 */
+function netSpanRange(d, span) {
+  var to = d.weeks[d.weeks.length - 1] + NET_WK;
+  var from = netX0Min(d);
+  span = (NET_SPANS.indexOf(span) >= 0) ? span : 'all';
+  if (span === 'year') {
+    // 今年：**本年 1/1 00:00（本地）** 至今。若本年 1/1 早于数据起点（不可能，但兜底）就用数据起点。
+    //   ⚠️ 别用 netMonthStart(now, 0) —— 那是**本月** 1 日，会把"今年"错缩成"本月"。
+    var yNow = new Date(Date.now());
+    from = Math.max(new Date(yNow.getFullYear(), 0, 1, 0, 0, 0, 0).getTime(), netX0Min(d));
+  } else if (span === 'qtr') {
+    // 最近 3 个月：**今天的 3 个月前的月首**？不 —— 用户原话是"时间轴从三个月前到今天"，
+    //   即精确的"今天减 3 个月"那一天，而不是"3 个月前的月首"。
+    var p = new Date(Date.now());
+    from = new Date(p.getFullYear(), p.getMonth() - 3, p.getDate(), 0, 0, 0, 0).getTime();
+    from = Math.max(from, netX0Min(d));
+  }
+  if (to <= from) to = from + NET_WK;
+  return { from: from, to: to, span: span };
+}
+/** 某星座**全量**累计到时刻 ms（含 ms 当刻发出的） */
+function netCumAt(key, ms) {
+  var d = netData(), sum = 0, evs = d.evs || [];
+  for (var i = 0; i < evs.length; i++) {
+    if (evs[i].key === key && evs[i].ms <= ms) sum += evs[i].n;
+  }
+  return sum;
+}
+/** 窗口基线：窗口**起点之前**的全量累计（曲线在窗口内的 y = 全量累计 − 基线） */
+function netWindowBase(d, span) {
+  var R = netSpanRange(d, span);
+  return { gw: netCumAt('gw', R.from), qf: netCumAt('qf', R.from), R: R };
+}
+/** 时刻 ms 落在哪个周采样点（返回周索引；超出数据范围时钳到端点） */
+function netWeekIndexOf(ms) {
+  var d = netData(), w = d.weeks;
+  if (!w.length) return null;
+  if (ms <= w[0]) return 0;
+  var last = w.length - 1;
+  if (ms >= w[last] + NET_WK) return last;
+  var lo = 0, hi = last;
+  while (lo < hi) {
+    var mid = (lo + hi + 1) >> 1;
+    if (w[mid] <= ms) lo = mid; else hi = mid - 1;
+  }
+  return lo;
+}
+/**
+ * 时段档下的**节点**列表（用户要求的三套节奏）。
+ *   返回 [{ ms, wi, kind }]，wi = 该节点归属的周采样索引（信息窗与悬停都用它，
+ *   于是"点击节点 → 信息窗显示**全量累计**"这条要求零成本达成）。
+ *   kind: 'year' 每年 1/1 ／ 'month' 每月 1 日 ／ 'week' 每 7 天 ／ 'last' 末端（今天/最新）
+ */
+function netSpanNodes(d, span) {
+  var R = netSpanRange(d, span), out = [];
+  var push = function (ms, kind) {
+    if (ms < R.from - 1 || ms > R.to) return;
+    var wi = netWeekIndexOf(Math.min(ms, R.to));
+    if (wi == null) return;
+    out.push({ ms: ms, wi: wi, kind: kind });
+  };
+  if (R.span === 'all') {
+    // 全部：**每一年 1 月 1 日**（与页面上代表年份的虚线同一天，节点正好落在虚线上）
+    var y0 = new Date(R.from).getFullYear();
+    var y1 = new Date(R.to).getFullYear();
+    for (var y = y0; y <= y1; y++) push(new Date(y, 0, 1, 0, 0, 0, 0).getTime(), 'year');
+  } else if (R.span === 'year') {
+    // 今年：从本年 1/1 起**每月 1 日**（便于看每月发射数量）
+    var cur = new Date(R.from);
+    var mStart = new Date(cur.getFullYear(), cur.getMonth(), 1, 0, 0, 0, 0).getTime();
+    for (var k = 0; k < 14; k++) {
+      var t = netMonthStart(mStart, k);
+      if (t > R.to) break;
+      push(t, 'month');
+    }
+  } else {
+    // 最近 3 个月：**从窗口起点起每 7 天**一个代表节点
+    for (var q = 0; ; q++) {
+      var tq = R.from + q * NET_WK;
+      if (tq > R.to) break;
+      push(tq, 'week');
+      if (q > 200) break;                      // 保险丝（正常不会走到）
+    }
+  }
+  // 末端 = 今天/最新（三种档位都有，形式就是用户说的"显示今天的最新颗数的节点"）
+  var lastMs = Math.min(Date.now(), R.to);
+  if (!out.length || Math.abs(out[out.length - 1].ms - lastMs) > 86400000) push(lastMs, 'last');
+  else out[out.length - 1].kind = 'last';
+  return out;
+}
+/** 时段档下，某星座曲线的取样点（含窗口起点的 0 锚点） */
+function netSpanPts(d, key, span) {
+  var R = netSpanRange(d, span), B = netWindowBase(d, span), arr = d.series[key], b0 = B[key];
+  var pts = [], kFrom = 0, kTo = -1;
+  for (var k = 0; k < d.weeks.length; k++) {
+    if (d.weeks[k] + NET_WK <= R.from) { kFrom = k + 1; continue; }
+    if (d.weeks[k] > R.to) break;
+    kTo = k;
+  }
+  for (var j = kFrom; j <= kTo; j++) {
+    // 几何与旧版**逐点一致**：只有 k=0 从周首起笔，其余都取周中
+    pts.push({ ms: (j === 0 ? d.weeks[j] : d.weeks[j] + NET_WK / 2), v: arr[j] - b0, k: j });
+  }
+  // 窗口左边界锚点：曲线从 x=PL 处的 0 起笔。
+  //   注意窗口起点正好落在第一个取样点上时不加（否则会多出一个重合点）——
+  //   这样 'all' 档的几何与改档前**完全一样**。
+  if (!pts.length || pts[0].ms > R.from + 1) pts.unshift({ ms: R.from, v: 0, k: kFrom - 1 });
+  return { pts: pts, R: R, base: b0 };
+}
+/** 时段档下纵轴上限（窗口内的最大值，而不是全量累计） */
+function netSpanMax(d, span) {
+  var mx = 1;
+  ['gw', 'qf'].forEach(function (key) {
+    if (!(key === 'gw' ? S.netGw : S.netQf)) return;
+    var P = netSpanPts(d, key, span);
+    for (var i = 0; i < P.pts.length; i++) if (P.pts[i].v > mx) mx = P.pts[i].v;
+  });
+  return mx;
+}
+
 function netAutoView() {
   var d = netData();
-  // ★ V1.9.1（#6 / Q2）：起点用 originMs（首个"在轨数量 > 0"的周），不再是最早的发射记录
-  var x0 = netX0Min(d), x1 = d.weeks[d.weeks.length - 1] + NET_WK;
-  var hi = Math.max(S.netGw ? d.lastN.gw : 0, S.netQf ? d.lastN.qf : 0, 1);
+  var span = NET_SPANS.indexOf(S.netSpan) >= 0 ? S.netSpan : 'all';
+  var R = netSpanRange(d, span);
+  var x0 = R.from, x1 = R.to;
+  // ★ V1.9.2：纵轴上限取**窗口内**的最大值 —— 「今年 / 最近3月」两档的累计从 0 起，
+  //   若还按全量累计定标，曲线会贴在底部（全量是它的十几倍）。
+  var hi = Math.max(netSpanMax(d, span), 1);
   var top = hi * 1.10;
   netView = clampNetView({ x0: x0, x1: x1, y0: 0, y1: top, auto: hi });
 }
@@ -8849,17 +9178,23 @@ function netX0Min(d) {
 function clampNetView(v) {
   if (!v) return v;
   var d = netData();
-  var x0min = netX0Min(d);
-  var fullX = (d.weeks[d.weeks.length - 1] + NET_WK) - x0min;
-  if (v.x1 - v.x0 >= fullX) { v.x0 = x0min; v.x1 = d.weeks[d.weeks.length - 1] + NET_WK; }
-  var topMost = Math.max(v.auto || 0, d.lastN.gw, d.lastN.qf, 1) * 1.35;
+  var span = NET_SPANS.indexOf(S.netSpan) >= 0 ? S.netSpan : 'all';
+  var R = netSpanRange(d, span);
+  // ★ V1.9.2：横轴可及范围 = **当前时段档的窗口**。
+  //   「今年 / 最近3月」下不该还能拖到窗口之外（那样"累计从 0 起"就失去意义），
+  //   所以这里的上下界跟着档位走；'all' 档的上下界与改档前完全一致。
+  var x0min = R.from, x1max = R.to;
+  var fullX = x1max - x0min;
+  if (v.x1 - v.x0 >= fullX) { v.x0 = x0min; v.x1 = x1max; }
+  // 纵轴上限同样跟档位走：窗口内的最大值（而不是全量累计）
+  var topMost = Math.max(v.auto || 0, netSpanMax(d, span), 1) * 1.35;
   if (v.y1 - v.y0 >= topMost * 1.6 || v.y1 - v.y0 >= topMost) {
     // 放到最大范围时钉住 0 下界（不会出现负的颗数）
     v.y1 = Math.min(topMost, v.y1); v.y0 = Math.max(0, v.y1 - (topMost));
     v.y0 = Math.max(0, v.y0);
   }
   if (v.x0 < x0min) { v.x1 += x0min - v.x0; v.x0 = x0min; }
-  if (v.x1 > d.weeks[d.weeks.length - 1] + NET_WK) { v.x0 -= v.x1 - (d.weeks[d.weeks.length - 1] + NET_WK); v.x1 = d.weeks[d.weeks.length - 1] + NET_WK; }
+  if (v.x1 > x1max) { v.x0 -= v.x1 - x1max; v.x1 = x1max; }
   if (v.x0 < x0min) { v.x0 = x0min; }
   if (v.y0 < 0) { v.y1 += -v.y0; v.y0 = 0; }
   if (v.y1 > topMost) { v.y0 -= v.y1 - topMost; v.y1 = topMost; if (v.y0 < 0) { v.y1 -= v.y0; v.y0 = 0; } }
@@ -8874,6 +9209,52 @@ function netDateLabel(ms) {
 function netColors() {
   return { gw: cssVar('--c-gw', '#ff6b6b'), qf: cssVar('--c-qf', '#4dabf7') };
 }
+/**
+ * ★ V1.9.2：把"要画哪些节点标记"抽成**纯函数**（不碰 ctx）。
+ *   为什么要抽：标签重叠/重复是最容易出错、又最难靠肉眼核对的一环 ——
+ *   抽出来之后 smoke 可以直接断言"任意两个标签不会挨在一起"，而不必去读画布像素。
+ *   返回 [{ key, ms, kind, v, last }]（只含**当前显示**的星座）。
+ *   v = 该时刻全量累计 − 窗口基线（与曲线同一套口径），所以节点永远压在曲线上。
+ */
+function netNodeMarks(d, span) {
+  var nodes = netSpanNodes(d, span), base = netWindowBase(d, span), out = [];
+  ['gw', 'qf'].forEach(function (key) {
+    if (!(key === 'gw' ? S.netGw : S.netQf)) return;
+    nodes.forEach(function (nd) {
+      var v = netCumAt(key, nd.ms) - base[key];
+      if (v < 0) v = 0;
+      out.push({ key: key, ms: nd.ms, kind: nd.kind, v: v, last: nd.kind === 'last' });
+    });
+  });
+  return out;
+}
+/**
+ * ★ V1.9.2：从候选标记里挑出"真的画标签"的那些（纯函数，单位 = 像素）。
+ *   规则（按优先级）：
+ *     ① **末端节点（今天/最新）无条件画** —— 用户明确它是基准形态；
+ *     ② 其余按 x 从左到右，与**已入选**的标签比较：横向 <28px 且纵向 <13px 就放弃这个标签
+ *        （点仍然画，只是不写数 —— 否则放大后会叠成一团看不清）；
+ *     ③ 同一 x 上两个星座各有一个节点时，只留数值较大的那个（画在上面，不会被压住）。
+ */
+function netPickLabels(marks, X, Y) {
+  var jobs = marks.map(function (m) {
+    return { x: X(m.ms), y: Y(m.v), v: Math.round(m.v), key: m.key,
+      col: (m.key === 'qf' ? cssVar('--c-qf', '#4dabf7') : cssVar('--c-gw', '#ff6b6b')), last: m.last };
+  });
+  jobs.sort(function (a, b) { return (b.last ? 1 : 0) - (a.last ? 1 : 0) || a.x - b.x; });
+  var keep = [];
+  jobs.forEach(function (J) {
+    if (!J.last) {
+      for (var i = 0; i < keep.length; i++) {
+        if (Math.abs(keep[i].x - J.x) < 28 && Math.abs(keep[i].y - J.y) < 13) return;
+      }
+    }
+    keep.push(J);
+  });
+  keep.sort(function (a, b) { return a.x - b.x; });
+  return keep;
+}
+
 function drawNet() {
   if (!netCv) return;
   var f = fitCanvas(netCv), ctx = f.ctx, W = f.w, H = f.h, C = themeColors();
@@ -8889,6 +9270,8 @@ function drawNet() {
   var Y = function (n) { return PT + ph - (n - v.y0) / (v.y1 - v.y0) * ph; };
   var NC = netColors();
   var wkStep = NET_WK;
+  // ★ V1.9.2：本帧的时间区间档（横轴锚点、曲线基线、节点节奏都由它决定）
+  var span = NET_SPANS.indexOf(S.netSpan) >= 0 ? S.netSpan : 'all';
 
   // 网格 + 纵轴刻度
   ctx.font = '11px ' + MONO; ctx.lineWidth = 1;
@@ -8918,13 +9301,38 @@ function drawNet() {
   var stepD = tickStepDays(spanD, want);
   var stepMs = stepD * 86400000;
   ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-  for (var tm = Math.ceil(v.x0 / stepMs) * stepMs; tm <= v.x1; tm += stepMs) {
+  // ★ V1.9.2：**横轴刻度的对齐锚点随档位走**。
+  //   为什么必须改：旧写法是 `Math.ceil(v.x0 / stepMs) * stepMs` —— 从 epoch 起按"整 N 天"对齐，
+  //   在"今年 / 最近3月"这种被缩短的轴上，刻度会落在 3/17、4/16 这种谁都记不住的日子上，
+  //   而节点（每月 1 日 / 每 7 天）却落在整月首与窗口起点上，两者错开、看着不整齐。
+  //   现在：'all' 档保持旧写法（几何与改档前逐像素一致）；'year' 档对齐到**每月 1 日**
+  //   （与"每月 1 日节点"重合）；'qtr' 档从**窗口起点**起每 stepD 天（与"每 7 天节点"同源）。
+  var tickMs = [];
+  if (span === 'all') {
+    for (var tm = Math.ceil(v.x0 / stepMs) * stepMs; tm <= v.x1; tm += stepMs) tickMs.push(tm);
+  } else if (span === 'year') {
+    // 月份档：步长 ≥28 天时按"每月 1 日"走（12 条以内），更细的档位仍按起点每 stepD 天
+    if (stepD >= 28) {
+      var yStart = new Date(v.x0);
+      var m0 = new Date(yStart.getFullYear(), yStart.getMonth(), 1, 0, 0, 0, 0).getTime();
+      for (var mi = 0; mi < 40; mi++) {
+        var tmm = new Date(yStart.getFullYear(), yStart.getMonth() + mi, 1, 0, 0, 0, 0).getTime();
+        if (tmm > v.x1) break;
+        if (tmm >= v.x0) tickMs.push(tmm);
+      }
+    } else {
+      for (var tb = v.x0; tb <= v.x1; tb += stepMs) tickMs.push(tb);
+    }
+  } else {
+    for (var tq = v.x0; tq <= v.x1; tq += stepMs) tickMs.push(tq);
+  }
+  tickMs.forEach(function (tm) {
     var x = X(tm);
-    if (x < PL - 2 || x > PL + pw + 2) continue;
+    if (x < PL - 2 || x > PL + pw + 2) return;
     ctx.strokeStyle = C.gridX; ctx.beginPath(); ctx.moveTo(x, PT); ctx.lineTo(x, PT + ph); ctx.stroke();
     ctx.fillStyle = C.tick;
     ctx.fillText(netDateLabel(tm), x, PT + ph + 9);
-  }
+  });
   ctx.save();
   for (var j = 0; j < nWeeks; j++) {
     var wj = d.weeks[j];
@@ -8961,7 +9369,10 @@ function drawNet() {
   ctx.beginPath(); ctx.rect(PL, PT, pw, ph); ctx.clip();
   ['gw', 'qf'].forEach(function (key) {
     if (!(key === 'gw' ? S.netGw : S.netQf)) return;
-    var arr = d.series[key], col = NC[key];
+    // ★ V1.9.2：曲线取样点改为走 `netSpanPts()` —— 它按当前档位把窗口外的点裁掉、
+    //   并把 y 平移到「窗口基线」（今年 / 最近3月两档的累计从 0 起就是这么来的）。
+    //   'all' 档下基线恒为 0、窗口恒为全量，取出的点与改档前**逐个相同**（几何零变化）。
+    var P = netSpanPts(d, key, span), pts = P.pts, col = NC[key];
     ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.lineJoin = 'round';
     // V1.9.1（A8）：把折线拆成**试验星阶段的虚线段** + **正式星起的实线段**。
     //   `kCut` = 含"第一颗正式星"的那一周的下标 → 实线段从 `kCut-1` 开始画，
@@ -8971,31 +9382,77 @@ function drawNet() {
       if (to <= from) return;
       ctx.setLineDash(dashed ? [5, 5] : []);
       ctx.beginPath();
-      for (var k = from; k <= to; k++) {
-        // 几何与旧版**逐点一致**：只有 k=0 从周首起笔，其余都取周中（不能因为拆段而整体偏移）
-        var px = (k === 0) ? X(d.weeks[k]) : X(d.weeks[k] + NET_WK / 2);
-        var py = Y(arr[k]);
-        if (k === from) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      for (var q = from; q <= to; q++) {
+        var px = X(pts[q].ms), py = Y(pts[q].v);
+        if (q === from) ctx.moveTo(px, py); else ctx.lineTo(px, py);
       }
       ctx.stroke();
       ctx.setLineDash([]);
     };
     var firstSolid = Math.max(0, kCut - 1);
-    seg(0, firstSolid, true);                 // 试验星阶段：虚线
-    seg(firstSolid, arr.length - 1, false);   // 正式星起：实线
-    // 周节点：点太密时只画最后一个 + 悬停那个
-    var sparse = arr.length <= 90;
-    for (var m = 0; m < arr.length; m++) {
-      if (!sparse && m !== arr.length - 1 && m !== netHoverIdx) continue;
-      if (arr[m] === 0 && m < arr.length - 1 && !sparse) continue;
-      ctx.beginPath(); ctx.arc(X(d.weeks[m] + NET_WK / 2), Y(arr[m]), m === netHoverIdx ? 4 : 2.2, 0, 6.2832);
-      ctx.fillStyle = col; ctx.fill();
+    // pts 里第一个「周索引 ≥ firstSolid」的位置就是实线段的起点（含窗口左端锚点 k = kFrom-1）
+    var iSolid = pts.length;
+    for (var q2 = 0; q2 < pts.length; q2++) {
+      if (pts[q2].k != null && pts[q2].k >= firstSolid) { iSolid = q2; break; }
+    }
+    seg(0, iSolid, true);                 // 试验星阶段：虚线
+    seg(iSolid, pts.length - 1, false);   // 正式星起：实线
+    // 周节点：**只有 'all' 档画**（点太密时只画最后一个 + 悬停那个）。
+    //   「今年 / 最近3月」档改由下面的**时段节点**承担（每月 1 日 / 每 7 天）——
+    //   若不关掉，qtr 档会出现"每 7 天节点"与"每周节点"两套点错位重叠。
+    if (span === 'all') {
+      var sparse = pts.length <= 90;
+      for (var m = 0; m < pts.length; m++) {
+        if (!sparse && m !== pts.length - 1 && pts[m].k !== netHoverIdx) continue;
+        if (pts[m].v === 0 && m < pts.length - 1 && !sparse) continue;
+        ctx.beginPath(); ctx.arc(X(pts[m].ms), Y(pts[m].v), pts[m].k === netHoverIdx ? 4 : 2.2, 0, 6.2832);
+        ctx.fillStyle = col; ctx.fill();
+      }
     }
     // 末端数值
-    var li = arr.length - 1;
-    ctx.font = '11px ' + MONO; ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
-    ctx.fillStyle = col;
-    ctx.fillText(String(arr[li]), X(d.weeks[li] + NET_WK / 2) - 4, Y(arr[li]) - 4);
+    var lp = pts[pts.length - 1];
+    if (lp) {
+      ctx.font = '11px ' + MONO; ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
+      ctx.fillStyle = col;
+      ctx.fillText(String(Math.round(lp.v)), X(lp.ms) - 4, Y(lp.v) - 4);
+    }
+  });
+
+  // ---- ★ V1.9.2：时段节点（用户要求的三套节奏）+ 末端「今天/最新」节点
+  //   全部：每年 1/1（落在代表年份的虚线上）／今年：每月 1 日／最近3月：从窗口起点每 7 天。
+  //   数值标签：用户要求"显示当前的颗数，形式和显示今天的最新颗数的节点一样"→ 每个节点都标；
+  //   挨得太近的由 netPickLabels() 统一取舍（点仍画，只是不写数，避免叠成一团）。
+  var marks = netNodeMarks(d, span);
+  marks.forEach(function (mk) {
+    var nx = X(mk.ms), ny = Y(mk.v);
+    if (nx < PL - 1 || nx > PL + pw + 1) return;
+    var col = mk.key === 'qf' ? NC.qf : NC.gw;
+    // 圆点：末端画大一点 + 外圈（"今天"要比年度节点更醒目）
+    ctx.beginPath();
+    ctx.arc(nx, ny, mk.last ? 4 : 3, 0, 6.2832);
+    ctx.fillStyle = col; ctx.fill();
+    if (mk.last) {
+      ctx.strokeStyle = col; ctx.lineWidth = 1; ctx.globalAlpha = 0.45;
+      ctx.beginPath(); ctx.arc(nx, ny, 6.5, 0, 6.2832); ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+  });
+  var labels = netPickLabels(marks, X, Y);
+  ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+  ctx.font = '11px ' + MONO;
+  var LAB_PAD = 5;
+  labels.forEach(function (J) {
+    if (J.x < PL - 1 || J.x > PL + pw + 1) return;
+    ctx.font = (J.last ? 'bold ' : '') + '11px ' + MONO;
+    var tw = ctx.measureText(String(J.v)).width;
+    // ★ V1.9.2：**贴左缘的标签改成画在节点的右侧**。
+    //   为什么必须这么做：「今年 / 最近3月」两档的**第一个节点就是窗口起点**（x = PL，
+    //   即纵轴线上），而标签默认是"右对齐贴在节点左侧"→ 会被绘图区的 clip 切掉一半，
+    //   看上去就是"第一个月的颗数没显示出来"。左缘放不下就翻到右边，是最小改动的解法。
+    var xx = (J.x - LAB_PAD - tw < PL) ? (J.x + LAB_PAD) : (J.x - LAB_PAD - tw);
+    ctx.textAlign = 'left';
+    ctx.fillStyle = J.col;
+    ctx.fillText(String(J.v), xx, J.y - (J.last ? 8 : 5));
   });
   ctx.restore();
 
@@ -9014,9 +9471,14 @@ function drawNet() {
   var note = document.getElementById('netNote');
   if (note) {
     var keys = [];
-    if (S.netGw) keys.push('<span class="net-key"><i style="background:' + NC.gw + '"></i>' + t('n_gw') + ' ' + d.lastN.gw + '</span>');
-    if (S.netQf) keys.push('<span class="net-key"><i style="background:' + NC.qf + '"></i>' + t('n_qf') + ' ' + d.lastN.qf + '</span>');
-    note.innerHTML = keys.join('') + '<span class="net-key">' + t('d_net_span') + ' ' + netDateLabel(netX0Min(d)) + ' – ' + netDateLabel(d.now) + '</span>';
+    // ★ V1.9.2：两条曲线的数字随档位变（今年 / 最近3月是**窗口内**的累计，不是全量）
+    var baseN = netWindowBase(d, span);
+    if (S.netGw) keys.push('<span class="net-key"><i style="background:' + NC.gw + '"></i>' + t('n_gw') + ' ' + (d.lastN.gw - baseN.gw) + '</span>');
+    if (S.netQf) keys.push('<span class="net-key"><i style="background:' + NC.qf + '"></i>' + t('n_qf') + ' ' + (d.lastN.qf - baseN.qf) + '</span>');
+    // 区间写的是**当前档位的窗口**（旧版恒写"数据起点 – 今天"，与"今年/最近3月"的轴对不上）
+    var SR = netSpanRange(d, span);
+    note.innerHTML = keys.join('') + '<span class="net-key">' + t('d_net_span') + ' ' +
+      netDateLabel(SR.from) + ' – ' + netDateLabel(SR.to) + '</span>';
   }
 }
 function netWeekAt(mx) {
@@ -9029,6 +9491,24 @@ function netWeekAt(mx) {
     if (dd < bd && d.weeks[i] + NET_WK > v.x0 && d.weeks[i] < v.x1) { bd = dd; best = i; }
   }
   return best >= 0 ? best : null;
+}
+/**
+ * ★ V1.9.2：命中最近的**时段节点**（像素容差 ±9px）。
+ *   返回该节点对应的**周索引**（不是节点下标）—— 信息窗仍旧按周索引读 d.series / d.delta，
+ *   于是"点击节点的信息窗显示**全部累计**"这条要求天然成立，信息窗一行都不用改。
+ */
+function netNodeAt(mx) {
+  if (!netRect || !netView) return null;
+  var d = netData(), v = netView, r = netRect;
+  var span = NET_SPANS.indexOf(S.netSpan) >= 0 ? S.netSpan : 'all';
+  var nodes = netSpanNodes(d, span);
+  var best = null, bd = 9;
+  for (var i = 0; i < nodes.length; i++) {
+    var x = r.PL + (nodes[i].ms - v.x0) / (v.x1 - v.x0) * r.pw;
+    var dd = Math.abs(x - mx);
+    if (dd < bd) { bd = dd; best = nodes[i]; }
+  }
+  return best ? best.wi : null;
 }
 function netShowInfoAt(i) {
   if (i == null || !netInfo) return;
@@ -9076,6 +9556,11 @@ function netShowInfoAt(i) {
   netHoverIdx = i;
 }
 function netHit(x, y) {
+  // ★ V1.9.2：**先试时段节点**（±9px 容差），命中就返回它对应的周索引；
+  //   没命中再退回原来的"离得最近的一周"。这样"点节点看某月/某年的累计"和
+  //   "点任意位置看那一周"两种用法都还在（后者是前几个版本一直有的行为）。
+  var nd = netNodeAt(x);
+  if (nd != null) return nd;
   var i = netWeekAt(x);
   return i;
 }
@@ -9088,10 +9573,30 @@ function syncNetControls() {
     b.classList.toggle('on', k === 'gw' ? S.netGw : S.netQf);
     b.setAttribute('aria-pressed', String(k === 'gw' ? S.netGw : S.netQf));
   });
+  // ★ V1.9.2：时段档按钮的高亮（与其它 seg 完全同款）
+  document.querySelectorAll('#netSpanSeg button').forEach(function (b) {
+    var on = b.getAttribute('data-netspan') === (NET_SPANS.indexOf(S.netSpan) >= 0 ? S.netSpan : 'all');
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-pressed', String(on));
+  });
 }
 function netSetMode(m) {
   // ★ V1.9.1（#7）：按钮高亮**立即**响应（与 03 章 modeSeg 同款），只有画布走过场
+  //   （换纵轴量 → 周累计值全变，netData() 自己会因 mode 不同而重建缓存，不必手工失效）
   S.netMode = m;
+  syncNetControls();
+  cvSwap('netCv', function () { netAutoView(); drawNet(); });
+  touchPrefs();
+}
+/**
+ * ★ V1.9.2（用户要求）：切换时间区间档（全部 / 今年 / 最近3月）。
+ *   与其它 seg 一致 —— 按钮高亮**立即**响应，只有画布走 520ms 的淡出→换→淡入过场
+ *   （cvSwap 走的是 .chart-out + ANIM.half，和 03/05 两章的切换逐毫秒同一条曲线）。
+ */
+function netSetSpan(sp) {
+  if (NET_SPANS.indexOf(sp) < 0) return;
+  if (S.netSpan === sp) return;
+  S.netSpan = sp;
   syncNetControls();
   cvSwap('netCv', function () { netAutoView(); drawNet(); });
   touchPrefs();
@@ -9131,6 +9636,16 @@ function netInit() {
     // ★ V1.9.1（#7）：画布走过场（旧图褪去 → 换数据 → 新图浮现），与 03 章同一条曲线
     cvSwap('netCv', function () { netView = null; netAutoView(); drawNet(); });
     touchPrefs();
+    syncSectionResetBtns();
+  });
+  // ★ V1.9.2（用户要求）：时间区间档（全部 / 今年 / 最近3月）。
+  //   按钮与视图走**同一条非线性过场**（netSetSpan 内部就是 cvSwap / ANIM.half），
+  //   高亮也立即响应 —— 与 modeSeg / netShowSeg 三处的行为逐条一致。
+  var segP = document.getElementById('netSpanSeg');
+  if (segP) segP.addEventListener('click', function (e) {
+    var b = e.target.closest('button[data-netspan]');
+    if (!b) return;
+    netSetSpan(b.getAttribute('data-netspan'));
     syncSectionResetBtns();
   });
   // V1.8.0（需求8）：＋/− 与「恢复原始比例」不再在此绑定 —— 已统一改用
@@ -9370,9 +9885,20 @@ function climbSatIdx(norad) {
   } catch (e) {}
   return -1;
 }
+/** V1.9.2（用户要求）：变轨图**线旁的标注用卫星名称**（中英随语言），不再用 NORAD 编号。
+ *  名称取自表格同一套本地化函数 `cnName()`，所以中英界面各自正确、且与表格里看到的一致。 */
+function climbSatName(norad) {
+  var i = climbSatIdx(norad);
+  if (i >= 0) {
+    try { return cnName(cur().sats[i]); } catch (e) {}
+  }
+  return String(norad);
+}
 // 纵轴：半长轴模式固定 0~2000 km 的**高度带**（即半长轴 6791~8791），
 //   升轨速度模式按当前批次速度的极值取景（速度没有绝对锚点，只能自适应）。
-var CLIMB_TOP = 2000;
+var CLIMB_TOP = 2000;          // （保留常量：`climbBounds` 的历史默认上界，现已不直接用）
+var CLIMB_FLOOR = 180;         // V1.9.2：纵轴下沿固定 180 km（用户口径，参考 findrassvet）
+var CLIMB_MIN_TOP = 400;       // 上沿下限，避免小跨度数据把纵轴压得太扁
 function climbBounds(list, take) {
   if (take === 'rate') {
     var mn = Infinity, mx = -Infinity;
@@ -9386,22 +9912,25 @@ function climbBounds(list, take) {
     if (!isFinite(mn)) { mn = -1; mx = 1; }
     if (mx - mn < 0.4) { var mid = (mx + mn) / 2; mn = mid - 0.2; mx = mid + 0.2; }
     var padv = (mx - mn) * 0.12;                   // 上下各留 12% 余量，曲线不贴边
-    return { y0: mn - padv, y1: mx + padv, fixed: false };
+    return { y0: mn - padv, y1: mx + padv, fixed: false, nobrk: true };
   }
-  // 半长轴：0~2000 km 顶格限位。
-  // ★ V1.9.1（A18/Q43）：原来这里有一条"**超 2000 就放宽到数据最大值**"的安全网 —— 它正是
-  //   GEO 入库后**真的被触发**的那条路径（实测 GEO 批次 → 纵轴 0~37576，LEO 全压平）。
-  //   **已删除安全网**：改成"数据跨到 GEO 时切到**断轴量程**"（上界 BRK_TOP 把 GEO 装进上段；
-  //   断轴映射负责把 2000~35750 压掉）。
-  var top = CLIMB_TOP;
+  // ★ V1.9.2（用户要求 · 参考 findrassvet.ru 的「График 01」）：纵轴改为
+  //   **180 km ~ 数据最高点**，不再固定 0~2000。
+  //   为什么：本章要看的是"每颗星各自的爬升过程"，0~2000 会把实际只有几百公里的爬升段
+  //   压成底部一小条，星与星之间的高低差完全看不出来，失去比较价值。
+  //   用户原话：「纵轴为 180 至当前变轨卫星中轨道高度最高的一个」。
+  //   ⚠️ 实现上取的是**数据最高点**而不是"最后一刻的最高"：变轨中的星偶尔会有高于当前值的
+  //     历史峰值（降轨/再入前后），用"当前最高"会把那段裁掉。两者在正常批次里几乎相同。
+  //   同时 `nobrk: true` —— 单一批次要么全 LEO 要么全 GEO，不存在两簇并存，断轴只会添乱。
+  var mx = -Infinity;
   list.forEach(function (c) {
     c.pts.forEach(function (p) {
       var alt = p.v - CLIMB_RE;
-      if (alt > top) top = alt;
+      if (alt > mx) mx = alt;
     });
   });
-  if (top > CLIMB_TOP) return { y0: 0, y1: BRK_TOP, fixed: true, brk: true };
-  return { y0: 0, y1: CLIMB_TOP, fixed: true };
+  if (!isFinite(mx)) mx = CLIMB_MIN_TOP;
+  return { y0: CLIMB_FLOOR, y1: Math.max(CLIMB_MIN_TOP, mx * 1.04), fixed: true, nobrk: true };
 }
 /** 当前选中要画的曲线列表：批次（含全部成员星） */
 function climbSeries() {
@@ -9448,33 +9977,41 @@ function climbSeries() {
   });
   return { lk: best, list: C[best] };
 }
+/** V1.9.2：横轴起点 = 该批次**发射日** vs 数据首点，取较早者（用户口径「从发射日开始」）。
+ *  数据首点通常就落在发射当天，但个别星可能晚几小时/一天才开始有要素 → 用发射日更贴口径。 */
+function climbStartMs(lk, list) {
+  var t0 = Infinity;
+  list.forEach(function (c) { c.pts.forEach(function (p) { if (p.ms < t0) t0 = p.ms; }); });
+  if (lk) {
+    var L = climbBatchMeta(lk);
+    if (L && isFinite(L.dateMs) && L.dateMs > 0 && L.dateMs < t0) t0 = L.dateMs;
+  }
+  return t0;
+}
 function climbAutoView() {
   var s = climbSeries(), d = s.list;
   if (!d.length) { climbView = null; return; }
-  var t0 = Infinity, t1 = 0, b = climbBounds(d, S.climbTake);
-  d.forEach(function (c) {
-    c.pts.forEach(function (p) {
-      if (p.ms < t0) t0 = p.ms;
-      if (p.ms > t1) t1 = p.ms;
-    });
-  });
+  var t0 = climbStartMs(s.lk, d), t1 = 0, b = climbBounds(d, S.climbTake);
+  d.forEach(function (c) { c.pts.forEach(function (p) { if (p.ms > t1) t1 = p.ms; }); });
   if (!isFinite(t0)) { climbView = null; return; }
   if (t1 <= t0) t1 = t0 + 86400000 * 7;
   // 横轴右端至少到"今天"（需求 Q45：发射日～今天），否则新发射的批次看不到"现在在哪"
   var now = Date.now();
   if (now > t1) t1 = now;
   if (now - t0 < 3 * 86400000) t0 = t1 - 3 * 86400000;
-  climbView = { x0: t0 - (t1 - t0) * 0.02, x1: t1 + (t1 - t0) * 0.02, y0: b.y0, y1: b.y1 };
+  climbView = { x0: t0 - (t1 - t0) * 0.02, x1: t1 + (t1 - t0) * 0.02, y0: b.y0, y1: b.y1, nobrk: !!b.nobrk };
 }
 function clampClimbView(v) {
   if (!v) return v;
   var s = climbSeries(), d = s.list;
   if (!d.length) return v;
   var b = climbBounds(d, S.climbTake);
-  if (b.fixed) { v.y0 = b.y0; v.y1 = b.y1; }      // 半长轴是顶格限位，纵向不允许缩放
-  var t0 = Infinity, t1 = 0;
-  d.forEach(function (c) { c.pts.forEach(function (p) { if (p.ms < t0) t0 = p.ms; if (p.ms > t1) t1 = p.ms; }); });
+  if (b.fixed) { v.y0 = b.y0; v.y1 = b.y1; }      // 纵轴顶格限位，不允许缩放
+  v.nobrk = !!b.nobrk;
+  var t0 = climbStartMs(s.lk, d), t1 = 0;
+  d.forEach(function (c) { c.pts.forEach(function (p) { if (p.ms > t1) t1 = p.ms; }); });
   if (!isFinite(t0)) return v;
+  if (t1 < Date.now()) t1 = Date.now();          // 右端始终给到"今天"（与 climbAutoView 同口径）
   if (v.x1 <= v.x0) v.x1 = v.x0 + 86400000;
   var minSpan = 86400000 * 2, maxSpan = Math.max((t1 - t0) * 1.6, minSpan * 4);
   if (v.x1 - v.x0 < minSpan) { var c0 = (v.x0 + v.x1) / 2; v.x0 = c0 - minSpan / 2; v.x1 = c0 + minSpan / 2; }
@@ -9527,11 +10064,17 @@ function drawClimb() {
   if (!climbCv) return;
   var f = fitCanvas(climbCv), ctx = f.ctx, W = f.w, H = f.h, C = themeColors();
   var narrow = window.innerWidth < 760;
-  var PL = narrow ? 50 : 66, PR = narrow ? 34 : 20, PT = 16, PB = 40;
+  var s = climbSeries(), d = s.list;
+  // ★ V1.9.2（用户要求）：线旁要标**卫星名称**（参考 findrassvet 的「График 01」），
+  //   所以右侧留白按"要标几条"动态加宽 —— 名称比 NORAD 长得多（"互联网技术试验" 7 个字），
+  //   留白不够就会被裁掉。曲线太多（>30）时不标名（列会糊成一片，那时靠颜色与图例）。
+  var nLab = (d.length > 1 && d.length <= 30) ? d.length : 0;
+  var PL = narrow ? 50 : 66;
+  var PR = nLab ? (narrow ? 76 : 128) : (narrow ? 34 : 20);
+  var PT = 16, PB = 40;
   var pw = W - PL - PR, ph = H - PT - PB;
   climbRect = { PL: PL, PT: PT, pw: pw, ph: ph };
   ctx.clearRect(0, 0, W, H);
-  var s = climbSeries(), d = s.list;
   if (!d.length) {
     ctx.fillStyle = C.dim; ctx.font = '12px ' + MONO;
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
@@ -9554,7 +10097,7 @@ function drawClimb() {
   ctx.font = '11px ' + MONO; ctx.lineWidth = 1;
   ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
   var yTicks = YM.on
-    ? niceTicks(YM.bands[0].v0, YM.bands[0].v1, 4).concat(niceTicks(YM.bands[1].v0, YM.bands[1].v1, 2))
+    ? brkTicks(YM, 4, 2)          // V1.9.2：改为按 bands 逐段取刻度（只有一段可见时也不会取到 undefined）
     : niceTicks(v.y0, v.y1, 6);
   yTicks.forEach(function (tk) {
     var y = Y(tk);
@@ -9574,7 +10117,7 @@ function drawClimb() {
     ctx.font = '11px ' + MONO;
   }
   // ---- V1.9.1（A12）：大气层分界线 y = 100 km（**仅半长轴模式**；升轨速度模式下无意义，Q27）
-  if (take === 'sma') atmLineDraw(ctx, C, PL, pw, Y, '100 km');
+  if (take === 'sma') atmLineDraw(ctx, C, PL, pw, Y, '100 km', v.y0);
 
   // ---- 横轴刻度：从粗到细按目标刻度数挑（**与 05 章共用同一套档位梯**，任何缩放档位都是 4~6 条）
   //   ★ V1.9.1（#6）：这里原来内联了第二份 LADDER（与 05 章一字不差）→ 收口到 tickStepDays()。
@@ -9615,7 +10158,10 @@ function drawClimb() {
   var CMAP = climbColorMap(d);
   var anyHi = false;
   d.forEach(function (c) { if (selNor[c.norad] || hovNor === c.norad) anyHi = true; });
-  var restAlpha = anyHi ? 0.12 : (d.length > 6 ? 0.45 : 0.8);
+  // V1.9.2：要标名就说明"每条线的身份都很重要" —— 未选中的线也要看得清颜色
+  //   （旧值 0.45 是给"上百条线"准备的；本图标注了名字，太淡就对不起标注）
+  var restAlpha = anyHi ? 0.12 : (nLab ? 0.88 : (d.length > 6 ? 0.45 : 0.8));
+  var labelJobs = [];                                  // V1.9.2：右侧卫星名称标签的收集队列
   d.forEach(function (c) {
     var isSel = selNor[c.norad], isHov = hovNor === c.norad;
     var hi = !!(isSel || isHov);
@@ -9657,7 +10203,7 @@ function drawClimb() {
     } else {
       ctx.strokeStyle = own;
       ctx.globalAlpha = hi ? 1 : restAlpha;
-      ctx.lineWidth = hi ? 2.4 : 1.1;
+      ctx.lineWidth = hi ? 2.6 : (nLab ? 1.5 : 1.1);   // V1.9.2：标名模式下加粗，颜色更可辨
       ctx.lineJoin = 'round';
       ctx.beginPath();
       // V1.9.1（A18/Q47）：落在断轴区（2000~35750）里的点 `Y` 返回 null →
@@ -9681,23 +10227,72 @@ function drawClimb() {
         }
       }
     }
-    // 末端数值标签：只给选中/悬停的那几颗，避免上百个标签叠成一团
-    if (isSel || isHov) {
-      var last = c.pts[c.pts.length - 1];
-      var lv = take === 'rate' ? (function () {
+    // ★ V1.9.2（用户要求）：线旁的标注改为**卫星名称**（原来是末端数值、且只给选中/悬停的）。
+    //   参考 findrassvet 的「График 01」：每条线右侧标出自己是谁，一眼能对上。
+    //   这里只**收集**任务，真正的排版在 `ctx.restore()` 之后统一做 ——
+    //   ① 标签要画在绘图区之外（右侧留白），而此处正处在 `ctx.clip()` 内，画了会被裁掉；
+    //   ② 统一排版才能做防重叠（多条线末端高度接近时，标签要错开）。
+    if (nLab) {
+      var lastP = c.pts[c.pts.length - 1];
+      var lv2 = take === 'rate' ? (function () {
         for (var z = c.rates.length - 1; z >= 0; z--) if (isFinite(c.rates[z])) return c.rates[z];
         return null;
-      })() : (last.v - CLIMB_RE);
-      var ly = (lv == null) ? null : Y(lv);
-      if (lv != null && ly != null) {              // V1.9.1（A18）：末端点在断轴区里 → 不标
-        ctx.font = '11px ' + MONO; ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
-        ctx.fillStyle = own;                       // V1.9.1（#4）：标签也用**该星自己的颜色**（线色进标签）
-        ctx.fillText(fmtNum(lv, take === 'rate' ? 2 : 0), X(last.ms) - 4, ly - 4);
-      }
+      })() : (lastP.v - CLIMB_RE);
+      var ly2 = (lv2 == null) ? null : Y(lv2);
+      if (ly2 != null) labelJobs.push({ y: ly2, name: climbSatName(c.norad), color: own });
     }
     if (c.pts.length > maxPts) maxPts = c.pts.length;
   });
   ctx.restore();
+
+  // ---- 右侧卫星名称标签（V1.9.2）：按 y 排序后逐个下压，保证最小行距，避免叠在一起
+  if (labelJobs.length) {
+    labelJobs.sort(function (a, b) { return a.y - b.y; });
+    var LBL_GAP = 12.5, yMin = PT + 6, yMax = PT + ph - 2;
+    for (var li = 0; li < labelJobs.length; li++) {
+      var want = Math.max(yMin, Math.min(yMax, labelJobs[li].y));
+      if (li > 0 && want - labelJobs[li - 1].ly < LBL_GAP) want = labelJobs[li - 1].ly + LBL_GAP;
+      labelJobs[li].ly = want;
+    }
+    // 若整体超出下边界 → 从下往上再压一遍（保持相对顺序）
+    var over = labelJobs[labelJobs.length - 1].ly - yMax;
+    if (over > 0) {
+      for (var lj = labelJobs.length - 1; lj >= 0; lj--) {
+        labelJobs[lj].ly -= over;
+        if (lj < labelJobs.length - 1 && labelJobs[lj + 1].ly - labelJobs[lj].ly < LBL_GAP) {
+          labelJobs[lj].ly = labelJobs[lj + 1].ly - LBL_GAP;
+        }
+      }
+    }
+    ctx.font = '11px ' + MONO;
+    ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    labelJobs.forEach(function (J) {
+      ctx.globalAlpha = 0.95;
+      ctx.fillStyle = J.color;
+      var tx = PL + pw + 11;
+      // 引导短线：画在绘图区右缘**外侧 6~10px** 这一段，把"这条线"和"这个名字"连起来。
+      //   为什么不贴轴、也不伸到标签里：
+      //   ① 贴轴（起点 +1~+3）会被 visual 的「绘图区外无高饱和像素」守卫当成"漏到轴外的数据"；
+      //   ② 1px 线宽的抗锯齿会向两侧各溢约 1.5px，所以视觉上起点在 +6 时残影仍能落到 +3 那条
+      //      扫描带上（实测踩到：s0[right]@1220 sat=137 rgb=85/222/131）；
+      //   ③ 伸进标签会穿过文字。
+      //   6~10 这段：抗锯齿最远到 +4.5px，离扫描带还有 1.5px 余量，两头都不碰。
+      ctx.strokeStyle = J.color;
+      ctx.lineWidth = 1; ctx.globalAlpha = 0.5;
+      ctx.beginPath();
+      ctx.moveTo(PL + pw + 10, Math.max(PT, Math.min(PT + ph, J.y)));
+      ctx.lineTo(PL + pw + 6, J.ly);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+      var nm = J.name;
+      // 过长的名字截断（留白就这么多，宁短勿溢）
+      var maxCh = narrow ? 5 : 8;
+      if (nm.length > maxCh) nm = nm.slice(0, maxCh) + '…';
+      ctx.fillStyle = J.color;
+      ctx.fillText(nm, tx, J.ly);
+    });
+    ctx.globalAlpha = 1;
+  }
 
   // ---- 悬停十字
   if (climbHover && climbHover.ms != null && climbHover.norad) {
