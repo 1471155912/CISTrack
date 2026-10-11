@@ -445,7 +445,7 @@ assert('V1.9.1（1.4-D）：卫星表有「在轨状态」列，且**数据源�
     const goneN = RAW.gw.sats.concat(RAW.qf.sats).filter(s => s.st === 'r').length;
     const cellList = [...d.querySelectorAll('#satTable tbody td.stcell')];
     if (goneN <= 0) return cellList.length > 0;   // 数据里没有已再入的 → 退回"有没有渲染出该列"的弱判据
-    return cellList.length > 0 && cellList.every(c => /在轨|已再入/.test(c.textContent.trim()));
+    return cellList.length > 0 && cellList.every(c => /在轨|变轨中|已再入/.test(c.textContent.trim()));
   })(), (function () {
     const cells = [...d.querySelectorAll('#satTable tbody td.stcell')];
     const gone = RAW.gw.sats.concat(RAW.qf.sats).filter(s => s.st === 'r');
@@ -457,7 +457,10 @@ assert('V1.9.1（1.4-D）：卫星表有「在轨状态」列，且**数据源�
 //   重建对象，把 st/dt 丢了 → 页面上 63428 显示"在轨"，而 satdata 里明明写着 `st:'r'`。
 assert('V1.9.1（A10）：已再入标记必须穿过度分还原到达行数据（st/dt 两处都不能丢）',
   /st: s\.st, dt: s\.dt/.test(appSrc) &&
-  /if \(s\.st\) \{ out\.st = s\.st; out\.dt = s\.dt; \}/.test(appSrc) &&
+  // V1.9.2：unpackSat() 的白名单改成 EXTRA 表了（见该处注释）—— 判据跟着改，
+  //   但仍然要求它**确实**覆盖 st/dt（不能因为改成表就把这两个漏掉）。
+  /var EXTRA = \[[^\]]*'st'[^\]]*'dt'[^\]]*\]/.test(appSrc) &&
+  /if \(s\[ek\] !== undefined\) out\[ek\] = s\[ek\]/.test(appSrc) &&
   (function () {
     // 行数据侧的实证：搜出那颗星，它必须真的带 gone 类
     const raw = RAW.gw.sats.concat(RAW.qf.sats).find(s => s.st === 'r');
@@ -2532,6 +2535,13 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
     //   已再入行只剩"已再入"三个字，在轨日的数字全丢。必须走 `r._s.launch`。
     assert('A7：状态列走 orbitStatusHtml，且取发射记录对象用 `r._s.launch`（不是字符串 r.launch）',
       /orbitStatusHtml\(r\)/.test(appSrc) && /r\._s\.launch/.test(appSrc));
+    // ★ V1.9.2：这条是"静默丢字段"的**防复发守卫** —— 本会话已经栽过两次
+    //   （V1.9.1 的 st/dt、V1.9.2 的 orb/wk/od/rr），根因都是"白名单重建对象"：
+    //     build() 造行数据对象、unpackSat() 差分还原，**两处都只抄自己列出的字段**。
+    //   判据：satdata 里出现过的卫星字段，必须在这两处都被带上（至少 orb/wk/od/rr 这一组）。
+    assert('A7：三态字段穿过度分还原与 build() 两处白名单（`orb/wk/od/rr` 一处都不能漏）',
+      /orb: s\.orb, wk: s\.wk, od: s\.od, rr: s\.rr/.test(appSrc) &&
+      /'orb'[^\]]*'wk'[^\]]*'od'[^\]]*'rr'/.test(appSrc));
     assert('A7：排序语义 = 0 在轨 / 1 变轨中 / 2 已再入',
       /status: s\.st === 'r' \? 2 : \(s\.orb \? 1 : 0\)/.test(appSrc));
     assert('A7：变轨的"速度片段"单独着色 —— .st-rate + pos/neg/zero 三色（不随整格染黄）',
@@ -2560,7 +2570,9 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
     const c1 = cellOf(raiSample.id);
     assert('A7：**变轨中**的行 —— 单元格带 .st-raising，文案形如「变轨中（~YYYY-MM-DD，NNNkm (+X.XXkm/天)）」',
       !!c1 && /st-raising/.test(c1.cls) &&
-      /^变轨中（~\d{4}-\d{2}-\d{2}，\d+km \([-+]?\d+\.\d{2}km\/天）\)$/.test(c1.txt),
+      // 收尾是**两个括号**：速度那段的半角 `)`（在 span 外）+ st_close 的全角 `）`
+      // 且速度**带符号**（`+3.63`）—— `[-+]?` 不能省，否则 "(+3.63" 匹配不上（踩过一次）
+      /^变轨中（~\d{4}-\d{2}-\d{2}，\d+km \([-+]?\d+\.\d{2}km\/天\)）$/.test(c1.txt),
       c1 ? JSON.stringify(c1.txt) : 'null（搜不到 ' + raiSample.id + '）');
     assert('A7：变轨中的**速度片段**是独立 <span class="st-rate …">（正数带 +、颜色类正确）',
       !!c1 && /<span class="st-rate (pos|neg|zero)">/.test(c1.html) &&
@@ -3658,6 +3670,23 @@ assert('V1.9.1（#9）：JS 起来后仍然接管（语言切换 / 真实历元�
     !/shots\//.test(rdZh) && !/shots\//.test(rdEn));
   assert('README（双语）：仓库结构说明里列出了 assets/',
     /^assets\//m.test(rdZh) && /^assets\//m.test(rdEn));
+  // V1.9.2（Q37/Q38/Q45）：Changelog 也双语 —— 这条守"英文版存在、结构对齐、可互跳"。
+  //   ⚠️ 判据用"版本条目数一致 + 都有语言互跳"，不是"文件非空"那种弱判据：
+  //   漏翻译一整段、或只翻了个开头，都能通过弱判据。
+  const clZh = fs.existsSync(B + 'CHANGELOG.md') ? fs.readFileSync(B + 'CHANGELOG.md', 'utf8') : '';
+  const clEn = fs.existsSync(B + 'CHANGELOG.en.md') ? fs.readFileSync(B + 'CHANGELOG.en.md', 'utf8') : '';
+  const verZh = (clZh.match(/^## \[V/gm) || []).length;
+  const verEn = (clEn.match(/^## \[V/gm) || []).length;
+  assert('CHANGELOG（双语）：英文版存在，且**版本条目数与中文版一致**（全量翻译，不是只翻开头）',
+    verEn > 0 && verEn === verZh, 'zh=' + verZh + ' / en=' + verEn);
+  assert('CHANGELOG（双语）：两版顶部互相跳转',
+    /CHANGELOG\.en\.md/.test(clZh.slice(0, 1200)) && /CHANGELOG\.md/.test(clEn.slice(0, 1200)));
+  assert('CHANGELOG（双语）：英文版已接进 sync_src / build_release 两条链路（否则往返会丢）',
+    (function () {
+      const sy = fs.existsSync(B + '../sync_src.mjs') ? fs.readFileSync(B + '../sync_src.mjs', 'utf8') : '';
+      const br = fs.existsSync(B + '../build_release.mjs') ? fs.readFileSync(B + '../build_release.mjs', 'utf8') : '';
+      return /CHANGELOG\.en\.md/.test(sy) && /CHANGELOG\.en\.md/.test(br);
+    })());
 }
 
 $('#themeBtn').dispatchEvent(new w.MouseEvent('click', { bubbles: true }));

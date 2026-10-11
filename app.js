@@ -11,7 +11,7 @@ var DAY = 86400000;
 var SGP4 = window.satellite;
 var RAW = window.SATDATA;
 var COAST = window.COAST_DATA || [];
-var VERSION = 'V1.9.1';          // 页脚版本号，后续更新在此改动
+var VERSION = 'V1.9.2';          // 页脚版本号，后续更新在此改动
 
 // ---------------------------------------------------------------- V1.3.7：TLE 分组差分解码
 // 构建脚本按发射批次（COSPAR 前缀）把「名称+两行要素」压成公共模板 + 每颗星的差异串，
@@ -30,10 +30,19 @@ function unpackSat(s, tpls) {
   for (var p = 0; p < 162; p++) rec += bits[p] ? tpl.f.charAt(fi++) : s.d.charAt(di++);
   var out = { name: rec.slice(0, 24).trim(), id: s.id, c: s.c, l1: rec.slice(24, 93), l2: rec.slice(93, 162) };
   // ★ V1.9.1（A10 前置修复）：这一层是**按白名单重建一个新对象** —— 只抄 name/id/c/l1/l2，
-  //   凡是 mkdata 新加的字段（这里是 1.4-D 的已再入标记 `st`/`dt`）**都会被静默丢掉**：
-  //   数据层明明写进了 satdata，页面却永远读不到 → 每颗星都显示"在轨"。
-  //   ⚠️ 以后往 satdata 的卫星记录里加字段时，**必须同步这里**。
-  if (s.st) { out.st = s.st; out.dt = s.dt; }
+  //   凡是 mkdata 新加的字段都会被**静默丢掉**：数据层明明写进了 satdata，页面却永远读不到。
+  //   历史教训（两次都栽在这里）：
+  //     ① V1.9.1（1.4-D）的已再入标记 `st`/`dt` → 每颗星都显示"在轨"，连已再入的 63428 也是；
+  //     ② V1.9.2（A7）的三态字段 `orb`/`wk`/`od`/`rr` → 「在轨状态」列退化成
+  //        「在轨（~—，undefinedkm）」（smoke 的渲染层断言当场抓到）。
+  //   ⚠️ 以后往 satdata 的卫星记录里加字段时，**必须同步写进下面这张 EXTRA 表**。
+  var EXTRA = ['st', 'dt', 'orb', 'wk', 'od', 'rr'];
+  for (var ei = 0; ei < EXTRA.length; ei++) {
+    var ek = EXTRA[ei];
+    // 用 `!== undefined` 而不是真值判断 —— `orb` 的 0（在轨）是**合法且最常见**的取值，
+    //   写成 `if (s[ek])` 会把 0 当"没有"丢掉，于是所有在轨星都变成 undefined。
+    if (s[ek] !== undefined) out[ek] = s[ek];
+  }
   return out;
 }
 function unpackAll(key) {
@@ -566,7 +575,12 @@ function build(key) {
       //   当时那条断言只查"当前页每个单元格都渲染了在轨/已再入"——而 63428 按 NORAD 从大到小
       //   排在第 4 页开外，永远不在默认页 → 断言恒真，**等于没测**（静默失效的又一例）。
       //   mkdata 只在已再入的记录上加这两个字段（在轨卫星零增重）。
-      st: s.st, dt: s.dt
+      st: s.st, dt: s.dt,
+      // ★ V1.9.2（A7）：同理，「在轨状态」列的三态数据也必须带下来 ——
+      //   orb=0 在轨 / 1 变轨中（已再入走上面的 st='r'）、wk=该批工作轨道高度档位或 'GEO'、
+      //   od=进入工作轨道日期（在轨态才有）、rr=升轨速度 km/天（变轨中态才有）。
+      //   ⚠️ 与 unpackSat() 的 EXTRA 表是**同一份字段清单的两处**，加字段时两处都要改。
+      orb: s.orb, wk: s.wk, od: s.od, rr: s.rr
     };
     sats.push(o); L.sats.push(o);
   });
@@ -2696,7 +2710,9 @@ function orbitStatusHtml(r) {
   //   拿它去取 dateMs 会得到 undefined，导致在轨日算不出来、只剩"已再入"三个字。
   if (r.gone) return goneStatusText(r.deadOn, goneDays(r._s.launch, r.deadOn));
   if (r.orb === 1) {
-    var h = Math.round(r.smaB - RE);              // 当前高度：与历史库同口径（brouwer 半长轴）
+    // ⚠️ `smaB` 在 build() 里**已经是离地高度**（`aBro - RE`），不要再减一次 RE ——
+    //   减了会得到 -5890 这种负高度（smoke 的渲染层断言当场抓到）。
+    var h = Math.round(r.smaB);
     var txt = t('st_raising_a') + ymd8(r.epoch) + t('st_gone_b') + h + 'km';
     if (r.rr !== undefined && r.rr !== null && isFinite(r.rr)) {
       var cls = r.rr > 0 ? 'pos' : (r.rr < 0 ? 'neg' : 'zero');

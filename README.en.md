@@ -1,6 +1,6 @@
 # CISTrack · Satellite Tracking for GuoWang (SatNet) and Qianfan
 
-![version](https://img.shields.io/badge/version-1.9.1-ff6b6b?style=flat-square) ![license](https://img.shields.io/badge/license-MIT-4dabf7?style=flat-square) [![星网](https://img.shields.io/badge/%E6%98%9F%E7%BD%91-CSCN-ff6b6b?style=flat-square)](https://sat.huijiwiki.com/wiki/%E6%98%9F%E7%BD%91) [![千帆](https://img.shields.io/badge/%E5%8D%83%E5%B8%86-G60-4dabf7?style=flat-square)](https://sat.huijiwiki.com/wiki/%E5%8D%83%E5%B8%86%E6%98%9F%E5%BA%A7)
+![version](https://img.shields.io/badge/version-1.9.2-ff6b6b?style=flat-square) ![license](https://img.shields.io/badge/license-MIT-4dabf7?style=flat-square) [![星网](https://img.shields.io/badge/%E6%98%9F%E7%BD%91-CSCN-ff6b6b?style=flat-square)](https://sat.huijiwiki.com/wiki/%E6%98%9F%E7%BD%91) [![千帆](https://img.shields.io/badge/%E5%8D%83%E5%B8%86-G60-4dabf7?style=flat-square)](https://sat.huijiwiki.com/wiki/%E5%8D%83%E5%B8%86%E6%98%9F%E5%BA%A7)
 
 
 <div align="center">
