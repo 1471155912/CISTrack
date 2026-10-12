@@ -25,7 +25,7 @@ function makeCtx() {
   const calls = { stroke: 0, fill: 0, fillText: 0, arc: 0, clearRect: 0 };
   // V1.9.1（#4）：记录**着色历史** —— "每星一色"这类断言只能靠它验证（jsdom 不真画，
   //   没有像素可采样）。每次绘制会往数组里追加，断言时取"本次调用之后新增的那一段"。
-  const styles = { stroke: [], fill: [], alpha: [], dash: [], ellipse: [], text: [] };
+  const styles = { stroke: [], fill: [], alpha: [], dash: [], ellipse: [], text: [], textXY: [] };
   const target = {};
   return new Proxy(target, {
     get(t, k) {
@@ -35,7 +35,12 @@ function makeCtx() {
       // ⚠️ 这两个分支必须放在 `if (k in calls)` **之前**：`fillText` / `setLineDash` 都在 calls
       //   里留了计数器，先命中计数器就永远拿不到参数了（A12 第一次就是这样全部空数组）。
       // V1.9.1（A12）：`fillText` 的文本也要记下来（"某个标注画了没"只能这样验）
-      if (k === 'fillText') return (...a) => { calls.fillText++; styles.text.push(String(a[0])); };
+      // V1.9.2：另外记一份**带坐标**的 —— "同一个数画在同一个地方两遍"这类重复绘制
+      //   只能靠坐标分辨（不同节点的数字碰巧相同是正常的）。
+      if (k === 'fillText') return (...a) => {
+        calls.fillText++; styles.text.push(String(a[0]));
+        styles.textXY.push({ t: String(a[0]), x: +a[1], y: +a[2] });
+      };
       // V1.9.1（A8）：虚线靠 `setLineDash` 表达，jsdom 里没有像素可采样 → 记下调用参数
       if (k === 'setLineDash') return (...a) => { styles.dash.push(JSON.stringify(a[0])); };
       // V1.9.1（A9）：聚类圆圈用 ellipse，同样记下来
@@ -2263,6 +2268,10 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
     "    return netPickLabels(netNodeMarks(netData(), S.netSpan), X, Y).map(function (L) {\n" +
     "      return { key: L.key, v: L.v, x: +L.x.toFixed(2), y: +L.y.toFixed(2), last: !!L.last }; }); },\n" +
     "  netRect: function () { return netRect; },\n" +
+    // ★ V1.9.2（用户要求）：本帧 netCv 上所有 fillText 的 {文本, 坐标} —— 用来断言"末端数值只画一次"。
+    //   桩的 __styles.textXY 是**累积**的（每次绘制往后追加），这里先清空再重绘，拿干净的当前帧。
+    "  netTexts: function () { var c = netCv.getContext('2d'); c.__styles.textXY.length = 0;\n" +
+    "    drawNet(); return c.__styles.textXY.slice(); },\n" +
     "  netViewNow: function () { if (!netView) netAutoView();\n" +
     "    return { x0: netView.x0, x1: netView.x1, y0: netView.y0, y1: netView.y1 }; },\n" +
     "  netInfoOpen: function (i) { netShowInfoAt(i); var el = document.getElementById('netInfo');\n" +
@@ -3023,6 +3032,37 @@ assert('V1.9.2：右侧留白按"要标几条"动态加宽（否则名称会被�
         k3.netSetSpan('all');
         return !!first;
       })());
+    // ---- ★ V1.9.2（用户要求）：末端数值**只画一次** ----
+    // 来历：旧版 drawNet() 里有**两处**独立绘制末端同一个数 ——
+    //   ① 曲线段的「末端数值」（右对齐贴曲线末点左侧）；② 末端"今天/最新"节点标签（bold 左对齐）。
+    //   两者坐标只差二十来个像素，屏幕上就是末端出现两个一模一样的数（截图实锤 "150"×2）。
+    //   修法：删掉 ①，统一由末端节点标签承担（它就是用户说的"显示今天的最新颗数的节点"）。
+    //   这里用**源码 + 运行时双重断言**把"只画一次"钉住 —— 只断源码挡不住将来换个写法再画一遍。
+    assert('V1.9.2：末端数值**只画一次**（曲线端点不再单独标数，统一由末端节点标签承担）—— 防"同一个数画两遍"',
+      // ① 源码：那段右对齐的「末端数值」绘制必须已删除
+      !/末端数值[\s\S]{0,200}?fillText\(String\(Math\.round\(lp\.v\)\), X\(lp\.ms\) - 4, Y\(lp\.v\) - 4\)/.test(appCode) &&
+      !/fillText\(String\(Math\.round\(lp\.v\)\), X\(lp\.ms\) - 4, Y\(lp\.v\) - 4\)/.test(appCode) &&
+      // ② 运行时：三档 × 单/双星座，**末端那一处**那个数只能落笔一次。
+      //    ⚠️ 判据必须限定在"末端附近"：不同节点的累计值**碰巧相同**是正常数据
+      //    （year 档实测有两个月份节点都是 87、相距 480px），那不叫重复显示。
+      //    判据：以末端标签的落笔点为圆心，横向 ±80px、纵向 ±20px 内，同一个数出现 ≥2 次 → 重复。
+      ['all', 'year', 'qtr'].every(function (sp) {
+        return ['gw', 'qf', 'both'].every(function (who) {
+          k3.netSetSpan(sp);
+          if (who === 'gw') k3.netOnly('gw');
+          else if (who === 'qf') k3.netOnly('qf');
+          else k3.netBoth();
+          var L = k3.netLabels(), lastL = L.filter(function (x) { return x.last; })[0];
+          if (!lastL) { k3.netBoth(); return false; }
+          var texts = k3.netTexts();   // 本帧 netCv 上所有 fillText 的 {t, x, y}（含刻度、轴名）
+          var hits = texts.filter(function (o) {
+            return o.t === String(lastL.v) &&
+              Math.abs(o.x - lastL.x) < 80 && Math.abs(o.y - lastL.y) < 20;
+          });
+          k3.netBoth();
+          return hits.length === 1;
+        });
+      }));
     // ---- 复原，别影响后面的断言 ----
     k3.netSetSpan('all'); k3.netBoth(); k3.netDraw();
   }
@@ -3998,6 +4038,24 @@ assert('V1.9.1（#9）：JS 起来后仍然接管（语言切换 / 真实历元�
     badRefs.length === 0,
     badRefs.length ? '违规写法：' + badRefs.join(' ;; ') : '无跨仓库引用');
 }
+
+// ---------------------------------------------------------------- 引用体检：扫描器必须跳过**带后缀的**临时目录
+// 来历（2026-10-12）：本地跑 `scripts/audit_refs.mjs` 报出
+//   「assets/background.js-<hash>.js ← 引用于 .edgecdp-<ts>/…/service-worker-loader.js」，
+//   看起来像个真问题，其实是**体检自己扫进了无头浏览器的用户数据目录**。
+//   根因：SKIP_DIR 是**精确名匹配**（`.git` / `node_modules` …），而临时目录带时间戳后缀
+//   （`.edgecdp-1791720259954`）→ 匹配不上 → 扫进去 → 报误报。
+//   ⚠️ 误报比漏报更危险：本地红、CI 绿（CI 只 checkout 仓库、没有这些目录），
+//      久而久之没人再认真看这个体检的输出，真问题就被淹没。
+//   （同源坑：`.gitignore` 里 `.edgecdp/` 精确匹配也抓不住带后缀的目录，已改成 `.edgecdp*/`。）
+// 判据：ptr 脚本必须同时有 SKIP_DIR 与**前缀式**跳过，且 walk() 用的是后缀版函数。
+const auditSrc = fs.readFileSync(B + 'scripts/audit_refs.mjs', 'utf8');
+assert('引用体检：扫描器按**前缀**跳过开发期临时目录（精确名匹配抓不住带时间戳后缀的目录 → 会自己产生误报）',
+  /const SKIP_PREFIX = \[[^\]]*'\.edgecdp'/.test(auditSrc) &&
+  /const skipDir = \(name\) => SKIP_DIR\.has\(name\) \|\| SKIP_PREFIX\.some\(p => name\.startsWith\(p\)\);/.test(auditSrc) &&
+  /if \(skipDir\(rel\) \|\| skipDir\(e\.name\)\) continue;/.test(auditSrc) &&
+  !/SKIP_DIR\.has\(rel\) \|\| SKIP_DIR\.has\(e\.name\)/.test(auditSrc),
+  'SKIP_DIR=' + ((auditSrc.match(/const SKIP_DIR = new Set\(\[([\s\S]{0,200}?)\]\)/) || [])[1] || '').replace(/\s+/g, ' ').slice(0, 120));
 
 $('#themeBtn').dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
 

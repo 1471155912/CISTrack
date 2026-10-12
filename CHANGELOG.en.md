@@ -142,12 +142,73 @@ range in real time):
 > its half via complementary clips. A source-level guard now catches this (earlier than a pixel
 > assertion would).
 
+### ★ End-of-curve value no longer drawn twice (user: "just show the last point once")
+
+A user screenshot showed the **same number appearing twice, side by side** at the end of the curve.
+The cause turned out to be **two independent draws** stacked on top of each other:
+
+| # | Where | Form |
+|---|---|---|
+| ① | the curve segment's "end value" | right-aligned, just left of the curve's last point |
+| ② | the end "today/latest" node label (`J.last`) | **bold**, left-aligned, with a halo ring |
+
+Their x coordinates differ by only ~20 px, so on screen the end shows two identical numbers
+(measured in Edge: with Qianfan only, `244` is drawn at `x=1306.3 align=right` **and** at
+`x=1284.2 align=left bold`).
+
+**Fix**: remove ①; the **end node label** takes over entirely — it is exactly what the user called
+"the node showing today's latest count", has a more prominent form (bold + halo ring), and the
+curve's last point and the end node share the same coordinate, so the value is never lost.
+
+**A second layer of duplication was also found** (another cause of the same symptom):
+`netPickLabels()` used to drop a label only when **positions overlapped**, but under the "This year"
+range the Sep-30 monthly node and the "today" end node **happen to hold the same cumulative value**
+(nothing was launched after that month) → two labels side by side showing the same number
+(measured: `87` at x=802.3 and `87` at x=833.4, 31 px apart — under the 28 px threshold).
+New rule: **any other node with the same value as the end node and nearby (±80 px / ±20 px) drops
+its label** (the dot is still drawn) — the end node is the reference form, so it is kept.
+
+**Guards** (two, to prevent regression):
+- source: the right-aligned "end value" draw must never reappear (in case someone "fixes it back");
+- runtime: for all three ranges × {CSCN only / Qianfan only / both}, within ±80 px / ±20 px of the
+  end label's anchor, that same number may be drawn **only once** (the `netTexts()` probe records
+  the text and coordinates of every `fillText` call).
+  ⚠️ The criterion must be restricted to "near the end" — different nodes **coincidentally holding
+  the same value is normal data** (the year range actually has two monthly nodes both at 87,
+  480 px apart); that is not duplicated display.
+
+### ★ A false-positive source in the reference audit: suffixed temp dirs were not skipped
+
+Running `node scripts/audit_refs.mjs` locally reported:
+
+```
+✗ referenced but missing on disk:
+    assets/background.js-<hash>.js ← referenced by .edgecdp-<ts>/…/service-worker-loader.js
+```
+
+It looked like a real problem, but the audit had **walked into the headless browser's user-data
+directories** (the `.edgecdp-<timestamp>` dirs created by `visual.mjs` and friends). Root cause:
+`SKIP_DIR` is an **exact-name match**, and these dir names carry a timestamp suffix → no match →
+they were scanned (180 of the 213 "source files" came from these junk dirs).
+
+**Why this had to be fixed**: a false positive is more dangerous than a miss — it is red locally
+and green in CI (CI only checks out the repo and has none of these dirs), so over time nobody reads
+the audit output carefully and real problems get drowned out.
+
+Fix: added **prefix-based** skipping (`.edgecdp` / `.edgeprof` / `.cdp-` / `junk-`) and switched
+`walk()` to the combined predicate. After the fix the scan went from 213 → **33 source files** and
+the verdict changed from "1 class of problem found" to "passed".
+> The same trap again: the `.edgecdp/` exact match in `.gitignore` also missed suffixed dirs and was
+> changed to `.edgecdp*/` earlier. This time a smoke guard was added too (asserting the prefix-based
+> skip exists and that the old exact-match form must not come back).
+
 ### Tests
 
-smoke **650 → 668 → 696 PASS / 0 FAIL** (+18 A7 guards; +28 V1.9.2 guards: the three windows,
+smoke **650 → 668 → 696 → 698 → 699 PASS / 0 FAIL** (+18 A7 guards; +28 V1.9.2 guards: the three windows,
 baselines and node rhythm, full-total info window, node hit priority, auto view, the two export-bar
 segments, the three watermark rules, the half-half drawing position, non-overlapping labels and
-left-edge flipping, non-intersecting clusters, and the axis-break enable condition);
+left-edge flipping, non-intersecting clusters, and the axis-break enable condition; +2 end-value
+guards; +1 audit guard);
 i18n **0 failures** (key union 228); visual **128 → 132 PASS / 0 FAIL**.
 
 Also fixed two **assertions that had expired with the data/environment**:

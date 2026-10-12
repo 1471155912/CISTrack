@@ -26,6 +26,16 @@ const trackedFile = process.argv[2];
 const SKIP_DIR = new Set(['.git', 'node_modules', 'build', 'archive', 'junk', 'shots',
   'history', 'logs', 'data/history_cache', 'wiki_cache']);
 
+// ★ 按**前缀**跳过的目录 —— 这些是开发期临时目录，名字里带时间戳/后缀，精确名匹配抓不住。
+//   ⚠️ 为什么必须在这里跳（而不只是靠 .gitignore）：
+//     本体检是"引用完整性"的源头守卫，扫到 gitignore 的垃圾目录会**自己产生误报**
+//     （实测：`.edgecdp-<ts>/…/service-worker-loader.js` 引用了 assets/background.js-<hash>.js
+//      → 报成"被引用但磁盘上不存在"）。误报比漏报更危险：本地红、CI 绿（CI 只 checkout 仓库、
+//      根本没有这些目录）→ 久而久之没人再认真看这个体检的输出，真问题被淹没。
+//   （同源的坑第 N 次：`.gitignore` 里 `.edgecdp/` 精确匹配也抓不住带后缀的目录，已改成 `.edgecdp*/`。）
+const SKIP_PREFIX = ['.edgecdp', '.edgeprof', '.cdp-', 'junk-'];   // 无头浏览器用户数据/调试目录等
+const skipDir = (name) => SKIP_DIR.has(name) || SKIP_PREFIX.some(p => name.startsWith(p));
+
 // ★ 已知的"引用得到、但按设计就不存在于仓库"的文件 —— 必须是**穷尽列举**，不能写成通配，
 //   否则这个体检会自己变成静默放行器。每条都要写明理由。
 //   ⚠️ 键按**文件名**登记，比对时也只看 basename：引用写法有 `satdata.json` 与 `build/satdata.json`
@@ -57,7 +67,7 @@ function walk(dir, out = []) {
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
     const rel = path.relative(ROOT, path.join(dir, e.name)).replace(/\\/g, '/');
     if (e.isDirectory()) {
-      if (SKIP_DIR.has(rel) || SKIP_DIR.has(e.name)) continue;
+      if (skipDir(rel) || skipDir(e.name)) continue;
       walk(path.join(dir, e.name), out);
     } else if (SRC_RE.test(e.name)) out.push(rel);
   }
