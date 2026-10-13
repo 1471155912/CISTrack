@@ -4399,6 +4399,17 @@ assert('V1.9.3：两个 e2e 脚本都设了 `CISTRACK_SKIP_STALE_CHECK`（否则
     /path: data\/satcat\.csv/.test(yml) &&
     /uses: actions\/cache@v4/.test(yml) &&
     /restore-keys:/.test(yml));
+  // ★★ 这一条是**我自己刚踩的坑**（2026-10-13）：给 workflow 加注释时有两行误写成 `//`
+  //   （JS 风格），YAML 只认 `#` → 整个 workflow 文件非法 → push 触发的 run **0 秒就失败**，
+  //   GitHub 只提示"This run likely failed because of a workflow file issue"，不给任何行号。
+  //   所以必须在本地闸门里拦住：**任何以 // 开头的行都算非法**。
+  assert('V1.9.3：workflow YAML **不含 `//` 注释**（YAML 只认 `#`；误用会让整个文件非法、run 0 秒失败）',
+    !/^\s*\/\//m.test(yml),
+    '发现 // 注释，请改成 #');
+  assert('V1.9.3：workflow 的 `on:` 仍含 **workflow_dispatch**（否则无法手动触发排障）',
+    /workflow_dispatch:/.test(yml));
+  assert('V1.9.3：workflow 的两条 cron 都还在（北京 16:00 / 次日 04:00，每 12 小时一次）',
+    (yml.match(/- cron:/g) || []).length === 2);
   // ★ 这一条是"当时到底怎么挂的"的实证：exitCode=4 的策略**保留**
   //   （没数据时大声失败，好过静默产出残缺产物），但必须先有重试和兜底。
   assert('V1.9.3：`exitCode = 4` 的大声失败策略**保留**（静默降级比失败更糟）',
