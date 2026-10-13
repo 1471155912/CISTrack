@@ -188,12 +188,85 @@ running** means the edits get overwritten by SRC's older copies — this session
 **Workaround**: run `node sync_src.mjs` (a one-way REPO → SRC alignment) right after editing to level both
 sides; `sync_src.mjs` prints "aligned N / overwritten M / created K" — check that `overwritten` is 0.
 
+### ⑩ ★ The gate became the fault: the freshness check used the wrong epoch unit (caught by a real CI run)
+
+After fixing ⑦ and ⑧ I manually triggered CI to verify — and a run whose **data was perfectly healthy**
+(`gw 251 sats / qf S5 filled 19, 0 failures`) was judged "stale data" by the gate I had just added,
+failing with `exitCode 5`:
+
+```
+❌ Data-freshness gate: newest TLE epoch is 20739.2 days behind
+```
+
+**Root cause**: the `epoch` field in `parseTLE` is the **raw TLE value** (`YYDDD.DDDDDDDD`, e.g.
+`26282.76` = day 282.76 of 2026) — **not milliseconds**. The gate computed
+`(Date.now() − 262.76) / 86400000` → **20739 days**.
+(The name `epoch` sounds like milliseconds — before using someone else's variable you must verify its
+**unit and type**.)
+
+**Why local "verification" missed it** (this part matters more than the bug itself):
+I had written a **second, separate parser** inside the verification script (correctly splitting YY/DDD),
+which printed "3.41 days behind ✓" — **I verified the implementation in my head, not the one in the code**.
+
+**Fix**:
+- `tleEpochMs()` moved into `scripts/omm.mjs` (a pure-function module that **tests can import directly**),
+  and `parseTLE` now stores an `epochMs` field;
+- `omm.mjs --selftest` gained epoch checks: 5 parse assertions (including the 57/56 century boundary)
+  + a **506-line real-TLE sample** (all must fall inside a five-year window);
+- `smoke` gained 4 guards that **import the real function and assert on it** (no more source-regex matching).
+
+CI re-verification (run 38349678820): `freshness: newest epoch 0.22 days behind (limit 3) ✓`,
+`epoch self-test = 5 checks, 0 failures`, `real-TLE sample = 513 lines, 0 outside the window`.
+
+### ⑪ ★ 6-digit catalogue-number compatibility audit (requested by the user; found three real gaps)
+
+> The user: "because you have had several major incidents caused by the 5-digit numbering system, you must
+> now do a compatibility audit to prevent it from happening again."
+
+Background: CelesTrak has assigned **6-digit** numbers (100000+) to newly catalogued objects since
+**2026-07-11**, while the classic TLE format's catalogue-number field holds only **5 columns** → such objects
+appear in `.tle` text as "the last 5 digits of the real number" (`100203` → `00203`). The build side has
+always restored them via the `omm_norad.json` map, but the page's **"fetch fresh TLE at runtime"** path was
+missing two pieces — meaning **online visitors saw fewer satellites than offline ones (including every GEO
+satellite)**, a gap that only appears when online.
+
+**Method**: instrumented the **real artifact** with a probe, fed the real `.tle` text into `parseTleText`
+and simulated `applyFresh`.
+
+| # | Gap | Evidence | Fix |
+|---|---|---|---|
+| ① | **36 6-digit satellites had mismatched ids** (incl. all GEO) | Before: after `applyFresh` gw went **244→235** and ids changed `100203`→`203`, no longer matching the built-in data | `ommMap` injected into `satdata` (works offline too) + `parseTleText` now uses `tleRealId()` (pad to 5 before lookup); cache key `v1→v2` |
+| ② | **Name filter dropped 14 satellites** (`NAME_OK` too narrow) | Real `.tle`: passed the filter **235/244** (gw), **257/262** (qf) | `NAME_OK` now recognises the name forms from the build side's `INCLUDE` allowlist → measured **244/244, 262/262**, exactly matching satdata |
+| ③ | **S4 backup source compared placeholder vs real number** (never equal) | `parseInt('00203')` = 203 ≠ `o.norad` = 100203 | Restore through `OMM_IDS` first (the same convention as the history archiving block) |
+
+The names dropped by ② (all of them included by name on the build side via the allowlist):
+
+```
+CX-20A/B/C (CSCN inclined-orbit test sats, group 02), CX-19, CX-26, OBJECT B
+HULIANWAN GAOGUI-01/02/03   ← note the single G! These three are every GEO satellite
+KL-ALPHA A/B, KL-BETA A/B (early Qianfan test satellites)
+DTC TEST OBJECT A (2026-128A = Qianfan DTC-01)
+```
+
+**After the fix**: `applyFresh` leaves `gw 244 → 244` and 6-digit satellites `36 → 36` (unchanged).
+
+**9 new guards** (smoke 713 → **722**), two of which measure **real data**:
+the number of satellites passing `NAME_OK` on the real `.tle` **must equal** satdata's count;
+and every NORAD named in the `INCLUDE` allowlist must really be in satdata.
+
+**An honest note on ③** (so "normal" is not misread as "broken"): S4 has always printed "filled 0" in CI,
+which looks broken, but that is by design — 6-digit objects are explicitly handed to S5, and the remaining
+"missing" ones are mostly absent upstream. Measured: `S3 missing 208→filled 60; S4 missing 148→filled 0;
+S5 missing 193→filled 193, 0 failures` (the main path covers everything). This is now documented in a code
+comment so it will not be mistaken for a regression again.
+
 ### Tests
 
-smoke **700 → 713 PASS / 0 FAIL** (+13 V1.9.3 guards: end-of-curve value drawn once, audit prefix-skip,
+smoke **700 → 722 PASS / 0 FAIL** (+22 V1.9.3 guards: end-of-curve value drawn once, audit prefix-skip,
 top-bar right alignment and vertical centering, intro right edge, break folding (coincidence/continuity/
 monotonicity/inverse), climb y-axis hugging, `fmtSci` output and both column wirings, launch-history column
-names / failure rows / `M/N`, the A7 fallback, refresh hard timeout, the freshness gate and its e2e exemption);
+names / failure rows / `M/N`, the A7 fallback, refresh hard timeout, the freshness gate and its e2e
+exemption, **4 epoch-unit guards**, **5 6-digit compatibility guards**);
 i18n **0 failures** (key union 228); visual **132 PASS / 0 FAIL**.
 
 Also fixed 3 assertions that had **expired with the data** (all "look like a regression but are not"):
