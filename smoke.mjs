@@ -4274,6 +4274,46 @@ assert('V1.9.3：`refresh.mjs` 有**数据新鲜度闸门**（最新历元落后
   /process\.exitCode = 5;/.test(rfSrc) &&
   // 必须能被测试豁免（e2e 用桩数据、历元是假的 → 不豁免会污染测试进程退出码）
   /if \(!process\.env\.CISTRACK_SKIP_STALE_CHECK\) \{/.test(rfSrc));
+
+// ★ V1.9.3【**事故复盘守卫**】：闸门用的历元换算**必须打真实函数**，且必须是**毫秒单位**。
+//   2026-10-13 事故：闸门第一版误把 `parseTLE` 的 `epoch`（TLE 原始格式 `YYDDD.DD`，
+//   如 `26282.76`）当毫秒用 → `(Date.now() − 282.76)/86400000 ≈ 20739 天` →
+//   在**数据完全正常的 CI 上**（日志：gw 251 颗 / qf 补到 19 颗、失败 0）把闸门自己
+//   变成了故障源、以 exitCode 5 失败。**闸门误报比不报更糟。**
+//   为什么当时没发现：验证脚本里**另写了一份**正确解析，打印"落后 3.41 天 ✓" ——
+//   验的是脑子里的实现，不是代码里跑的实现。
+//   ⇒ 所以这里直接 import **真实函数**断言（不是正则匹配源码），并把单位钉死。
+{
+  const { tleEpochMs } = await import('./scripts/omm.mjs');
+  assert('V1.9.3：`tleEpochMs` 返回**毫秒**（不是 YYDDD 数值）—— 实测 2026 年第 282.76 天',
+    Math.abs(tleEpochMs('1 57288U 23095A   26282.76458782  .00000061  00000+0  85656-4 0  9996') -
+      Date.UTC(2026, 9, 9, 18, 21, 1)) < 2000,
+    new Date(tleEpochMs('1 57288U 23095A   26282.76458782  .00000061  00000+0  85656-4 0  9996')).toISOString());
+  assert('V1.9.3：`tleEpochMs` 的**世纪约定**正确（57~99 → 19xx；00~56 → 20xx）',
+    tleEpochMs('1 00001U 58001A   99001.00000000  .00000000  00000+0  00000+0 0  0000') === Date.UTC(1999, 0, 1) &&
+    tleEpochMs('1 00001U 58001A   00001.00000000  .00000000  00000+0  00000+0 0  0000') === Date.UTC(2000, 0, 1) &&
+    tleEpochMs('1 00001U 58001A   56001.00000000  .00000000  00000+0  00000+0 0  0000') === Date.UTC(2056, 0, 1) &&
+    tleEpochMs('1 00001U 58001A   57001.00000000  .00000000  00000+0  00000+0 0  0000') === Date.UTC(1957, 0, 1));
+  assert('V1.9.3：闸门用的字段是 `epochMs`（不是 `epoch`）—— 名字错就是上次 20739 天的根因',
+    /if \(s\.epochMs > best\) best = s\.epochMs;/.test(rfSrc) &&
+    !/if \(s\.epoch > best\) best = s\.epoch;/.test(rfSrc) &&
+    /epochMs: tleEpochMs\(l1\)/.test(rfSrc));
+  // 真实 TLE 抽样：解析结果必须落在"近五年内"（单位或列偏移错就必然越界）
+  assert('V1.9.3：真实 TLE 全量抽样的历元都在**近五年窗口内**（单位/列偏移错的直接判据）',
+    (function () {
+      let n = 0, stale = 0;
+      for (const f of ['data/ct_hulianwang.tle', 'data/ct_qianfan.tle']) {
+        let txt = '';
+        try { txt = fs.readFileSync(B + '/' + f, 'utf8'); } catch (e) { continue; }
+        for (const ln of txt.split('\n')) {
+          if (!/^1 /.test(ln)) continue;
+          n++;
+          if (Date.now() - tleEpochMs(ln) > 5 * 365 * 86400000) stale++;
+        }
+      }
+      return n > 400 && stale === 0;
+    })());
+}
 assert('V1.9.3：两个 e2e 脚本都设了 `CISTRACK_SKIP_STALE_CHECK`（否则桩数据必然触发闸门、污染退出码）',
   /process\.env\.CISTRACK_SKIP_STALE_CHECK = '1';/.test(fs.readFileSync(B + '/scripts/e2e_omm_offline.mjs', 'utf8')) &&
   /process\.env\.CISTRACK_SKIP_STALE_CHECK = '1';/.test(fs.readFileSync(B + '/scripts/e2e_include_offline.mjs', 'utf8')) &&

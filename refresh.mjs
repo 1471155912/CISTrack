@@ -28,7 +28,7 @@ const UA = { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKi
 const forceCat = process.argv.includes('--force-cat');
 
 // V1.9.0：6 位编目号对象的 OMM 通路（见下方 S5）—— 占位号 → 真号的映射，落 data/omm_norad.json
-import { tleFromOmm, fromCelesTrakOmm, PH, tleChecksum, tleHealth, cosparField } from './scripts/omm.mjs';
+import { tleFromOmm, fromCelesTrakOmm, PH, tleChecksum, tleHealth, cosparField, tleEpochMs } from './scripts/omm.mjs';
 // V1.9.0（R17）：自建历史库 —— 复用 import_history.mjs 里已修过量级 bug 的 altFromOmm，
 //   以及 histstore.mjs 的幂等分片写入（(NORAD,历元) 去重，只追加不覆盖）。
 import { altFromOmm } from './scripts/import_history.mjs';
@@ -145,11 +145,18 @@ function parseTLE(txt, into) {
     const ep = parseFloat(l1.slice(18, 32)) || 0;
     const old = into.get(id);
     if (old && old.epoch >= ep) continue;                  // 同一颗保留历元最新的一份
-    into.set(id, { name: lines[i].trim(), l1, l2, epoch: ep, cospar: l1.slice(9, 17).trim() });
+    into.set(id, { name: lines[i].trim(), l1, l2, epoch: ep, epochMs: tleEpochMs(l1), cospar: l1.slice(9, 17).trim() });
     n++;
   }
   return n;
 }
+// ★ V1.9.3：TLE 历元 → 毫秒的函数 `tleEpochMs` 已 import 自 `scripts/omm.mjs`
+//   （放那边是因为**可被 smoke 直接 import 测试**；本文件里的 `parseTLE` 只把它结果存成
+//    `epochMs` 字段，不重复实现）。
+//   ⚠️ 血泪教训（2026-10-13）：`parseTLE` 存的那个 `epoch` 是 **TLE 原始数值**（`YYDDD.DD`，
+//   如 `26282.76`），**不是毫秒**！我第一版新鲜度闸门直接拿它当毫秒 →
+//   算出"落后 20739 天" → 在**数据完全正常的 CI 上**把闸门自己变成了故障源（exitCode 5）。
+//   教训：用别人的变量前必须先核实**单位与类型**，不能只看名字。详见 omm.mjs 的注释。
 function writeTLE(file, map, oldPath) {
   const lines = [];
   [...map.values()].sort((a, b) => a.cospar.localeCompare(b.cospar) || a.epoch - b.epoch)
@@ -607,12 +614,13 @@ const STALE_DAYS = 3;
 if (!process.env.CISTRACK_SKIP_STALE_CHECK) {
   const staleInfo = [];
   for (const f of ['ct_hulianwang.tle', 'ct_qianfan.tle']) {
-    // ⚠️ 直接读 parseTLE 已经算好的 `epoch`（毫秒）—— 不要在这里另写一份历元解析
-    //   （同一份逻辑写两处，哪天改了字段偏移就只改一处，是"静默错值"的经典来源）。
+    // ⚠️ **必须用 `epochMs`（毫秒），不能用 `epoch`（TLE 原始 YYDDD.DD 格式）** ——
+    //   第一版就是错用了 `epoch`，于是 (Date.now() − 282.76) ≈ 20739 天，
+    //   在数据完全正常的 CI 上把闸门自己变成了故障源（详见 tleEpochMs 上方注释）。
     let best = 0;
     try {
       for (const s of readTLE(f).values()) {
-        if (s.epoch > best) best = s.epoch;
+        if (s.epochMs > best) best = s.epochMs;
       }
     } catch (e) { best = 0; }
     staleInfo.push({ file: f, ageDays: best ? (Date.now() - best) / 86400000 : Infinity });

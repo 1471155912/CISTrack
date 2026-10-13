@@ -129,6 +129,35 @@ export function fromCelesTrakOmm(om) {
 }
 // 占位编目号：6 位真号的**后 5 位**零填充。真号与占位号的对应关系另存 sidecar。
 export const PH = (norad) => String(norad).slice(-5).padStart(5, '0');
+/**
+ * ★ V1.9.3（**血泪教训，务必读**）：TLE 的历元字段 → **毫秒时间戳**。
+ *
+ * ⚠️ 别被名字骗了：`refresh.mjs` 的 `parseTLE` 里那个 `epoch` 是
+ *   **TLE 原始格式的数值**（`YYDDD.DDDDDDDD`，如 `26282.76458782` = 2026 年第 282.76 天），
+ *   **不是毫秒**。它只用于"同一颗卫星保留历元最新的一份"这类**同格式比大小**的场合。
+ *
+ *   2026-10-13 的事故：新增的「数据新鲜度闸门」直接拿 `epoch` 当毫秒用 →
+ *   `(Date.now() − 282.76) / 86400000 ≈ 20739 天` → 在**数据完全正常的 CI 上**
+ *   （日志：gw 251 颗 / qf S5 补到 19 颗、失败 0）把闸门自己变成了故障源、以 exitCode 5 失败。
+ *   而这正是本轮要修的"静默失败"的反面教材：**闸门误报比不报更糟**。
+ *
+ *   为什么本地没验出来：验证脚本里**另写了一份**解析（正确拆了 YY/DDD），
+ *   打印"落后 3.41 天 ✓" —— 验的是脑子里的实现，不是代码里跑的实现。
+ *   ⇒ 所以它现在住在**可被测试直接 import** 的模块里（smoke 有断言打真实函数）。
+ *
+ * 格式（TLE 标准，第 19-32 列）：
+ *   · `YY`：57~99 → 19xx；00~56 → 20xx（沿用 TLE 的世纪约定）
+ *   · `DDD.DDDDDDDD`：年内第几天，含小数（1 = 1 月 1 日 00:00 UTC）
+ * 用法：`tleEpochMs(l1)`（传**整整一行**，内部取 18..32 列）
+ */
+export function tleEpochMs(l1) {
+  const s = String(l1 || '').slice(18, 32).trim();
+  const yy = parseInt(s.slice(0, 2), 10);
+  const doy = parseFloat(s.slice(2));
+  if (!isFinite(yy) || !isFinite(doy)) return 0;
+  const year = yy < 57 ? 2000 + yy : 1900 + yy;
+  return Date.UTC(year, 0, 1) + (doy - 1) * 86400000;
+}
 // ★ TLE 第 2 行的**数值列体检**（V1.9.1 新增）。
 //   为什么必须有它 —— 这是"静默污染"的克星：
 //     `(NaN).toFixed(4)` 得到的是**字符串 "NaN"**，补到 8 列之后**行总长照样 69**，
@@ -230,6 +259,41 @@ export function ommRoundTrip(files) {
 }
 const isMain = process.argv[1] && process.argv[1].endsWith('omm.mjs');
 if (isMain && process.argv.includes('--selftest')) {
+  // ★ V1.9.3：`tleEpochMs` 的自检 —— **必须打真实函数**（不能像上次那样在验证脚本里另写一份）。
+  //   这几条一起守住三件事：① 单位是毫秒（不是 YYDDD 数值）；② 世纪约定正确；
+  //   ③ 与真实 TLE 文件对得上（拿库里的 L1 解析，结果必须落在"近五年内"）。
+  const epChecks = [];
+  const ep = (name, got, want) => epChecks.push({ name, ok: Math.abs(got - want) < 1000, got, want });
+  // 2026 年第 282.76458782 天 = 2026-10-09 18:21 UTC（实测本机 ct_hulianwang.tle 的最新历元）
+  ep('2026 年第 282.76 天 → 2026-10-09T18:21Z',
+    tleEpochMs('1 57288U 23095A   26282.76458782  .00000061  00000+0  85656-4 0  9996'),
+    Date.UTC(2026, 9, 9, 18, 21, 1));
+  // 世纪约定：57 起算 19xx，56 及以下算 20xx
+  ep('99 → 1999', tleEpochMs('1 00001U 58001A   99001.00000000  .00000000  00000+0  00000+0 0  0000'), Date.UTC(1999, 0, 1));
+  ep('00 → 2000', tleEpochMs('1 00001U 58001A   00001.00000000  .00000000  00000+0  00000+0 0  0000'), Date.UTC(2000, 0, 1));
+  ep('56 → 2056', tleEpochMs('1 00001U 58001A   56001.00000000  .00000000  00000+0  00000+0 0  0000'), Date.UTC(2056, 0, 1));
+  ep('57 → 1957', tleEpochMs('1 00001U 58001A   57001.00000000  .00000000  00000+0  00000+0 0  0000'), Date.UTC(1957, 0, 1));
+  const epBad = epChecks.filter(c => !c.ok);
+  console.log('历元解析自检 =', epChecks.length, '条｜失败 =', epBad.length);
+  epBad.forEach(c => console.log('  FAIL', c.name, '得到', new Date(c.got).toISOString(), '期望', new Date(c.want).toISOString()));
+
+  // 真实 TLE 抽样：解析出的历元必须落在"近五年内"（否则说明单位或列偏移错了）
+  let epReal = 0, epStale = 0, epMax = 0;
+  for (const f of ['data/ct_hulianwang.tle', 'data/ct_qianfan.tle']) {
+    const p = path.join(ROOT, f);
+    if (!fs.existsSync(p)) continue;
+    for (const ln of fs.readFileSync(p, 'utf8').split('\n')) {
+      if (!/^1 /.test(ln)) continue;
+      const ms = tleEpochMs(ln);
+      epReal++;
+      if (ms > epMax) epMax = ms;
+      if (Date.now() - ms > 5 * 365 * 86400000) epStale++;
+    }
+  }
+  const realOk = epReal > 0 && epStale === 0;
+  console.log('真实 TLE 历元抽样 =', epReal, '行｜超出五年窗口 =', epStale,
+    '｜最新 =', epMax ? new Date(epMax).toISOString().slice(0, 16) + 'Z' : '(无)', realOk ? '✓' : '✗');
+
   const r = ommRoundTrip([path.join(ROOT, 'data/ct_hulianwang.tle'), path.join(ROOT, 'data/ct_qianfan.tle')]);
   console.log('自检样本数 =', r.n, '｜往返失败 =', r.badN);
   r.bad.forEach(b => {
@@ -238,5 +302,5 @@ if (isMain && process.argv.includes('--selftest')) {
     console.log('  原 L2:', JSON.stringify(b.l2));
     console.log('  转 L2:', JSON.stringify(b.a2));
   });
-  process.exit(r.badN ? 1 : 0);
+  process.exit((r.badN || epBad.length || !realOk) ? 1 : 0);
 }
