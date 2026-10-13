@@ -110,10 +110,24 @@ function lkOfCospar(cp) {
 }
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+/**
+ * ★ V1.9.3：给每个请求加**硬超时** —— 旧实现用裸 `fetch()`，**没有任何超时**。
+ *   2026-10-13 实测（本机网络到 celestrak 不通时）：一次 refresh 卡在 S2 超过 12 分钟，
+ *   而 S1/S2/S3/S4/S5 各有 2~4 次尝试 × 多个名字查询 → 最坏情况能挂到任务被强杀，
+ *   既拿不到数据、又把 git.lock 一直占着（update_wiki.bat 要等它）。
+ *   超时时间取 20s：正常响应（实测 CI 上）在 1s 内完成，20s 足够宽容；
+ *   连不上时立即失败 → 重试 800ms 后走下一次，整体从"十几分钟"降到"几十秒"。
+ *   ⚠️ 用 AbortSignal.timeout（Node 18+ 原生支持），不引入依赖。
+ */
+const FETCH_TIMEOUT_MS = 20000;
 async function get(url, tries) {
   for (let i = 0; i < (tries || 2); i++) {
     try {
-      const r = await fetch(url, { headers: UA });
+      const r = await fetch(url, {
+        headers: UA,
+        signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout)
+          ? AbortSignal.timeout(FETCH_TIMEOUT_MS) : undefined
+      });
       if (!r.ok) return { ok: false, status: r.status, text: '' };
       return { ok: true, status: r.status, text: (await r.text()).replace(/\r/g, '') };
     } catch (e) { if (i === (tries || 2) - 1) return { ok: false, status: 0, text: '', err: e.message }; await sleep(800); }
@@ -568,5 +582,54 @@ console.log('\n报告已写入 data/refresh_report.json（OMM 映射 ' + Object.
     //   process.exit() 会把测试进程当场杀掉、断言输出全丢（且无法被 try/catch 拦住）。
     //   exitCode 一样能让 `&&` 调用链与 CI 作业失败，且不影响同进程调用方。
     process.exitCode = 3;
+  }
+}
+
+// ---------------------------------------------------------------- ★ V1.9.3：数据新鲜度守卫
+// 来历（用户 2026-10-13 报「网页显示的更新时间不是最新的」）：
+//   本机网络到 celestrak 不通时，S1/S2/S3/S4/S5 **全部失败**，但每一步都只是
+//   "新增 0 颗" —— 进程**正常退出 0**，下游照旧 mkdata/build/push。
+//   结果是：任务日志写着 `updated and pushed`，仓库里的快照却**一天比一天旧**，
+//   而页面上显示的「TLE 更新时间」停在旧历元 —— 用户看到的现象与"任务成功"矛盾。
+//   ⇒ 这是典型的**静默失败**：不报错、看起来正常、产出却是错的。
+// 判据：取两个 .tle 里**最新的那份历元**，若距"现在"超过 `STALE_DAYS` 天，就明确报警。
+//   为什么用"最新历元"而不是"本轮是否抓到新数据"：
+//     上游本来就可能几天不更新某颗星，用"有没有新增"会误报；
+//     而"最新历元很旧"只可能有两个原因 —— 网络不通（本轮拿旧文件顶替）或上游真的停了。
+//     两种情况都值得让任务**失败可见**（而不是继续把旧快照当成新数据推送）。
+// 阈值 3 天：TLE 通常每天多次更新；3 天没动基本可以确定是链路问题（实测本机不通时停在 4 天）。
+// ⚠️ 只设 exitCode 不 throw —— 与上面的坏行闸门同一套（同进程 import 的测试不能被杀掉）。
+// ⚠️ **端到端测试必须豁免**：`scripts/e2e_*_offline.mjs` 会拿**桩数据**（合成 TLE，历元是假的）
+//   同进程 import 本脚本 → 残缺的历元必然触发这条闸门 → exitCode 会污染测试进程的退出码
+//   （实测：e2e 打印了 "落后 20739.2 天" 却仍 exit 0，因为测试脚本自己在末尾把码覆盖了 ——
+//    但那属于"碰巧没事"，不能依赖）。所以显式认一个环境变量关掉它。
+const STALE_DAYS = 3;
+if (!process.env.CISTRACK_SKIP_STALE_CHECK) {
+  const staleInfo = [];
+  for (const f of ['ct_hulianwang.tle', 'ct_qianfan.tle']) {
+    // ⚠️ 直接读 parseTLE 已经算好的 `epoch`（毫秒）—— 不要在这里另写一份历元解析
+    //   （同一份逻辑写两处，哪天改了字段偏移就只改一处，是"静默错值"的经典来源）。
+    let best = 0;
+    try {
+      for (const s of readTLE(f).values()) {
+        if (s.epoch > best) best = s.epoch;
+      }
+    } catch (e) { best = 0; }
+    staleInfo.push({ file: f, ageDays: best ? (Date.now() - best) / 86400000 : Infinity });
+  }
+  const worst = staleInfo.reduce((a, b) => (a.ageDays >= b.ageDays ? a : b));
+  report.stale = { days: +worst.ageDays.toFixed(2), file: worst.file, limit: STALE_DAYS };
+  if (worst.ageDays > STALE_DAYS) {
+    console.error('❌ 数据新鲜度闸门：最新 TLE 历元已落后 ' + worst.ageDays.toFixed(1) + ' 天（>' + STALE_DAYS + ' 天，' +
+      worst.file + '）—— 本轮刷新**没有拿到新数据**。');
+    console.error('   大概率原因：本机到 celestrak.org 的网络不通（代理 502 / 直连超时）。');
+    console.error('   影响：仓库里的离线兜底快照会停在旧日期，页面上的「TLE 更新时间」不前进。');
+    console.error('   已以非零码（5）结束，让任务/CI 显式可见（而不是"成功但数据是旧的"）。');
+    console.error('   排查：`curl -sSI https://celestrak.org/NORAD/elements/gp.php?GROUP=hulianwang` 看连通性。');
+    // ⚠️ 用 5 而不是 4 —— 4 已被上面的「satcat 缺失」占用，两者含义不同，码要分开
+    //   （便于任务日志/CI 一眼区分"目录没了"和"数据馊了"）。
+    process.exitCode = 5;
+  } else {
+    console.log('数据新鲜度：最新历元落后 ' + worst.ageDays.toFixed(2) + ' 天（阈值 ' + STALE_DAYS + ' 天）✓');
   }
 }

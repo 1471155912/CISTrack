@@ -1286,7 +1286,9 @@ assert('V1.7.2（需求5/9）：layoutNav 只有一份声明（V1.7.1 那份被�
   (appCode.match(/function layoutNav\(/g) || []).length === 1);
 assert('V1.7.2（需求5/9）：合并版同时保留 --nav-h（时钟药丸定位依赖）与三键让位',
   /setProperty\('--nav-h', navHeight\(\) \+ 'px'\)/.test(appCode) &&
-  /right\.style\.paddingRight = \(m\.actW \+ 22\) \+ 'px';/.test(appCode));
+  // ★ V1.9.3：让位间距从写死的 22 改为**统一的 G**（用户要求"标签右缘距按钮 = 其它按钮间的统一间距"）
+  /right\.style\.paddingRight = \(m\.actW \+ G\) \+ 'px';/.test(appCode) &&
+  !/right\.style\.paddingRight = \(m\.actW \+ 22\) \+ 'px';/.test(appCode));
 assert('V1.7.2（需求9）：极窄屏四级降级 L0-L3 常量与分支齐全',
   /var NAV_W0 = 480;/.test(appCode) && /var NAV_BRAND_MIN = 18;/.test(appCode) &&
   /var NAV_BTN_MIN_W = 16;/.test(appCode) &&
@@ -4255,6 +4257,34 @@ assert('引用体检：扫描器按**前缀**跳过开发期临时目录（精�
   /if \(skipDir\(rel\) \|\| skipDir\(e\.name\)\) continue;/.test(auditSrc) &&
   !/SKIP_DIR\.has\(rel\) \|\| SKIP_DIR\.has\(e\.name\)/.test(auditSrc),
   'SKIP_DIR=' + ((auditSrc.match(/const SKIP_DIR = new Set\(\[([\s\S]{0,200}?)\]\)/) || [])[1] || '').replace(/\s+/g, ' ').slice(0, 120));
+
+// ---------------------------------------------------------------- ★ V1.9.3：数据链路的两个静默失败闸门
+// 来历（用户 2026-10-13 报「网页显示的更新时间不是最新的 + 仍收到 GitHub 报错邮件」）：
+//   本机网络到 celestrak 不通时，S1~S5 全部只输出"新增 0 颗"，进程**正常退出 0** →
+//   下游照旧 mkdata/build/push → 任务日志写 "updated and pushed"，仓库快照却一天比一天旧。
+//   两处修复都很关键，都必须有守卫（否则哪天被"优化"掉就又是静默失败）：
+const rfSrc = fs.readFileSync(B + '/refresh.mjs', 'utf8');
+assert('V1.9.3：`refresh.mjs` 的每个网络请求都有**硬超时**（裸 fetch 会挂十几分钟：实测 S2 卡 12min+，还占着 git.lock）',
+  /const FETCH_TIMEOUT_MS = 20000;/.test(rfSrc) &&
+  /AbortSignal\.timeout\(FETCH_TIMEOUT_MS\)/.test(rfSrc) &&
+  /signal: \(typeof AbortSignal !== 'undefined' && AbortSignal\.timeout\)/.test(rfSrc));
+assert('V1.9.3：`refresh.mjs` 有**数据新鲜度闸门**（最新历元落后 >3 天 → 非零码 5，不再"成功但数据是旧的"）',
+  /const STALE_DAYS = 3;/.test(rfSrc) &&
+  /if \(worst\.ageDays > STALE_DAYS\)/.test(rfSrc) &&
+  /process\.exitCode = 5;/.test(rfSrc) &&
+  // 必须能被测试豁免（e2e 用桩数据、历元是假的 → 不豁免会污染测试进程退出码）
+  /if \(!process\.env\.CISTRACK_SKIP_STALE_CHECK\) \{/.test(rfSrc));
+assert('V1.9.3：两个 e2e 脚本都设了 `CISTRACK_SKIP_STALE_CHECK`（否则桩数据必然触发闸门、污染退出码）',
+  /process\.env\.CISTRACK_SKIP_STALE_CHECK = '1';/.test(fs.readFileSync(B + '/scripts/e2e_omm_offline.mjs', 'utf8')) &&
+  /process\.env\.CISTRACK_SKIP_STALE_CHECK = '1';/.test(fs.readFileSync(B + '/scripts/e2e_include_offline.mjs', 'utf8')) &&
+  /delete process\.env\.CISTRACK_SKIP_STALE_CHECK;/.test(fs.readFileSync(B + '/scripts/e2e_omm_offline.mjs', 'utf8')));
+// ⚠️ **不在这里实跑 e2e** —— 两个 e2e 各需 2~4 分钟（它们要真跑一遍完整的 refresh），
+//   放进 smoke 会让本地闸门从 ~40s 涨到 ~10 分钟，而 smoke 的定位是"改一行就重跑的快速闸门"。
+//   e2e 的实跑交给 CI（`.github/workflows/update-tle.yml` 的"刷新 TLE"步骤里逐条挂），
+//   这里只断言**豁免机制存在**（上面那条）—— 那是"退出码会不会被污染"的根因所在。
+assert('V1.9.3：e2e 的实跑挂在 CI 上（本地 smoke 不跑，避免闸门从 40s 涨到 10 分钟）',
+  /e2e_omm_offline\.mjs/.test(fs.readFileSync(B + '/.github/workflows/update-tle.yml', 'utf8')) &&
+  /e2e_include_offline\.mjs/.test(fs.readFileSync(B + '/.github/workflows/update-tle.yml', 'utf8')));
 
 $('#themeBtn').dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
 

@@ -9,6 +9,205 @@ The version is written in the footer (`CISTrack · Vx.y.z`), and the bottom bar 
 
 ---
 
+## [V1.9.3] — 2026-10-13
+
+> A focused round of fixes after the user's re-review. Six UI/data changes plus root-cause fixes for
+> two **silent failures** (the real cause of the two CI red lights, and the data pipeline's
+> "succeeded but the data is old"). Every change ships with a regression guard;
+> `smoke` went from **700 → 713 PASS**.
+
+### ① Top-bar section tabs are now **right-aligned** (they used to hug CISTrack on the left)
+
+The user: "the top-bar tabs are flush and follow CISTrack; the old version had the tabs' right edge at
+the **standard spacing** from the CSCN/Qianfan switch buttons (i.e. the same consistent pixel distance
+as the other buttons on the right), and the tab text on the same line as the button text."
+
+| Item | Before | After |
+|---|---|---|
+| Position | first tab's left edge against CISTrack's right edge | **the whole row is flush right**: last tab's right edge → constellation segment's left edge |
+| Criterion | `first tab left − CISTrack right < G` | **`tabs' right edge → constellation segment's left edge < G`** |
+| Spacing | 22 px (hard-coded, **inconsistent** with the 12 px between buttons) | **12 px** (= the shared `G`) |
+| Vertical | text baseline 1 px low | `line-height:32px` pinned → **same height** as the three buttons |
+
+Measured (Edge headless, 1440 px): `gapTabsToSeg = gapSegToLang = gapLangToTheme = 12`,
+and `tabCy === segCy === 30.5`.
+
+### ② Intro paragraph's right edge now aligns with the rest of the column
+
+The user: "the intro text box's right side is not aligned with the unified right edge of everything else
+(the table above it and the search button below it)."
+
+Root cause: `.hero-note` had `max-width:62ch` (a **character-count** limit, unrelated to the column's
+pixel width) → on wide screens it was visibly shorter than `.hero-kv` / `.hero-search` in the same column.
+Changed to `max-width:none` (fills the column). `.sec-lead`'s `82ch` was removed for the same reason.
+Measured: `noteRight = kvRight = searchRight = 1386` (perfectly aligned).
+
+### ③ Inclination distribution: the axis break is now a **fold mapping** (the two regions truly become one chart)
+
+The user: "the upper bound of the LEO region should align directly with the lower edge of the GEO region…
+the height in between is treated as non-existent, the two regions merged completely into one, instead of
+the current state where they are drawn together but are still independent (zooming and panning causes the
+page to jump between two regions of different nature; dragging up switches to the GEO chart rather than
+genuinely drawing both in one chart)."
+
+**The flaw in the old (V1.9.2) implementation**: the upper and lower bands each got height proportional to
+their visible span → while zooming or panning the **relative heights of the two bands changed**, and
+dragging across the seam produced a non-linear jump.
+
+**New implementation**: a **fold mapping** `f(y)` (continuous, strictly monotonic):
+
+```
+f(y) = y                          , y ≤ 2000
+f(y) = 2000 + (y − 35700)          , y ≥ 35700
+(2000 < y < 35700 is collapsed to zero width; no data lives in that range)
+```
+
+Replacing the y axis with a linear axis over `f(y)` yields an **ordinary, continuous** chart — zooming and
+panning are plain linear transforms on the folded axis, **a rigid body that cannot jump**.
+The user's example holds automatically: `2000` and `35700` land on the **same pixel row** (measured: both
+52.4), and `35800` sits 100 folded units above it.
+
+Also changed:
+
+- `brkYMap().Y()` **no longer returns null** (defined everywhere) — the curve is drawn straight across the break;
+- `brkTicks()` now derives ticks from the **visible range** (LEO band dense as before, GEO band at `nTop`);
+- `clampChartView()`'s vertical clamping now happens in **folded space** (the old version subtracted real
+  altitudes, so the 33700-unit break consumed the whole span → the clamp was always misaligned — the other
+  half of the "jumping" symptom);
+- the break marker label now reads `2000~35700` (the folded interval).
+
+### ④ Orbits-change chart: the y axis hugs the data range ("shrink the margins, magnify the differences")
+
+The user: "shrink the top and bottom of the page to enlarge the view and show the differences between the
+satellites of the selected satellite/batch/group."
+
+**The old behavior** (measured on 26221, LEO-26 group): the y axis always started at **180**, while all
+nine satellites sat between 1112 and 1137 km → the data occupied only **93%~96%** of the axis, and the
+25 km spread was compressed into **2 pixels** — impossible to tell which satellite was higher.
+
+**New behavior**: the lower bound moves up to just below the **data's lower edge**
+(`mn − span×6% − 2`, never past the 180 floor), and the upper bound sits just above the **data maximum**
+(floor: the visual height of `CLIMB_MIN_TOP`). The x axis got the same treatment: its right edge is now the
+**data's last point** (extended to today only when the data is within 3 days of today) — the old version
+always extended to today, wasting a large blank area for older batches.
+
+### ⑤ Launch history: "Target inclination" / "Satellites" (column names + failure rows + `M/N`)
+
+The user: "in the launch history, failed launches must show '-' for the design inclination (rename this to
+'Target inclination') and the orbital elements (rename to 'Satellites'), and note that when not all launched
+satellites belong to CSCN/Qianfan, write it as 'M/N' — e.g. if 3 satellites were launched and only 2 are
+CSCN/Qianfan network or test satellites, write '2/3'."
+
+| Case | Target inclination | Satellites |
+|---|---|---|
+| Normal, whole launch is this constellation | `50.0°` | `9` |
+| Normal, carried other satellites | `50.0°` | **`1/2`** (M = this constellation, N = whole launch) |
+| **Failure** | **`-`** | **`-`** |
+
+The data layer (`pendingSummary` in `mkdata.mjs`) gained `tot` = the **total payload count** of that launch
+(satcat's PAY count, **including** rideshares) — the page cannot derive this, so it must come from the data
+layer. A real case exists: batch `24226` has `n=1 / tot=2` → renders `1/2`.
+The section intro gained one explanatory sentence (one each in Chinese and English).
+
+### ⑥ Very small magnitudes now use **standard scientific notation** (`1.23×10⁻⁵` instead of bare `1.23e-5`)
+
+The user: "the BSTAR coefficients in the satellite table should use standard scientific notation
+(10↑n…) to improve readability" (and asked to check the rest of the project for the same class of values,
+**excluding things like 36500 km which "is not large"**).
+
+New `fmtSci(v, n)`: splits `toExponential` into mantissa + **Unicode superscript** exponent (`⁻⁵`),
+joined by `×10`. Applied to the **eccentricity** and **BSTAR** columns.
+
+> **Why Unicode superscripts rather than `<sup>`**: the table is **exported as an image** (canvas redraw),
+> and `<sup>` cannot be drawn on canvas → the export would lose the formatting. Superscript characters are
+> plain text and render on both paths.
+> Magnitude exemption: when `0.001 ≤ |v| < 100000` the plain-number path is used (the user explicitly said
+> "36500 km is not large").
+
+### ⑦ ★ The real cause of the two CI red lights: satellites with no history left the tri-state fields `undefined`
+
+> Not on the user's list — uncovered while investigating the "GitHub failure email".
+
+**Symptom** (CI log): `A7: tri-state fields complete` reported "512 satellites: 400 in orbit / 105 raising" —
+400+105 = 505 ≠ 512, **7 missing**; and `A7: working altitude is a 10 km step` also failed.
+
+**Root cause**: `ORBIT_ST`'s rows are built **only from the history store**. A satellite with no history
+points yet (just launched / just catalogued / history pool not yet covering it) is absent from rows → the old
+code `continue`d → **`orb` / `wk` / `od` were all `undefined`** → both assertions failed.
+
+**Why it can never be reproduced locally**: the local history store is complete (57 shards / 64495 records
+covering 488 satellites), whereas CI **runs refresh first every time** — the newly catalogued satellites had
+no history points at that moment. Another instance of "a test that has only ever run locally counts as never run".
+
+**★ The CI log contained a red herring**: the `wk` output contained `950`, which looked like a "non-10-step"
+suspect — but 950 is legitimate (`950 % 10 === 0`); the actual failure was that **satellites missing the field
+never enter that Set at all**, which is invisible in the log. Both assertions' diagnostics were changed to
+"**list the offending satellites**" instead of "the first 8 step values".
+
+**Fix** (`mkdata.mjs`): a satellite with no history points → classified as **raising** (`orb=1`; conservative
+rather than falsely claiming "in orbit"); `wk` is taken from **other members of the same batch** (same batch,
+same altitude), falling back to 400; `od` left empty. **And always snapped to a 10 km step.**
+**Reproduction**: temporarily removing one history shard to simulate CI → 8 satellites missing fields before
+the fix, **0 missing / 0 off-step** after.
+
+### ⑧ ★ Silent failures in the data pipeline: `refresh.mjs` had no timeout, and "success with stale data"
+
+> The user: "my computer does run the task at 12:00/0:00, but I still get failure emails from GitHub, and the
+> update time shown on the page is not the latest — there must be a serious problem with the data-update flow."
+
+**Two real problems** (both in `refresh.mjs`):
+
+1. **No timeout on network requests**: a bare `fetch()` hung for **over 12 minutes** (measured at stage S2),
+   and S1~S5 each make several attempts across multiple name queries → in the worst case the task is killed
+   while `git.lock` is still held (blocking `update_wiki.bat`).
+   → Added a hard **20 s** timeout (`AbortSignal.timeout`); the whole run drops from "tens of minutes" to "tens of seconds".
+2. **Silent success when no new data arrives**: when S1~S5 all fail, each step merely prints "0 new" and the
+   process **exits 0** → downstream still runs mkdata/build/**push** → the task log says `updated and pushed`
+   while the repository snapshot grows **older every day**, and the "TLE updated" line on the page stays at an
+   old epoch — directly contradicting "the task succeeded".
+   → Added a **data-freshness gate**: if the newest epoch is **more than 3 days** old → non-zero exit code **5**
+   (distinct from code 4 for missing satcat), so the task/CI fails visibly.
+   > The criterion uses the "newest epoch" rather than "did we fetch anything this round": upstream may
+   > legitimately not update a given satellite for days, so "did we fetch anything" would produce false
+   > positives; whereas "the newest epoch is old" can only mean a broken link or upstream stopped — both
+   > worth reporting.
+   > ⚠️ The two e2e scripts use stub data (fake epochs) → they must be exempted
+   > (`CISTRACK_SKIP_STALE_CHECK`), because `exitCode` is **process-wide** and would pollute the test process.
+
+**Measured** (2026-10-13, local): `ct_hulianwang.tle` newest epoch 10-09 18:21 (**3.41 days** behind),
+`ct_qianfan.tle` 10-09 07:49 (**3.85 days** behind) → the gate fires correctly.
+**CI data is healthy** (same-day CI log: `qf S5 OMM → filled 202, 0 failures`) → no false trigger.
+
+### ⑨ A **concurrent-overwrite** hazard in the release chain (actually hit during this session)
+
+The local scheduled task (`update_tle.bat`, 12:00/00:00) runs `build_release.mjs`, which copies
+`refresh.mjs` / `app.js` / `smoke.mjs` etc. **SRC → REPO**. Editing REPO sources **while the task is
+running** means the edits get overwritten by SRC's older copies — this session actually lost changes to
+`refresh.mjs`, `template.html` and `smoke.mjs`.
+
+**Workaround**: run `node sync_src.mjs` (a one-way REPO → SRC alignment) right after editing to level both
+sides; `sync_src.mjs` prints "aligned N / overwritten M / created K" — check that `overwritten` is 0.
+
+### Tests
+
+smoke **700 → 713 PASS / 0 FAIL** (+13 V1.9.3 guards: end-of-curve value drawn once, audit prefix-skip,
+top-bar right alignment and vertical centering, intro right edge, break folding (coincidence/continuity/
+monotonicity/inverse), climb y-axis hugging, `fmtSci` output and both column wirings, launch-history column
+names / failure rows / `M/N`, the A7 fallback, refresh hard timeout, the freshness gate and its e2e exemption);
+i18n **0 failures** (key union 228); visual **132 PASS / 0 FAIL**.
+
+Also fixed 3 assertions that had **expired with the data** (all "look like a regression but are not"):
+① the 6-digit batch shard list was hard-coded as `['26176','26187',…]`, and this round's refresh compaction
+merged `26221` into another shard → now asserts "at least half of the batches containing 6-digit satellites
+have shards";
+② the section-04 y axis was hard-coded as `y0 === 180` → now asserts "the lower bound hugs the data's lower
+edge (gap < 20% of the span)";
+③ the `rr` (raising rate) missing-count threshold of 15 was too tight — fallback satellites (no history)
+cannot have a slope by construction → now asserts "satellites with history must have rr, and those without
+must belong to recent batches".
+
+---
+
 ## [V1.9.2] — 2026-10-11
 
 > Completes the **two unmet items** found while auditing the V1.9.1 task list against the build
