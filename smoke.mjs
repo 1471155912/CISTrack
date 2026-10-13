@@ -2369,6 +2369,19 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
     "      at: function (y) { var r = m.Y(y); return r == null ? null : +r.toFixed(3); },\n" +
     "      inv: function (px) { return +m.yAt(px).toFixed(3); } }; },\n" +
     "  climbB: function () { return climbBounds(climbSeries().list, S.climbTake || 'sma'); },\n" +
+    // ★ V1.9.3：表格分页自洽性（用户报"导出当前页得到 1~3 页"时的连带发现）
+    "  pageCoverage: function () {\n" +
+    "    var rows = LAST_ROWS, per = SAT_PAGE;\n" +
+    "    var unitOf = measureRowUnits(rows);\n" +
+    "    var seen = {}, pages = SAT_PAGES, total = 0, miss = [];\n" +
+    "    for (var p = 0; p < pages; p++) {\n" +
+    "      var b = pageBounds(rows, p, per, unitOf);\n" +
+    "      for (var i = b[0]; i < b[1]; i++) { if (!seen[i]) { seen[i] = 1; total++; } }\n" +
+    "    }\n" +
+    "    for (var j = 0; j < rows.length; j++) if (!seen[j]) miss.push(j);\n" +
+    "    return { rowsN: rows.length, pages: pages, covered: total, missing: miss.length, firstMissing: miss.slice(0, 3) };\n" +
+    "  },\n" +
+    "  shotTotals: function () { return { sat: shotTotalPages('sat'), launch: shotTotalPages('launch'), satPages: SAT_PAGES, launchPages: LAUNCH_PAGES }; },\n" +
     // ★ V1.9.3：当前选中批次/组的**数据实际高度范围**（半长轴模式）。
     //   用途：断言"纵轴贴合数据范围" —— 必须拿真实下沿比对，不能写死数字（数据会演进）。
     "  climbDataLo: function () { if ((S.climbTake || 'sma') === 'rate') return null;\n" +
@@ -3467,9 +3480,14 @@ assert('V1.9.3：04 章纵轴**贴合数据范围**（下沿贴近数据下沿�
     //   这里验证的是**探针暴露的真实函数**，不是把公式复述一遍。
     {
       const hi = k3.globeHi();
-      assert('A18/Q41：分段参数就位（分段点 8000 km / GEO 参考 42164 km / 落点 2.2 个地球半径 / LEO 仍 2.4×）',
-        hi.knee === 8000 && hi.ref === 42164 && hi.refY === 2.2 && Math.abs(hi.ex - 2.4) < 1e-9,
+      assert('A18/Q41：分段参数就位（分段点 8000 km / GEO 参考 42164 km / 落点 **1.75** 个地球半径 / LEO 仍 2.4×）',
+        hi.knee === 8000 && hi.ref === 42164 && hi.refY === 1.75 && Math.abs(hi.ex - 2.4) < 1e-9,
         JSON.stringify(hi));
+      // ★ V1.9.3：`HI_REF_Y` 2.2 → 1.75（用户复审选定的"方案 B"，见 app.js 该处长注释）。
+      //   关键不变式：**必须 > kneeY（1.6103）**，否则高轨段斜率变负、GEO 会落到 LEO 上限以内。
+      assert('V1.9.3：`HI_REF_Y` **必须大于 kneeY**（否则高轨段斜率为负 → GEO 比 8000km 的圈还靠内，视觉更糟）',
+        hi.refY > hi.kneeY,
+        'refY=' + hi.refY + ' kneeY=' + hi.kneeY.toFixed(4));
       const oldR = r => 1 + (r / hi.RE - 1) * hi.ex;
       const leo = [6378.135, 6900, 7000, 7378.135, 8000];
       assert('A18/Q41：**LEO 段与旧口径逐像素一致**（纯 LEO 视图不受任何扰动，既有视觉断言不会变红）',
@@ -3479,18 +3497,18 @@ assert('V1.9.3：04 章纵轴**贴合数据范围**（下沿贴近数据下沿�
         Math.abs(k3.globeRad(8000) - k3.globeRad(8000 + 1e-6)) < 1e-5 &&
         Math.abs(k3.globeRad(8000) - hi.kneeY) < 1e-6,
         'y(8000)=' + k3.globeRad(8000) + ' kneeY=' + hi.kneeY);
-      assert('A18/Q41：GEO（42164 km）落在 2.2 个地球半径（旧口径 14.47 → 完全在画布外）',
-        Math.abs(k3.globeRad(42164) - 2.2) < 1e-6,
+      assert('A18/Q41 + V1.9.3：GEO（42164 km）落在 `HI_REF_Y` 处（= 1.75 个地球半径；旧口径 14.47 → 完全在画布外）',
+        Math.abs(k3.globeRad(42164) - hi.refY) < 1e-6,
         'new=' + k3.globeRad(42164) + ' old=' + oldR(42164).toFixed(2));
-      assert('A18/Q41：GTO 远地点（26600 km）落在 LEO(1.6103) 与 GEO(2.2) 之间（高轨段被压成一段而非一点）',
-        k3.globeRad(26600) > hi.kneeY && k3.globeRad(26600) < 2.2,
+      assert('A18/Q41 + V1.9.3：GTO 远地点（26600 km）落在 LEO 上限与 GEO 落点**之间**（高轨段被压成一段而非一点）',
+        k3.globeRad(26600) > hi.kneeY && k3.globeRad(26600) < hi.refY,
         'y(26600)=' + k3.globeRad(26600));
       let mono = true, prev = -1;
       for (let r = 6378; r <= 60000; r += 10) { const v = k3.globeRad(r); if (v < prev - 1e-9) mono = false; prev = v; }
       assert('A18/Q41：整段单调递增（越高的壳层画得越外，不会互相穿插）', mono);
-      assert('A18/Q41：GEO 圈在**缩放下限（0.5×）内完全可见**（1200×700 实测：2.2R×0.5 = 284 px < 半高 350）',
+      assert('A18/Q41 + V1.9.3：GEO 圈在**缩放下限（0.5×）内完全可见**（1200×700 实测）',
         k3.globeRad(42164) * k3.globeBase() * 0.5 <= 350,
-        '2.2R = ' + (k3.globeRad(42164) * k3.globeBase()).toFixed(1) + ' px；×0.5 = ' +
+        'HI_REF_Y=' + hi.refY + 'R = ' + (k3.globeRad(42164) * k3.globeBase()).toFixed(1) + ' px；×0.5 = ' +
         (k3.globeRad(42164) * k3.globeBase() * 0.5).toFixed(1) + ' px');
       assert('A18/Q41：当前数据的 sats 里**没有高轨卫星** → 图下说明**不追加**压缩提示（不把说明写长）',
         k3.globeHiSats() === 0 && k3.globeNote().indexOf('压缩') < 0,
@@ -4328,6 +4346,68 @@ assert('V1.9.3：两个 e2e 脚本都设了 `CISTRACK_SKIP_STALE_CHECK`（否则
 assert('V1.9.3：e2e 的实跑挂在 CI 上（本地 smoke 不跑，避免闸门从 40s 涨到 10 分钟）',
   /e2e_omm_offline\.mjs/.test(fs.readFileSync(B + '/.github/workflows/update-tle.yml', 'utf8')) &&
   /e2e_include_offline\.mjs/.test(fs.readFileSync(B + '/.github/workflows/update-tle.yml', 'utf8')));
+
+// ================================================================ ★ V1.9.3：表格导出的两个真 bug（用户报）
+// 用户原话：
+//   ①「最后的两个表格打印的时候没有遵循打印页数的规定（比如在第三页选择打印本页实际上是打印了 1~3 页），
+//      这里要对所有不同的打印方式完全检查并根治」；
+//   ②「打印的表格没有遵循标签和各项居中排列的规则和使用和原页面内表格的字体和形式，
+//      实际最终打印出来的表格应该接近于实际在页面看到的表格的样子」。
+{
+  const etSrc = (appCode.match(/function exportTable\(opts\)[\s\S]*?\n\}\n/) || [''])[0];
+  assert('V1.9.3①：导出**不再"从第 1 页累积"** —— 单页模式 `from = to = 当前页`（旧版 `from = 0, to = curPage`）',
+    /var rows, from = curPage, to = curPage;/.test(etSrc) &&
+    !/var from = 0, to = curPage;/.test(etSrc));
+  assert('V1.9.3①：「导出 N 页」= **从当前页起算 N 页**（旧版是"第 1~N 页"）',
+    /to = Math\.min\(curPage \+ opts\.mode - 1, uiPages - 1\)/.test(etSrc));
+  assert('V1.9.3①：导出**用屏幕同一套分页**（`satPageBounds` / `launchPageBounds`），不再用固定 `PAGE_SIZE` 硬切',
+    /var boundsOf = \(which === 'sat'\) \? satPageBounds : launchPageBounds;/.test(etSrc) &&
+    !/Math\.ceil\(allText\.length \/ PAGE_SIZE\)/.test(etSrc) &&
+    /function satPageBounds\(page\)/.test(appCode) &&
+    /function launchPageBounds\(page\)/.test(appCode));
+  assert('V1.9.3①：`shotTotalPages` 直接返回**屏幕页数**（`SAT_PAGES / LAUNCH_PAGES`），不再自己 `length/PAGE_SIZE` 另算一套',
+    /var n = \(which === 'sat'\) \? SAT_PAGES : LAUNCH_PAGES;/.test(appCode) &&
+    !/return Math\.max\(1, Math\.ceil\(n \/ PAGE_SIZE\)\);/.test(appCode));
+  assert('V1.9.3①：`shotMulti` 的合法上限 = **总页数 − 当前页 + 1**（从当前页起算，越界红框不关窗）',
+    /var maxN = Math\.max\(1, total - cur \+ 1\);/.test(appCode) &&
+    /if \(!\(n >= 1 && n <= maxN\)\) \{ inp\.classList\.add\('bad'\); inp\.focus\(\); return false; \}/.test(appCode));
+
+  assert('V1.9.3②：长文本**按列宽折行**（新 `wrapCell`），不再用 `slice(0,39)+\'…\'` 按字符截断',
+    /function wrapCell\(ctx, text, maxW\)/.test(appCode) &&
+    /return wrapCell\(probe, String\(cell == null \? '' : cell\), widths\[c\] - padX \* 2\);/.test(etSrc) &&
+    !/cell\.length > 40 \? cell\.slice\(0, 39\) \+ '…' : cell/.test(etSrc));
+  assert('V1.9.3②：表头与数据行**居中**、**首列左对齐**（与页面 `text-align:center` + `td:first-child{left}` 同款）',
+    /var alignOf = function \(c\) \{ return c === 0 \? 'left' : 'center'; \};/.test(etSrc) &&
+    /ctx\.textAlign = alignOf\(c\);/.test(etSrc));
+  assert('V1.9.3②：行高按**换行后的实际行数**算（表头同理，且在算画布高度 `H` 之前就绪 → 不会被裁掉）',
+    /var rh = rowHeights\[ri\];/.test(etSrc) &&
+    /var headH2 = Math\.max\(headH, thMaxL \* lineH \+ Math\.round\(headH \* 0\.22\)\);/.test(etSrc) &&
+    /var H = topH \+ headH2 \+ rowHeights\.reduce/.test(etSrc));
+  assert('V1.9.3②：列宽优先取**页面真实列宽**（`getBoundingClientRect`）→ 导出的列宽比例与页面一致',
+    /var pageW = \[\];/.test(etSrc) && /pageThs\[i\]\.getBoundingClientRect\(\)\.width/.test(etSrc) &&
+    /if \(pageW && pageW\[c\] > 0\) return Math\.max\(44 \* dpr, pageW\[c\] \* dpr\);/.test(etSrc));
+
+  // ★ 最关键的一条：**页数自洽**（旧版贪心分页与 pageCount 不一致 → 最后一行永远看不到）
+  assert('V1.9.3【静默丢数据】：`pageCount` 用**与 pageBounds 相同的贪心循环**（旧版 ceil(总单元/per) 会少算 → 最后一行无处安放）',
+    /var n = 0, i = 0;[\s\S]{0,300}?while \(i < rows\.length\)/.test(appCode) &&
+    !/units \+= pairUnits\(textOf\(r\)\); \}\);\s*\n\s*return Math\.max\(1, Math\.ceil\(units \/ per\)\);/.test(appCode));
+  assert('V1.9.3：`pageBounds` 对**单行就超过 per** 的极端情况有兜底（否则该行永远无法被任何页容纳）',
+    /if \(used === 0 && start < rows\.length\) start\+\+;/.test(appCode) &&
+    /if \(used2 === 0 && end < rows\.length\) end\+\+;/.test(appCode));
+
+  // ★★ 运行时实测（最有价值的一条）：**逐页扫一遍，确认 251 行全部被覆盖**
+  //   改前实测：`covered=250 / rowsN=251`、第 251 行（idx 250）不在任何页 → 屏幕上永远看不到。
+  assert('V1.9.3【静默丢数据·运行时】逐页扫描：**每一行都在某一页里**（改前实测丢最后一行）',
+    (function () {
+      const c = k3.pageCoverage();
+      return c && c.rowsN > 200 && c.missing === 0 && c.covered === c.rowsN;
+    })(), JSON.stringify(k3.pageCoverage()));
+  assert('V1.9.3：`shotTotalPages` 返回的页数与屏幕**完全一致**（导出弹窗的"页数 1–N"范围才可信）',
+    (function () {
+      const t = k3.shotTotals();
+      return t && t.sat === t.satPages && t.launch === t.launchPages;
+    })(), JSON.stringify(k3.shotTotals()));
+}
 
 // ================================================================ ★ V1.9.3：6 位编号系统的兼容性体检
 // 背景：CelesTrak 自 2026-07-11 起新编目对象一律 **6 位号**（100000+），而**经典 TLE 格式的

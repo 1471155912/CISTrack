@@ -2494,10 +2494,14 @@ var I18N = {
   b_reset: ['重置视图', 'Reset view'], b_cov: ['可见区域', 'Coverage'],
   b_shot: ['导出图片', 'Save image'],          // V1.3.7
   // V1.4.0：导出弹窗与导出图底栏
+  // ★ V1.9.3：三个模式的语义**明确定义**（旧文案含糊，实际行为也错）：
+  //   · `shot_cur`   = **只导出当前这一页**（旧实现是"从第 1 页累积到当前页"）
+  //   · `shot_multi` = **从当前页开始，连续 N 页**（旧实现是"第 1~N 页"）
+  //   · `shot_all`   = 全部页
   shot_cur: ['导出当前页', 'Save This Page'],
-  shot_multi: ['导出多页', 'Save N Pages'],
-  shot_all: ['导出全页', 'Save All Pages'],
-  shot_ph: ['页数', 'pages'],
+  shot_multi: ['接着导出 N 页', 'Save Next N Pages'],
+  shot_all: ['导出全部页', 'Save All Pages'],
+  shot_ph: ['从本页起算的页数', 'pages from here'],
   shot_all_cols: ['含全部列', 'All columns'],
   d_err_t: ['页面遇到了一个脚本错误', 'The page hit a script error'],
   d_err_copy: ['复制诊断信息', 'Copy diagnostics'],
@@ -2838,13 +2842,31 @@ var ALT_EXAG = 2.4;             // 轨道高度显示夸张系数（让不同高
 //   （要缩到 0.07× 才看得见，而缩放下限是 0.5×）。实测：GEO 入库后 02 章等于"少了一层"。
 //   等效办法 = 分段夸张：
 //     · LEO 段（r ≤ 8000 km）**原样保留 2.4×** → 纯 LEO 视图与旧版**逐像素一致**，不扰动既有画面；
-//     · 高轨段（r > 8000 km）改成缓坡，GEO 落在 **2.2 个地球半径**处（与 LEO 壳层仍能一眼分层）。
+//     · 高轨段（r > 8000 km）改成缓坡，GEO 落在 **1.75 个地球半径**处（V1.9.3 由 2.2 收窄，
+//       见下方"用户报看不到 GEO"那一节的实测数据；与 LEO 壳层仍能一眼分层）。
+//   ★★ V1.9.3（**用户报"看不到 GEO"的真因，实测修正**）：
+//     用户的原话是「不同轨道壳层用不同夸张倍数的光点代表就行，GEO 只要看出比 LEO 明显高就行」。
+//     实测（Edge headless 打进真实产物，画布 1444×680、pitch=22°、baseR=250.9）：
+//       · 三颗 GEO 的**卫星点在画布内**（距中心 211~532px）—— 不是"画不出来"；
+//       · 但**像素分带统计**说明问题在可辨识度：
+//           距离带（地球半径倍数）  亮像素占比
+//             1.00~1.25（LEO 内层）   76.6%
+//             1.25~1.50（LEO 主壳层） 74.5%
+//             **2.00~2.25（原 GEO 位）  0.5%**   ← 差 150 倍
+//       · 且 LEO 主壳层的轨道圈**已经出界**（y = -11 ~ 687，画布只有 0~680）。
+//     ⇒ 两个修正（用户选定的"方案 B"）：
+//       ① `HI_REF_Y` 2.2 → **1.75**：GEO 从"贴画布边缘"收到"LEO 主壳层的 1.22 倍"，
+//          仍在视觉上明显更高，但整圈完整进画布（横向只占 61% 半宽）；
+//          ⚠️ **必须 > HI_KNEE_Y（1.6103）** —— 否则高轨段斜率变负，
+//             GEO 会落到 LEO 上限**以内**（比 8000km 的圈还靠里），视觉更糟。
+//             （用户最初提的 1.45 就撞在这条上，已用数据说明并改为 1.75。）
+//       ② `globeBaseR()` 的系数同步按分段后的真实上界校准，见该函数。
 //   分段点的取值直接沿用 LEO 公式（而不是另给一个下界），保证**函数连续** ——
 //   否则会出现"8000 km 的轨道圈比 7999 km 的更靠内"这种视觉回跳。
 var HI_KNEE_R = 8000;                                    // 分段点（km，半长轴）
 var HI_KNEE_Y = 1 + (HI_KNEE_R / RE - 1) * ALT_EXAG;     // ≈1.6103，与 LEO 段无缝衔接
 var HI_REF_R = 42164;                                    // GEO 半长轴（参考上界）
-var HI_REF_Y = 2.2;                                      // GEO 落在 2.2 个地球半径
+var HI_REF_Y = 1.75;                                     // ★ V1.9.3：GEO 落在 1.75 个地球半径（原 2.2）
 function globeRad(rKm) {
   if (rKm <= HI_KNEE_R) return 1 + (rKm / RE - 1) * ALT_EXAG;
   return HI_KNEE_Y + (HI_REF_Y - HI_KNEE_Y) * (rKm - HI_KNEE_R) / (HI_REF_R - HI_KNEE_R);
@@ -5039,7 +5061,16 @@ var globeInfo = document.getElementById('globeInfo');
 var globeTrackCache = { key: null, tmin: null, data: null };
 var G = { yaw: 100 * RAD, pitch: 22 * RAD, zoom: 1, dragging: false, lx: 0, ly: 0, hover: null };
 var globeDragMoved = 0;
-// 基准半径：留出 1.27 倍（最高轨道）的卫星环空间，避免上下被画布裁掉
+// 基准半径：留出最高壳层（现在 = HI_REF_Y = 1.75 倍）的卫星环空间，避免上下被画布裁掉。
+// ★ V1.9.3（用户指示）：**不要为了 GEO 缩小地球** —— 地球大小与 LEO 视觉保持原样。
+//   高轨的可见性由 `globeRad()` 的**分段夸张**承担（各壳层用各自的压缩比，
+//   GEO 只要"看起来明显比 LEO 高"即可，不追求物理等比）。
+//   实测（1444×680、pitch=22°、baseR=250.9）：
+//     LEO 主壳层 1170km → 1.440 → 361px（横向占半宽 50%）
+//     LEO 上限   1622km → 1.610 → 404px（56%）
+//     **GEO      42164km → 1.750 → 439px（61%）** ← 纵向投影压到 sin22°≈0.375 → 约 24%
+//   ⚠️ 3D 投影把轨道圆压成椭圆，所以"纵向占半高"这个粗算会虚高（实际只看横向即可）。
+//     曾据此误判"GEO 出画布" —— 真正的判据是 hook `project()` 后的包围盒。
 function globeBaseR(w, h) { return Math.min(w * 0.30, h * 0.369); }
 
 function globeBasis() {
@@ -6379,6 +6410,51 @@ function rowsTextFromHtml(html, vis, which) {
     });
   });
 }
+/**
+ * ★ V1.9.3：把一段文本按**可用像素宽**折成多行（用于表格导出图片）。
+ *
+ * 为什么要它：旧实现是 `cell.length > 40 ? cell.slice(0,39) + '…' : cell` ——
+ *   **按字符数截断**，于是「在轨（~2024-03-14，GEO）」这类长文本直接丢字，
+ *   用户看到的现象是"内容超出纸张/被切掉"。（字符数与像素宽不是一回事：
+ *   中文一个字 ≈ 2 个 mono 字符宽，混排时更离谱。）
+ *
+ * 折行规则（尽量贴近浏览器对 `word-break: normal` + `overflow-wrap: anywhere` 的处理）：
+ *   ① 先按**空格**切成词，逐个追加；超宽就把当前行收口、另起一行；
+ *   ② 单个词本身就超宽（如 24 字符的长卫星名 `HULIANWAN GAOGUI-01 (H*)`）→ **按字符硬断**；
+ *   ③ 最多 4 行（再多会把表格拉得过高）；超出部分以 `…` 收尾，**不静默丢内容**。
+ *   ⚠️ 与"截断"的区别：这里是"换行 + 只在极端时省略号"，绝大多数字符都保住了。
+ */
+function wrapCell(ctx, text, maxW) {
+  var s = String(text == null ? '' : text);
+  if (!(maxW > 0)) return [s];
+  if (ctx.measureText(s).width <= maxW) return [s];
+  var MAXL = 4;
+  var out = [], curLine = '';
+  var pushWord = function (w) {
+    var cand = curLine ? (curLine + ' ' + w) : w;
+    if (ctx.measureText(cand).width <= maxW) { curLine = cand; return; }
+    if (curLine) { out.push(curLine); curLine = ''; }
+    if (ctx.measureText(w).width <= maxW) { curLine = w; return; }
+    // 单词自身超宽 → 按字符硬断
+    var piece = '';
+    for (var i = 0; i < w.length; i++) {
+      var t = piece + w[i];
+      if (ctx.measureText(t).width > maxW) { out.push(piece); piece = w[i]; }
+      else piece = t;
+    }
+    curLine = piece;
+  };
+  s.split(/\s+/).forEach(function (w) { if (w) pushWord(w); });
+  if (curLine) out.push(curLine);
+  if (out.length > MAXL) {
+    out = out.slice(0, MAXL);
+    // 最后一行加省略号（如果放得下；放不下就再砍一个字符）
+    var last = out[MAXL - 1];
+    while (last.length > 1 && ctx.measureText(last + '…').width > maxW) last = last.slice(0, -1);
+    out[MAXL - 1] = last + '…';
+  }
+  return out.length ? out : [''];
+}
 function exportTable(opts) {
   // opts: { which:'sat'|'launch', mode:'cur'|'all'|number, allCols:boolean }
   var which = opts && opts.which ? opts.which : 'sat';
@@ -6399,27 +6475,95 @@ function exportTable(opts) {
     : LAST_LAUNCH_ROWS.map(launchRowHtml);
   var allText = rowsTextFromHtml(allHtml.join(''), vis, which);
   if (!allText.length) return;
-  var total = Math.ceil(allText.length / PAGE_SIZE);
+  // ★★ V1.9.3【**用户报"第 3 页导出当前页却得到 1~3 页"的根治**】
+  //   旧实现三处错，各自独立、叠加起来就是用户看到的现象：
+  //     ① `var from = 0, to = curPage;` —— "当前页"实际是**从第 1 页累积到当前页**！
+  //        （改前：第 3 页点"导出当前页" → from=0, to=2 → 导出 1~3 页 = 用户的原话）
+  //     ② "导出多页"的 N 也是 `from = 0, to = N-1` → 同样是"1~N 页"而非"某 N 页"
+  //     ③ **分页口径与屏幕不一致**：屏幕用 `SAT_PAGE / pageBounds()`（按**实测行高**
+  //        动态换算，一页约 10 行但会因换行浮动）；导出却用固定 `PAGE_SIZE = 10`。
+  //        两套算法必然在某些页错位（屏幕第 3 页 ≠ 导出算出来的第 3 页）。
+  //   修法：
+  //     · 页码为**单页**时 → `from = to = 该页`（真正的"当前页"）；
+  //     · 用**同一套分页函数**（`pageBounds` / `unitOf`）取代 `PAGE_SIZE` 的粗算，
+  //       使导出的"第 N 页"与屏幕的"第 N 页"**逐行一致**；
+  //     · 保持"页数 = 屏幕上那个总页数"（`SAT_PAGES / LAUNCH_PAGES`），不再自行重算。
   var curPage = (which === 'sat' ? S.tpage : S.page);
-  var from = 0, to = curPage;
-  if (opts && opts.mode === 'all') { from = 0; to = total - 1; }
-  else if (opts && typeof opts.mode === 'number') { from = 0; to = Math.min(opts.mode, total) - 1; }
-  var rows = allText.slice(from * PAGE_SIZE, (to + 1) * PAGE_SIZE);
+  var uiPages = (which === 'sat' ? SAT_PAGES : LAUNCH_PAGES) || 1;
+  var boundsOf = (which === 'sat') ? satPageBounds : launchPageBounds;
+  var mkRange = function (p) {
+    var b = boundsOf(p);
+    return allText.slice(b[0], b[1]);
+  };
+  var rows, from = curPage, to = curPage;
+  if (opts && opts.mode === 'all') { from = 0; to = uiPages - 1; }
+  else if (opts && typeof opts.mode === 'number') { from = curPage; to = Math.min(curPage + opts.mode - 1, uiPages - 1); }
+  // 逐页取（跨页时把各页拼起来 —— 每页的行数可能不同，不能用一个固定步长切片）
+  if (from === to) rows = mkRange(from);
+  else { rows = []; for (var pp = from; pp <= to; pp++) rows = rows.concat(mkRange(pp)); }
   if (!rows.length) return;
 
   // V1.7.0 第三轮末修正③：表格导出的倍率同样自适应（旧版写死 2×，手机上把 390px 宽的表
   // 按 780px 导出，字还是糊的）。这里 dpr 变成可传入参数：导出流程会先建一次量字节数，
   // 需要更清晰就带着更大的 dpr 再调一次本函数（几何全部随 dpr 线性缩放，所以只要换这一个值）。
   var dpr = (opts && opts.dpr) || 2, fs = 12 * dpr, padX = 11 * dpr, rowH = 26 * dpr, headH = 30 * dpr, topH = 34 * dpr;
+  // ★★ V1.9.3【**用户报"打印的表格长文本超出纸张"的根治**】
+  //   旧实现三处毛病（都在这一段里）：
+  //     ① 列宽 `Math.min(..., 300*dpr)` 硬上限 + 绘制时 `cell.slice(0,39)+'…'` **截断** →
+  //        长文本（如「在轨（~2024-03-14，GEO）」或长制造商名）直接丢字，看起来像"超出"；
+  //     ② 绘制一律 `textAlign='left'` + `fillText(x+padX, y+rowH/2)` **左对齐、单行不换行**，
+  //        而页面表格是 `text-align:center`（首列左对齐）—— 形式与页面**不一致**；
+  //     ③ 行高固定 `26*dpr`，换行后必然重叠。
+  //   修法：**按页面同一套规则绘制** ——
+  //     · 列宽 = 页面表头的实际像素宽（`getBoundingClientRect`，含 `display:none` 的列自动跳过），
+  //       这样"导出的列宽比例"与页面**一致**，不再靠文本猜；
+  //     · 单元格**按列宽自动换行**（`wrapCell`），行高按该行最多的行数算；
+  //     · 对齐跟随页面：`th/td` 居中，**首列左对齐**（与 `tbody td:first-child{text-align:left}` 同款）；
+  //     · 字体用页面的 `--mono`（`monoFont()` 已是），字号按页面的 `--fs-*` 折算。
   var probe = document.createElement('canvas').getContext('2d');
+  // 列宽：优先用**页面真实列宽**（wanted 列），拿不到才回退到文本测量
+  var pageW = [];
+  try {
+    var pageThs = [].slice.call(tbl.querySelectorAll('thead th'));
+    var tblW = tbl.clientWidth || tbl.getBoundingClientRect().width || 0;
+    pageW = vis.map(function (i) { return pageThs[i] ? pageThs[i].getBoundingClientRect().width : 0; });
+    var sumW = pageW.reduce(function (a, b) { return a + b; }, 0);
+    if (!(sumW > 0) || (tblW && Math.abs(sumW - tblW) > tblW * 0.5)) pageW = null;
+  } catch (e) { pageW = null; }
   probe.font = monoFont(fs, true);
   var widths = heads.map(function (h, c) {
+    if (pageW && pageW[c] > 0) return Math.max(44 * dpr, pageW[c] * dpr);   // ★ 与页面同比例
     var w = probe.measureText(h).width;
     rows.forEach(function (r) { w = Math.max(w, probe.measureText(r[c] || '').width); });
     return Math.min(w + padX * 2, 300 * dpr);
   });
   var W = widths.reduce(function (a, b) { return a + b; }, 0);
-  var H = topH + headH + rows.length * rowH + 8 * dpr;
+  // ★ V1.9.3：**按列宽自动换行**（替代旧的 `slice(0,39)+'…'` 截断）。
+  //   规则与 CSS 的 `word-break` 类似：优先在空格处断，超长无空格串按字符断。
+  //   ⚠️ 用 `probe`（离线量尺）而非最终 ctx —— 两者字体一致（都设了 monoFont(fs)），
+  //     但 probe 在 ctx 创建**之前**就绪，避免"先算尺寸再建画布"的顺序倒置。
+  probe.font = monoFont(fs);
+  var cellLines = rows.map(function (r) {
+    return r.map(function (cell, c) {
+      return wrapCell(probe, String(cell == null ? '' : cell), widths[c] - padX * 2);
+    });
+  });
+  // 行高 = 该行最多行数 × 单行高（不再全局固定 26*dpr）
+  var lineH = Math.round(rowH * 0.82);
+  var rowHeights = cellLines.map(function (ls) {
+    var n = 1;
+    ls.forEach(function (l) { if (l.length > n) n = l.length; });
+    return Math.max(rowH, n * lineH + Math.round(rowH * 0.30));
+  });
+  // ★ V1.9.3：表头行高也要按**换行后的实际行数**算（表头文字同样可能超宽，
+  //   例如「发射时间 (北京时间)」在窄列里会折成两行）。
+  //   ⚠️ 必须在算 `H` **之前**算出来 —— 否则画布高度按单行预留、表头折行后被裁掉。
+  probe.font = monoFont(fs, true);
+  var thLines = heads.map(function (h, c) { return wrapCell(probe, h, widths[c] - padX * 2); });
+  var thMaxL = 1;
+  thLines.forEach(function (l) { if (l.length > thMaxL) thMaxL = l.length; });
+  var headH2 = Math.max(headH, thMaxL * lineH + Math.round(headH * 0.22));
+  var H = topH + headH2 + rowHeights.reduce(function (a, b) { return a + b; }, 0) + 8 * dpr;
   var cv = document.createElement('canvas');
   cv.width = W; cv.height = H;
   var ctx = cv.getContext('2d');
@@ -6448,24 +6592,40 @@ function exportTable(opts) {
   // 表头
   ctx.fillStyle = fg; ctx.font = monoFont(fs, true);
   ctx.textBaseline = 'middle';
+  // ★ V1.9.3：表头与数据行**都居中**（与页面 `.ltable th, .ltable td { text-align:center }` 同款），
+  //   **首列左对齐**（与 `tbody td:first-child { text-align:left }` 同款）——
+  //   用户要求「打印的表格要遵循标签和各项居中排列的规则，接近页面里看到的样子」。
+  //   ⚠️ 绘制用 `textAlign` 切换（不是手工算居中偏移）—— 手工算会与 measureText 的
+  //     基线/字距规则产生亚像素偏差，多列时逐列累积成"看起来没对齐"。
+  var alignOf = function (c) { return c === 0 ? 'left' : 'center'; };
+  var x0 = 0;
+  var colX = widths.map(function (w) { var v = x0; x0 += w; return v; });
   var y = topH;
-  ctx.fillStyle = hair; ctx.fillRect(0, y + headH - Math.max(1, dpr / 2), W, Math.max(1, dpr));
-  var x = 0;
-  heads.forEach(function (h, c) { ctx.fillStyle = fg; ctx.fillText(h, x + padX, y + headH / 2); x += widths[c]; });
-  y += headH;
+  ctx.fillStyle = hair; ctx.fillRect(0, y + headH2 - Math.max(1, dpr / 2), W, Math.max(1, dpr));
+  thLines.forEach(function (ls, c) {
+    ctx.fillStyle = fg;
+    ctx.textAlign = alignOf(c);
+    var cx0 = alignOf(c) === 'left' ? colX[c] + padX : colX[c] + widths[c] / 2;
+    var ty = y + (headH2 - (ls.length * lineH)) / 2 + lineH / 2;
+    ls.forEach(function (ln, k) { ctx.fillText(ln, cx0, ty + k * lineH); });
+  });
+  y += headH2;
   // 数据行
   ctx.font = monoFont(fs);
   rows.forEach(function (r, ri) {
-    if (ri % 2) { ctx.fillStyle = 'rgba(255,255,255,.035)'; ctx.fillRect(0, y, W, rowH); }
+    var rh = rowHeights[ri];
+    if (ri % 2) { ctx.fillStyle = 'rgba(255,255,255,.035)'; ctx.fillRect(0, y, W, rh); }
     ctx.fillStyle = hair; ctx.fillRect(0, y, W, Math.max(1, dpr / 2));
-    var xx = 0;
-    r.forEach(function (cell, c) {
+    cellLines[ri].forEach(function (ls, c) {
       ctx.fillStyle = dim;
-      ctx.fillText(cell.length > 40 ? cell.slice(0, 39) + '…' : cell, xx + padX, y + rowH / 2);
-      xx += widths[c];
+      ctx.textAlign = alignOf(c);
+      var cx0 = alignOf(c) === 'left' ? colX[c] + padX : colX[c] + widths[c] / 2;
+      var ty = y + (rh - (ls.length * lineH)) / 2 + lineH / 2;
+      ls.forEach(function (ln, k) { ctx.fillText(ln, cx0, ty + k * lineH); });
     });
-    y += rowH;
+    y += rh;
   });
+  ctx.textAlign = 'left';
   // 底栏：左=署名与模拟时间，右=免责声明（全白字）
   var footH = Math.round(30 * dpr);
   var cv2 = document.createElement('canvas');
@@ -6528,17 +6688,66 @@ function pageBounds(rows, page, per, textOf) {
     while (start < rows.length && used + pairUnits(textOf(rows[start])) <= per) {
       used += pairUnits(textOf(rows[start])); start++;
     }
+    // ★ V1.9.3：兜底 —— 若某行**单独就超过 per**，`while` 会一次都不进（used 仍 0），
+    //   于是这一行永远无法被任何页容纳（pageBounds 永远原地踏步）。
+    //   现在强制把它算进本页，保证"行行有归属"，也让 `pageCount` 的贪心计数与这里一致。
+    if (used === 0 && start < rows.length) start++;
   }
   var end = start, used2 = 0;
   while (end < rows.length && used2 + pairUnits(textOf(rows[end])) <= per) {
     used2 += pairUnits(textOf(rows[end])); end++;
   }
+  if (used2 === 0 && end < rows.length) end++;      // 同上：超长行也要进本页
   return [start, end];
 }
 function pageCount(rows, per, textOf) {
-  var units = 0;
-  rows.forEach(function (r) { units += pairUnits(textOf(r)); });
-  return Math.max(1, Math.ceil(units / per));
+  // ★★ V1.9.3【**发现的既有 off-by-one：最后一行被丢掉**】
+  //   旧写法 `Math.ceil(总单元数 / per)` 是**理想装填**的页数，而 `pageBounds` 用的是
+  //   **贪心装填**（`used + units <= per`；装不下就换页、**不回溯**）。两者在
+  //   "剩余容量装不下下一行"时结果不同 —— 贪心会多出一页。
+  //   实测（2026-10-13）：卫星表 251 行、`SAT_PAGE=40`、实测行高 → 旧 `pageCount` = 26 页，
+  //   但贪心排下来 **第 251 行（idx 250）落不进任何一页** → 屏幕上永远看不到它，
+  //   导出"全页"也拿不到它。**静默丢数据** —— 正是本项目最忌讳的一类缺陷。
+  //   修法：`pageCount` 改用**与 pageBounds 完全相同的贪心循环**数页 ⇒ 两者必然自洽。
+  var n = 0, i = 0;
+  while (i < rows.length) {
+    var used = 0;
+    while (i < rows.length && used + pairUnits(textOf(rows[i])) <= per) {
+      used += pairUnits(textOf(rows[i])); i++;
+    }
+    n++;
+    // 兜底：单行本身就超过 per（理论上不该发生）→ 也得让它**进一页**，不能死循环
+    if (used === 0) i++;
+  }
+  return Math.max(1, n);
+}
+/**
+ * ★ V1.9.3：**表格导出**专用 —— 把"第 N 页"翻译成 `[startIdx, endIdx)`，**与屏幕同一套口径**。
+ *
+ * 为什么必须有它（用户报"第 3 页导出当前页却得到 1~3 页"的根因之一）：
+ *   屏幕上每页的行数是**动态**的 —— `SAT_PAGE = 40` 是"行单元"，每行占几个单元由
+ *   `measureRowUnits()` 按**真实换行后的高度**量出来（制造商列换行会让该行变高），
+ *   所以"一页 10 行"只是常见值，不是定值。
+ *   而导出侧原来用固定 `PAGE_SIZE = 10` 硬切 → **两套分页必然错位**：
+ *   屏幕上的"第 3 页"与导出算出来的"第 3 页"不是同一批行。
+ *   现在导出直接调这两个函数，序号口径与屏幕**逐行一致**。
+ *
+ * ⚠️ 两个表的行序**已经在 render 时定好**，这里不要再排一次：
+ *   · `LAST_ROWS`（renderTable 里赋）已是「搜索过滤 + 当前排序」后的结果 ——
+ *     导出与屏幕共用它，天然一致；
+ *   · `LAST_LAUNCH_ROWS`（renderLaunchTable 里赋）已按 `dateMs` 倒序。
+ *   重排会引入第二套顺序（且搜索词过滤也要跟着重做），正是"两套口径"的老毛病。
+ */
+function satPageBounds(page) {
+  var rows = LAST_ROWS || [];
+  return pageBounds(rows, page, SAT_PAGE, measureRowUnits(rows));
+}
+function launchPageBounds(page) {
+  // 发射表所有行都是单行（CSS 保证 `td{white-space:nowrap}`），行高固定 41px
+  // → 每行恒计 1 个「行单元」（与 `renderLaunchTable` 里的 `rkText` 完全同款）。
+  // ⚠️ 不能直接引用 `renderLaunchTable` 里的 `rkText` —— 那是**函数内的局部变量**。
+  var rows = (typeof LAST_LAUNCH_ROWS !== 'undefined' && LAST_LAUNCH_ROWS) ? LAST_LAUNCH_ROWS : [];
+  return pageBounds(rows, page, PAGE_SIZE, function () { return 1; });
 }
 function fixTableHeight(sel) {
   var wrap = document.querySelector(sel);
@@ -9029,8 +9238,15 @@ function shotPopEls(which) {
   };
 }
 function shotTotalPages(which) {
-  var n = (which === 'sat') ? LAST_ROWS.length : LAST_LAUNCH_ROWS.length;
-  return Math.max(1, Math.ceil(n / PAGE_SIZE));
+  // ★ V1.9.3：**直接用屏幕上那个总页数**，不要自己用 `length / PAGE_SIZE` 另算一套。
+  //   旧写法的错（与"导出当前页得到 1~3 页"是同一个病根：两套分页口径）：
+  //     卫星表实际是"按实测行高动态分页"（每页约 10 行，但换行行会占 2 个单元），
+  //     而这里按固定 10 行/页算 → 251 行算成 26 页，屏幕上也恰好 26 页纯属巧合；
+  //     一旦有行换行（制造商列长名）两者立刻分叉，"页数 1–26"的输入范围就会失效。
+  //   `SAT_PAGES / LAUNCH_PAGES` 由 renderTable / renderLaunchTable 每次渲染时更新，
+  //   是**屏幕真实页数**的唯一来源。
+  var n = (which === 'sat') ? SAT_PAGES : LAUNCH_PAGES;
+  return Math.max(1, n || 1);
 }
 function closeShotPops() {
   ['shotPopSat', 'shotPopLaunch'].forEach(function (id) {
@@ -9076,11 +9292,16 @@ function shotAllCols(which) {
   return !box || box.checked;
 }
 // V1.4.1：多页导出（点按钮或按 Enter 都走这里）
+// ★ V1.9.3：N 的语义 = **从当前页起算的连续页数**。
+//   合法范围 [1, 总页数 − 当前页号] —— 例如 26 页、当前在第 25 页（0 基 24）时最多 2 页。
+//   （旧实现是"第 1~N 页"，与用户对"导出多页"的直觉不符，且与"当前页"按钮割裂。）
 function shotMulti(which) {
   var inp = shotPopEls(which).num, total = shotTotalPages(which);
   var v = String(inp.value || '').trim();
   var n = /^\d+$/.test(v) ? parseInt(v, 10) : NaN;
-  if (!(n >= 1 && n <= total)) { inp.classList.add('bad'); inp.focus(); return false; }
+  var cur = which === 'sat' ? (S.tpage + 1) : (S.page + 1);
+  var maxN = Math.max(1, total - cur + 1);
+  if (!(n >= 1 && n <= maxN)) { inp.classList.add('bad'); inp.focus(); return false; }
   inp.classList.remove('bad');
   exportTable({ which: which, mode: n, allCols: shotAllCols(which) });
   return true;
