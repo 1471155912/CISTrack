@@ -353,7 +353,16 @@ for (const key of ['gw', 'qf']) {
           //      但最终仍缺 —— 正是因为下落的名字过不了星座过滤。
           //   ③ **计数以"真的进了 merged"为准** —— 旧版只要 line1/line2 存在就 +1，
           //      于是"补到 N 颗"与"库里真有 N 颗"可以互相矛盾（假阳性计数）。
-          const got = parseInt(String(j.line1).slice(2, 7), 10);
+          // ★ V1.9.3（**兼容性体检抓到的真缺口**）：备源返回的 line1 里编目号只有 **5 列**，
+          //   而 6 位对象（100000+，CelesTrak 2026-07-11 起新编目一律 6 位）在 TLE 里
+          //   只能写成**真号后 5 位**（`100203` → `00203`）。
+          //   旧写法直接 `parseInt(line1.slice(2,7))` 拿它跟 `o.norad`（**真号** 100203）比
+          //   → `203 !== 100203` **恒不相等** → 这些星在 S4 永远"补到 0 颗"。
+          //   实测证据（CI run 38349678820）：`gw S4 备源 → 待补 148 颗，补到 0 颗`。
+          //   修法：先经 sidecar（`OMM_IDS`：占位号 → 真号）还原，再比 —— 与
+          //   历史存档段（本文件 `const norad = OMM_IDS[raw5] || …`）**同一套口径**。
+          const gotRaw5 = String(j.line1).slice(2, 7).padStart(5, '0');
+          const got = Number(OMM_IDS[gotRaw5] || parseInt(gotRaw5, 10));
           if (got === o.norad) {
             const szBefore = merged.size;
             parseTLE((o.name || j.name) + '\n' + j.line1 + '\n' + j.line2 + '\n', merged);

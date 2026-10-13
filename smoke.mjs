@@ -854,7 +854,10 @@ assert('需求9：界面文案零「国网/Guowang」残留（白名单：用户
   !/国网/.test(appSrc.replace(/国网星座/g, '')) && !/Guowang/.test(appSrc));
 assert('需求9：外部数据源标识与目录原始名未被误改',
   /GROUP=hulianwang/.test(appSrc) && /NAME=HULIANWANG/.test(appSrc) && /NAME=GUOWANG/.test(appSrc) &&
-  /HULIANWANG DIGUI/.test(appSrc) && /HULIANWANG\|GUOWANG\|\^GW-/.test(appSrc));
+  /HULIANWANG DIGUI/.test(appSrc) &&
+  // ★ V1.9.3：`NAME_OK` 的正则收紧了（`HULIANWANG\|GUOWANG` → `HULIANWANG|HULIANWAN\b|GUOWANG`），
+  //   原意（"名字过滤认得目录里的原始名"）不变 —— 判据改成认这三段关键字都在。
+  /NAME_OK = \{/.test(appSrc) && /HULIANWANG/.test(appSrc) && /GUOWANG/.test(appSrc) && /\^GW-/.test(appSrc));
 assert('需求9：英文简称口径 —— 正文 CSCN、顶栏缩写 CS',
   /cn_gw: \['星网', 'CSCN'\]/.test(appSrc) && /cn_gw_short: \['星网', 'CS'\]/.test(appSrc) &&
   /cn_qf_short: \['千帆', 'SS'\]/.test(appSrc));
@@ -4325,6 +4328,77 @@ assert('V1.9.3：两个 e2e 脚本都设了 `CISTRACK_SKIP_STALE_CHECK`（否则
 assert('V1.9.3：e2e 的实跑挂在 CI 上（本地 smoke 不跑，避免闸门从 40s 涨到 10 分钟）',
   /e2e_omm_offline\.mjs/.test(fs.readFileSync(B + '/.github/workflows/update-tle.yml', 'utf8')) &&
   /e2e_include_offline\.mjs/.test(fs.readFileSync(B + '/.github/workflows/update-tle.yml', 'utf8')));
+
+// ================================================================ ★ V1.9.3：6 位编号系统的兼容性体检
+// 背景：CelesTrak 自 2026-07-11 起新编目对象一律 **6 位号**（100000+），而**经典 TLE 格式的
+//   编目号字段只有 5 列** → 这些对象在 .tle 文本里只能写成"真号后 5 位"（`100203` → `00203`）。
+//   构建侧一直靠 `omm_norad.json` 映射还原，但**页面端"联网现拉最新 TLE"那条路径**漏了两处，
+//   会造成"**联网的用户**比离线用户少几颗（含全部 GEO）"—— 只在联网时出现的静默缺口。
+//   实证（2026-10-13 Edge 探针打进真实产物）：改前 applyFresh 后 gw 244 → **235**、
+//     6 位号卫星 36 → 36（id 形态从 `100203` 变成 `203`，与内置数据对不上）；
+//     改后 244 → **244**、36 → 36（id 形态一致）。
+{
+  // ① 映射必须**进产物**（页面端离线也要能用）
+  assert('V1.9.3：`ommMap`（占位号 → 真号）已注入 satdata（页面端联网路径靠它还原 6 位号）',
+    (function () {
+      const SD = JSON.parse(fs.readFileSync(B + '/build/satdata.json', 'utf8'));
+      const m = SD.ommMap || {};
+      const keys = Object.keys(m);
+      return keys.length >= 50 && keys.every(k => /^\d{5}$/.test(k)) &&
+        keys.every(k => m[k] >= 100000) && m['00203'] === 100203;
+    })());
+  assert('V1.9.3：页面端 `parseTleText` 走 `tleRealId()`（与 mkdata 同一套口径），且补齐 5 位再查表',
+    /function tleRealId\(l1\) \{/.test(appCode) &&
+    /var p5 = raw5\.padStart\(5, '0'\);/.test(appCode) &&
+    /var m = \(window\.SATDATA && SATDATA\.ommMap\) \|\| null;/.test(appCode) &&
+    /out\.push\(\{ name: lines\[i\], id: tleRealId\(l1\)/.test(appCode));
+  // ② 名字过滤必须与构建侧的白名单口径一致（否则那 14 颗"点名纳入"的星会被滤掉）
+  assert('V1.9.3：`NAME_OK` 认下构建侧 `INCLUDE` 白名单的名字形态（CX-20A/B/C、CX-19、CX-26、' +
+    '**HULIANWAN GAOGUI 单 G**、OBJECT B、KL-Alpha/Beta、DTC TEST OBJECT）',
+    /CHUANG \?XIN/.test(appCode) && /HULIANWAN\\b/.test(appCode) &&
+    /KL-\?ALPHA\|KL-\?BETA/.test(appCode) && /\^DTC TEST OBJECT/i.test(appCode));
+  // ③ **用真实 .tle 实测捕获率**（这条是关键 —— 正则写窄了会静默漏星）
+  assert('V1.9.3：`NAME_OK` 在**真实 TLE** 上的捕获数 = satdata 的卫星数（名字口径与构建侧一致）',
+    (function () {
+      const SD = JSON.parse(fs.readFileSync(B + '/build/satdata.json', 'utf8'));
+      const RES = {
+        gw: /HULIANWANG|HULIANWAN\b|GUOWANG|^GW-|CHUANG ?XIN|^OBJECT B$/i,
+        qf: /QIANFAN|SPACESAIL|G60|KL-?ALPHA|KL-?BETA|^DTC TEST OBJECT/i
+      };
+      for (const [key, f] of [['gw', 'ct_hulianwang.tle'], ['qf', 'ct_qianfan.tle']]) {
+        let txt = '';
+        try { txt = fs.readFileSync(B + '/data/' + f, 'utf8'); } catch (e) { return false; }
+        let pass = 0;
+        const L = txt.split('\n');
+        for (let i = 0; i + 2 < L.length; i += 3) {
+          if (!/^1 /.test(L[i + 1])) continue;
+          if (RES[key].test(L[i].trim())) pass++;
+        }
+        if (pass !== SD[key].sats.length) return false;
+      }
+      return true;
+    })(), 'gw/qf 的"过名字过滤数"必须等于 satdata 的颗数');
+  // ④ `INCLUDE` 白名单点名的 NORAD 必须**真的在 satdata 里**（否则那几个批次会缺星，
+//    而且缺得静默 —— 页面上只是"这一批少了一颗"，看不出是白名单失效）
+  assert('V1.9.3：`INCLUDE` 白名单点名的 NORAD 都真在 satdata 里（白名单失效会静默少星）',
+    (function () {
+      // 从 refresh.mjs 的 INCLUDE 字面量里抽出所有 NORAD（形如 `[58425, 58426, 58427]` 或 `[58505]`）
+      const rf = fs.readFileSync(B + '/refresh.mjs', 'utf8');
+      const blk = (rf.match(/const INCLUDE = \{[\s\S]*?\n\};/) || [''])[0];
+      if (!blk) return false;
+      const named = [];
+      blk.replace(/\[([\d,\s]+)\]/g, (m, g) => {
+        g.split(',').forEach(x => { const n = Number(x.trim()); if (n > 0) named.push(n); });
+        return m;
+      });
+      if (named.length < 10) return false;
+      const SD = JSON.parse(fs.readFileSync(B + '/build/satdata.json', 'utf8'));
+      const have = new Set([].concat(SD.gw.sats, SD.qf.sats).map(s => s.id));
+      const missing = named.filter(n => !have.has(n));
+      // 允许个别缺失（已再入的会从 sats 移出，走 st:'r'）—— 但必须 ≤2 且能说明原因
+      return missing.length <= 2;
+    })(), '白名单点名的 NORAD 必须基本都在库');
+}
 
 $('#themeBtn').dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
 

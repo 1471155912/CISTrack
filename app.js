@@ -8587,8 +8587,22 @@ var TLE_SRC = {
        'https://celestrak.org/NORAD/elements/gp.php?NAME=QIANFAN&FORMAT=tle',
        'https://celestrak.org/NORAD/elements/gp.php?NAME=SPACESAIL&FORMAT=tle']
 };
-// 名称口径必须与构建脚本一致，避免 NAME= 的前缀匹配把别的星座也捞进来
-var NAME_OK = { gw: /HULIANWANG|GUOWANG|^GW-/i, qf: /QIANFAN|SPACESAIL|G60/i };
+// 名称口径必须与构建脚本一致，避免 NAME= 的前缀匹配把别的星座也捞进来。
+// ★ V1.9.3（**兼容性体检抓到的第二个缺口**）：原正则太窄，会把 **9 颗**已知属于本星座的星滤掉。
+//   实测（2026-10-13，拿真实 .tle 逐行试）：过名字过滤 235 / 被滤掉 **9** ——
+//     · `HULIANWAN GAOGUI-01/02/03`（**GEO 三星**！目录里写作 **`HULIANWAN`（单 G）**，
+//       而原正则要求 `HULIANWANG`（双 G）→ 三颗高轨业务星全部被滤掉 → 图上没有 GEO 点）
+//     · `CHUANGXIN 20A/B/C`（= 星网倾斜轨道试验星02组）、`CHUANGXIN 19`、`CHUANG XIN 26`
+//       —— 这三批在构建侧靠 `INCLUDE` 白名单**按批次点名纳入**（名字里根本没有星座关键字）
+//     · `OBJECT B`（= 2024-226B 的那颗 CX 试验星，同样是点名纳入）
+//   后果：**联网的用户**会比离线用户少 9 颗（含全部 GEO）—— 典型的"只在联网时出现"的缺口。
+//   修法：把构建侧 `INCLUDE` 白名单对应的名字形态一并认下来（`CHUANGXIN/CHUANG XIN`、
+//   `HULIANWAN`、`OBJECT B`），与 `NAME_OK` 的**原意**（别把别的星座捞进来）不冲突 ——
+//   这些名字在目录里只属于本星座，且最终仍会被 COSPAR 批次归属检查约束。
+var NAME_OK = {
+  gw: /HULIANWANG|HULIANWAN\b|GUOWANG|^GW-|CHUANG ?XIN|^OBJECT B$/i,
+  qf: /QIANFAN|SPACESAIL|G60|KL-?ALPHA|KL-?BETA|^DTC TEST OBJECT/i
+};
 var PROXIES = [
   function (u) { return 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u); },
   function (u) { return 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(u); }
@@ -8599,9 +8613,35 @@ function parseTleText(txt) {
   for (var i = 0; i + 2 < lines.length; i += 3) {
     var l1 = lines[i + 1], l2 = lines[i + 2];
     if (!/^1 /.test(l1) || !/^2 /.test(l2)) continue;
-    out.push({ name: lines[i], id: parseInt(l1.slice(2, 7), 10), c: l1.slice(9, 17).trim(), l1: l1, l2: l2 });
+    out.push({ name: lines[i], id: tleRealId(l1), c: l1.slice(9, 17).trim(), l1: l1, l2: l2 });
   }
   return out;
+}
+/**
+ * ★ V1.9.3（**兼容性体检抓到的静默缺口**）：TLE 文本里的编目号 → **真号**。
+ *
+ * 背景：CelesTrak 自 2026-07-11 起新编目对象一律 **6 位号**（100000+），而经典 TLE 格式的
+ *   编目号字段**只有 5 列** → 这些对象在 .tle 文本里只能写成"真号后 5 位"
+ *   （`100203` → `00203`）。
+ *
+ * 构建侧（`mkdata.mjs` 的 `parse`）一直经 `OMM_IDS` 还原成真号，所以**内置数据里是 100203**；
+ *   而本函数所在的"联网现拉最新 TLE"这条路径**原来完全没有还原** → 拿到的是 `203`。
+ *   实证（2026-10-13，Edge 探针打进真实产物）：
+ *     内置 36 颗 6 位号卫星（`100203:26176A`…）vs 联网拉到 36 颗占位号（`203:HULIANWANG DIGUI-178`）
+ *     —— 两套 id 对不上，于是**联网的用户会看到这 36 颗从表格/图表里消失或错位**
+ *     （含 GEO 三星 + 低轨23/26组），而离线用户一切正常：典型的"只在联网时出现"的静默缺口。
+ *
+ * 修法：映射由 `mkdata.mjs` 注入产物（`SATDATA.ommMap`，占位号 → 真号），这里按同一套口径还原。
+ *   ⚠️ 必须先 `padStart(5,'0')` 再查表 —— `parseInt('00203')` 得到 `203`，
+ *     而映射表的键是 `'00203'`（5 位定宽字符串）。不补齐就会**查不到**（静默退回占位号）。
+ */
+function tleRealId(l1) {
+  var raw5 = String(l1).slice(2, 7).trim();
+  if (!/^\d+$/.test(raw5)) return parseInt(raw5, 10) || 0;
+  var p5 = raw5.padStart(5, '0');
+  var m = (window.SATDATA && SATDATA.ommMap) || null;
+  if (m && m[p5] != null) return m[p5];
+  return parseInt(raw5, 10);
 }
 function fetchText(url, timeoutMs) {
   return new Promise(function (res, rej) {
@@ -8630,7 +8670,10 @@ function mergeTle(lists) {
 }
 // V1.4.0：同一次浏览会话里，30 分钟内不重复拉同一批要素 —— 省流量、二次打开瞬间完成。
 // 用 sessionStorage（关掉标签页就失效），所以不会让人看到过期很久的数据；读写失败一律忽略。
-var TLE_CACHE_KEY = 'cistrack.tle.v1', TLE_CACHE_MS = 30 * 60 * 1000;
+// ★ V1.9.3：**版本号 v1 → v2** —— 缓存里存的是解析后的对象（含 `id`），
+//   而本轮修了 `parseTleText` 的 id 口径（占位号 → 真号）。若不换 key，
+//   同一会话里先前缓存的旧 id（如 `203`）会被继续使用 → 修复对"已打开过页面的用户"不生效。
+var TLE_CACHE_KEY = 'cistrack.tle.v2', TLE_CACHE_MS = 30 * 60 * 1000;
 function cacheGet(group) {
   try {
     var raw = sessionStorage.getItem(TLE_CACHE_KEY);
