@@ -108,11 +108,16 @@ let log = '';
     return R(404, '');
   };
   try {
+    // ★ V1.9.3：关掉 refresh.mjs 的「数据新鲜度闸门」——
+    //   本测试喂的是**桩数据**（合成 TLE，历元是假的），必然触发"历元很旧"的判据，
+    //   而 exitCode 是**进程级**的 → 会污染本测试进程的退出码（实测打印了"落后 20739 天"）。
+    process.env.CISTRACK_SKIP_STALE_CHECK = '1';
     await import('file:///' + path.join(TMP, 'refresh.mjs').replace(/\\/g, '/'));
   } catch (e) {
     console.error('refresh 执行失败：' + (e && e.stack || e));
     process.exit(1);
   } finally {
+    delete process.env.CISTRACK_SKIP_STALE_CHECK;
     globalThis.fetch = realFetch;
     console.log = ol;
   }

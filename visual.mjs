@@ -1245,30 +1245,49 @@ ck('V1.9.0（R17）：最小二乘中心化 x —— 毫秒时间戳 + 40 天 +0
 // ③ 纵轴顶格限位 + 横轴到今天。
 //   ⚠️ 后两条**依赖历史数据**（climbView/climbPickOptions 在零数据下没有意义）→ 无数据时 SKIP；
 //      第一条 climbBounds 是纯函数，拿假曲线就能测，恒可测。
-// ★ V1.9.2（用户要求，参考 findrassvet 的「График 01」）：纵轴改为「**180 ~ 数据最高点**」，
-//   不再是 0~2000 的固定带。用假曲线验证新口径：半长轴 7291~8791 → 高度 912.9~2412.9，
-//   所以 y0 必须固定 180、y1 = 数据最高高度 × 1.04、fixed（纵向仍锁死不让缩放）、nobrk（不再走断轴）。
-ck('V1.9.2：04 章纵轴 = 「180 ~ 数据最高×1.04」（顶格限位仍在，纵向锁死不让缩放）', await ev(`(function(){
+// ★ V1.9.3（用户要求 · 参考图五）：纵轴改为「**贴合数据范围**」——
+//   下沿抬到数据下沿之下一点（不再是恒 180），上沿在数据最高之上一线。
+//   用假曲线验证：半长轴 7291~8791 → 高度 912.9~2412.9（跨度 1500），
+//   期望：下沿 ≤ 912.9 且离它不超过跨度的 20%、上沿 > 2412.9、fixed（纵向锁死）、nobrk。
+ck('V1.9.3：04 章纵轴 = 「数据下沿之下 ~ 数据最高之上」（贴合范围；顶格限位仍在，纵向锁死不让缩放）', await ev(`(function(){
   var K = window.__CISTRACK__;
   var fake = [{ pts:[{ms:Date.now()-86400000*40, v:7291},{ms:Date.now(), v:8791}], rates:[] }];
   var b = K.climbBounds(fake, 'sma');
-  if (b.y0 !== 180) return false;
-  var wantTop = (8791 - 6378.137) * 1.04;
-  if (Math.abs(b.y1 - wantTop) > 0.5) return false;
+  var lo = 7291 - 6378.137, hi = 8791 - 6378.137;   // 912.86 / 2412.86
+  var span = b.y1 - b.y0;
+  if (!(span > 0)) return false;
+  if (!(b.y0 <= lo + 0.01 && lo - b.y0 < span * 0.20)) return false;   // 下沿贴近数据下沿
+  if (!(b.y1 > hi)) return false;                                       // 上沿在数据最高之上
+  if (!(b.y1 - lo < span * 1.05)) return false;                         // 数据充满视图
+  if (b.y0 < 180) return false;                                         // 仍不越过地板
   if (b.fixed !== true) return false;
   if (b.nobrk !== true) return false;
   return true;
 })()`));
 if (!climbHasData) {
-  ckSkip('V1.9.0（R17）：横轴右端至少到今天（发射日～今天）', '本章暂无历史轨道数据，真实数据到位后重跑补测');
+  ckSkip('V1.9.3：横轴右端 = 数据末点（贴近今天时延伸到今天）', '本章暂无历史轨道数据，真实数据到位后重跑补测');
   ckSkip('V1.9.0（R17）：批次选择器倒序（最新发射在最上）且只列有历史数据的批次', '本章暂无历史轨道数据（选项数恒 0），真实数据到位后重跑补测');
 } else {
-  ck('V1.9.0（R17）：横轴右端至少到今天（发射日～今天）', await ev(`(function(){
+  ck('V1.9.3：横轴右端 = 数据末点（**贴近今天时**延伸到今天）—— 不再无条件拉到今天造成右侧大片空白', await ev(`(function(){
     var K = window.__CISTRACK__;
     var now = Date.now();
     K.climbAutoView();
     var v = K.climbView();
-    return !!v && v.x1 >= now - 86400000;               // 允许 1 天容差（跨 UTC 日界）
+    if (!v) return false;
+    // ★ V1.9.3：旧口径无条件要求 v.x1 >= now（"发射日～今天"）。
+    //   后果实测（26221 低轨26组，2026-10-13 打开）：数据只覆盖 10/05~10/09（4 天），
+    //   横轴却被拉到 09/25~10/13（18 天）→ 曲线挤在中间一小段、左右各空一大片
+    //   （用户截图四现场）。新口径：数据末点距今天 ≤3 天 → 延到今天；否则给到数据末点。
+    //   本条的判据：右端**不超过今天 + 容差**，且**不小于数据末点**（曲线不会被裁掉）。
+    var t1 = 0;
+    try {
+      var S = K.climbSeries();                       // visual 的探针（见文件头注入段）
+      (S.list || []).forEach(function (c) {
+        (c.pts || []).forEach(function (p) { if (p.ms > t1) t1 = p.ms; });
+      });
+    } catch (e) {}
+    if (!t1) return v.x1 >= now - 3 * 86400000;      // 探针缺失时退回旧语义的弱化版
+    return v.x1 >= t1 - 86400000 && v.x1 <= now + 86400000;
   })()`));
   ck('V1.9.0（R17）：批次选择器倒序（最新发射在最上）且只列有历史数据的批次', await ev(`(function(){
     var o = window.__CISTRACK__.climbPickOptions();

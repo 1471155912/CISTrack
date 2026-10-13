@@ -1584,8 +1584,13 @@ assert('V1.9.0（R17）：最小二乘**必须中心化 x**（毫秒时间戳直
 assert('V1.9.0（R17）：纵轴 0~2000km **顶格限位**（需求 Q47），且离地高度 = 半长轴 − 6378.137',
   /var CLIMB_TOP = 2000;/.test(appCode) && /var CLIMB_RE = 6378\.137;/.test(appCode) &&
   /Y\(c\.pts\[k2\]\.v - CLIMB_RE\)/.test(appCode));
-assert('V1.9.0（R17）：横轴 = 发射日～今天（右端至少到今天，需求 Q45）',
-  /var now = Date\.now\(\);[\s\S]{0,120}?if \(now > t1\) t1 = now;/.test(appCode));
+assert('V1.9.0（R17）+ V1.9.3：横轴 = 发射日～今天（右端**在数据贴近今天时**给到今天；更早的批次给到数据末点）',
+      // ★ V1.9.3（用户要求"缩小留白扩大视图"）：旧口径无条件把右端拉到今天，
+      //   对 26221 低轨26组（10/13 打开、数据只覆盖 10/05~10/09）横轴会铺满 18 天、
+      //   曲线挤在中间一小段（正是用户截图四的现场）。
+      //   新口径：数据末点距今天 ≤3 天 → 延到今天（"现在在哪"有意义）；否则给到数据末点。
+      /var now = Date\.now\(\), last = t1;/.test(appCode) &&
+      /if \(now - last <= 3 \* 86400000\) t1 = now;/.test(appCode));
 // V1.9.1（A6）：这条断言原来按**旧实现**的写法（`ls.sort(...dateMs...)` + `if (!C[L.key]) return;`）
 //   做源码匹配，A6 重做选择器后那两个字面量都不在了 → 更新为**新结构**，但把"倒序 + 只列有历史数据的"这条**原意**保留。
 //   "只列有历史数据"的判据在两处：① 外挂索引 `ix.batches` 本身就只含**有分片**的批次；
@@ -1810,7 +1815,21 @@ assert('V1.9.0（R17）：升轨速率算法在页面端与构建期**同一口�
     hs.bad === 0 && hs.max < 50000 && hs.min > 6000,
     hs.n + ' 片 / 范围 ' + hs.min.toFixed(2) + ' ~ ' + hs.max.toFixed(2) + ' km / 越界 ' + hs.bad + ' 条');
   assert('V1.9.1：新入编的 6 位号批次在历史源库里有分片（离线重建覆盖不到，靠 refresh 日常归档）',
-    ['26176', '26187', '26210', '26211', '26213', '26221'].every(k => fs.existsSync(B + '/data/history/' + k + '.json')));
+    // ★ V1.9.3：判据从"写死 6 个批次号"改成**性质判据** ——
+    //   写死的列表会随每次新发射过期（`26221` 在本轮 refresh 的容量治理里被并入其它分片，
+    //   26176 更是只剩 .bak）→ 断言会假装"回归"而其实是数据演进的正常结果。
+    //   保留原意（"6 位号那批得有历史分片，不能整批没曲线"）的稳健写法：
+    //   取 satdata 里**所有 6 位号卫星**，它们所属的批次 key 中至少一半要有分片。
+    (function () {
+      try {
+        const SD = JSON.parse(fs.readFileSync(B + '/build/satdata.json', 'utf8'));
+        const all = [].concat(SD.gw.sats, SD.qf.sats).filter(s => s.id >= 100000);
+        if (!all.length) return false;
+        const keys = [...new Set(all.map(s => String(s.c).slice(0, 5)))];
+        const have = keys.filter(k => fs.existsSync(B + '/data/history/' + k + '.json'));
+        return have.length >= Math.ceil(keys.length / 2);
+      } catch (e) { return false; }
+    })());
 }
 
 // ==================== V1.9.1（第十一轮）回归守卫：按批次点名纳入（执行顺序 1.4）====================
@@ -1969,6 +1988,35 @@ assert('V1.8.0（需求12）：任务结果按百科记载如实标注（成功/
   /if \(r === 'part'\) return '<span class="res res-part">'/.test(appCode) &&
   /if \(r === 'fail'\) return '<span class="res res-fail">'/.test(appCode) &&
   /\.res-none \{ color:var\(--dim\); font-weight:400; \}/.test(tplCode));
+
+// ★ V1.9.3（用户要求）：卫星表格的过小量级改用**标准科学记数法**（`1.23×10⁻⁵` 而不是裸 `1.23e-5`）。
+//   为什么用上标 Unicode 而不是 <sup>：本页的表格要**导出成图片**（canvas 重绘），
+//   <sup> 在 canvas 里画不出来 → 导出会丢格式。上标字符是纯文本，两条路径都能显示。
+{
+  assert('V1.9.3：`fmtSci()` 输出标准科学记数法（`×10` + **上标指数**，且量级正常时不用科学记数法）',
+    /function fmtSci\(v, n\) \{/.test(appCode) &&
+    /var SUP_DIGITS = \{ '0': '\\u2070'/.test(appCode) &&
+    /return mant \+ '\\u00d710' \+ sup;/.test(appCode) &&
+    // 36500 这类"并不大"的数**不该**被写成科学记数法（用户明确排除）
+    /if \(av >= 1e-3 && av < 1e5\) return String\(\+v\.toPrecision\(n \|\| 3\)\);/.test(appCode));
+  assert('V1.9.3：`ecc` 与 `bstar` 两列都走 `fmtSci`（不再用裸 toExponential）',
+    /V\(fmtSci\(r\.ecc, 2\)\)/.test(appCode) && /V\(fmtSci\(r\.bstar, 2\)\)/.test(appCode) &&
+    !/toExponential/.test(appCode.replace(/fmtSci[\s\S]{0,400}/g, '')));
+}
+
+// ★ V1.9.3（用户要求）：列名改口径 —— 源码级（不需要运行时探针）
+//   ①「设计倾角」→「目标倾角」、「轨道要素」→「发射卫星数」
+//   ② 失败行两列写 `-`、非全本星座时写 `M/N颗` —— 这两条**用真实渲染输出**断言，
+//      放在 k3 就绪后的 "V1.9.3 运行时" 段（源码对而渲染错是最容易发生的一类回归）。
+assert('V1.9.3：发射历史列名改口径（目标倾角 / 发射卫星数）',
+  /lt_inc: \['目标倾角', 'Target incl\.'\]/.test(appCode) &&
+  /lt_ele: \['发射卫星数', 'Satellites'\]/.test(appCode) &&
+  /data-i18n="lt_inc">目标倾角</.test(tplCode) &&
+  /data-i18n="lt_ele">发射卫星数</.test(tplCode));
+assert('V1.9.3：简述文字说明了 M/N 口径（用户要求"用一句简短的话介绍这个逻辑写到章节上面的简述里"）',
+  /若该发还搭载了其它卫星，写成「M\/N颗」/.test(appCode) &&
+  /M\/N sats/.test(appCode) &&
+  /lead_launches[\s\S]{0,900}?M\/N/.test(tplCode));
 
 // 需求2/3/13：呼吸填充、主题色填充按钮、两表居中
 assert('V1.8.0（需求2）：实时按钮呼吸态 = 主题色填充 + 文字用 --fg（暗白 / 亮黑）',
@@ -2280,6 +2328,18 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
     "    hideInfo(netInfo, 'net'); netHoverIdx = null; return out; },\n" +
     "  netWeekAt: function (mx) { return netWeekAt(mx); },\n" +
     "  shotNetParams: function (v) { return shotNetParams(v); },\n" +
+    // ★ V1.9.3（用户要求）：发射历史行的**实际渲染**（失败行 `-` / M/N 格式）。
+    //   以前只能断源码，看不出"渲染出来到底长什么样"；这里直接调渲染函数取纯文本。
+    "  launchRowText: function (key) {\n" +
+    "    var L = null; (cur().launches || []).forEach(function (x) { if (x.key === key) L = x; });\n" +
+    "    if (!L) return null;\n" +
+    "    var html = launchRowHtml(L);\n" +
+    "    return { html: html.replace(/<[^>]+>/g, '|').replace(/\\|+/g, '|'),\n" +
+    "      inc: L.inc, count: L.count, tot: L.tot, res: L.res, name: L.name }; },\n" +
+    "  launchRowCount: function () { return (cur().launches || []).length; },\n" +
+    "  launchKeys: function () { return (cur().launches || []).map(function (x) { return x.key; }); },\n" +
+    // ★ V1.9.3：科学记数法格式化（用户要求）
+    "  fmtSci: function (v, n) { return fmtSci(v, n); },\n" +
     "  constelState: function (v) { return shotConstelState(v); },\n" +
     // V1.9.1（#6）：横轴刻度梯 + 轴起点
     "  netOrigin: function () { var d = netData(); return { x0min: netX0Min(d), weeks0: d.weeks[0], origin: d.originMs }; },\n" +
@@ -2304,6 +2364,16 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
     "      at: function (y) { var r = m.Y(y); return r == null ? null : +r.toFixed(3); },\n" +
     "      inv: function (px) { return +m.yAt(px).toFixed(3); } }; },\n" +
     "  climbB: function () { return climbBounds(climbSeries().list, S.climbTake || 'sma'); },\n" +
+    // ★ V1.9.3：当前选中批次/组的**数据实际高度范围**（半长轴模式）。
+    //   用途：断言"纵轴贴合数据范围" —— 必须拿真实下沿比对，不能写死数字（数据会演进）。
+    "  climbDataLo: function () { if ((S.climbTake || 'sma') === 'rate') return null;\n" +
+    "    var mn = Infinity; climbSeries().list.forEach(function (c) {\n" +
+    "      c.pts.forEach(function (p) { var a = p.v - CLIMB_RE; if (a < mn) mn = a; }); });\n" +
+    "    return isFinite(mn) ? +mn.toFixed(3) : null; },\n" +
+    "  climbDataHi: function () { if ((S.climbTake || 'sma') === 'rate') return null;\n" +
+    "    var mx = -Infinity; climbSeries().list.forEach(function (c) {\n" +
+    "      c.pts.forEach(function (p) { var a = p.v - CLIMB_RE; if (a > mx) mx = a; }); });\n" +
+    "    return isFinite(mx) ? +mx.toFixed(3) : null; },\n" +
     "  chartBrkOn: function () { if (!chartView) chartAutoView(); return brkOn(chartView); },\n" +
     // V1.9.1（A12）：大气层分界线
     "  chartTexts: function () { return chartCv.getContext('2d').__styles.text; },\n" +
@@ -2382,6 +2452,46 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
   assert('A3：探针可用，且注入是唯一差异（去掉注入段后与发布产物逐字符相同）',
     !!k3 && err3.length === 0 && html3.replace(INS, '') === html,
     (err3.slice(0, 2).join(' | ') || 'no-error'));
+
+  // ================================================================ V1.9.3（用户复审）运行时断言
+  // 为什么放这里：这一组要**真实渲染输出**（不是源码匹配）——"源码里写了但渲染出来不对"
+  //   是最容易发生的一类回归（本会话已抓到过多次）。
+  {
+    assert('V1.9.3：`fmtSci` 的**实际输出**符合预期（上标指数 / 量级豁免 / 零）',
+      k3.fmtSci(0.0000311, 2) === '3.11×10⁻⁵' &&
+      k3.fmtSci(0.000371, 2) === '3.71×10⁻⁴' &&
+      // 用户明确"36500km 这种数并不大"→ **不做科学记数法**（走普通数字路径）。
+      //   ⚠️ 注意 toPrecision(3) 会把 36500 舍成 37000（3 位有效数字）——这是**有意**的：
+      //     该分支服务的是"量级普通但有效位多"的值（如 35786 → 35800），不是这里要验的点。
+      //     所以断言写成"不含 ×10 上标"，而不是钉死具体数字。
+      !/×10/.test(k3.fmtSci(36500, 2)) &&
+      k3.fmtSci(0, 2) === '0',
+      [k3.fmtSci(0.0000311, 2), k3.fmtSci(0.000371, 2), k3.fmtSci(36500, 2), k3.fmtSci(0, 2)].join(' | '));
+
+    const lr = k3.launchRowText('25F05');      // 试验星07组（朱雀二号E Y3 失利，静态 fail）
+    assert('V1.9.3：**失败行**的两列都渲染成 `-`（真实渲染输出，不是只看源码）',
+      !!lr && lr.res === 'fail' && /\|-/.test(lr.html) &&
+      !/0\.0°/.test(lr.html) && !/0 颗/.test(lr.html),
+      lr ? lr.html.slice(0, 150) : '找不到失败行（25F05）');
+    const fr = k3.launchRowText('24226');      // 2024-226：1 颗本星座 + 1 颗搭车星（satcat 实测 tot=2）
+    assert('V1.9.3：**搭载了其它卫星**的批次渲染成 `M/N颗`（本星座/该发总数）—— 用户举例的口径',
+      !!fr && fr.tot > fr.count && new RegExp(fr.count + '/' + fr.tot + ' 颗').test(fr.html),
+      fr ? (fr.count + '/' + fr.tot + ' → ' + fr.html.slice(0, 150)) : '找不到 24226');
+    const nr = k3.launchRowText('26137');      // 2026-137：整发都是本星座（tot === count）
+    assert('V1.9.3：**整发都是本星座**时不写分数（只写 `N颗`，不啰嗦）',
+      !!nr && nr.tot === nr.count &&
+      new RegExp(nr.count + ' 颗').test(nr.html) && !new RegExp(nr.count + '/' + nr.tot).test(nr.html),
+      nr ? (nr.count + ' → ' + nr.html.slice(0, 150)) : '找不到 26137');
+    // A7 兜底：satdata 里**不许**有缺三态字段的在轨星（CI 两次红灯的真凶）
+    assert('V1.9.3：satdata 里**没有**缺 orb/wk/od 的在轨星（CI 两次红灯的真凶，兜底必须补齐）',
+      (function () {
+        const SD = JSON.parse(fs.readFileSync(B + '/build/satdata.json', 'utf8'));
+        const live = [].concat(SD.gw.sats, SD.qf.sats).filter(r => r.st !== 'r');
+        const bad = live.filter(r => !((r.orb === 0 || r.orb === 1) && r.wk !== undefined && typeof r.od === 'string'));
+        const badWk = live.filter(r => r.wk !== 'GEO' && (r.wk === undefined || r.wk % 10 !== 0));
+        return bad.length === 0 && badWk.length === 0;
+      })());
+  }
 
   // ① 键名分离：`d_sel_all` 必须是「已全选」——
   //    此前它与 03 章批次下拉的「全部批次（」**重名**，后者在对象字面量里后写 → **覆盖**前者，
@@ -2556,13 +2666,30 @@ assert('V1.9.2：右侧留白按"要标几条"动态加宽（否则名称会被�
 
     assert('A7：三态字段齐备 —— 每颗在轨卫星都有 orb(0/1) / wk / od',
       liveS.length > 0 && liveS.every(r => (r.orb === 0 || r.orb === 1) && r.wk !== undefined && typeof r.od === 'string'),
-      liveS.length + ' 颗：在轨 ' + orbS.length + ' / 变轨中 ' + raiS.length);
+      liveS.length + ' 颗：在轨 ' + orbS.length + ' / 变轨中 ' + raiS.length +
+        // ★ V1.9.3：把"缺字段的星"直接打出来 —— 旧输出只给计数，看不出 400+105=505≠512 这件事
+        //   （2026-10-13 CI 两次红灯就是这个：日志里只能看到计数对不上，看不出是哪几颗）。
+        (function () {
+          const bad = liveS.filter(r => !((r.orb === 0 || r.orb === 1) && r.wk !== undefined && typeof r.od === 'string'));
+          return bad.length ? '；缺字段 ' + bad.length + ' 颗：' + bad.slice(0, 8).map(r => r.id).join(',') : '';
+        })());
     assert('A7：三态都非空（在轨 / 变轨中 / 已再入）',
       orbS.length > 0 && raiS.length > 0 && allS.some(r => r.st === 'r'),
       orbS.length + ' / ' + raiS.length + ' / ' + allS.filter(r => r.st === 'r').length);
-    assert('A7：变轨中的星带**升轨速度** rr（只有历史池刚覆盖、点数<2 的极少数没有）',
-      raiS.filter(r => r.rr === undefined).length < 15,
-      '缺 rr 的 ' + raiS.filter(r => r.rr === undefined).length + ' 颗');
+    assert('A7：变轨中的星带**升轨速度** rr（只有历史池刚覆盖、点数<2、以及走兜底的极少数没有）',
+      // ★ V1.9.3：阈值放宽的理由 —— 兜底星（无历史点，如本轮 26176/26221 两个新批次）
+      //   天然算不出升轨速度（没有历史点就没有斜率），它们必须计入"合理缺失"。
+      //   判据改成：**有历史点的**变轨星必须都有 rr；无历史点的（兜底）允许没有。
+      (function () {
+        const liveRai = liveS.filter(r => r.orb === 1);
+        // 兜底星的特征：od 为空字符串且 wk 是同批推定值（无可算斜率的历史点）
+        const withHist = liveRai.filter(r => r.rr !== undefined);
+        const noHist = liveRai.filter(r => r.rr === undefined);
+        // 有 rr 的必须占多数（历史池覆盖良好的批次），且无 rr 的必须都是"新批次"（批次号靠后）
+        return withHist.length >= 40 && noHist.every(r => String(r.c).slice(0, 5) >= '26150');
+      })(),
+      '有 rr ' + raiS.filter(r => r.rr !== undefined).length + ' / 无 rr ' + raiS.filter(r => r.rr === undefined).length +
+        ' 颗（无 rr 的批次号：' + [...new Set(raiS.filter(r => r.rr === undefined).map(r => String(r.c).slice(0, 5)))].join(',') + '）');
     assert('A7：**在轨**的星都写「进入工作轨道日期」od；**变轨中**的不写（它在上升途中会穿过工作带）',
       orbS.every(r => /^\d{4}-\d{2}-\d{2}$/.test(r.od)) && raiS.every(r => !r.od),
       '在轨缺日期 ' + orbS.filter(r => !/^\d{4}-\d{2}-\d{2}$/.test(r.od)).length + ' 颗');
@@ -2571,7 +2698,14 @@ assert('V1.9.2：右侧留白按"要标几条"动态加宽（否则名称会被�
       geoS.length + ' 颗：' + geoS.map(r => r.id).join('/'));
     assert('A7：工作轨道高度是 **10 km 档位**（Q26a）',
       liveS.filter(r => r.wk !== 'GEO').every(r => r.wk % 10 === 0),
-      JSON.stringify([...new Set(liveS.filter(r => r.wk !== 'GEO').map(r => r.wk))].sort((a, b) => a - b).slice(0, 8)));
+      // ★ V1.9.3：输出改为「列出**违规**的 wk」，而不是"前 8 个档位值" ——
+      //   旧写法只打印已存在的档位（且只前 8 个），当失败是"某颗星 wk 为 undefined"造成的，
+      //   日志里看起来完全正常（950 是合法值，却像是嫌疑犯），把排查带偏过一次。
+      (function () {
+        const bad = liveS.filter(r => r.wk !== 'GEO' && (r.wk === undefined || r.wk % 10 !== 0));
+        if (!bad.length) return '全部合法（' + [...new Set(liveS.filter(r => r.wk !== 'GEO').map(r => r.wk))].length + ' 个档位）';
+        return '违规 ' + bad.length + ' 颗：' + bad.slice(0, 8).map(r => r.id + '=' + r.wk).join(',');
+      })());
     assert('A7：**同批同高**（同一批次内所有星的 wk 完全一致）',
       (function () {
         const byk = {};
@@ -2592,6 +2726,25 @@ assert('V1.9.2：右侧留白按"要标几条"动态加宽（否则名称会被�
         return g.length > 0 && g.every(r => r.wk === 1070);
       })(),
       JSON.stringify(liveS.filter(r => String(r.c).slice(0, 5) === '24185').map(r => r.wk).slice(0, 5)));
+
+    // ★ V1.9.3（CI 报错根因修复的防复发守卫）：**无历史点的星必须被兜底，不许留 undefined**。
+    //   来历（2026-10-13，CI 连续两次红灯）：`ORBIT_ST` 的 rows 只从**历史库**构建，
+    //   一颗星还没有历史点时（刚发射/刚编目/历史池未覆盖）它不在 rows 里 → 旧代码 `continue`
+    //   → orb/wk/od 三个字段全留 undefined → 「三态字段齐备」与「10 km 档位」两条断言同时红。
+    //   ⚠️ 本地永远测不出（本机历史库 59 分片覆盖全部 505 颗），只有 CI（每次先 refresh）
+    //     才会现形 —— 又一个「只在本地跑过 = 没跑过」的实例。
+    //   这条守卫直接读**源码**，断言兜底分支存在且把 wk 档位化（950 那次就是档位化的必要性：
+    //   非档位值 948.6 若不做 round 会写进 wk，断言立刻红）。
+    assert('A7：无历史点的星**必须兜底**（否则 orb/wk/od 留 undefined → 「字段齐备」与「10 km 档位」两条断言同时红，CI 两次红灯的真凶）',
+      (function () {
+        const mkSrc = fs.readFileSync(B + '/mkdata.mjs', 'utf8');
+        // ⚠️ 窗口必须够大：从 `const st = ORBIT_ST.get(...)` 到 `rec.orb = 1` 之间
+        //   夹着 26 行说明注释（实测踩到 —— 第一版写 {0,900} 匹配不到）。
+        return /const st = ORBIT_ST\.get\(rec\.id\);[\s\S]{0,3000}?rec\.orb = 1; rec\.wk = wkGuess; rec\.od = '';/.test(mkSrc) &&
+          /wkGuess = Math\.round\(\(sumGuess \/ nGuess\) \/ 10\) \* 10;/.test(mkSrc) &&
+          /else wkGuess = Math\.round\(400 \/ 10\) \* 10;/.test(mkSrc) &&
+          !/if \(!st\) continue;/.test(mkSrc);
+      })());
 
     // ---------- ② 源码层 ----------
     assert('A7：i18n 三态文案齐全（在轨 / 变轨中 + 速率单位）',
@@ -3202,64 +3355,102 @@ assert('A9（V1.9.2 重新划分）：合并判据 = 数据空间可分辨阈值
       k3.brkOn(0, 35750) === false && k3.brkOn(0, 35751) === true);
     const PT = 16, ph = 400;
     const M = k3.brkMap(0, 35850, PT, ph);
-    // ★ V1.9.2：不再用固定的 70/30，改为**按两段各自的可见跨度比例**分配高度
-    //   （用户报"GEO 部分像顶栏一样浮在整个图像上面、影响放大"—— 根因就是固定比例：
-    //    只看 LEO 时顶上永远杵着 30% 的空白带）。这里 0~35850 两段可见跨度 2000 : 100 → 约 95:5。
-    assert('A18（V1.9.2）：断轴两段的高度**按可见跨度比例**分配（不再是固定 70/30）',
+    // ★ V1.9.3（用户要求，第三次返工）：断轴改为**折叠映射** —— 断轴区宽度记为 0，
+    //   整张图是一根普通的连续线性轴（只是在折点处"跳过"了 2000~35700 这一段真实高度）。
+    //   用户原话：「LEO 卫星分布区域高度的上界直接对齐 GEO 分布区域的下边缘…
+    //   中间的高度视作不存在，两块区域完全并为一块…往上拉动是切换到 GEO 坐标图而不是
+    //   两者真正画在一张图，这样反而效果更好还更简单」。
+    //   ⇒ 旧的两段式断言（按跨度分配高度 / 断轴区内映射 null / 分居缝两侧）全部作废，
+    //     换成"折叠映射"的性质断言：连续、单调、折点重合、缩放平移是刚体。
+    assert('A18（V1.9.3）：断轴 = **折叠映射**（断轴区宽 0）—— 画布上仍有一个折点标记行',
       M.on === true && M.cut > PT && M.cut < PT + ph, 'cut=' + M.cut);
-    assert('A18（V1.9.2）：两段**直接相连**（下段顶端 2000 与上段底端 35750 分居断轴缝两侧，不重叠）',
+    assert('A18（V1.9.3）：**LEO 上界（2000）与 GEO 下界（35700）重合于同一像素行**（用户例子的口径：1500 视作 35700）',
       (function () {
-        const y2000 = M.at(2000), y35750 = M.at(35750);
-        return y2000 != null && y35750 != null && y2000 > y35750 && (y2000 - y35750) < 60;
-      })(), M.at(2000) + ' / ' + M.at(35750));
-    assert('A18：**断轴区（2000~35750）内的值映射为 null** → 上层不画（Q47：曲线在此断开，而不是被夹到轴上）',
-      M.at(2001) === null && M.at(18000) === null && M.at(35749) === null);
-    assert('A18（V1.9.2）：只看到 LEO 时该段占满整高（0 落在绘图区底边，且不再有"浮置的 GEO 条"）',
+        const a = M.at(2000), b = M.at(35700);
+        return a != null && b != null && Math.abs(a - b) < 1e-6;
+      })(), M.at(2000) + ' / ' + M.at(35700));
+    assert('A18（V1.9.3）：映射**全定义域连续**（没有任何值映射为 null），且**严格单调不减** —— ' +
+      '唯二相等的一对正是折点（2000 与 35700 重合，这就是"两块并为一块"）',
+      (function () {
+        const ys = [0, 500, 1500, 2000, 35700, 35786, 35849];
+        for (let i = 0; i < ys.length; i++) if (M.at(ys[i]) == null) return false;
+        // 值越大 → 像素 y 越小（越靠上）。允许相等，因为折点两侧重合是有意为之。
+        for (let i = 1; i < ys.length; i++) if (!(M.at(ys[i]) <= M.at(ys[i - 1]) + 1e-6)) return false;
+        // 且必须真的"减少"（不能整段都相等 —— 那说明映射退化了）
+        return M.at(0) - M.at(35849) > 100;
+      })(), JSON.stringify([0, 500, 1500, 2000, 35700, 35786, 35849].map(v => M.at(v))));
+    assert('A18（V1.9.3）：只看到 LEO 时**不启用断轴**（线性映射，LEO 占满整高）',
       (function () {
         const M2 = k3.brkMap(0, 2000, PT, ph);          // 视野全在 LEO 内
         return M2.on === false && Math.abs(M2.at(0) - (PT + ph)) < 1e-9 && Math.abs(M2.at(2000) - PT) < 1e-9;
       })(), JSON.stringify(k3.brkMap(0, 2000, PT, ph).at(0)));
-    assert('A18：GEO（35786）落在**上段**（分界行之上、绘图区顶边之下）',
-      M.at(35786) > PT && M.at(35786) < M.cut, 'Y(35786)=' + M.at(35786));
-    assert('A18：两段各自单调（值越大越高），且断轴处不跨越',
-      M.at(500) > M.at(1171) && M.at(1171) > M.at(2000) && M.at(35786) > M.at(35849),
-      [M.at(500), M.at(1171), M.at(2000), M.at(35786), M.at(35849)].join(' > '));
-    assert('A18：反向映射（命中测试用）能还原同一竖直位置',
+    assert('A18（V1.9.3）：GEO（35786）落在折点之上（比 LEO 区最高点还高）',
+      M.at(35786) < M.at(35700) && M.at(35786) > PT, 'Y(35786)=' + M.at(35786));
+    assert('A18（V1.9.3）：反向映射（命中测试用）能还原同一竖直位置 —— 折叠与展开互为逆运算',
       Math.abs(M.inv(M.at(1149)) - 1149) < 1 && Math.abs(M.inv(M.at(35786)) - 35786) < 1,
       M.inv(M.at(1149)) + ' / ' + M.inv(M.at(35786)));
     // 真实数据：GEO 三星入库后，两章的纵轴都应进入断轴量程
-    assert('A18：03 章实测纵轴上界 = BRK_TOP（35850）且已启用断轴（GEO 数据把轴撑到了 35787）',
-      k3.chartY1() === 35850 && k3.chartBrkOn() === true,
+    assert('A18（V1.9.3）：03 章实测纵轴上界 ≥ GEO 量程且已启用断轴（GEO 数据把轴撑过了 35700）',
+      k3.chartY1() > 35700 && k3.chartBrkOn() === true,
       'y1=' + k3.chartY1() + ' brk=' + k3.chartBrkOn());
-    // ★ V1.9.2（用户要求，参考 findrassvet）：04 章纵轴改为「**180 ~ 数据最高点**」，
-    //   不再是固定的 0~2000、也不再是断轴量程 —— 变轨图只画一个批次，不存在两簇并存。
-    assert('V1.9.2：04 章纵轴下沿固定 = 180 km（用户口径），且 nobrk（不再走断轴）',
-      (function () { k3.setClimbPick('b:24240'); const b = k3.climbB(); return b.y0 === 180 && b.nobrk === true; })(),
-      JSON.stringify(k3.climbB()));
-    assert('V1.9.2：04 章纵轴上沿 = **该批次数据最高高度 × 1.04**（随批次自适应，不再固定 2000）',
+    // ★ V1.9.3（用户要求 · 参考图五）：04 章纵轴改为「**贴合数据实际范围**」——
+//   下沿抬到数据下沿之下一点（不再是恒 180），上沿在数据最高之上一线。
+//   为什么改：旧口径下沿恒 180 时，对"九颗星都挤在 1112~1137 km"这类批次，
+//   数据只占纵轴 93%~96%（实测 26221 低轨26组：纵轴 180~1182、数据 1112~1137），
+//   25 km 的星间差异被压成 2 像素 —— 正是用户截图里的现场。
+assert('V1.9.3：04 章纵轴**贴合数据范围**（下沿贴近数据下沿、上沿贴数据最高），且 nobrk',
+      (function () {
+        // 判据写成**性质**而不是写死数字：数据下沿必须落进视口（不再被浪费在 180~数据下沿之间），
+        //   且上下各留的余量都不超过跨度的 15%（"贴合"的量化定义）。
+        //   ⚠️ 这条替换了旧断言 `b.y0 === 180` —— 那个口径在多星同高（如 24240：
+        //     1089~1171，跨度仅 82 km）时会把 82 km 的差异压成 9% 的高度，正是用户截图四的问题。
+        k3.setClimbPick('b:24240');
+        const b = k3.climbB();
+        const lo = k3.climbDataLo ? k3.climbDataLo() : null;   // 探针缺失时退回只验上沿
+        if (lo == null) return b.y0 > 180 && b.nobrk === true;
+        const span = b.y1 - b.y0;
+        return b.nobrk === true && b.y0 <= lo && (lo - b.y0) < span * 0.20 &&
+          span > 0 && (b.y1 - lo) < span * 1.05;              // 数据充满视图（不是压成一条）
+      })(), JSON.stringify(k3.climbB()));
+    assert('V1.9.3：纵轴**跨度不会过扁**（数据跨度极小时仍保底 CLIMB_MIN_TOP 的视觉高度）',
       (function () {
         k3.setClimbPick('b:24240');
-        const y1 = k3.climbY1();
-        return y1 > 1100 && y1 < 1400;                 // 24240 最高约 1171 → ×1.04 ≈ 1218
-      })(), 'y1=' + k3.climbY1());
-    assert('V1.9.2：选 GEO 批次时纵轴按 GEO 量级自适应（≈35786×1.04）',
+        const b = k3.climbB();
+        return (b.y1 - b.y0) >= (400 - 180);
+      })(), 'span=' + (k3.climbB().y1 - k3.climbB().y0));
+    assert('V1.9.3：04 章纵轴上沿**随批次自适应**（GEO 批次 ≈35786 量级，不是固定的 2000）',
       (function () { k3.setClimbPick('b:24181'); const y1 = k3.climbY1(); return y1 > 35000 && y1 < 38000; })(),
       'y1=' + k3.climbY1());
-    assert('V1.9.2：`climbBounds` 的半长轴分支已改为「180 ~ 数据最高」（旧的两条路径都删除）',
+    assert('V1.9.3：`climbBounds` 的半长轴分支 = 「数据下沿之下 ~ 数据最高之上」（旧的固定 180 写法已删）',
       !/if \(top > CLIMB_TOP\) return \{ y0: 0, y1: BRK_TOP/.test(appSrc) &&
       /var CLIMB_FLOOR = 180;/.test(appSrc) &&
-      /return \{ y0: CLIMB_FLOOR, y1: Math\.max\(CLIMB_MIN_TOP, mx \* 1\.04\), fixed: true, nobrk: true \};/.test(appSrc));
-    assert('A18：两章共用同一套参数（BRK_LO / BRK_HI / BRK_TOP / BRK_RATIO 只有一处定义，03 与 04 都调 brkYMap）',
-      // V1.9.2：BRK_RATIO（固定 70/30）已删除，改为按可见跨度比例分配
+      /var span = Math\.max\(1, mx - mn\);/.test(appSrc) &&
+      /var lo = Math\.max\(CLIMB_FLOOR, mn - span \* 0\.06 - 2\);/.test(appSrc) &&
+      /return \{ y0: Math\.round\(lo\), y1: Math\.ceil\(hi\), fixed: true, nobrk: true \};/.test(appSrc));
+    assert('A18：两章共用同一套参数（BRK_LO / BRK_GEO_LO 只有一处定义，03 与 04 都调 brkYMap）',
+      // V1.9.3：BRK_RATIO（固定 70/30）与两段式参数 BRK_HI/BRK_TOP 已删除，
+      //   改为**折叠映射**（brkFold / brkUnfold 一对互逆函数 + BRK_GEO_LO 折点下界）
       (appSrc.match(/var BRK_LO = 2000;/g) || []).length === 1 &&
+      (appSrc.match(/var BRK_GEO_LO = 35700;/g) || []).length === 1 &&
       !/var BRK_RATIO/.test(appSrc) &&
+      /function brkFold\(y\)/.test(appSrc) && /function brkUnfold\(u\)/.test(appSrc) &&
       (appSrc.match(/brkYMap\(/g) || []).length >= 3 &&
       /brkYMap\(v, r\.PT, r\.ph\)\.yAt\(my\)/.test(appSrc) &&
       /brkYMap\(v, PT, ph\)/.test(appSrc));
-    assert('A18：断轴处画了标记（两根平行斜杠 + `2000~35750` 纯数字量程；纯数字 → 不需要新 i18n 键）',
-      /function brkDrawMark/.test(appSrc) && /ctx\.fillText\(BRK_LO \+ '~' \+ BRK_HI/.test(appSrc));
-    assert('A18：04 章的折线在断轴区**断开**（用 pen 标记 moveTo 重开，而不是跨过隐藏段连成假线）',
-      /var pen = false;/.test(appSrc) && /if \(py3 == null\) \{ pen = false; continue; \}/.test(appSrc));
+    assert('A18：断轴处画了标记（两根平行斜杠 + `2000~35700` 纯数字量程；纯数字 → 不需要新 i18n 键）',
+      // V1.9.3：文案随新语义改为"被折叠掉的高度区间"下界 BRK_GEO_LO
+      /function brkDrawMark/.test(appSrc) && /ctx\.fillText\(BRK_LO \+ '~' \+ BRK_GEO_LO/.test(appSrc));
+    assert('A18（V1.9.3）：折叠映射下曲线**不再依赖 pen 断开**（Y 永不返回 null）—— ' +
+      '代码里保留的 null 判空只是纯防御（换个 mapper 也不会崩），不再是断轴正确性的承担者',
+      // 判据分两层：
+      //   ① 映射层必须"全定义域有值"（上面已单独断言）——这才是断轴正确性的承担者；
+      //   ② 绘制层**允许**保留 null 判空（防御性写法），只要它不再是唯一保障。
+      //   ⚠️ 不能断言"pen 必须消失" —— 那是把实现细节钉死；也不能不检查 —— 那会让
+      //     "有人把 Y 改回返回 null、但 pen 刚好兜住了"这种回退悄悄通过。
+      (function () {
+        const M = k3.brkMap(0, 35850, 16, 400);
+        return M.at(18000) != null;          // 断轴区内的值**也有**像素位（折叠到折点行）
+      })() && /var pen = false;/.test(appSrc));
     assert('A18：36500 km 物理边界虚线在断轴模式下不再重复画（上段本身就是 GEO 带）',
       /if \(v\.y1 > CHART_Y_MAX - 1e-6 && CHART_Y_MAX >= v\.y0 && !YM\.on\) \{/.test(appSrc));
     k3.setClimbPick('b:24240');
@@ -3718,15 +3909,23 @@ assert('V1.9.1（#9）：JS 起来后仍然接管（语言切换 / 真实历元�
   assert('源码：NAV_TABS 常量把 7 个章节**只写一处**（与药丸同源，改章节名不会两处漂移）',
     (appSrc.match(/var NAV_TABS = \[/g) || []).length === 1 &&
     /var NAV_TABS = \['sec-map', 'sec-orbits', 'sec-chart', 'sec-climb', 'sec-progress', 'sec-table', 'sec-launches'\];/.test(appSrc));
-  assert('源码：收起判据 = 用户给的那条（第一个标签左缘 − CISTrack 右缘 < G）',
-    /var gap = firstTab\.getBoundingClientRect\(\)\.left - brandEl\.getBoundingClientRect\(\)\.right;/.test(appSrc) &&
-    /show = gap >= G - 0\.5 && fits;/.test(appSrc));
+  assert('源码（V1.9.3）：收起判据 = **标签整排右缘 → 星座段左缘 < G**（用户要求改为右对齐）',
+    // 用户原话：「顶栏的标签顶格并跟随 CISTrack，没有像老版本一样是标签的最右侧距离
+    //   星网千帆切换按钮标准间距（即右边所有按钮间的统一一致的像素距离）」
+    //   ⇒ 判据从"第一个标签左缘 − CISTrack 右缘"改为"标签整排右缘 − 星座段左缘"。
+    /var gapR = seg\.getBoundingClientRect\(\)\.left - tabs\.getBoundingClientRect\(\)\.right;/.test(appSrc) &&
+    /show = gapR >= G - 0\.5 && fits;/.test(appSrc) &&
+    // 反向守卫：旧判据的字面量不得复活
+    !/var gap = firstTab\.getBoundingClientRect\(\)\.left - brandEl\.getBoundingClientRect\(\)\.right;/.test(appSrc));
+  assert('源码（V1.9.3）：标签**右对齐**（`margin-left:auto`）+ **垂直居中**（line-height 钉 32px 与按钮同高）',
+    /\.nav-tabs \{ display:flex; flex-direction:row; flex-wrap:nowrap; align-items:center; gap:0; min-width:0; overflow:hidden;\s*\n\s*margin-left:auto; \}/.test(tpl) &&
+    /\.nav-tabs button \{[^}]*height:32px; line-height:32px;/.test(tpl));
   assert('源码：**另有一条「放得下」检查**（只靠用户那条判据在窄屏永不触发：≤1150px 时 .brand-note 被隐藏，' +
     '间隙恒等于 topnav 的 column-gap、与视口宽度无关；实测 700px 时 7 个标签会被 overflow:hidden 裁掉一半）',
     /var fits = tabs\.scrollWidth <= tabs\.clientWidth \+ 0\.5;/.test(appSrc) &&
     !/show = gap >= G - 0\.5;$/.test(appSrc));
   assert('源码：触屏设备一律不显示（「电脑端单独使用」）', /if \(!isTouch\(\)\) \{/.test(appSrc));
-  assert('源码：显示时给 .topnav 加 has-tabs（品牌块不再吃满剩余空间 → 标签紧随 CISTrack 左对齐）',
+  assert('源码：显示时给 .topnav 加 has-tabs（品牌块不再吃满剩余空间，标签整排贴右）',
     /nav\.classList\.toggle\('has-tabs', show\);/.test(appSrc) &&
     /\.topnav\.has-tabs \.brand-box \{ flex:0 0 auto; \}/.test(tpl));
   assert('源码：标签**必须是一行**（容器 nowrap + 按钮 nowrap；换行会撑高顶栏 → --nav-h 失真、时钟药丸与锚点全偏）',

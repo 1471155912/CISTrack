@@ -212,14 +212,28 @@ body { overflow-x:hidden;   /* V1.4.5：同上（部分浏览器需要 body 上�
      绝不能换行（换行会把顶栏撑高、顶栏高度变量 --nav-h 随之失真，时钟药丸与锚点定位都会偏）；
    · 分隔用极淡的竖线（`+ button::before`），比 gap 更省横向空间；
    · 当前章高亮用主题色下划线（与右下角药丸的 `on` 态同一套色）。 */
-.nav-tabs { display:flex; flex-direction:row; flex-wrap:nowrap; align-items:center; gap:0; min-width:0; overflow:hidden; }
+/* ★ V1.9.3（用户要求）：标签改为**右对齐**。
+   用户原话：「顶栏的标签顶格并跟随 CISTrack，没有像老版本一样是标签的最右侧距离
+   星网/千帆切换按钮标准间距（即右边所有按钮间的统一一致的像素距离）」
+   —— 旧版是「紧随 CISTrack 左对齐」（判据 = 第一个标签左缘 − CISTrack 右缘），
+   现在改成「**最后一个标签右缘 → 星座段左缘** = 统一间距 G」，与
+   「星座段右缘 → 中英文键左缘」「中英文键右缘 → 主题键左缘」三处完全同值。
+   实现：.nav-tabs 用 `margin-left:auto` 顶到 .nav-right 的右端；
+   .nav-right 的 padding-right 已由 layoutNav() 设为「按钮区总宽 + 间距」，故标签自动停在
+   距按钮区 G 的位置（G 由 layoutNav 写入 --nav-tabs-gap，见该处）。
+   ⚠️ 垂直居中：字体 11px 但按钮 padding 上下不等（6/4）→ 文字视觉中线偏下 1px。
+     这里用 line-height 钉死 32px（与 .nav-actions 的按钮高度同值、与 .topnav 的
+     align-items:center 叠加），使标签文字的**中轴线**与三个按钮的**中心线**严格同高。 */
+.nav-tabs { display:flex; flex-direction:row; flex-wrap:nowrap; align-items:center; gap:0; min-width:0; overflow:hidden;
+  margin-left:auto; }
 .nav-tabs.off { display:none; }
-.nav-tabs button { position:relative; background:transparent; border:0; border-bottom:2px solid transparent; color:var(--dim); font-family:var(--mono); font-size:11px; letter-spacing:0.05em; padding:6px 8px 4px; cursor:pointer; white-space:nowrap; transition:color .24s var(--ease), border-color .24s var(--ease); }
+.nav-tabs button { position:relative; background:transparent; border:0; border-bottom:2px solid transparent; color:var(--dim); font-family:var(--mono); font-size:11px; letter-spacing:0.05em; padding:0 8px; height:32px; line-height:32px; cursor:pointer; white-space:nowrap; transition:color .24s var(--ease), border-color .24s var(--ease); }
 .nav-tabs button:hover { color:var(--fg); }
 .nav-tabs button.on { color:var(--row-sel); border-bottom-color:var(--row-sel); }
 .nav-tabs button + button::before { content:''; position:absolute; left:0; top:50%; transform:translateY(-50%); width:1px; height:11px; background:var(--hair); }
-/* 标签显示时：品牌块不再吃满剩余空间 → 标签紧随 CISTrack 之后左对齐（与用户给的判据一致：
-   判的就是"第一个标签左缘 → CISTrack 右缘"的距离）。收起时回到原布局（品牌块吃掉剩余空间）。 */
+/* 标签显示时：品牌块不再吃满剩余空间（否则会把标签推走）；.nav-right 吃掉剩余空间，
+   .nav-tabs 靠 margin-left:auto 贴在右端 —— 位置由「按钮区让位宽度」唯一决定，
+   与中英文制表宽度无关（英文标签更宽时，多出来的宽度向左生长，右缘不动）。 */
 .topnav.has-tabs .brand-box { flex:0 0 auto; }
 .topnav.has-tabs .nav-right { flex:1 1 auto; margin-left:0; justify-content:flex-start; }
 /* V1.7.2（需求5/9）：gap 与 layoutNav() 里的 G 取同一值（宽屏 12 / 窄屏 8），
@@ -368,7 +382,13 @@ section.fs-mobile .fs-exit-btn { display:flex; }
 /* 第一行末尾的词条口径括号（更小一号，随数字后换行）；第二行是换行的「（另有 N 颗待编目）」 */
 .hero-kv .v .sub2 { font-size:var(--fs-sub); color:var(--faint); font-style:normal; }
 .hero-kv .v .sub { display:block; margin-top:3px; font-style:normal; font-size:var(--fs-sub); color:var(--dim); }
-.hero-note { color:var(--dim); font-size:var(--fs-note); max-width:62ch; line-height:1.7; }
+/* ★ V1.9.3（用户要求）：简介文本框右边缘必须与上方 hero-kv 表格、下方搜索按钮**对齐**。
+   用户原话：「简介所在的文本框右侧没有和所有内容的统一右侧边缘对齐（其上方表格和下方搜索按钮的右边缘）」。
+   旧写法 `max-width:62ch` 按**字符数**限宽 —— 与所在列的实际像素宽无关，于是在宽屏下
+   明显短于同列的 hero-kv / hero-search，右缘缩进一截，看起来像"没对齐"。
+   改为 `max-width:none` 撑满整列（该列本身由 .hero 的 grid 控制，右缘天然与表格/搜索框同一条线）。
+   同理 .sec-lead 的 82ch 也去掉：各章简述同样要与该章的表格/控件右缘对齐。 */
+.hero-note { color:var(--dim); font-size:var(--fs-note); max-width:none; line-height:1.7; }
 
 section { padding:56px 40px 64px; border-bottom:1px solid var(--hair); scroll-margin-top:calc(var(--nav-h, 60px) + 8px); }
 /* 全屏一律走「小窗」版式（手机端与电脑端同款）：画布铺满，设置收进左侧可开合的小窗 */
@@ -379,7 +399,9 @@ section:fullscreen { background:var(--bg); }
 .sec-num { position:absolute; top:14px; right:0; font-family:var(--mono); color:var(--faint); font-size:13px; letter-spacing:0.2em; }
 .sec-tools { display:flex; flex-direction:column; gap:10px; align-items:flex-end; margin-top:10px; }
 .note { color:var(--dim); font-size:var(--fs-note); margin:14px 0 0; max-width:96ch; line-height:1.6; white-space:pre-line; }
-.sec-lead { color:var(--dim); font-size:var(--fs-note); line-height:1.6; margin:6px 0 22px; max-width:82ch; }
+/* ★ V1.9.3（用户要求）：各章简述也去掉按字符数的限宽 —— 与 .hero-note 同一诉求
+   （简述右缘必须与该章表格/控件的右缘对齐）。 */
+.sec-lead { color:var(--dim); font-size:var(--fs-note); line-height:1.6; margin:6px 0 22px; max-width:none; }
 .sec-lead.below { margin:18px 0 0; }
 .sec-lead b, .note b { color:var(--fg); font-weight:600; }
 
@@ -2275,8 +2297,8 @@ html[data-theme="light"] .res-fail { color:#c72929; }
       <th data-i18n="lt_rocket">运载火箭</th>
       <th data-i18n="lt_time">发射时间 (北京时间)</th>
       <th data-i18n="lt_site">发射地点</th>
-      <th data-i18n="lt_inc">设计倾角</th>
-      <th data-i18n="lt_ele">轨道要素</th>
+      <th data-i18n="lt_inc">目标倾角</th>
+      <th data-i18n="lt_ele">发射卫星数</th>
       <th data-i18n="t_result">任务结果</th>
     </tr></thead>
     <tbody id="launchBody"></tbody>

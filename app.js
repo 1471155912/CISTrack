@@ -116,8 +116,8 @@ var I18N = {
     'Where every satellite of the constellation is right now, the coverage zone its signal reaches on the ground, and its ground track for half an orbit before and after now.'],
   lead_table: ['当前全部在轨卫星的轨道要素：半长轴、近地点、远地点、倾角、周期、在轨天数、轨道面升交点赤经、偏心率和轨道要素历元。默认按 NORAD 编号从大到小排列（新发射的在前），点击表头可换列或换方向；点击行选中卫星（再点一次或点空白处取消）；点击「批次」可直接选中该批次的全部卫星。',
     'Orbital elements of every in-orbit satellite: semi-major axis, perigee, apogee, inclination, period, days in orbit, RAAN, eccentricity and element epoch. Sorted by NORAD number, newest first, by default — click a header to sort by another column or reverse. Click a row to select a satellite (click again or click empty space to clear); click the group name to select the whole group.'],
-  lead_launches: ['星座已发射的全部批次，含发射时间、运载火箭与发射场。标注「待编目」的批次已入轨：目录里已给出临时编号与摘要参数（周期/倾角/高度，见该行小字），但完整轨道要素尚未公开，因此不出现在图表与地图里。点击批次名即可选中该批次的全部在轨卫星（再点一次取消）。',
-    'Every group launched so far, with launch time, launch vehicle and launch site. Groups marked "pending" are in orbit: the catalog already lists temporary numbers and summary parameters (period / inclination / altitude — see the small print on that row) but their full elements are not public yet, so they are absent from the chart and map. Click a group name to select all its in-orbit satellites (click again to clear).'],
+  lead_launches: ['星座已发射的全部批次，含发射时间、运载火箭与发射场。「发射卫星数」写的是本星座的颗数；若该发还搭载了其它卫星，写成「M/N颗」（M = 本星座、N = 该发总颗数）。标注「待编目」的批次已入轨：目录里已给出临时编号与摘要参数（周期/倾角/高度，见该行小字），但完整轨道要素尚未公开，因此不出现在图表与地图里。点击批次名即可选中该批次的全部在轨卫星（再点一次取消）。',
+    'Every group launched so far, with launch time, launch vehicle and launch site. The "Satellites" column counts this constellation\'s satellites; when the launch carried other satellites too it reads "M/N sats" (M = this constellation\'s, N = the whole launch). Groups marked "pending" are in orbit: the catalog already lists temporary numbers and summary parameters (period / inclination / altitude — see the small print on that row) but their full elements are not public yet, so they are absent from the chart and map. Click a group name to select all its in-orbit satellites (click again to clear).'],
   l_group: ['批次/组', 'Batch/Group'], l_mode: ['纵轴量', 'Y axis'], l_model: ['模型', 'Model'], l_color: ['配色', 'Colors'],
   m_sma: ['半长轴', 'SMA'], m_ha: ['远地点', 'Apogee'], m_hp: ['近地点', 'Perigee'],
   d_x_inc: ['轨道倾角', 'Inclination'],   // V1.3.6：分布图横轴标题
@@ -197,7 +197,7 @@ var I18N = {
   // V1.3.6：「批次」→「批次/组」，「发射场」→「发射地点」
   lt_group: ['批次/组', 'Group'],
   lt_time: ['发射时间 (北京时间)', 'Launch time (GMT+8)'], lt_rocket: ['运载火箭', 'Launch vehicle'],
-  lt_site: ['发射地点', 'Launch site'], lt_inc: ['设计倾角', 'Design incl.'], lt_ele: ['轨道要素', 'Elements'],
+  lt_site: ['发射地点', 'Launch site'], lt_inc: ['目标倾角', 'Target incl.'], lt_ele: ['发射卫星数', 'Satellites'],
   // V1.8.0（需求12）：卫星表格新增「发射时间」列（同一批次的发射时刻，北京时间）；
   //   发射历史新增「任务结果」列，口径 = 卫星百科的记载（见 resTag）。
   t_ltime: ['发射时间 (GMT+8)', 'Launch (GMT+8)'], t_result: ['任务结果', 'Mission result'],
@@ -502,6 +502,29 @@ function ymd8(ms) {
   return d.getUTCFullYear() + '-' + pad(d.getUTCMonth() + 1) + '-' + pad(d.getUTCDate());
 }
 function fmtNum(v, n) { return (Math.round(v * Math.pow(10, n)) / Math.pow(10, n)).toFixed(n); }
+/**
+ * ★ V1.9.3（用户要求）：科学记数法的**标准写法**（`1.23×10⁻⁴`），替换裸 `1.23e-4`。
+ *   用户原话：「卫星表格里的大气阻力系数各项改用标准的科学记数法写（10↑n…），提高可读性」。
+ *   实现：`toExponential(2)` 得到 `1.23e-4` → 拆成底数 + 指数，指数转成**上标 Unicode**
+ *   （`⁻⁴`），中间用 `×10` 连接。上标字符是纯文本，不需要额外的 HTML 标签 ——
+ *   因此**导出图片时 canvas 也照样显示**（若用 <sup> 只会在网页上生效，导出会丢）。
+ *   ⚠️ 负号用 U+2212（真减号，宽度与数字一致），视觉上比 ASCII `-` 更像数学记号。
+ *   其它地方的大/小量级数（偏心率、BSTAR）共用这一个函数 —— 用户要求"一并改正"。
+ */
+var SUP_DIGITS = { '0': '\u2070', '1': '\u00b9', '2': '\u00b2', '3': '\u00b3', '4': '\u2074',
+  '5': '\u2075', '6': '\u2076', '7': '\u2077', '8': '\u2078', '9': '\u2079', '-': '\u207b' };
+function fmtSci(v, n) {
+  if (v == null || !isFinite(v)) return '\u2014';
+  if (v === 0) return '0';
+  // 量级在"好读"区间内（0.001 ~ 100000）时不必用科学记数法 —— 用户明确"36500km 这种数并不大"
+  var av = Math.abs(v);
+  if (av >= 1e-3 && av < 1e5) return String(+v.toPrecision(n || 3));
+  var s = v.toExponential(n == null ? 2 : n);
+  var parts = s.split('e');
+  var mant = parts[0], exp = parts[1];
+  var sup = String(exp).split('').map(function (ch) { return SUP_DIGITS[ch] || ch; }).join('');
+  return mant + '\u00d710' + sup;
+}
 var MONO = getComputedStyle(document.documentElement).getPropertyValue('--mono').trim();
 function css(name) {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -635,6 +658,10 @@ function build(key) {
   launches.forEach(function (L) {
     var n2 = (counts[L.key] && counts[L.key].n) ? counts[L.key].n : 0;
     L.count = Math.max(n2, L.sats.length);
+    // ★ V1.9.3（用户要求）：`tot` = 该发**全部载荷数**（含搭车星/他人卫星，来自 satcat 的 PAY 计数）。
+    //   发射历史「发射卫星数」列据此显示 `M/N颗`（M=本星座颗数、N=该发总颗数）；
+    //   M === N 时只写「N颗」（整发都是本星座，无需分数）。数据缺失（无 satcat）时 tot=0 → 退回 N。
+    L.tot = (counts[L.key] && counts[L.key].tot) || 0;
   });
   st.launched = launches.reduce(function (a, L) {
     // launchCounts[key] 是 { n, noradMin… } 的摘要对象，取 .n 才是该批入轨的载荷数
@@ -1612,61 +1639,88 @@ var BRK_TOP = 35850;        // 上段上限（km）—— GEO（35786）落在�
 //   现改为**按可见范围的比例分配**：两段都在视野里时按各自可见跨度分配高度，中间只留
 //   BRK_GAP 像素的断轴缝；只看到其中一段时该段占满整高（另一段自然移出视野）。
 //   ⇒ 整张图是一个刚体：缩放/平移时两段一起动，GEO 不再钉在顶上。
-var BRK_GAP = 26;           // 断轴缝的像素高度（仅两段都可见时占用）
+var BRK_GAP = 0;            // ★ V1.9.3（用户要求）：**不再留缝**，两块区域严丝合缝地接在一起
+// ★★ V1.9.3（用户要求 · 第三次返工）：**断轴区视作宽度 0 的连续映射**。
+//   用户原话：「我说这种情况可以从 LEO 卫星分布区域高度的上界直接对齐 GEO 分布区域的下边缘
+//   （比如我举例：星网的 1500km 线直接对齐和视作为 35700km 高度，位于 35800km 的卫星
+//    实际上画在坐标图上原来 1600km 的位置），中间的高度视作不存在，两块区域完全并为一块，
+//   而不是现在两者虽然画到一起但实际上还是各自独立（进行放大和滑动时页面会因为在两个不同
+//   性质的区域跳转发生页面跳动，往上拉动是切换到 GEO 坐标图而不是两者真正画在一张图，
+//   这样反而效果更好还更简单）」
+//
+//   旧实现（V1.9.2）的两段式**病根**：上下两段各自按"可见跨度 / 总跨度"分配高度，
+//   → 缩放或平移时两段的**相对高度会变**，且鼠标往上拖会在"跨过缝"的那一刻发生
+//   非线性跳变（用户说的"页面跳动"）。
+//
+//   新实现：引入**折点映射** f(y)（连续、严格单调，段内线性）：
+//     · y ≤ BRK_LO                 → f(y) = y
+//     · y ≥ BRK_HI                 → f(y) = BRK_LO + (y − BRK_HI - (BRK_TOP_BRIDGE - BRK_LO))
+//     · BRK_LO < y < BRK_HI         → 不存在（该区间被压成 0 宽，不会有数据落在里面）
+//   于是"把 y 轴换成 f(y) 的线性轴"就得到一张**普通的、连续的**坐标图：
+//   缩放平移只需对 f 轴做常规线性变换 —— 一个刚体，不可能再出现跳动。
+//   用户举的例子自动成立：1500（= BRK_LO）与 35700（= 上段下界）在 f 轴上**同一点**；
+//   35800 落在 1500 之上 (35800 − 35700) = 100 个单位，即"原来 1600 的位置"。
+//   ⚠️ 上段下界（BRK_GEO_LO = 35700）与用户例子的口径一致，也是 GEO 卫星（35786）所在区间的底。
+var BRK_GEO_LO = 35700;     // 上段（GEO 区）的实际下界（km）—— 与 BRK_LO 在 f 轴上重合
+/** ★ 折点映射：真实高度 → 「压缩后高度」（断轴区宽度记为 0）。
+ *  这是整个断轴体系的**唯一**变换点 —— 刻度、数据点、悬停、反查全部走它。 */
+function brkFold(y) {
+  if (!isFinite(y)) return y;
+  if (y <= BRK_LO) return y;
+  if (y < BRK_HI) return BRK_LO;                  // 断轴区内 → 折叠到折点（理论上无数据）
+  return BRK_LO + (y - BRK_GEO_LO);
+}
+/** 折点映射的逆：压缩后高度 → 真实高度（悬停/反查用） */
+function brkUnfold(u) {
+  if (!isFinite(u)) return u;
+  if (u <= BRK_LO) return u;
+  return BRK_GEO_LO + (u - BRK_LO);
+}
 // 断轴只在**视野真的含到上段**时启用：否则（例如放大到 0~4000）走线性映射 ——
 //   这样"放大看 LEO"时 LEO 能占满整高，不会被一段用不到的断轴白占地方。
 //   `v.nobrk` = 该视图**主动不用断轴**（04 变轨情况就是这种：它按"180 ~ 数据最高"取景，
 //   单一批次要么全是 LEO、要么全是 GEO，不存在两簇并存，断轴只会添乱）。
 function brkOn(v) { return !!v && !v.nobrk && v.y1 > BRK_HI + 1e-9; }
 /** 该视图的纵向映射：返回 { on, cut, bands, Y(v)→px|null, yAt(px)→v }
- *  ★ 落在断轴区（2000~35750）里的值 **Y 返回 null** —— 上层据此**不画**该点/该段，
- *    于是曲线在断轴处自然断开（Q47 的处置），而不是被"夹"到轴上伪装成有一个点。 */
+ *  ★ V1.9.3：启用时**不再返回 null** —— 因为映射是连续的，任何 y 都有唯一像素位
+ *    （断轴区被压成 0 宽，值域里不会有数据落在 BRK_LO < y < BRK_HI 里；
+ *      万一个别坏数据落进去，会被折叠到折点那一行，而不是凭空消失）。
+ *    `cut` 仍保留 = 折点所在的画布行（画断轴斜杠标记用）。 */
 function brkYMap(v, PT, ph) {
-  var normal = function (y) { return PT + ph - (y - v.y0) / (v.y1 - v.y0) * ph; };
   if (!brkOn(v)) {
-    return { on: false, cut: null, Y: normal,
+    return { on: false, cut: null,
       bands: [{ v0: v.y0, v1: v.y1, py0: PT, py1: PT + ph }],
+      Y: function (y) { return PT + ph - (y - v.y0) / (v.y1 - v.y0) * ph; },
       yAt: function (px) { return v.y0 + (PT + ph - px) / ph * (v.y1 - v.y0); } };
   }
-  // 两段各自的**可见范围** = 视野与物理区间的交集
-  var loLo = Math.max(v.y0, 0), loHi = Math.min(v.y1, BRK_LO);
-  var hiLo = Math.max(v.y0, BRK_HI), hiHi = Math.min(v.y1, BRK_TOP + 400);
-  var lowOn = (loHi - loLo) > 1e-6, hiOn = (hiHi - hiLo) > 1e-6;
-  var gap = (lowOn && hiOn) ? BRK_GAP : 0;              // 只有一段可见时不留缝
-  var avail = Math.max(ph - gap, 1);
-  var loSpanV = loHi - loLo, hiSpanV = hiHi - hiLo;
-  var hLow = lowOn ? (hiOn ? avail * loSpanV / (loSpanV + hiSpanV) : avail) : 0;
-  var hTop = hiOn ? (avail - hLow) : 0;
-  var lowTop = PT + hTop + gap;                         // 下段的上沿（画布 y）
-  var brkRow = PT + hTop + gap / 2;                     // 断轴标记所在行
+  // 折点映射后的"压缩轴"范围（整张图就是这根轴上的普通线性映射）
+  var u0 = brkFold(v.y0), u1 = brkFold(v.y1);
+  var span = u1 - u0;
+  if (!(span > 1e-9)) span = 1e-9;
+  var Y = function (y) { return PT + ph - (brkFold(y) - u0) / span * ph; };
   return {
-    on: true, cut: brkRow,
-    bands: (function () {
-      var b = [];
-      if (lowOn) b.push({ v0: loLo, v1: loHi, py0: lowTop, py1: PT + ph });
-      if (hiOn) b.push({ v0: hiLo, v1: hiHi, py0: PT, py1: PT + hTop });
-      return b;
-    })(),
-    Y: function (y) {
-      if (hiOn && y >= BRK_HI) return PT + hTop * (hiHi - y) / hiSpanV;
-      if (lowOn && y <= BRK_LO) return lowTop + hLow * (loHi - y) / loSpanV;
-      return null;                                      // 断轴区内 → 不画
-    },
-    yAt: function (px) {
-      if (hiOn && px <= PT + hTop) return hiHi - (px - PT) / hTop * hiSpanV;
-      if (lowOn && px >= lowTop) return loHi - (px - lowTop) / hLow * loSpanV;
-      return (loHi + hiLo) / 2;                         // 落在缝里 → 给个中性值
-    }
+    on: true,
+    // 折点所在的画布行 = 真实高度 BRK_LO / BRK_GEO_LO 共用的那一行
+    cut: Y(BRK_LO < v.y0 ? v.y0 : (BRK_LO > v.y1 ? v.y1 : BRK_LO)),
+    bands: [{ v0: v.y0, v1: v.y1, py0: PT, py1: PT + ph }],
+    Y: Y,
+    yAt: function (px) { return brkUnfold(u0 + (PT + ph - px) / ph * span); }
   };
 }
-/** 断轴视图的纵轴刻度：每个 band 各取若干条（旧写法硬取 bands[0]/bands[1]，
- *  而新实现里"只有一段可见"时 bands 只有一个元素 → 会取到 undefined 而抛错）。 */
+/** 断轴视图的纵轴刻度：**按可见范围**取，而不是按"段"取 ——
+ *  V1.9.3 起整张图是一根连续轴（断轴区宽 0），所以直接对可见高度区间取 nice 刻度即可；
+ *  只保留两组刻度密度（下段更密、上段更疏）以维持"LEO 区读得细、GEO 区读得粗"的观感。 */
 function brkTicks(YM, nLow, nTop) {
+  var b = YM.bands[0];
+  if (!b || !(b.v1 - b.v0 > 1e-9)) return [];
+  var u0 = brkFold(b.v0), u1 = brkFold(b.v1);
   var out = [];
-  YM.bands.forEach(function (b, i) {
-    if (!(b.v1 - b.v0 > 1e-9)) return;
-    out = out.concat(niceTicks(b.v0, b.v1, i === 0 && YM.bands.length > 1 ? nLow : nTop));
-  });
+  // 只在 LEO 区（含折点以下）照常取刻度；GEO 区（折点以上）按 nTop 取
+  if (b.v0 < BRK_LO) out = out.concat(niceTicks(b.v0, Math.min(b.v1, BRK_LO), nLow));
+  if (u1 - Math.max(u0, brkFold(BRK_LO)) > 1e-9) {
+    // 上段的**真实**高度范围 = [BRK_GEO_LO, brkUnfold(u1)]
+    out = out.concat(niceTicks(Math.max(b.v0, BRK_GEO_LO), brkUnfold(u1), nTop));
+  }
   return out;
 }
 /** 断轴处的**斜杠标记**（国际通用画法：两根平行斜线；不需要文字，因此不引入 i18n 键） +
@@ -1708,14 +1762,34 @@ function atmLineDraw(ctx, C, PL, pw, Yval, label, y0) {
 }
 function clampChartView(v) {
   if (!v) return v;
+  // ★ V1.9.3（用户报"往上拉动是切换到 GEO 坐标图而不是两者真正画在一张图、页面会跳动"）：
+  //   纵轴的"总高度"必须在**折叠空间**里量，不能拿真实高度直接相减 ——
+  //   断轴区（2000~35700）被压成 0 宽，真实跨度 (=CHART_Y_MAX−CHART_Y_MIN) 与可见跨度
+  //   差了整整 33700，于是"缩到最小"的判据永远不成立、钳制也错位（表现为越界跳动）。
+  //   现在统一在 u = brkFold(y) 空间里做线性钳制 —— 与绘制用的映射**同一套坐标**。
+  var U_MIN = brkFold(CHART_Y_MIN), U_MAX = brkFold(CHART_Y_MAX);
+  var u0 = brkFold(v.y0), u1 = brkFold(v.y1);
   // 视口比整个定义域还宽/高 → 直接钉到定义域（这就是「不能无限缩小」的硬闸）
   if (v.x1 - v.x0 >= CHART_X_MAX - CHART_X_MIN) { v.x0 = CHART_X_MIN; v.x1 = CHART_X_MAX; }
-  if (v.y1 - v.y0 >= CHART_Y_MAX - CHART_Y_MIN) { v.y0 = CHART_Y_MIN; v.y1 = CHART_Y_MAX; }
-  // 平移出界 → 整体拉回（保持视口宽度不变）
+  if (u1 - u0 >= U_MAX - U_MIN) { v.y0 = CHART_Y_MIN; v.y1 = CHART_Y_MAX; u0 = U_MIN; u1 = U_MAX; }
+  // 平移出界 → 整体拉回（保持视口宽度不变；同样在折叠空间里算）
   if (v.x0 < CHART_X_MIN) { v.x1 += CHART_X_MIN - v.x0; v.x0 = CHART_X_MIN; }
   if (v.x1 > CHART_X_MAX) { v.x0 -= v.x1 - CHART_X_MAX; v.x1 = CHART_X_MAX; }
-  if (v.y0 < CHART_Y_MIN) { v.y1 += CHART_Y_MIN - v.y0; v.y0 = CHART_Y_MIN; }
-  if (v.y1 > CHART_Y_MAX) { v.y0 -= v.y1 - CHART_Y_MAX; v.y1 = CHART_Y_MAX; }
+  if (u0 < U_MIN) {
+    var dyU = U_MIN - u0;
+    // 回推真实高度：下沿本来就 ≤ BRK_LO（LEO 区），直接平移同一量即可
+    v.y0 += dyU; v.y1 += dyU;
+    if (v.y0 < CHART_Y_MIN) { v.y1 += CHART_Y_MIN - v.y0; v.y0 = CHART_Y_MIN; }
+    u0 = brkFold(v.y0); u1 = brkFold(v.y1);
+  }
+  if (u1 > U_MAX) {
+    // 上沿在 GEO 区 → 折叠空间与真实高度是平移关系（差常数 (BRK_GEO_LO − BRK_LO)）
+    var shift = u1 - U_MAX;
+    v.y1 = brkUnfold(brkFold(v.y1) - shift);
+    v.y0 = brkUnfold(brkFold(v.y0) - shift);
+    if (brkFold(v.y1) > U_MAX) { v.y1 = CHART_Y_MAX; v.y0 = brkUnfold(U_MAX - (u1 - u0)); }
+    if (v.y0 < CHART_Y_MIN) v.y0 = CHART_Y_MIN;
+  }
   return v;
 }
 var chartDrag = null, chartHoverPt = null;
@@ -1785,10 +1859,10 @@ function chartAutoView() {
   var yy1 = y1 + pad;
   yy1 = Math.min(yy1, Math.max(1800, y1 + pad));
   if (yy1 - yy0 < 20) { yy1 = 20; }
-  // V1.9.1（A18）：数据跨到 GEO 时改走**断轴量程** —— 上界钉在 BRK_TOP（35850，正好把 GEO 35786
-  //   装进上段）。断轴映射再把跨度里的 2000~35750 压掉，于是下段（LEO）拿回 70% 的高度；
-  //   否则线性量程会把 LEO 压成底部 3% 的一条线（实测）。
-  if (yy1 > BRK_LO) yy1 = BRK_TOP;
+  // V1.9.1（A18）：数据跨到 GEO 时改走**断轴量程** —— 上界钉在 BRK_GEO_LO +（GEO 的余量），
+  //   正好把 GEO（35786）装进上段。★ V1.9.3：断轴改为**折叠映射**（断轴区宽 0），
+  //   于是上界只要略高于 GEO 即可，"上段占 30% 高度"那种固定比例已不存在。
+  if (yy1 > BRK_LO) yy1 = BRK_GEO_LO + 200;
   chartView = clampChartView({ x0: x0, x1: x1, y0: yy0, y1: yy1 });   // V1.7.0 第四轮（需求3）
 }
 function chartVisiblePts() {
@@ -1944,7 +2018,10 @@ function drawChart() {
     brkDrawMark(ctx, PL, YM.cut, pw);
     ctx.font = '10px ' + MONO; ctx.fillStyle = C.tick;
     ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-    ctx.fillText(BRK_LO + '~' + BRK_HI, PL + 8, YM.cut);
+    // ★ V1.9.3：文案随新语义更新 —— 断轴区被**压成 0 宽**，所以写的是"被折叠掉的高度区间"
+    //   （旧版写 `2000~35750`，是"被隐藏"的区间；现在语义相同但更应说明折叠口径）。
+    //   纯数字，中英同形 → 不需要 i18n 键。
+    ctx.fillText(BRK_LO + '~' + BRK_GEO_LO, PL + 8, YM.cut);
   }
   // V1.3.6：X 轴 = 轨道倾角（°），数值刻度（不再是日期）
   var xt = niceTicks(v.x0, v.x1, 6);
@@ -3006,8 +3083,8 @@ function satRowHtml(r) {
     // 在轨日：已再入的用**冻结**值（发射日 → 再入日），不再随今天增长
     '<td>' + (r.gone ? goneAgeText(s.launch, r.deadOn) : ageText(r.age < 0 ? NaN : r.age)) + '</td>' +
     '<td class="extra">' + V(fmtNum(r.raan, 2)) + '</td>' +
-    '<td class="extra">' + V(r.ecc.toExponential(2)) + '</td>' +
-    '<td class="extra">' + V(r.bstar.toExponential(2)) + '</td>' +
+    '<td class="extra">' + V(fmtSci(r.ecc, 2)) + '</td>' +
+    '<td class="extra">' + V(fmtSci(r.bstar, 2)) + '</td>' +
     // 历元 = 最后一条 TLE 的更新时间（已再入的星，它天然就是"再入前最后一份"的历元）
     '<td>' + fmtUTC(r.epoch) + '</td></tr>';
 }
@@ -3037,13 +3114,33 @@ function launchRowHtml(L) {
   var site = L.slink ? linkHtml(L.slink) : linkHtml({ t: L.site });
   var selLk = {};
   S.sel.forEach(function (i) { var s = cur().sats[i]; if (s) selLk[s.lk] = 1; });
-  // V1.3.6：列序 批次/组 | 运载火箭(后跟 COSPAR) | 发射时间 | 发射地点 | 设计倾角 | 轨道要素
+  // ★ V1.9.3（用户要求）：
+  //   ① **失败的发射**：目标倾角列与发射卫星数列一律显示 `-`（用户原话：「失败的发射记录要
+  //      给设计倾角（改名"目标倾角"）和轨道要素（改名"发射卫星数"）写"-"」）——
+  //      因为失败意味着没有入轨对象，倾角（数据里是 0）与颗数都没有意义，写 0 会误导。
+  //   ② **发射卫星数**：若该发并非全部是本星座卫星（搭载了别人的星），写成 `M/N颗`
+  //      （M = 本星座颗数 = L.count，N = 该发全部载荷数 = L.tot）。用户原话：
+  //      「如果发射了 3 颗卫星其中只有 2 颗是星网/千帆的组网星或试验星，那么就应该写做 2/3颗」。
+  //      M === N 或 tot 缺失时只写「N颗」。
+  var failed = L.res === 'fail';
+  var nSat = L.count || L.sats.length || 0;
+  var totN = L.tot || 0;
+  var nTxt = '';
+  if (!failed && nSat > 0) {
+    nTxt = (totN > nSat)
+      ? nSat + '/' + totN + (LANG === 'en' ? ' sats' : ' 颗')
+      : nSat + (LANG === 'en' ? ' sats' : ' 颗');
+  }
+  // V1.3.6：列序 批次/组 | 运载火箭(后跟 COSPAR) | 发射时间 | 发射地点 | 目标倾角 | 发射卫星数
+  //   失败行两列都写 `-`（复用卫星表格同一套 `.no-data` 样式，观感统一）
+  var DASH = '<span class="no-data">-</span>';
   return '<tr class="' + ((selLk[L.key] || S.selGroup === L.key) ? 'focused' : '') + pendClass + '" data-lk="' + L.key + '"><td class="lname"><span class="batch-link" data-lk="' + L.key + '" title="' +
     t('d_sel_group') + '">' + batchName(L.name) + '</span></td>' +
     '<td class="rk">' + rocket + ' <span class="tag">' + L.cospar + '</span></td>' +
     '<td' + (pend ? ' class="pend"' : '') + '>' + L.dateStr.replace('T', ' ') + '</td>' +
-    '<td class="site">' + site + '</td><td>' + L.inc.toFixed(1) + '°</td>' +
-    '<td>' + ((L.count || L.sats.length) ? (L.count || L.sats.length) + (LANG === 'en' ? ' sats' : ' 颗') : '') +
+    '<td class="site">' + site + '</td>' +
+    '<td>' + (failed ? DASH : L.inc.toFixed(1) + '°') + '</td>' +
+    '<td>' + (nTxt ? nTxt : DASH) +
     (pend ? ' <span class="tag"' + (L.pinfo ? ' title="' + pendTitle(L.pinfo) + '"' : '') +
       '>' + t('d_pending_tag') + L.pending + '</span>' : '') +
     '</td>' +
@@ -8067,7 +8164,12 @@ function layoutNav() {
   if (!m.actW) return;                        // 还没布局（首帧），下次再算
   // 三键钉在右侧；让位宽度 = 按钮总宽 + 与内容的间距
   act.style.right = padR + 'px';
-  right.style.paddingRight = (m.actW + 22) + 'px';
+  // ★ V1.9.3（用户要求）：让位间距改用**统一的 G**（12/8），不再写死 22 ——
+  //   用户原话：「标签的最右侧距离星网千帆切换按钮**标准间距**（即右边所有按钮间的
+  //   统一一致的像素距离）」。实测旧值 22 让「末标签右缘 → 星网按钮左缘」= 22，
+  //   而「星网段 → EN」「EN → 主题键」都是 12 —— 三处不一致，观感就是"标签离得远"。
+  //   现在三处全部 = G（同一变量，见上方 `var G = vw >= NAV_W0 ? 12 : 8;`）。
+  right.style.paddingRight = (m.actW + G) + 'px';
 
   // ── V1.7.2 第七轮（需求2）：这里的「顶栏中段溢出收敛」整段已删除 ──
   //   它服务的是 .nav-right 里的两样东西：五个章节链接（英文 652px，「Inclination Distribution」
@@ -8079,20 +8181,19 @@ function layoutNav() {
   //   的唯一保障（320px 实测仍在生效）。
 
   // ── V1.9.1：顶栏章节标签的显隐（电脑端专用 + 余量不足自动收起）──
-  //   判据（用户指定）：**「第一个文字标签的左侧边缘」到「CISTrack 右边缘」的距离 < 顶栏按钮间距 G**
-  //     就收起。
-  //   为什么不用"视口宽度"当判据：视口宽度只是间接量 —— 中英文字符宽度差很大
-  //     （英文 Inclination Distribution 比中文「倾角分布」宽一倍），同一个视口宽度下，
-  //     中英文的真实剩余空间完全不同。按**真实余量**判，两种语言都恰好在"快贴上"的那一刻收起，
-  //     不会出现"中文已经挤了还硬撑 / 英文明明还够却提前收起"。
-  //   阈值取 G（而不是 0）：G 是顶栏所有控件之间的统一间距；等于 G 时标签已经贴到 CISTrack 上，
-  //     观感与"按钮之间没有间距"一样糟，所以在 < G 时就收。
+  //   ★ V1.9.3（用户要求）：**判据改为右对齐阵列** ——
+  //     旧判据：「第一个标签左缘 − CISTrack 右缘 < G 就收起」（标签紧随 CISTrack 左对齐）。
+  //     新判据：「**最后一个标签右缘 → 星座段左缘** 的距离 < G 就收起」。
+  //   为什么必须换：用户明确指出「顶栏的标签顶格并跟随 CISTrack，没有像老版本一样是
+  //     标签的最右侧距离星网千帆切换按钮标准间距」—— 期望的是**标签整排贴右**，
+  //     右缘与按钮区保持与其它按钮间一致的统一间距。
+  //   为什么不按视口宽度判：视口宽度只是间接量 —— 中英文字符宽度差很大
+  //     （英文 Inclination Distribution 比中文「倾角分布」宽一倍），同一视口宽度下
+  //     中英文的真实剩余空间完全不同。按**真实余量**判，两种语言都恰好在"快贴上"的那一刻收起。
+  //   阈值取 G（而不是 0）：G 是顶栏所有控件之间的统一间距；小于 G 时标签已经贴到按钮上。
   //   ⚠️ **必须再加一条"放得下"的检查**（实测踩到）：≤1150px 的媒体查询会把
   //     `.brand-note`（CISTrack 下面那行小字）`display:none`，于是 `.brand-box` 一下缩到
-  //     只剩 CISTrack 的宽度 —— 此时「标签左缘 − CISTrack 右缘」**恒等于 topnav 的 column-gap(14px)**，
-  //     与视口宽度**无关**（实测 1024 / 900 / 700 / 360px 全是 14）。也就是只靠用户给的那条判据，
-  //     窄屏**永远不会触发收起**，而 7 个标签在 700px 根本放不下 → 被 `.nav-right` 的
-  //     `overflow:hidden` **裁掉一半**（不是收起，是"显示着一半"，比不显示更糟）。
+  //     只剩 CISTrack 的宽度 —— 间隙与视口宽度关系失真。
   //     所以补一条 `fits`：标签的自然宽度超出可用宽度就直接收起（用 scrollWidth/clientWidth 判定，
   //     这也是"能不能放下"的**直接**判据，而不是拿视口宽度去猜）。
   //   触屏设备一律不显示（"电脑端单独使用"）。
@@ -8100,15 +8201,12 @@ function layoutNav() {
   if (tabs) {
     var show = false;
     if (!isTouch()) {
-      var firstTab = tabs.querySelector('button');
-      var brandEl = document.querySelector('.brand-name') || brand;
-      if (firstTab && brandEl) {
-        tabs.classList.remove('off');                  // 先按"显示"量一次真实余量与自然宽度
-        nav.classList.add('has-tabs');
-        var gap = firstTab.getBoundingClientRect().left - brandEl.getBoundingClientRect().right;
-        var fits = tabs.scrollWidth <= tabs.clientWidth + 0.5;
-        show = gap >= G - 0.5 && fits;
-      }
+      tabs.classList.remove('off');                  // 先按"显示"量一次真实余量与自然宽度
+      nav.classList.add('has-tabs');
+      // 标签整排的右缘 → 星座段左缘（= .nav-actions 左缘）
+      var gapR = seg.getBoundingClientRect().left - tabs.getBoundingClientRect().right;
+      var fits = tabs.scrollWidth <= tabs.clientWidth + 0.5;
+      show = gapR >= G - 0.5 && fits;
     }
     tabs.classList.toggle('off', !show);
     nav.classList.toggle('has-tabs', show);
@@ -8176,7 +8274,8 @@ function layoutNav() {
   }
   m = measure();
   // 收尾：让位宽度跟着最终宽度走（三键是绝对定位，内容仍需要避开它们）
-  right.style.paddingRight = (m.actW + 22) + 'px';
+  // ★ V1.9.3：同样用 G（见上方第一处的说明）
+  right.style.paddingRight = (m.actW + G) + 'px';
   navFollowUp();
 }
 
@@ -9930,15 +10029,30 @@ function climbBounds(list, take) {
   //   ⚠️ 实现上取的是**数据最高点**而不是"最后一刻的最高"：变轨中的星偶尔会有高于当前值的
   //     历史峰值（降轨/再入前后），用"当前最高"会把那段裁掉。两者在正常批次里几乎相同。
   //   同时 `nobrk: true` —— 单一批次要么全 LEO 要么全 GEO，不存在两簇并存，断轴只会添乱。
-  var mx = -Infinity;
+  var mx = -Infinity, mn = Infinity;
   list.forEach(function (c) {
     c.pts.forEach(function (p) {
       var alt = p.v - CLIMB_RE;
       if (alt > mx) mx = alt;
+      if (alt < mn) mn = alt;
     });
   });
-  if (!isFinite(mx)) mx = CLIMB_MIN_TOP;
-  return { y0: CLIMB_FLOOR, y1: Math.max(CLIMB_MIN_TOP, mx * 1.04), fixed: true, nobrk: true };
+  if (!isFinite(mx)) { mx = CLIMB_MIN_TOP; mn = CLIMB_FLOOR; }
+  // ★ V1.9.3（用户要求 · 参考图五「缩小页面底部和上部来扩大视图、呈现各卫星的差异」）：
+  //   旧口径下沿恒为 180 km —— 对"刚发射、九颗星都挤在 1112~1137 km"这类批次，
+  //   数据只占纵轴的 **93%~96%**（实测 26221 低轨26组：纵轴 180~1182、数据 1112~1137），
+  //   25 km 的星间差异被压成 2 个像素，完全看不出谁高谁低 —— 正是用户截图里的现场。
+  //   新口径：**下沿抬到数据下沿之下一点**（而不是恒 180），上沿仍在数据最高之上一线。
+  //   · 只有当数据下沿明显高于 180 时才抬（留 CLIMB_PAD_LO 的余量，曲线不贴底）；
+  //   · 上沿保底 CLIMB_MIN_TOP，避免极小跨度把轴压得过扁（如只有单点数据）。
+  //   这样任意批次都能把自身的星间差异放大到全图高度上 —— 与用户给的参考图一致
+  //   （参考图纵轴 180~540 是因为那批数据真的横跨 300~515，不是硬留白）。
+  var span = Math.max(1, mx - mn);
+  var lo = Math.max(CLIMB_FLOOR, mn - span * 0.06 - 2);
+  var hi = Math.max(mn + CLIMB_MIN_TOP - CLIMB_FLOOR, mx + span * 0.06 + 2);
+  // 保底：上沿至少给出 CLIMB_MIN_TOP 的视觉高度（跨度太小则整段抬到数据上方）
+  if (hi - lo < CLIMB_MIN_TOP - CLIMB_FLOOR) hi = lo + (CLIMB_MIN_TOP - CLIMB_FLOOR);
+  return { y0: Math.round(lo), y1: Math.ceil(hi), fixed: true, nobrk: true };
 }
 /** 当前选中要画的曲线列表：批次（含全部成员星） */
 function climbSeries() {
@@ -10003,9 +10117,16 @@ function climbAutoView() {
   d.forEach(function (c) { c.pts.forEach(function (p) { if (p.ms > t1) t1 = p.ms; }); });
   if (!isFinite(t0)) { climbView = null; return; }
   if (t1 <= t0) t1 = t0 + 86400000 * 7;
-  // 横轴右端至少到"今天"（需求 Q45：发射日～今天），否则新发射的批次看不到"现在在哪"
-  var now = Date.now();
-  if (now > t1) t1 = now;
+  // ★ V1.9.3（用户要求 · 同"扩大视图呈现差异"）：横轴也贴合到**数据实际覆盖**的时间段。
+  //   旧口径右端恒到"今天"（Q45）。后果实测（26221 低轨26组，2026-10-13 打开）：
+  //   数据只覆盖 10/05~10/09（4 天），横轴却铺满 09/25~10/13（18 天）→ 曲线挤在中间一小段，
+  //   左右各空一大片 —— 正是用户截图四的现场。
+  //   新口径：右端 = **数据末点 + 少量余量**，但**至少给到"数据末点"**（不再无条件拉到今天）；
+  //   只有当数据末点距今天很近（≤3 天，即"最新一批还在爬"）时才延到今天 ——
+  //   那时"现在在哪"确实有意义。更早的批次到数据末点即可（它的历史就写在那里）。
+  var now = Date.now(), last = t1;
+  if (now - last <= 3 * 86400000) t1 = now;
+  if (t1 <= t0) t1 = t0 + 86400000 * 7;
   if (now - t0 < 3 * 86400000) t0 = t1 - 3 * 86400000;
   climbView = { x0: t0 - (t1 - t0) * 0.02, x1: t1 + (t1 - t0) * 0.02, y0: b.y0, y1: b.y1, nobrk: !!b.nobrk };
 }
@@ -10019,7 +10140,9 @@ function clampClimbView(v) {
   var t0 = climbStartMs(s.lk, d), t1 = 0;
   d.forEach(function (c) { c.pts.forEach(function (p) { if (p.ms > t1) t1 = p.ms; }); });
   if (!isFinite(t0)) return v;
-  if (t1 < Date.now()) t1 = Date.now();          // 右端始终给到"今天"（与 climbAutoView 同口径）
+  // ★ V1.9.3：右端口径与 climbAutoView **必须一致**（否则 autoView 定的视图会被 clamp 再拉长）。
+  //   规则：数据末点距今天 ≤3 天 → 给到今天（"现在在哪"有意义）；更早的批次给到数据末点。
+  if (Date.now() - t1 <= 3 * 86400000 && t1 < Date.now()) t1 = Date.now();
   if (v.x1 <= v.x0) v.x1 = v.x0 + 86400000;
   var minSpan = 86400000 * 2, maxSpan = Math.max((t1 - t0) * 1.6, minSpan * 4);
   if (v.x1 - v.x0 < minSpan) { var c0 = (v.x0 + v.x1) / 2; v.x0 = c0 - minSpan / 2; v.x1 = c0 + minSpan / 2; }
@@ -10121,7 +10244,7 @@ function drawClimb() {
     brkDrawMark(ctx, PL, YM.cut, pw);
     ctx.font = '10px ' + MONO; ctx.fillStyle = C.tick;
     ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-    ctx.fillText(BRK_LO + '~' + BRK_HI, PL + 8, YM.cut);
+    ctx.fillText(BRK_LO + '~' + BRK_GEO_LO, PL + 8, YM.cut);   // V1.9.3：折叠区间的口径
     ctx.font = '11px ' + MONO;
   }
   // ---- V1.9.1（A12）：大气层分界线 y = 100 km（**仅半长轴模式**；升轨速度模式下无意义，Q27）

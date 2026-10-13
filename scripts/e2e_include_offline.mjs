@@ -111,11 +111,14 @@ const asked = new Set();
     return R(404, '');
   };
   try {
+    // ★ V1.9.3：同 e2e_omm_offline —— 桩数据的历元是假的，必须豁免新鲜度闸门
+    //   （否则 exitCode 污染本测试进程的退出码）。
+    process.env.CISTRACK_SKIP_STALE_CHECK = '1';
     await import('file:///' + path.join(TMP, 'refresh.mjs').replace(/\\/g, '/'));
   } catch (e) {
     console.error('refresh 执行失败：' + (e && e.stack || e));
     process.exit(1);
-  } finally { globalThis.fetch = realFetch; console.log = ol; }
+  } finally { delete process.env.CISTRACK_SKIP_STALE_CHECK; globalThis.fetch = realFetch; console.log = ol; }
 }
 
 // ---------- 断言 ----------

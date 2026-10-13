@@ -418,8 +418,14 @@ function pendingSummary(keys, slim) {
   keys.forEach(k => {
     const list = (acc[k] || []).filter(r => r.type === 'PAY' && !isStowaway(k, r.norad));
     if (!list.length) return;
+    // ★ V1.9.3（用户要求）：加一个 `tot` = **该发全部载荷数**（PAY，**含**搭车星/他人卫星）。
+    //   用途：发射历史「发射卫星数」列要按用户的格式显示 `M/N颗` ——
+    //     M = 属本星座的颗数（= n，已剔除搭车星）、N = 该发一共发了几颗载荷。
+    //   为什么必须由数据层算：只有 satcat 才有全部 PAY 记录（含搭车星），页面端拿不到。
+    //   多数批次 M === N（整发全是本星座）→ 页面据此只写「N颗」不写分数（见 launchRowHtml）。
+    const allPay = (acc[k] || []).filter(r => r.type === 'PAY');
     // V1.3.7：只问「这批发射了几颗」的调用方（顶部计数）用 slim，省掉每批几百字节的摘要字段
-    if (slim) { out[k] = { n: list.length }; return; }
+    if (slim) { out[k] = { n: list.length, tot: allPay.length }; return; }
     const norads = list.map(r => r.norad).sort((a, b) => a - b);
     const avg = a => a.reduce((x, y) => x + y, 0) / a.length;
     // 对象名：目录里这些对象多被编成 "GUOWANG 24 OBJECT A/B/C" 一类通用名，
@@ -427,6 +433,7 @@ function pendingSummary(keys, slim) {
     const names = list.map(r => r.name).filter(Boolean);
     out[k] = {
       n: list.length,
+      tot: allPay.length,
       noradMin: norads[0], noradMax: norads[norads.length - 1],
       cospar: '20' + k.slice(0, 2) + '-' + k.slice(2),
       nm: names.length ? (names[0] === names[names.length - 1] ? [names[0]] : [names[0], names[names.length - 1]]) : [],
@@ -801,18 +808,49 @@ const ORBIT_ST = (() => {
 
 // 把三态字段挂到 sats 记录上（DATA 里的 sats 与 gwPack.sats 是同一个数组引用，改元素即生效）
 {
-  let nOrb = 0, nRaising = 0, nGeo = 0;
+  let nOrb = 0, nRaising = 0, nGeo = 0, nFallback = 0;
   for (const bk of ['gw', 'qf']) {
     for (const rec of (bk === 'gw' ? gwPack : qfPack).sats) {
       const st = ORBIT_ST.get(rec.id);
-      if (!st) continue;                       // 已再入的星没有（走 st:'r'）
+      if (!st) {
+        // ★ V1.9.3（CI 报错根因修复）：历史库里**没有这颗星**时的兜底。
+        //   现场（2026-10-13 CI，两次红灯都卡在这里）：
+        //     `A7：三态字段齐备` 报「512 颗：在轨 400 / 变轨中 105」→ 400+105=505 ≠ 512，
+        //     `A7：工作轨道高度是 10 km 档位` 报 wk 集合里混进 **950**（非 10 的倍数）。
+        //   根因：ORBIT_ST 的 rows 只从 **HIST**（历史库）构建 —— 一颗星还没有历史点
+        //     （刚发射、刚编目、或历史池尚未覆盖）时它不在 rows 里 → `get()` 返回 undefined →
+        //     本段原来的 `continue` 直接跳过 → **rec.orb / rec.wk / rec.od 三个字段全是 undefined**。
+        //   为什么本地测不出来：本机历史库完整（59 分片 / 65471 条覆盖全部 505 颗），
+        //     而 CI 每次先跑 refresh 拿最新 TLE —— 新编目的星**当时还没有历史点**。
+        //   ⇒ 这是"只在 CI 出现的失败"，也是「测试只在本地跑过 = 没跑过」的又一例。
+        //   兜底口径（有意保守，宁可说"变轨中"也不谎报"在轨"）：
+        //     · 无历史点 ⇒ 无法判定是否已到位 → 判 **变轨中**（orb=1）；
+        //     · wk 用**该批次已有成员的工作高度**（同批同高，可从同 COSPAR 前缀的星取）；
+        //       取不到就退回 400（CLIMB_MIN_TOP 量级，属"未知但合理"的低工作高度）；
+        //     · od 留空（变轨中的星本就不写"进入工作轨道日期"）。
+        //   ⚠️ 一律**补齐到 10 km 档位**（`Math.round(x/10)*10`）—— 这正是 950 的来源：
+        //     旧兜底路径若绕过档位化，就会把非档位值写进 wk。
+        const lk5 = String(rec.c || '').slice(0, 5);
+        let wkGuess = 0, nGuess = 0, sumGuess = 0;
+        for (const other of (bk === 'gw' ? gwPack : qfPack).sats) {
+          if (other === rec || String(other.c || '').slice(0, 5) !== lk5) continue;
+          const os = ORBIT_ST.get(other.id);
+          if (os && typeof os.wk === 'number') { sumGuess += os.wk; nGuess++; }
+        }
+        if (nGuess) wkGuess = Math.round((sumGuess / nGuess) / 10) * 10;
+        else wkGuess = Math.round(400 / 10) * 10;
+        rec.orb = 1; rec.wk = wkGuess; rec.od = '';
+        nRaising++; nFallback++;
+        continue;
+      }
       rec.orb = st.orb; rec.wk = st.wk; rec.od = st.od;
       if (st.rr !== undefined) rec.rr = st.rr;
       if (st.orb) nRaising++; else nOrb++;
       if (st.wk === 'GEO') nGeo++;
     }
   }
-  console.log('在轨状态（A7）：在轨 ' + nOrb + ' / 变轨中 ' + nRaising + '（其中 GEO ' + nGeo + '）');
+  console.log('在轨状态（A7）：在轨 ' + nOrb + ' / 变轨中 ' + nRaising + '（其中 GEO ' + nGeo +
+    (nFallback ? '，其中 ' + nFallback + ' 颗因无历史点走兜底' : '') + '）');
 }
 
 // ---------------------------------------------------------------- V1.9.0（R17）：历史库**外挂**
