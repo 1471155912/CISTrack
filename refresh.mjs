@@ -25,6 +25,11 @@ const D = path.join(ROOT, 'data');
 //   计划任务才能看见（旧版 17 行有重复 import + 多余引号，语法错 → 任务天天失败无人知）。
 process.on('unhandledRejection', function (e) { console.error('[refresh] unhandledRejection', e); process.exit(1); });
 const UA = { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36' };
+// ★ V1.9.3：satcat 的 URL / 重试 / 超时集中在一处，改策略不用翻遍文件。
+//   它驱动三处功能：已再入标记、台账扣减、搜索补池（都是**补充**功能，不影响主轨道数据）。
+const SATCAT_URL = 'https://celestrak.org/pub/satcat.csv';
+const SATCAT_TRIES = 3;          // 旧值 1（不重试）→ 偶发网络错误就毁掉整条 CI
+const SATCAT_TIMEOUT_MS = 180000; // 6.7MB 大文件，不能套小 API 的 20s
 const forceCat = process.argv.includes('--force-cat');
 
 // V1.9.0：6 位编目号对象的 OMM 通路（见下方 S5）—— 占位号 → 真号的映射，落 data/omm_norad.json
@@ -120,13 +125,21 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
  *   ⚠️ 用 AbortSignal.timeout（Node 18+ 原生支持），不引入依赖。
  */
 const FETCH_TIMEOUT_MS = 20000;
-async function get(url, tries) {
+/**
+ * @param {string} url
+ * @param {number} [tries]   重试次数（默认 2）
+ * @param {number} [timeoutMs] 单次超时（默认 FETCH_TIMEOUT_MS）
+ *   ★ V1.9.3：timeoutMs 变成可传参数 —— **大文件必须用自己的超时**。
+ *     20s 是按"小 API 响应"定的，而 satcat.csv 有 6.7MB；虽然实测正常时 1.2s 就能下完，
+ *     但网络差的 day 会远超 20s，用同一个常量就是把大文件往死里掐。
+ */
+async function get(url, tries, timeoutMs) {
   for (let i = 0; i < (tries || 2); i++) {
     try {
       const r = await fetch(url, {
         headers: UA,
         signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout)
-          ? AbortSignal.timeout(FETCH_TIMEOUT_MS) : undefined
+          ? AbortSignal.timeout(timeoutMs || FETCH_TIMEOUT_MS) : undefined
       });
       if (!r.ok) return { ok: false, status: r.status, text: '' };
       return { ok: true, status: r.status, text: (await r.text()).replace(/\r/g, '') };
@@ -191,17 +204,30 @@ const catPath = path.join(D, 'satcat.csv');
 const age = fs.existsSync(catPath) ? (Date.now() - fs.statSync(catPath).mtimeMs) / 86400000 : 999;
 if (forceCat || age > 7) {
   console.log('satcat.csv 拉取中（' + (age > 900 ? '首次' : '已 ' + age.toFixed(1) + ' 天') + '）…');
-  const r = await get('https://celestrak.org/pub/satcat.csv', 1);
+  // ★★ V1.9.3【用户报"GitHub 还在发报错邮件"的真因】
+  //   旧写法：`await get(SATCAT_URL, 1)` —— **只试一次、不重试**，且沿用 20s 的小文件超时。
+  //   2026-10-13 实测：正常时 6.7MB 只要 1.2s；但当天 15:33 UTC 那次**偶发**网络错误
+  //   （10.5s 后 status 0）→ 本机无旧副本（data/satcat.csv 被 gitignore）→ exitCode=4
+  //   → 整个 CI 挂掉 → 用户收到报错邮件。**一次抖动毁掉整条日常链路**，这就是"根治"的对象。
+  //   修法（三管齐下，缺一不可）：
+  //     ① **3 次重试**（默认只 1 次）—— 偶发抖动自己会好；
+  //     ② **180s 独立超时**（大文件不套小文件的 20s）；
+  //     ③ workflow 里加 actions/cache —— 跨 run 保留旧副本，见 update-tle.yml。
+  //   另外把**真实错误原因**打出来：旧日志只有 `status 0`，看不出是超时、DNS 还是连接重置，
+  //   下次再挂还得从头查一遍。
+  const r = await get(SATCAT_URL, SATCAT_TRIES, SATCAT_TIMEOUT_MS);
   if (r.ok && r.text.split('\n').length > 1000 && /OBJECT_NAME,OBJECT_ID/.test(r.text.split('\n')[0])) {
     fs.writeFileSync(catPath, r.text, 'utf8');
     console.log('  satcat.csv saved', r.text.length, 'bytes');
   } else if (!fs.existsSync(catPath)) {
     // V1.9.1：拉不到 **且本机没有旧副本** → 三处功能（已再入标记 / 台账扣减 / 搜索补池）会静默失效，
     //   产物看起来却完全正常。所以这里主动失败（非零退出，CI 的 `set -e` 会截断后续步骤）。
-    console.error('  ✗ satcat.csv 拉取失败（status ' + r.status + '）且本机无旧副本 ——' +
+    console.error('  ✗ satcat.csv 拉取失败（status ' + r.status + (r.err ? '，原因：' + r.err : '') +
+      '，已重试 3 次）且本机无旧副本 ——' +
       '已再入标记/台账扣减/搜索补池将静默失效，故主动失败而非产出残缺产物。');
     process.exitCode = 4;
-  } else console.log('  !! satcat 异常（status ' + r.status + '），沿用旧文件（' + age.toFixed(1) + ' 天）');
+  } else console.log('  !! satcat 异常（status ' + r.status + (r.err ? '，原因：' + r.err : '') +
+    '，已重试 3 次），沿用旧文件（' + age.toFixed(1) + ' 天）');
 } else console.log('satcat.csv 仅 ' + age.toFixed(1) + ' 天，跳过（--force-cat 可强制）');
 
 // 从目录里按名称反查两个星座的所有对象，按 COSPAR 前缀归批

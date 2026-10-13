@@ -40,6 +40,24 @@ jobs:
         with:
           fetch-depth: 0
 
+      # ★ V1.9.3【用户报"GitHub 还在发报错邮件"的根治之一】
+      #   `data/satcat.csv`（6.7MB）被 .gitignore → **不在仓库里** → 每个 runner 都是全新的、
+      #   没有旧副本。而它是**每周才需要一份新**的补充数据（驱动已再入标记/台账扣减/搜索补池）。
+      #   旧行为：每次 run 都现拉；偶发一次网络抖动（2026-10-13 15:33 UTC 实测：
+      //   10.5s 后 status 0）就 exitCode=4 → 整个 run 失败 → 发报错邮件。
+      //   加了缓存后：**跨 run 保留最近一份**。即使某次真的拉不到，也有旧副本可退
+      //   （refresh.mjs 的 `age > 7` 判断会照常尝试更新，失败则沿用）。
+      //   缓存 key 用 run_id（永不命中）+ restore-keys（回退到最新一份）=
+      //   "总是存最新、总是取最新"，这正是每周数据想要的行为。
+      //   GitHub 缓存 7 天无访问会自动过期，所以内容最旧也就 7 天，与"每周一份"的节奏吻合。
+      - name: 缓存 satcat.csv（每周一份的补充数据，避免一次网络抖动毁掉整条 CI）
+        uses: actions/cache@v4
+        with:
+          path: data/satcat.csv
+          key: satcat-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            satcat-${{ runner.os }}-
+
       - uses: actions/setup-node@v4
         with:
           node-version: '20'

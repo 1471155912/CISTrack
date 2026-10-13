@@ -4314,8 +4314,11 @@ assert('引用体检：扫描器按**前缀**跳过开发期临时目录（精�
 const rfSrc = fs.readFileSync(B + '/refresh.mjs', 'utf8');
 assert('V1.9.3：`refresh.mjs` 的每个网络请求都有**硬超时**（裸 fetch 会挂十几分钟：实测 S2 卡 12min+，还占着 git.lock）',
   /const FETCH_TIMEOUT_MS = 20000;/.test(rfSrc) &&
-  /AbortSignal\.timeout\(FETCH_TIMEOUT_MS\)/.test(rfSrc) &&
-  /signal: \(typeof AbortSignal !== 'undefined' && AbortSignal\.timeout\)/.test(rfSrc));
+  /signal: \(typeof AbortSignal !== 'undefined' && AbortSignal\.timeout\)/.test(rfSrc) &&
+  // ★ V1.9.3 第二轮：超时改成**可按调用分档**（`timeoutMs || FETCH_TIMEOUT_MS`）——
+  //   6.7MB 的 satcat.csv 不能套小 API 的 20s。但"有硬超时"这个底线没变：
+  //   默认值仍是 FETCH_TIMEOUT_MS，且调用点不传就回落它。
+  /AbortSignal\.timeout\(timeoutMs \|\| FETCH_TIMEOUT_MS\)/.test(rfSrc));
 assert('V1.9.3：`refresh.mjs` 有**数据新鲜度闸门**（最新历元落后 >3 天 → 非零码 5，不再"成功但数据是旧的"）',
   /const STALE_DAYS = 3;/.test(rfSrc) &&
   /if \(worst\.ageDays > STALE_DAYS\)/.test(rfSrc) &&
@@ -4370,6 +4373,38 @@ assert('V1.9.3：两个 e2e 脚本都设了 `CISTRACK_SKIP_STALE_CHECK`（否则
 //   放进 smoke 会让本地闸门从 ~40s 涨到 ~10 分钟，而 smoke 的定位是"改一行就重跑的快速闸门"。
 //   e2e 的实跑交给 CI（`.github/workflows/update-tle.yml` 的"刷新 TLE"步骤里逐条挂），
 //   这里只断言**豁免机制存在**（上面那条）—— 那是"退出码会不会被污染"的根因所在。
+// ================================================================ ★ V1.9.3：satcat 一次抖动不得毁掉整条 CI
+// 用户报"GitHub 还在发报错邮件，老版本时期甚至都没发生过"。实测（run 38423010257，
+// 2026-10-13 15:33 UTC 定时运行，exit code 4）：
+//   `satcat.csv 拉取失败（status 0）且本机无旧副本` → `process.exitCode = 4`
+// 三件事叠加造成的：
+//   ① `get(SATCAT_URL, 1)` —— **只试一次、不重试**（其它请求默认 2 次）；
+//   ② `data/satcat.csv` 在 .gitignore 里 → CI 每次都是"首次"、没有旧副本可退；
+//   ③ 20s 的 FETCH_TIMEOUT_MS 是按小 API 响应定的，而它是 6.7MB 的大文件。
+// 实测对照：同一天 05:24 的成功运行里，同样的 6.7MB **1.2 秒就下完了** ——
+//   所以不是"文件太大"，而是**偶发网络错误** + **没有重试** + **没有兜底副本**。
+{
+  const yml = fs.readFileSync(B + '/.github/workflows/update-tle.yml', 'utf8');
+  const rf = fs.readFileSync(B + '/refresh.mjs', 'utf8');
+  assert('V1.9.3：satcat 拉取**有重试**（旧值 tries=1 → 偶发网络错误就毁掉整条 CI）',
+    /const SATCAT_TRIES = 3;/.test(rf) &&
+    /await get\(SATCAT_URL, SATCAT_TRIES, SATCAT_TIMEOUT_MS\)/.test(rf) &&
+    !/await get\('https:\/\/celestrak\.org\/pub\/satcat\.csv', 1\)/.test(rf));
+  assert('V1.9.3：satcat 用**独立的长超时**（6.7MB 大文件不能套小 API 的 20s）',
+    /const SATCAT_TIMEOUT_MS = 180000;/.test(rf) &&
+    /AbortSignal\.timeout\(timeoutMs \|\| FETCH_TIMEOUT_MS\)/.test(rf));
+  assert('V1.9.3：satcat 失败时**打出真实原因**（旧日志只有 `status 0`，看不出超时/DNS/连接重置）',
+    /r\.err \? '，原因：' \+ r\.err : ''/.test(rf));
+  assert('V1.9.3：workflow 有 **actions/cache 兜底**（gitignore 的文件也能跨 run 保留旧副本）',
+    /path: data\/satcat\.csv/.test(yml) &&
+    /uses: actions\/cache@v4/.test(yml) &&
+    /restore-keys:/.test(yml));
+  // ★ 这一条是"当时到底怎么挂的"的实证：exitCode=4 的策略**保留**
+  //   （没数据时大声失败，好过静默产出残缺产物），但必须先有重试和兜底。
+  assert('V1.9.3：`exitCode = 4` 的大声失败策略**保留**（静默降级比失败更糟）',
+    /process\.exitCode = 4;/.test(rf));
+}
+
 assert('V1.9.3：e2e 的实跑挂在 CI 上（本地 smoke 不跑，避免闸门从 40s 涨到 10 分钟）',
   /e2e_omm_offline\.mjs/.test(fs.readFileSync(B + '/.github/workflows/update-tle.yml', 'utf8')) &&
   /e2e_include_offline\.mjs/.test(fs.readFileSync(B + '/.github/workflows/update-tle.yml', 'utf8')));
