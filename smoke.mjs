@@ -3416,35 +3416,62 @@ assert('A9（V1.9.2 重新划分）：合并判据 = 数据空间可分辨阈值
 //   为什么改：旧口径下沿恒 180 时，对"九颗星都挤在 1112~1137 km"这类批次，
 //   数据只占纵轴 93%~96%（实测 26221 低轨26组：纵轴 180~1182、数据 1112~1137），
 //   25 km 的星间差异被压成 2 像素 —— 正是用户截图里的现场。
-assert('V1.9.3：04 章纵轴**贴合数据范围**（下沿贴近数据下沿、上沿贴数据最高），且 nobrk',
+// ★ V1.9.3 第二轮：判据写成**性质**，且必须**同时兼容两种数据密度** ——
+    //   · smoke 的 jsdom 环境拉不到 history/，用的是 satdata 内嵌的**精简历史**（histLite）；
+    //   · 真实页面加载的是完整分片。同一个批次在两者下的跨度可能差很多
+    //     （例：24240 高轨01星已完全稳定，lite 里 228 个点全是 1170.8 → 跨度 0；
+    //      完整历史里是 1089~1170.8 → 跨度 82）。
+    //   所以这里用 **26120（试验星11组）** —— 它在两种数据下都有真实跨度
+    //   （lite 451.6~508.6 / 完整 446.9~508.7），断言才稳定。
+    assert('V1.9.3 第二轮：04 章纵轴**上下对称留白**（数据分布在图像中央，不是挤在一端）',
       (function () {
-        // 判据写成**性质**而不是写死数字：数据下沿必须落进视口（不再被浪费在 180~数据下沿之间），
-        //   且上下各留的余量都不超过跨度的 15%（"贴合"的量化定义）。
-        //   ⚠️ 这条替换了旧断言 `b.y0 === 180` —— 那个口径在多星同高（如 24240：
-        //     1089~1171，跨度仅 82 km）时会把 82 km 的差异压成 9% 的高度，正是用户截图四的问题。
-        k3.setClimbPick('b:24240');
-        const b = k3.climbB();
-        const lo = k3.climbDataLo ? k3.climbDataLo() : null;   // 探针缺失时退回只验上沿
-        if (lo == null) return b.y0 > 180 && b.nobrk === true;
+        k3.climbTake('sma');
+        k3.setClimbPick('b:26120');
+        const b = k3.climbB(), lo = k3.climbDataLo(), hi = k3.climbDataHi();
+        if (lo == null || hi == null) return false;
+        const padLo = lo - b.y0, padHi = b.y1 - hi;
         const span = b.y1 - b.y0;
-        return b.nobrk === true && b.y0 <= lo && (lo - b.y0) < span * 0.20 &&
-          span > 0 && (b.y1 - lo) < span * 1.05;              // 数据充满视图（不是压成一条）
-      })(), JSON.stringify(k3.climbB()));
-    assert('V1.9.3：纵轴**跨度不会过扁**（数据跨度极小时仍保底 CLIMB_MIN_TOP 的视觉高度）',
+        return b.nobrk === true && span > 0 &&
+          padLo >= -0.5 && padHi >= -0.5 &&                    // 两端都不裁数据
+          Math.abs(padLo - padHi) < Math.max(6, span * 0.25);   // ★ 上下留白大致相等
+      })(), JSON.stringify(k3.climbB()) + ' lo=' + k3.climbDataLo() + ' hi=' + k3.climbDataHi());
+    assert('V1.9.3 第二轮：纵轴**不再被绝对保底撑大**（旧口径轴高恒 220 km → 数据只占 27%）',
+      (function () {
+        k3.climbTake('sma');
+        k3.setClimbPick('b:26120');
+        const b = k3.climbB();
+        // 该批数据跨度约 57~62 km → 新口径轴高 ≈ 跨度×1.3 ≈ 75~80；
+        // 旧口径恒为 220(400−180)。取 130 为界：既能抓回归，又不受两种数据密度差异影响。
+        return (b.y1 - b.y0) < 130;
+      })(), 'span=' + (k3.climbB().y1 - k3.climbB().y0));
+    // ⚠️ 这里**不能**用"断言某段旧代码不存在"的负向判据 —— app.js 的长注释里
+    //    引用了旧写法（`Math.max(mn + CLIMB_MIN_TOP - CLIMB_FLOOR, ...)`）来说明病根，
+    //    负向正则会被自己的注释命中（本项目踩过 5 次的坑）。
+    //    改为**正向判据**：确认新公式的三行都在、且旧公式的两个特征都不在**可执行行**里
+    //    （用 `;` 结尾 + 行首缩进两个空格内的形式区分代码与注释）。
+    assert('V1.9.3 第二轮：**不再有"轴高恒 220 km"的绝对保底**（那是上部留白 70% 的根因）',
+      !/^\s{2}var hi = Math\.max\(mn \+ CLIMB_MIN_TOP/m.test(appSrc) &&
+      !/^\s{2}if \(hi - lo < CLIMB_MIN_TOP - CLIMB_FLOOR\)/m.test(appSrc),
+      '（负向判据只匹配可执行行，避开注释里的旧代码引用）');
+    assert('V1.9.3 第二轮：`climbBounds` = 「上下都贴数据 + **对称增长**」（跨度的 1.3 倍保底）',
+      /^\s{2}var pad = Math\.max\(3, span \* 0\.09\);$/m.test(appSrc) &&
+      /^\s{2}var lo = mn - pad, hi = mx \+ pad;$/m.test(appSrc) &&
+      /^\s{2}var minH = span \* 1\.3;/m.test(appSrc) &&          // 该行带行尾注释，不能锚 $
+      /^\s{2}if \(hi - lo < minH\) \{ var g1 = \(minH - \(hi - lo\)\) \/ 2; lo -= g1; hi \+= g1; \}$/m.test(appSrc) &&
+      /^\s{2}if \(lo < CLIMB_FLOOR\) \{ hi \+= \(CLIMB_FLOOR - lo\); lo = CLIMB_FLOOR; \}$/m.test(appSrc) &&
+      /^\s{2}return \{ y0: Math\.round\(lo\), y1: Math\.ceil\(hi\), fixed: true, nobrk: true \};$/m.test(appSrc));
+    assert('V1.9.3 第二轮：**下沿仍不低于 CLIMB_FLOOR(180)**（用户 V1.9.2 的口径未被推翻），' +
+      '但差额补到上沿而非把数据推出画面',
+      /^\s{2}if \(lo < CLIMB_FLOOR\) \{ hi \+= \(CLIMB_FLOOR - lo\); lo = CLIMB_FLOOR; \}$/m.test(appSrc));
+    assert('V1.9.3：纵轴**跨度不会过扁**（数据跨度极小时仍给足视觉高度）',
       (function () {
         k3.setClimbPick('b:24240');
         const b = k3.climbB();
-        return (b.y1 - b.y0) >= (400 - 180);
+        return (b.y1 - b.y0) >= 24;      // 新保底：单点/近单点给 24 km；此前是 220 km 恒值
       })(), 'span=' + (k3.climbB().y1 - k3.climbB().y0));
     assert('V1.9.3：04 章纵轴上沿**随批次自适应**（GEO 批次 ≈35786 量级，不是固定的 2000）',
       (function () { k3.setClimbPick('b:24181'); const y1 = k3.climbY1(); return y1 > 35000 && y1 < 38000; })(),
       'y1=' + k3.climbY1());
-    assert('V1.9.3：`climbBounds` 的半长轴分支 = 「数据下沿之下 ~ 数据最高之上」（旧的固定 180 写法已删）',
-      !/if \(top > CLIMB_TOP\) return \{ y0: 0, y1: BRK_TOP/.test(appSrc) &&
-      /var CLIMB_FLOOR = 180;/.test(appSrc) &&
-      /var span = Math\.max\(1, mx - mn\);/.test(appSrc) &&
-      /var lo = Math\.max\(CLIMB_FLOOR, mn - span \* 0\.06 - 2\);/.test(appSrc) &&
-      /return \{ y0: Math\.round\(lo\), y1: Math\.ceil\(hi\), fixed: true, nobrk: true \};/.test(appSrc));
     assert('A18：两章共用同一套参数（BRK_LO / BRK_GEO_LO 只有一处定义，03 与 04 都调 brkYMap）',
       // V1.9.3：BRK_RATIO（固定 70/30）与两段式参数 BRK_HI/BRK_TOP 已删除，
       //   改为**折叠映射**（brkFold / brkUnfold 一对互逆函数 + BRK_GEO_LO 折点下界）
