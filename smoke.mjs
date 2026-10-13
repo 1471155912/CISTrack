@@ -3818,6 +3818,25 @@ assert('A9（V1.9.2 重新划分）：合并判据 = 数据空间可分辨阈值
       })());
     k3.pickNode(null, 0);
   }
+  // ★★ V1.9.3 运行时实测（**必须放在这里** —— k3 的作用域在本 block 的 `}`（下方）结束）：
+  //   ① 逐页扫描，确认卫星表**每一行都在某一页里**。
+  //      改前实测：`covered=250 / rowsN=251`，第 251 行（idx 250）不属于任何一页
+  //      → 屏幕上永远看不到它、导出"全页"也拿不到它（`pageCount` 理想装填 vs
+  //        `pageBounds` 贪心装填，两者分叉）。这是本轮最严重的一个静默丢数据。
+  //   ② `shotTotalPages()` 与屏幕真实页数完全一致（导出弹窗"页数 1–N"的范围才可信）。
+  //   ⚠️ 曾把这两条错放到 block 之后（第 4359 行），报 `ReferenceError: k3 is not defined`
+  //      —— 而**本地前几次跑都是绿的**，因为那时还没实跑到那里；是 CI 一跑就炸才暴露。
+  //      教训：往 smoke 里加"用 k3 的运行时断言"时，**必须插在 `dom3.window.close()` 之前**。
+  assert('V1.9.3【静默丢数据·运行时】逐页扫描：**每一行都在某一页里**（改前实测丢最后一行）',
+    (function () {
+      const c = k3.pageCoverage();
+      return c && c.rowsN > 200 && c.missing === 0 && c.covered === c.rowsN;
+    })(), JSON.stringify(k3.pageCoverage()));
+  assert('V1.9.3：`shotTotalPages` 返回的页数与屏幕**完全一致**（导出弹窗的"页数 1–N"范围才可信）',
+    (function () {
+      const t = k3.shotTotals();
+      return t && t.sat === t.satPages && t.launch === t.launchPages;
+    })(), JSON.stringify(k3.shotTotals()));
   dom3.window.close();
 }
 
@@ -4349,6 +4368,8 @@ assert('V1.9.3：`refresh.mjs` 有**数据新鲜度闸门**（最新历元落后
     /if \(s\.epochMs > best\) best = s\.epochMs;/.test(rfSrc) &&
     !/if \(s\.epoch > best\) best = s\.epoch;/.test(rfSrc) &&
     /epochMs: tleEpochMs\(l1\)/.test(rfSrc));
+  // （运行时实测的两条 —— 逐页扫描覆盖完整性、shotTotalPages 与屏幕页数一致 ——
+  //   已移到 k3 作用域内，即 `dom3.window.close()` 之前，见上方。）
   // 真实 TLE 抽样：解析结果必须落在"近五年内"（单位或列偏移错就必然越界）
   assert('V1.9.3：真实 TLE 全量抽样的历元都在**近五年窗口内**（单位/列偏移错的直接判据）',
     (function () {
@@ -4468,18 +4489,8 @@ assert('V1.9.3：e2e 的实跑挂在 CI 上（本地 smoke 不跑，避免闸门
     /if \(used === 0 && start < rows\.length\) start\+\+;/.test(appCode) &&
     /if \(used2 === 0 && end < rows\.length\) end\+\+;/.test(appCode));
 
-  // ★★ 运行时实测（最有价值的一条）：**逐页扫一遍，确认 251 行全部被覆盖**
-  //   改前实测：`covered=250 / rowsN=251`、第 251 行（idx 250）不在任何页 → 屏幕上永远看不到。
-  assert('V1.9.3【静默丢数据·运行时】逐页扫描：**每一行都在某一页里**（改前实测丢最后一行）',
-    (function () {
-      const c = k3.pageCoverage();
-      return c && c.rowsN > 200 && c.missing === 0 && c.covered === c.rowsN;
-    })(), JSON.stringify(k3.pageCoverage()));
-  assert('V1.9.3：`shotTotalPages` 返回的页数与屏幕**完全一致**（导出弹窗的"页数 1–N"范围才可信）',
-    (function () {
-      const t = k3.shotTotals();
-      return t && t.sat === t.satPages && t.launch === t.launchPages;
-    })(), JSON.stringify(k3.shotTotals()));
+  // （运行时实测的两条 —— 逐页扫描覆盖完整性、shotTotalPages 与屏幕页数一致 ——
+  //   已移到上方 k3 作用域内，见"V1.9.3：真实 TLE 全量抽样"附近。）
 }
 
 // ================================================================ ★ V1.9.3：6 位编号系统的兼容性体检
