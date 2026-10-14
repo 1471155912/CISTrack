@@ -23,6 +23,16 @@
 
 > 非官方项目。数据来自公开的 NORAD 空间目标目录与卫星百科，仅用于科普与观测参考，**不适用于轨道预报、工程或研究用途**。
 
+## 🌟 项目来源与致谢
+
+本页面由 [小橙子的宇宙Jackoraniverse](https://space.bilibili.com/455972735) 使用 AI 工具生成，灵感与最初版本来自于跟踪俄罗斯**[「黎明」星座](https://sat.huijiwiki.com/wiki/%E9%BB%8E%E6%98%8E%E6%98%9F%E5%BA%A7)**（Rassvet）态势的网站**[findrassvet.ru](https://findrassvet.ru/)**。
+作者（[V. Bulybenko，GitHub @vbklgd](https://github.com/vbklgd)）还公开了「升轨速率」（RATE / ТЕМП）指标背后的
+完整方法论 —— **[METHODOLOGY.md](https://github.com/vbklgd/findrassvet/blob/main/METHODOLOGY.md)**：
+以每日中午为中心的 2 天窗口最小二乘斜率、"宁可不输出也不外推"的三条拒绝规则、实测噪声（0.11 km/天）
+与单日点火峰值保留率（68 %）、Kozai → Brouwer 半长轴推导，以及用 J₂ 交点退行解释轨道面展开的发现。
+我们已据此校核 CISTrack 的计算口径，并将把相关建议落实到后续版本 —— 衷心感谢原作者的发现与指点，
+也欢迎大家直接阅读这份方法文档（引用规范见其文末）。
+
 ---
 
 ## ✨ 它有什么
@@ -237,6 +247,7 @@ build.mjs       # 把上面几块注入 template → 单文件 HTML
 - [卫星百科](https://sat.huijiwiki.com/) —— 词条口径的发射/在轨统计、批次名称、运载火箭与发射场
 - [Natural Earth](https://www.naturalearthdata.com/) —— 海岸线（公有领域）
 - [satellite-js](https://github.com/shashwatak/satellite-js) —— MIT 许可的 SGP4 实现
+- [findrassvet.ru METHODOLOGY.md](https://github.com/vbklgd/findrassvet/blob/main/METHODOLOGY.md) —— 升轨速率（RATE/ТЕМП）方法论（本项目灵感来源，见页首致谢）
 - [Audiowide](https://fonts.google.com/specimen/Audiowide) —— SIL OFL 1.1，已以 base64 内嵌
 
 ## ⚠️ 免责声明
@@ -249,11 +260,6 @@ build.mjs       # 把上面几块注入 template → 单文件 HTML
 ## ⚖️ 许可证
 
 [MIT](LICENSE) —— 可自由使用、修改、分发（包括商用），保留版权与许可声明即可。
-
----
-
-本页面由 [小橙子的宇宙Jackoraniverse](https://space.bilibili.com/455972735) 使用 AI 工具生成，灵感与最初版本来自于跟踪俄罗斯**[「黎明」星座](https://sat.huijiwiki.com/wiki/%E9%BB%8E%E6%98%8E%E6%98%9F%E5%BA%A7)**（Rassvet）态势的网站**[findrassvet.ru](https://findrassvet.ru/)**。
-
 
 ## 仓库结构
 
