@@ -9,6 +9,99 @@ The version is written in the footer (`CISTrack · Vx.y.z`), and the bottom bar 
 
 ---
 
+## [V1.9.4] — 2026-10-14
+
+> A focused round after re-review: **new batches now enter the launch ledger automatically**
+> (batch/group name, manufacturer, days in orbit for newly catalogued satellites), a full
+> `maker` → `manufacturer` rename, and **publish-side redaction** (a new hard gate plus cleanup of
+> existing text). Every change ships with a regression guard; `smoke` went from **752 → 756 PASS**.
+
+### ① ★ New wiki batches enter the ledger automatically ("new satellites had no batch/group, manufacturer, or days in orbit")
+
+**Root cause** (two layers):
+
+1. The fetch script only kept rows whose COSPAR was **already in the ledger** → a new batch was
+   dropped outright during the window where the catalog has satellites but the ledger has no
+   metadata yet; and it stored only result/count, discarding date / rocket / site / payload / entry link.
+2. The ledger is a hand-written constant, so a new batch stayed missing → the page showed
+   "no ledger entry" → no batch name, no launch date → **days in orbit could not be computed**.
+
+**Fix**:
+
+- Fetch side: keep **ledger ∪ catalog** (`catalogPrefixes()`: COSPARs of satellites already on record);
+  extract rows per `<td>` (each cell `{t, u}`, with `u` = wiki entry link);
+  new `parseRow()` locates date/rocket/site/payload/result **by content**, not by column index
+  (so it survives different column orders across year pages);
+  `wiki_launches.json` gains `date / rocket / site / payload / u`.
+- Build side: new `autoFillLedger()` fills missing batches from two sources:
+  · **A wiki row** (measured for 26230: `2026-10-09` / `CZ-12Y10` / `HCSLS, LCC-2` / success / entry link);
+  · **B TLE-name fallback**: when the wiki has no row yet, parse `GUOWANG 27 OBJECT B` → "低轨27组".
+    Only whitelisted name shapes are accepted; anything else is **left unfilled** (an honest
+    "no ledger entry" beats a guessed value).
+- New `normBatchName()`: losslessly compresses the wiki payload into the hand-written style
+  (`卫星互联网低轨27组 (9)` → `低轨27组`), otherwise `batchName()` cannot match and the English
+  UI leaks Chinese (caught immediately by the i18n audit).
+
+**Page side**: auto-filled rows show an "**自动补录** / auto" tag (honest distinction between
+wiki-filled and human-reviewed); `_dayOnly` drops the fake `00:00`; an unknown target inclination
+renders `-`; and a real bug was fixed — an empty date produced `dateMs = NaN`, which made the
+descending sort undefined so the row vanished at random (26230 dropped off page 1 in testing);
+it now falls back to the current time and sorts first deterministically.
+
+**Measured** (real browser, the 26230 row):
+Chinese `低轨27组 自动补录 | 长征十二号Y10 2026-230 | 2026-10-09 | 海商 LCC-2 | - | 7 颗 | 成功`;
+English `LEO Group 27 auto | CZ-12Y10 2026-230 | 2026-10-09 | HCSLS, LCC-2 | - | 7 sats | Success`.
+
+### ② Full `maker` → `manufacturer` rename
+
+The English column label has long been `Manufacturer`, but identifiers, file names and CSS classes
+still used the legacy `maker`. Now aligned throughout:
+
+- Files: `mkmaker.mjs` → `mkmanufacturers.mjs`, `data/makers.json` → `data/manufacturers.json`;
+- Identifiers: `MAKERS` / `makerOf` / `makerMap` / `makerCell` / `makerShortList` / `MAKER_ALIAS` /
+  `MAKER_RAW` / `makerAliasSet` / `EN_MAKER` / `t_maker` → their `manufacturer*` counterparts;
+- CSS: `td.maker` / `.maker-link` / `.maker-line` → `.manufacturer*`; data field `makers` → `manufacturers`.
+
+**Visible copy (Chinese 「制造商」/ English "Manufacturer") was already correct and is unchanged**;
+manufacturer data and links render exactly as before.
+
+### ③ ★ Publish-side redaction (hard gate + cleanup)
+
+Public files and release notes had drifted into **maintainer-local operational narrative** that is
+irrelevant to anyone using the project. The fix is a **machine-enforceable gate**, not "remembering
+next time":
+
+- New `scripts/privacy_check.mjs`: scans every text file that lands in the repository and fails on a hit.
+  Its rule is "**narrative that is only about the maintainer's own machine and is irrelevant to
+  anyone using the project**". The concrete keyword list and exemptions live in that script's
+  comments (they are not repeated here, so this document never reproduces them);
+  it deliberately **does not** block generic words like "network unreachable", nor script file names
+  that appear as historical facts.
+- Wired twice: smoke executes it directly (so a local one-line change is caught immediately, with
+  tolerance for a non-zero exit code), and the CI "offline self-check" step runs it too
+  (in case someone pushes without running it locally).
+- Cleaned ~60 existing spots: both workflows, `refresh.mjs`, `smoke.mjs`, `CHANGELOG.md/en.md`
+  (V1.9.3 section), `README.md/en.md`, the V1.9.3 review checklist, the V1.9.0-1.9.2 merged checklist,
+  and `scripts/e2e_include_offline.mjs`.
+  **Kept**: script file names that are historical facts; and "user's original wording" style
+  **product requirement** quotes (those are requirement provenance, not environment privacy).
+
+### ④ Side investigation: can the wiki be fetched from the cloud?
+
+Still no: MediaWiki `api.php` is blocked by Cloudflare exactly like the pages (measured 403 / challenge
+page); a bot account is an **in-wiki editing** permission and does not solve cloud-side reading.
+Wiki-side data continues to be maintained by a local task, as documented in the README and release notes.
+
+### Tests
+
+- smoke **756 PASS / 0 FAIL** (includes the redaction-scan assertion, auto-fill guards, and a
+  batch-name translatability assertion)
+- i18n **0 failures**
+- visual **132 PASS / 0 FAIL**
+- `scripts/privacy_check.mjs` **0 hits**
+
+---
+
 ## [V1.9.3] — 2026-10-13
 
 > A focused round of fixes after the user's re-review. Six UI/data changes plus root-cause fixes for
