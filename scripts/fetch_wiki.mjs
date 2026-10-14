@@ -192,6 +192,11 @@ function parseStats(html) {
 const stats = {};
 const failed = [];
 for (const [key, url, article] of PAGES) {
+  // ★ V1.9.3（CI 诊断 38530602731 实测）：两个星座**背靠背连抓**时，第二个（gw）
+  //   只拿到 5467 字节、没有 infobox —— 典型的"刚过完挑战又被限流"。
+  //   每个星座抓完**歇 8 秒**再抓下一个，给 Cloudflare 一个消化时间。
+  //   本机任务总耗时多 8 秒无所谓，CI 上换来的是"两个都能抓到"。
+  if (Object.keys(stats).length) { console.error('（间隔 8s 再抓下一个，避免刚过挑战就被限流）'); await sleep(8000); }
   const { html } = await fetchArticle(url);
   const st = parseStats(html);
   if (!st) {
@@ -212,7 +217,15 @@ for (const [key, url, article] of PAGES) {
   console.log(key, '→', JSON.stringify(stats[key]));
 }
 
-const old = JSON.parse(fs.readFileSync(OUT, 'utf8'));
+// ★ V1.9.3（2026-10-14 CI 诊断时暴露）：读旧 wiki.json **必须容错**。
+//   旧版是裸 `JSON.parse(fs.readFileSync(OUT, 'utf8'))` —— 文件一旦不存在
+//   （全新 checkout、CI 里被 rm 过、或手工清理）就抛 ENOENT **整个脚本崩掉**，
+//   连"至少成功一个星座就写文件"的降级逻辑都走不到。
+//   现在是：读不到/解析不了都当作"没有旧数据"（old = {}），继续往下走。
+let old = {};
+try { old = JSON.parse(fs.readFileSync(OUT, 'utf8')) || {}; } catch (e) {
+  console.error('读旧 wiki.json 失败（' + (e && e.code ? e.code : e && e.message) + '），按"无旧数据"继续');
+}
 if (!Object.keys(stats).length) {
   console.error('两个星座都没抓到，放弃更新（保留原 wiki.json）');
   process.exit(1);

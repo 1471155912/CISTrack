@@ -59,20 +59,31 @@ jobs:
           "
 
       # 诊断 3：**跑真实脚本**（headless Chrome + CDP 过挑战）—— 这才是决定性的一条
+      #   ⚠️ 不能 rm wiki.json：脚本会读旧值做"要不要写"的判定（V1.9.3 已给它加容错，
+      #     但真实场景里旧文件总是在的）。删了反而制造一个不存在的场景。
       - name: 诊断3：headless 浏览器抓取（决定性）
         timeout-minutes: 6
         run: |
           set -e
-          rm -f wiki.json wiki_launches.json
+          cp wiki.json wiki.json.before
           node scripts/fetch_wiki.mjs || echo "!! fetch_wiki.mjs 退出码非零：$?"
           echo "--- 产物 ---"
           ls -la wiki.json wiki_launches.json 2>/dev/null || echo "(没有产出文件)"
           echo "--- wiki.json 内容 ---"
-          head -c 400 wiki.json 2>/dev/null || echo "(空)"
+          cat wiki.json 2>/dev/null || echo "(空)"
           echo ""
-          echo "--- 判定 ---"
-          if [ -s wiki.json ] && grep -q 'asOf' wiki.json 2>/dev/null; then
-            echo "结论：CI 可以抓到 wiki 数据（wiki.json 有内容）"
+          echo "--- 与抓取前对比 ---"
+          if diff -q wiki.json wiki.json.before >/dev/null 2>&1; then
+            echo "wiki.json 无变化（数字没变 或 没写成）"
           else
-            echo "结论：CI 抓不到（wiki.json 空或不存在）"
+            echo "wiki.json 有变化："
+            diff wiki.json.before wiki.json 2>/dev/null | head -20 || true
+          fi
+          echo "--- 判定 ---"
+          if grep -q '"asOf"' wiki.json 2>/dev/null && grep -q '千帆星座' wiki.json 2>/dev/null; then
+            echo "结论：CI 可以抓到 wiki 数据（两个星座都在）"
+          elif grep -q '"asOf"' wiki.json 2>/dev/null; then
+            echo "结论：CI 抓到一部分（见上面的 解析失败 行）"
+          else
+            echo "结论：CI 抓不到"
           fi
