@@ -132,15 +132,35 @@ async function fetchArticle(url, { timeoutMs = 90000, pollMs = 2000 } = {}) {
     await c.send('Page.enable'); await c.send('Runtime.enable');
     await c.send('Page.navigate', { url });
 
-    // 过 WAF：轮询标题直到不再是「请稍候…」
+    // 过 WAF：轮询，直到**既不是挑战页、内容也真的出来了**
+    // ★★★ V1.9.3（CI 诊断 38530602731 / 38531482688 实测抓到真因）
+    //   旧判据只有一句：
+    //       if (title && !/请稍候/.test(title)) { ok = true; break; }
+    //   而 Cloudflare 挑战页的标题是**英文** `Just a moment...`（诊断2 的裸 fetch
+    //   实测确认：`<title>Just a moment...</title>`），**不含"请稍候"**。
+    //   ⇒ 挑战页一出现就被判成"已通过 WAF"，`await sleep(1500)` 后直接读
+    //     `body.innerHTML` —— 拿到的是那 5.7KB 的挑战页 → `infobox-label` 找不到 → 解析失败。
+    //   这就是"两个星座各一半概率失败"的真因：不是限流，是**判据漏了英文标题**，
+    //   每次能不能成取决于 Cloudflare 那一次要不要先甩个挑战页。
+    //   新判据（两条都要满足，缺一不可）：
+    //     ① 标题不像挑战页（中英文都查，外加几个常见变体）；
+    //     ② 页面里**真的出现了 infobox-label**（我们要的内容本身）。
     const t0 = Date.now(); let ok = false;
     while (Date.now() - t0 < timeoutMs) {
       await sleep(pollMs);
       const title = await c.evalJs('document.title').catch(() => '');
-      if (title && !/请稍候/.test(title)) { ok = true; break; }
+      const hasBox = await c.evalJs(
+        'document.body && document.body.innerHTML.indexOf("infobox-label") >= 0').catch(() => false);
+      const isChallenge = !title ||
+        /请稍候|just a moment|checking your browser|verify(ing)? you are|cf-challenge|attention required/i.test(title);
+      if (!isChallenge && hasBox) { ok = true; break; }
     }
-    if (!ok) throw new Error('词条未通过 WAF 验证（标题一直是「请稍候…」）');
-    await sleep(1500);
+    if (!ok) {
+      const t = await c.evalJs('document.title').catch(() => '');
+      const len = await c.evalJs('document.body ? document.body.innerHTML.length : 0').catch(() => 0);
+      throw new Error('词条未通过 WAF 验证或内容未渲染（title=' + JSON.stringify(t) + '，html 长度 ' + len + '）');
+    }
+    await sleep(800);
     const html = await c.evalJs('document.body.innerHTML');
     return { html, title: await c.evalJs('document.title').catch(() => '') };
   } finally {
