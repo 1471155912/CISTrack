@@ -1,0 +1,78 @@
+name: DIAG wiki reachability
+
+# ★ V1.9.3（2026-10-14）一次性诊断：验证「GitHub Actions 到底能不能抓 sat.huijiwiki.com」。
+#
+# 背景：update_wiki.bat 的注释声称该站「blocks GitHub datacenter IPs
+#   ("Just a moment..." challenge never passes)」，所以 wiki 刷新只能留在本机。
+#   但那条结论是 V1.8.0 时代下的，而：
+#     ① scripts/fetch_wiki.mjs 本来就支持 Linux Chrome（候选路径里有 /usr/bin/google-chrome）；
+#     ② ubuntu-latest runner 预装 google-chrome-stable；
+#     ③ Cloudflare 的 WAF 规则会变。
+#   而且今天实测发现：**连家用 IP 用裸 curl 都是 403** —— 说明拦的是「无 JS 的机器人」，
+#   而不只是 IP。脚本正是用 headless 浏览器过挑战的，那在 CI 上一样可以跑。
+#
+# 本 workflow **只诊断、不提交**（没有 git add/commit/push 步骤）：
+#   跑完看日志即可判断能不能搬上云。确认可以再改 update-wiki.yml，确认不行就删掉本文件。
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # 诊断 1：runner 上有没有 Chrome / Edge 可抓
+      - name: 诊断1：浏览器可用性
+        run: |
+          set -e
+          echo "--- which ---"
+          which google-chrome google-chrome-stable chromium chromium-browser 2>/dev/null || echo "(none in PATH)"
+          echo "--- versions ---"
+          google-chrome --version 2>/dev/null || echo "(google-chrome --version failed)"
+          echo "--- node ---"
+          node --version
+
+      # 诊断 2：**裸 fetch**（不跑浏览器）能拿到什么 —— 复现"403 挑战页"的样子
+      - name: 诊断2：裸 fetch 的状态码
+        run: |
+          node -e "
+          const U = 'https://sat.huijiwiki.com/wiki/' + encodeURIComponent('星网');
+          fetch(U, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36' } })
+            .then(async r => {
+              const t = await r.text();
+              console.log('status =', r.status);
+              console.log('len    =', t.length);
+              console.log('head   =', JSON.stringify(t.slice(0, 200)));
+              console.log('isChallenge =', /just a moment|cf-challenge|challenges.cloudflare.com/i.test(t));
+              console.log('hasRealContent =', /轨道|卫星|倾角/.test(t));
+            })
+            .catch(e => console.log('FETCH ERROR:', e.message));
+          "
+
+      # 诊断 3：**跑真实脚本**（headless Chrome + CDP 过挑战）—— 这才是决定性的一条
+      - name: 诊断3：headless 浏览器抓取（决定性）
+        timeout-minutes: 6
+        run: |
+          set -e
+          rm -f wiki.json wiki_launches.json
+          node scripts/fetch_wiki.mjs || echo "!! fetch_wiki.mjs 退出码非零：$?"
+          echo "--- 产物 ---"
+          ls -la wiki.json wiki_launches.json 2>/dev/null || echo "(没有产出文件)"
+          echo "--- wiki.json 内容 ---"
+          head -c 400 wiki.json 2>/dev/null || echo "(空)"
+          echo ""
+          echo "--- 判定 ---"
+          if [ -s wiki.json ] && grep -q 'asOf' wiki.json 2>/dev/null; then
+            echo "结论：CI 可以抓到 wiki 数据（wiki.json 有内容）"
+          else
+            echo "结论：CI 抓不到（wiki.json 空或不存在）"
+          fi

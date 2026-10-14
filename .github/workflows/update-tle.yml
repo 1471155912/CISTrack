@@ -9,11 +9,22 @@ name: Update TLE data
 # 两条链路的分工：
 #   本工作流（云端，每 12h）：refresh.mjs → mkdata.mjs → build.mjs → release.mjs
 #     产出 = data/ct_*.tle 快照 + 重新打包的 CISTrack.html / CISTrack_v<版本>.html
-#   本机任务（update_tle.bat / update_wiki.bat）：同样的链路，外加卫星百科的抓取
+#   ★ V1.9.3（2026-10-14）：本机原本还有一个 update_tle.bat 跑同样的链路，
+#     但实测**本机到 celestrak.org 网络不通**（代理 CONNECT tunnel failed, 502），
+#     三轮重试全部失败 —— 而云端一直正常（CI 连续 success）。既然云端能做好，
+#     本地那份就是纯冗余，已删除文件并请用户注销计划任务。
+#     于是 TLE 这一侧**只剩本工作流**，不再有"两边同时 push"的竞态。
+#   本机任务（update_wiki.bat）：只抓卫星百科（wiki.json / wiki_launches.json）
+#     —— 那部分 CI 做不了（Cloudflare 拦数据中心 IP），必须留在家用 IP 上。
 #
 # 注意：访客打开页面时本来就会自己现拉最新 TLE（多路查询 + 代理兜底）。
 #   本任务修的是另一件事：**离线兜底快照**的老化 —— 大陆网络到不了 CelesTrak 的访客
 #   会回落到内置快照，以前那份快照可能停在很多天前，现在最多旧半天。
+#
+# ⚠️ V1.9.3：update_tle.bat 删除后，本地不再有 build_release.mjs 的自动调用
+#   （它原本负责 SRC → REPO 的源码/产物回推）。改代码后需要**手动**跑：
+#     node sync_src.mjs && node build.mjs && node release.mjs
+#   这也是好事：以前任务运行的 ~25 分钟内改仓库源码会被 SRC 旧版静默覆盖。
 #
 # 与本地任务共存：两边都会 push，所以先 commit 再 pull --rebase 再 push，并重试一次。
 # 定时任务有几分钟调度延迟属正常。
