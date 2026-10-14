@@ -3247,18 +3247,27 @@ assert('V1.9.2：右侧留白按"要标几条"动态加宽（否则名称会被�
       /ctx\.rect\(x \+ half, cy - size, brandW - half \+ 1, size \* 2\); ctx\.clip\(\);[\s\S]{0,120}?ctx\.fillText\(BRAND, x, cy\);/.test(appCode) &&
       !/fillText\(BRAND, x \+ half - brandW, cy\)/.test(appCode));
     // ---- 标签排版：不重叠 + 贴左缘翻到右侧 ----
-    assert('V1.9.2：节点标签**两两不重叠**（近处的标签被放弃、点仍保留）—— 三档都成立',
-      ['all', 'year', 'qtr'].every(function (sp) {
-        k3.netSetSpan(sp);
-        var L = k3.netLabels();
-        for (var i = 0; i < L.length; i++) {
-          for (var j = i + 1; j < L.length; j++) {
-            // 两个标签在不同 x 上但靠得很近（<28px）且高度也近（<13px）→ 视为重叠
-            if (Math.abs(L[i].x - L[j].x) < 28 && Math.abs(L[i].y - L[j].y) < 13) return false;
+    // ★ V1.9.4：加**诊断输出**。这条断言本地 PASS、CI FAIL（历史上有成有败），
+    //   而旧版失败时只打印 `false` —— 完全看不出是哪两个标签、间距多少，
+    //   于是无法判断是"真重叠（要修布局）"还是"数据微变导致的临界（判据太紧）"。
+    //   现在失败时把重叠对与 dx/dy 打出来，CI 一次就能定位。
+    const labelOverlaps = [];
+    ['all', 'year', 'qtr'].forEach(function (sp) {
+      k3.netSetSpan(sp);
+      const L = k3.netLabels();
+      for (let i = 0; i < L.length; i++) {
+        for (let j = i + 1; j < L.length; j++) {
+          const dx = Math.abs(L[i].x - L[j].x), dy = Math.abs(L[i].y - L[j].y);
+          if (dx < 28 && dy < 13) {
+            labelOverlaps.push(sp + ':[' + L[i].t + '@' + L[i].x + ',' + L[i].y + ']×[' +
+              L[j].t + '@' + L[j].x + ',' + L[j].y + '] dx=' + dx.toFixed(1) + ' dy=' + dy.toFixed(1));
           }
         }
-        return L.length > 0;
-      }));
+      }
+    });
+    assert('V1.9.2：节点标签**两两不重叠**（近处的标签被放弃、点仍保留）—— 三档都成立',
+      labelOverlaps.length === 0,
+      labelOverlaps.length ? ('重叠 ' + labelOverlaps.length + ' 对 → ' + labelOverlaps.slice(0, 3).join(' | ')) : '无重叠');
     assert('V1.9.2：贴左缘的标签画到节点**右侧**（否则第一个节点在纵轴线上，标签会被绘图区切掉一半）',
       /var xx = \(J\.x - LAB_PAD - tw < PL\) \? \(J\.x \+ LAB_PAD\) : \(J\.x - LAB_PAD - tw\);/.test(appCode) &&
       (function () {
