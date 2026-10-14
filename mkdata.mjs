@@ -113,7 +113,11 @@ try {
 function mergeResults(meta) {
   const out = {};
   Object.keys(meta).forEach(function (k) {
-    const v = meta[k].slice(0, 5).concat([meta[k][5] || '']);
+    // ⚠️ V1.9.4：不能只 slice(0,5) —— 第 6/7 位是 res/n，第 8 位是自动补录标记
+    //   （'auto'/'auto,day'/'auto,tle'，见 autoFillLedger）。旧口径 slice(0,5) 会把标记截丢，
+    //   导致页面/断言看不到"这条是自动补的"。
+    const v = meta[k].slice(0, 8);
+    if (meta[k][8]) v[8] = meta[k][8];
     const full = '20' + k.slice(0, 2) + '-' + k.slice(2);
     const w = WIKI_LAUNCHES[full];
     if (w && w.res && w.res !== '?') v[5] = w.res;          // 百科有明确结果 → 以百科为准
@@ -123,7 +127,94 @@ function mergeResults(meta) {
   });
   return out;
 }
-const GW_LEDGER = mergeResults(GW_LAUNCH), QF_LEDGER = mergeResults(QF_LAUNCH);
+// ★★ V1.9.4：**给台账自动补新批次**（用户报的"新录入卫星没有批次/组号、制造商、在轨日"的真因）
+//
+// 旧管线的窗口期问题：新批次先在 CelesTrak 编目（TLE 里有星）→ 人再往 GW_LAUNCH/QF_LAUNCH
+//   补元数据。窗口期内 `missing launch meta` 只打一行日志，页面显示「无台账」——
+//   于是没有批次名、没有制造商、没有发射日期 → **在轨天数也算不出来**（ageText 用 L.dateMs）。
+//
+// 新做法：对「目录里已有卫星（satdata.sats）但台账缺失」的 COSPAR 前缀，按两个来源补：
+//   A. **卫星百科发射记录行**（wiki_launches.json，V1.9.4 起保留整行拆列）—— 最全，有日期/火箭/发射场/词条链接；
+//   B. **TLE 名称里的组号**（兜底）—— 百科还没收录该发时用。星网 TLE 名形如 `GUOWANG 27 OBJECT B`
+//      （国网第 27 组）、千帆形如 `SPACESAIL ...` / `QIANFAN ...`，可解析出组号与批次名。
+//      ★ 实测案例：26230 批 7 颗（100973~100981）在目录里、百科 2026 页**尚无该行**，
+//        但 TLE 名已写明 `GUOWANG 27` → 由此得批次名「低轨27组」。
+//
+// A 的合成字段（wiki 有该行时）：
+//     [0] 批次名    = payload 原文（百科口径，不猜不改写；人工补录后可被手工台账覆盖）
+//     [1] 发射时间  = date + 'T00:00'（百科只记到日，时刻未知 → 记当天 00:00 并标 `_dayOnly`）
+//     [2] 火箭      = rocket 原文
+//     [3] 发射场    = site 原文
+//     [4] 目标倾角  = 0（未知；页面端对 0 走「—」分支，见 launchRowHtml）
+//     [5] 结果      = wiki 的 res
+//     [6] 颗数      = wiki 的 n
+//     [7] 词条链接  = u（payload 格的 <a>）
+//   `_auto: 1` 标记这条是自动补的（页面显示「自动补录」小标，提醒人工核对）。
+//
+// B 的合成字段（仅 TLE 名可解析时）：[0]=「低轨NN组」/「极轨NN组」，[1]=''（无日期，页面显示 —），
+//   [4]=0，其余留空。`_auto:1, _tleName:1`。
+function autoFillLedger(meta, tag, sats) {
+  const have = new Set(Object.keys(meta));
+  // 目录里已有卫星的 COSPAR 前缀 → '26230'
+  // ⚠️ 两种形态都要认：TLE 的 l1 第 10-17 列是 `26230A`（**无连字符**），
+  //   而 satdata/satcat 侧是 `2026-230`（带连字符）。这里统一取前 5 位数字。
+  const inCat = new Set();
+  (sats || []).forEach(function (s) {
+    const c = String(s.c || '').replace(/[^0-9A-Za-z-]/g, '');
+    // 两种形态：TLE 短式 `26230A`（YYDDD + 后缀字母）/ 全式 `2026-230`。
+    //   台账键 = 后 5 位数字：短式直接取前 5 位；全式去掉连字符与世纪前缀。
+    let m = c.match(/^(\d{2})(\d{3})[A-Za-z]?$/);                 // 26230A → 26 + 230
+    if (m) { inCat.add(m[1] + m[2]); return; }
+    m = c.match(/^(\d{4})-(\d{3})/);                              // 2026-230
+    if (m) inCat.add(m[1].slice(2) + m[2]);
+  });
+  const added = [];
+  Object.keys(WIKI_LAUNCHES).forEach(function (full) {          // '2026-230'
+    // ⚠️ '2026-230' → '26230'：去掉连字符、去掉世纪前缀（20），得到 5 位台账键。
+    //   旧写法 full.slice(5) 得到 '230'，永远匹配不上 inCat 里的 '26230'。
+    const key = full.replace('-', '').slice(2);                 // '26230'
+    if (have.has(key) || !inCat.has(key)) return;
+    const w = WIKI_LAUNCHES[full];
+    if (!w.date) return;                                        // 拆列失败的行不补（宁缺勿错）
+    const v = [w.payload || '新批次', w.date + 'T00:00',
+      w.rocket || '', w.site || '', 0, w.res || '', w.n || 0];
+    if (w.u) v.push(w.u);
+    // ⚠️ 标记必须写进**数组元素**（JSON 数组会丢掉挂在对象上的自定义属性，
+    //   实测 `v._auto=1` 过序列化就没了 → 页面/断言全看不到）。约定 v[8] = 标记串。
+    v[8] = 'auto' + (w.date ? ',day' : '');           // 'auto,day' = 自动补录 + 只精确到日
+    meta[key] = v;
+    added.push(key + '(' + (w.payload || '?') + ')[百科]');
+    have.add(key);
+  });
+  // —— B. TLE 名兜底：百科还没收录该发，但 TLE 名已写明组号 ——
+  //   星网：`GUOWANG 27 OBJECT B` → 低轨27组；千帆：`SPACESAIL ...` / `QIANFAN ...` → 极轨NN组。
+  //   只认**白名单形态**（GUOWANG <数字> / SPACESAIL|QIANFAN ... <数字>组），其余名字不猜。
+  (sats || []).forEach(function (s) {
+    const c = String(s.c || '').replace(/[^0-9A-Za-z-]/g, '');
+    // 与 inCat 同口径：短式 `26230A` → '26230'；全式 `2026-230` → '26230'
+    let key = '';
+    let mk = c.match(/^(\d{2})(\d{3})[A-Za-z]?$/);
+    if (mk) key = mk[1] + mk[2];
+    else { mk = c.match(/^(\d{4})-(\d{3})/); if (mk) key = mk[1].slice(2) + mk[2]; }
+    if (!key || have.has(key)) return;
+    const nm = String(s.name || '').toUpperCase();
+    let bn = '';
+    let mm = nm.match(/^GUOWANG\s+(\d{1,3})\b/);
+    if (mm) bn = '低轨' + (+mm[1]) + '组';
+    if (!bn) { mm = nm.match(/(?:SPACESAIL|QIANFAN)\w*\s+.*?(\d{1,3})\s*(?:组|GROUP)/); if (mm) bn = '极轨' + (+mm[1]) + '组'; }
+    if (!bn) return;                                            // 名字解析不出组号 → 不补（保持"无台账"的诚实显示）
+    const v = [bn, '', '', '', 0, '', 0];
+    v[8] = 'auto,tle';                                      // 标记：来自 TLE 名、无日期
+    meta[key] = v;
+    added.push(key + '(' + bn + ')[TLE名]');
+    have.add(key);
+  });
+  if (added.length) {
+    console.log(tag + ' 自动补台账 ' + added.length + ' 批（目录已有卫星、台账原缺失）：' + added.join(', '));
+  }
+  return added;
+}
+// ★ V1.9.4：GW_LEDGER / QF_LEDGER 在下方 gw/qf 解析之后构建（自动补录要先于合并）。
 
 // ---- 卫星百科词条链接（URL 取自百科词条原文的链接，已核对）----
 const W = 'https://sat.huijiwiki.com/wiki/';
@@ -366,6 +457,14 @@ function parse(file) {
 const gw = parse('ct_hulianwang.tle');
 const qf = parse('ct_qianfan.tle');
 console.log('gw sats=', gw.length, 'qf sats=', qf.length);
+
+// ★★ V1.9.4：自动补台账 —— 必须在 gw/qf 解析之后（补录判据要用"目录里已有卫星"）。
+//   对「目录已有卫星、百科有该发记录、但 GW_LAUNCH/QF_LAUNCH 没写」的批次，
+//   用 wiki_launches.json 的整行拆列合成台账条目（标记 _auto / _dayOnly）。
+autoFillLedger(GW_LAUNCH, 'gw', gw);
+autoFillLedger(QF_LAUNCH, 'qf', qf);
+// 补录后**重新合并**（mergeResults 只跑一次的话，新补条目拿不到 res/n 的百科覆盖）
+const GW_LEDGER = mergeResults(GW_LAUNCH), QF_LEDGER = mergeResults(QF_LAUNCH);
 
 // V1.9.1（A19）：搜索补池 —— 「已再入」与「尚未编目」这两类库内没有 TLE 的对象，
 //   页面搜索也要能搜到（现池只有 `cur().sats`）。

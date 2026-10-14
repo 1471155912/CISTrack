@@ -1,0 +1,78 @@
+/* privacy_check.mjs —— 发布物**去敏感**硬闸门（V1.9.4 起强制）
+ * ---------------------------------------------------------------------------
+ * 背景（2026-10-14 用户点名）：仓库文件与 Release 说明里混进了**只与作者本机运维
+ *   相关、对使用者无意义**的叙事 ——「GitHub 还在发报错邮件」「已知与本机环境相关的事项」
+ *   「家用 IP 可过 WAF」「代理 502 / CONNECT tunnel」「本机到 celestrak 不通」「本机
+ *   Windows 计划任务」等。这些是开发者私有环境的诊断，不该进入公开仓库/发布说明。
+ *
+ * 本脚本把这条要求变成**机器可执行**的规则，杜绝复发：
+ *   扫描所有**会进入 GitHub 仓库**的文本，命中即列出文件:行并失败。
+ *   - 归档 CHANGELOG 里的历史条目**不豁免**（用户明确要求连 1.9.3 的发布说明一起改）。
+ *   - 纯本地文件（PROCESS.md、*.bat、junk/、archive/、build/、data/）不扫（本就不发布）。
+ *
+ * 用法：node scripts/privacy_check.mjs [--files-from <list>]   默认用 git ls-files
+ *   命中 → 退出码 1。CI 的"离线自检"步骤与本地 smoke 都会调用它。
+ *
+ * ⚠️ 维护：新增敏感叙事类别时往 BAD[] 加一条；**只有**确属"作者私有环境叙事"才加，
+ *   不要把面向使用者的正常词（如"代理兜底""网络不可达访客"）误加进来。
+ */
+import { execFileSync } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+
+// —— 判定为"作者私有环境叙事"的关键词（大小写不敏感）——
+// ⚠️ 口径：只拦**与使用者无关、纯作者本机运维/诊断**的叙事。
+//   脚本文件名（update_tle.bat 等）作为 CHANGELOG 里"某版本做过什么"的历史描述**不算**私有叙事，
+//   不拦；拦的是这些文件名**外面包裹的本机网络/邮件/家用 IP 叙事**。
+const BAD = [
+  ['报错邮件叙事', /报错邮件|邮件通知|收件箱|GitHub\s*发来|还在发.*邮件|老版本时期.*没发生过/],
+  ['家用/住宅 IP', /家用\s*IP|住宅\s*IP|home\s*ip|residential\s*ip/i],
+  ['本机连通性诊断', /本机到\s*celestrak|网络不通|CONNECT\s*tunnel|代理\s*502|直连超时|疑似网络.*不可达|检查本机.*连通/],
+  ['已知与本机环境相关', /已知与本机环境|本机环境相关的事项|本机实测.*网络|本机没有旧副本|本机.*不通/],
+  ['CI 邮件/红灯叙事', /CI\s*(两次)?红灯|GitHub\s*Actions.*(报错|邮件)|排查.*报错/],
+  ['Windows 计划任务负责', /Windows\s*计划任务.*负责|计划任务.*可过\s*WAF|仍由本机.*负责/],
+];
+
+// 不扫描的路径（不进入公开仓库，或属正常使用者文案）
+function skip(rel) {
+  return /(^|\/)(node_modules|archive|junk|shots|build|history|_secrets|\.secrets)\//.test(rel)
+    || /\.min\.js$/.test(rel) || /\.(png|jpg|jpeg|gif|ico|zip|gz)$/i.test(rel)
+    || rel === 'PROCESS.md';   // 纯本地过程日志，不发布
+}
+
+const argi = process.argv.indexOf('--files-from');
+let files;
+if (argi > 0) {
+  files = fs.readFileSync(process.argv[argi + 1], 'utf8').split('\0').filter(Boolean);
+} else {
+  files = execFileSync('git', ['ls-files', '-z'], { cwd: ROOT, encoding: 'utf8' })
+    .split('\0').filter(Boolean);
+}
+
+const hits = [];
+let scanned = 0;
+for (const rel of files) {
+  if (skip(rel)) continue;
+  let text;
+  try { text = fs.readFileSync(path.join(ROOT, rel), 'utf8'); } catch (e) { continue; }
+  if (text.includes('\0')) continue;             // 二进制跳过
+  scanned++;
+  text.split(/\r?\n/).forEach((line, i) => {
+    for (const [tag, re] of BAD) {
+      if (re.test(line)) hits.push({ rel, ln: i + 1, tag, s: line.trim().slice(0, 120) });
+    }
+  });
+}
+
+console.log(`去敏感扫描：${scanned} 个发布文件，命中 ${hits.length} 处`);
+if (hits.length) {
+  console.error('\n✗ 以下文件含"作者私有环境叙事"，不应出现在公开仓库/发布说明：\n');
+  hits.slice(0, 40).forEach(h => console.error(`  ${h.rel}:${h.ln}  [${h.tag}]  ${h.s}`));
+  if (hits.length > 40) console.error(`  … 另有 ${hits.length - 40} 处`);
+  console.error('\n结论：脱敏不彻底 —— 这些是与使用者无关的本机运维细节，必须改写为中性表述或删除。');
+  process.exit(1);
+}
+console.log('✓ 通过：未发现私有环境叙事');

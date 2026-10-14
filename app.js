@@ -581,15 +581,32 @@ function build(key) {
   Object.keys(c.launches).forEach(function (k) {
     var v = c.launches[k];
     var ln = (c.links && c.links[k]) || null;
+    // ★ V1.9.4：自动补录的批次（mkdata 的 autoFillLedger）——
+    //   · 标记在 **v[8]**（'auto' / 'auto,day' / 'auto,tle'）—— 不能挂数组对象属性，
+    //     JSON 序列化会丢（实测踩过）；
+    //   · `dayOnly`：百科只记到日，合成时间是当天 00:00 → 显示时**去掉时刻**，别写个假的 00:00；
+    //   · `inc` 为 0 = 目标倾角未知 → 页面渲染成 `-`（见 launchRowHtml）；
+    //   · `auto`：批次名旁加「自动补录」提示，提醒人工核对后替换成正式台账。
+    var flags = String(v[8] || '');
+    var auto = flags.indexOf('auto') >= 0;
+    var dayOnly = flags.indexOf('day') >= 0;
     var L = {
-      key: k, name: v[0], dateStr: v[1], rocket: v[2], site: v[3], inc: v[4], sats: [], pending: 0,
+      key: k, name: v[0], dateStr: dayOnly ? String(v[1]).slice(0, 10) : v[1],
+      rocket: v[2], site: v[3], inc: v[4], sats: [], pending: 0,
       // V1.8.0（需求12）：第 6 位 = 任务结果（ok/part/fail/'?'/'fail'），第 7 位 = 该发颗数（卫星百科记载）。
       //   mkdata 已把 wiki_launches.json 的结果合并进来；静态 'fail'（如 2025-F05 朱雀二号E 失利）作为兜底。
       res: v[5] || '', wn: v[6] || 0,
       rseg: ln ? ln.r : null,       // 火箭分段（含卫星百科链接）
-      slink: ln ? ln.s : null       // 发射场（含卫星百科链接）
+      slink: ln ? ln.s : null,       // 发射场（含卫星百科链接）
+      auto: auto, dayOnly: dayOnly,
+      url: v[7] || ''                // V1.9.4：百科词条链接（payload 格的 <a>，若有）
     };
-    L.dateMs = Date.parse(v[1] + ':00+08:00');
+    // ⚠️ dateMs 绝不允许是 NaN：发射历史表按 dateMs **倒序**排（见 renderLaunches），
+    //   NaN 参与比较时全部返回 false → 排序结果未定义，该行会被随机挤到任意位置
+    //   （实测 26230 无日期时掉出第一页）。无日期的自动补录行给 Date.now()，
+    //   让它稳定排在**最前**（它确实是最新发射、还没被百科收录的那一批）。
+    var parsed = Date.parse(dayOnly ? String(v[1]).slice(0, 10) + 'T00:00:00+08:00' : v[1] + ':00+08:00');
+    L.dateMs = isFinite(parsed) ? parsed : Date.now();
     L.cospar = '20' + k.slice(0, 2) + '-' + k.slice(2);
     lmap[k] = L; launches.push(L);
   });
@@ -3164,13 +3181,25 @@ function launchRowHtml(L) {
   }
   // V1.3.6：列序 批次/组 | 运载火箭(后跟 COSPAR) | 发射时间 | 发射地点 | 目标倾角 | 发射卫星数
   //   失败行两列都写 `-`（复用卫星表格同一套 `.no-data` 样式，观感统一）
+  // ★ V1.9.4：目标倾角 `inc === 0` = 未知（自动补录的批次百科没记倾角）→ 也写 `-`，别显示 0.0° 误导。
+  //   日期列：`_dayOnly` 的合成时间不带时刻（已在 build() 里切成 YYYY-MM-DD），直接显示。
   var DASH = '<span class="no-data">-</span>';
-  return '<tr class="' + ((selLk[L.key] || S.selGroup === L.key) ? 'focused' : '') + pendClass + '" data-lk="' + L.key + '"><td class="lname"><span class="batch-link" data-lk="' + L.key + '" title="' +
-    t('d_sel_group') + '">' + batchName(L.name) + '</span></td>' +
+  // 批次名：自动补录的批次加一个「百科自动补录」小标 + 词条链接（payload 格的 <a>），
+  //   提醒这是百科口径、尚未人工核对；有链接时才挂 <a>。
+  var autoTag = L.auto
+    ? ' <span class="tag tag-auto" title="' +
+      (LANG === 'en' ? 'Filled from the wiki launch record; pending manual review' : '据卫星百科发射记录自动补录，待人工核对') + '">' +
+      (LANG === 'en' ? 'auto' : '自动补录') + '</span>'
+    : '';
+  var nameCell = L.auto && L.url
+    ? '<a class="batch-link" href="' + L.url + '" target="_blank" rel="noopener" title="' +
+      (LANG === 'en' ? 'Open the wiki entry' : '打开卫星百科词条') + '">' + batchName(L.name) + '</a>' + autoTag
+    : '<span class="batch-link" data-lk="' + L.key + '" title="' + t('d_sel_group') + '">' + batchName(L.name) + '</span>' + autoTag;
+  return '<tr class="' + ((selLk[L.key] || S.selGroup === L.key) ? 'focused' : '') + pendClass + '" data-lk="' + L.key + '"><td class="lname">' + nameCell + '</td>' +
     '<td class="rk">' + rocket + ' <span class="tag">' + L.cospar + '</span></td>' +
-    '<td' + (pend ? ' class="pend"' : '') + '>' + L.dateStr.replace('T', ' ') + '</td>' +
+    '<td' + (pend ? ' class="pend"' : '') + '>' + L.dateStr + '</td>' +
     '<td class="site">' + site + '</td>' +
-    '<td>' + (failed ? DASH : L.inc.toFixed(1) + '°') + '</td>' +
+    '<td>' + (failed || !L.inc ? DASH : L.inc.toFixed(1) + '°') + '</td>' +
     '<td>' + (nTxt ? nTxt : DASH) +
     (pend ? ' <span class="tag"' + (L.pinfo ? ' title="' + pendTitle(L.pinfo) + '"' : '') +
       '>' + t('d_pending_tag') + L.pending + '</span>' : '') +

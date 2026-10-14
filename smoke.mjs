@@ -561,12 +561,16 @@ assert('制造方列标签：中文「制造商」/ 英文 Manufacturer（A13 �
 assert('Manufacturer首格带 .manufacturer-link 链接', d.querySelectorAll('#satTable tbody td.manufacturer a.manufacturer-link').length > 0,
   d.querySelectorAll('#satTable tbody td.manufacturer a.manufacturer-link').length + ' 个链接');
 // ⑤ 发射场链接
-assert('发射场链接覆盖率 100%（含南海海上平台）', (function () {
+// ★ V1.9.4：发射场链接覆盖率 —— 自动补录的批次（_auto）百科无记录、site 为空，
+//   无从给链接，属预期；**只对非自动补录的行要求 100%**。
+assert('发射场链接覆盖率 100%（自动补录行豁免：百科无该发记录）', (function () {
   var miss = [];
   ['gw', 'qf'].forEach(function (k) {
     Object.keys(RAW[k].launches).forEach(function (key) {
+      var v = RAW[k].launches[key];
+      if (v && String(v[8] || '').indexOf('auto') >= 0) return;   // V1.9.4：百科没收录该发 → 无 site/链接属预期
       var L = RAW[k].links[key];
-      if (!L || !L.s || L.s.u === undefined) miss.push(k + ':' + RAW[k].launches[key][3]);
+      if (!L || !L.s || L.s.u === undefined) miss.push(k + ':' + v[3]);
     });
   });
   return miss.length === 0;
@@ -574,8 +578,10 @@ assert('发射场链接覆盖率 100%（含南海海上平台）', (function () 
   var miss = [];
   ['gw', 'qf'].forEach(function (k) {
     Object.keys(RAW[k].launches).forEach(function (key) {
+      var v = RAW[k].launches[key];
+      if (v && String(v[8] || '').indexOf('auto') >= 0) return;
       var L = RAW[k].links[key];
-      if (!L || !L.s || L.s.u === undefined) miss.push(RAW[k].launches[key][3]);
+      if (!L || !L.s || L.s.u === undefined) miss.push(v[3]);
     });
   });
   return miss.join(', ') || '全部命中';
@@ -1910,9 +1916,29 @@ assert('V1.9.0（R17）：升轨速率算法在页面端与构建期**同一口�
       const gc = D.gw.goneCount && D.gw.goneCount['25067'];
       return Array.isArray(gc) && gc.some(x => x.n === 63428 && /^\d{4}-\d{2}-\d{2}$/.test(x.on));
     })(), JSON.stringify((D.gw.goneCount || {})['25067']));
-  assert('V1.9.1（1.7）：本页发射数与词条口径一致（gw 244 / qf 262）',
-    D.gw.stats.launched === 244 && D.qf.stats.launched === 262,
-    'gw=' + D.gw.stats.launched + ' qf=' + D.qf.stats.launched);
+  // ★ V1.9.4：口径改为**动态**。旧断言写死 gw 244 / qf 262（词条口径）。
+  //   但 V1.9.4 起「目录已有卫星而台账缺失」的新批次会被自动补录（TLE 名 / 百科行），
+  //   这些批次的星也计入 launchedTotal → 本页数字**会大于**词条口径（词条还没收录该发）。
+  //   实测：gw 244 → 251（新增 26230 低轨27组 7 颗）。所以断言改成：
+  //     · 本页 ≥ 词条口径（不会少）；
+  //     · 且**台账里每个自动补录批次都真的带下来了卫星**（否则"补了空条目"是假的）。
+  //   ⚠️ 不数 launchCounts：它来自 satcat.csv，本地副本可能旧于 TLE（实测 26230 就还没进 satcat），
+  //     用它判会把"数据源新旧"误报成"逻辑错"。改为直接数目录卫星，与 launchedTotal 同源。
+  assert('V1.9.4：本页发射数 ≥ 词条口径，且每个自动补录批次都真的带下来了卫星',
+    D.gw.stats.launched >= 244 && D.qf.stats.launched >= 262 &&
+    (function () {
+      // ⚠️ satdata 的 sats 是**压缩记录**（差分打包），没有 lk 字段 —— 用 COSPAR 前 5 位归批
+      //   （与 mkdata 的 autoFillLedger 同口径）。
+      const byLk = {};
+      (D.gw.sats || []).forEach(function (s) { byLk[String(s.c).slice(0, 5)] = (byLk[String(s.c).slice(0, 5)] || 0) + 1; });
+      return Object.keys(D.gw.launches).every(function (k) {
+        const v = D.gw.launches[k];
+        if (!v || String(v[8] || '').indexOf('auto') < 0) return true;   // 非自动补录行不管
+        return (byLk[k] || 0) > 0;                                        // 自动补录行必须真的有卫星
+      });
+    })(),
+    'gw=' + D.gw.stats.launched + ' qf=' + D.qf.stats.launched +
+    '（词条口径 gw 244 / qf 262；超出部分应来自自动补录批次）');
 }
 
 // ---- V1.9.1（A19）：搜索补池（dead / pend）+ satcat 缺失的**显式**探测 ----
