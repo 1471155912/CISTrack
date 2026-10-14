@@ -1942,7 +1942,39 @@ assert('V1.9.0（R17）：升轨速率算法在页面端与构建期**同一口�
     '（词条口径 gw 244 / qf 262；超出部分应来自自动补录批次）');
 }
 
-// ---- V1.9.1（A19）：搜索补池（dead / pend）+ satcat 缺失的**显式**探测 ----
+  // ★ V1.9.4：自动补台账的两个机制都要有守卫（否则被"优化"掉就又回到"无台账"）
+  {
+    const md = fs.readFileSync(B + '/mkdata.mjs', 'utf8');
+    assert('V1.9.4：mkdata 有 `autoFillLedger`（目录已有卫星而台账缺失 → 自动补，不再是"无台账"）',
+      /function autoFillLedger\(meta, tag, sats\)/.test(md) &&
+      /autoFillLedger\(GW_LAUNCH, 'gw', gw\)/.test(md) &&
+      /autoFillLedger\(QF_LAUNCH, 'qf', qf\)/.test(md));
+    assert('V1.9.4：百科行 payload 会**规范化成手工台账同款批次名**（否则英文界面漏中文）',
+      /function normBatchName\(payload\)/.test(md) &&
+      /normBatchName\(w\.payload\)/.test(md) &&
+      // 标记必须写进数组元素（挂对象属性过不了 JSON 序列化 —— 实测踩过）
+      /v\[8\] = 'auto'/.test(md) && /v\[8\] = 'auto,tle'/.test(md));
+    // 行为验证走**真实产物**：所有台账批次名都必须匹配 batchName() 的已知形态
+    // （低轨NN组 / 极轨NN组 / 试验星NN组 / 高轨NN星 / 千帆 X / 星网 X …），
+    // 否则英文界面会漏中文。新补的百科行名也受这条约束。
+    // ⚠️ 这里**自己读文件**取 satdata：本块所在作用域没有外层那个 D（用错会 ReferenceError）。
+    const sd = JSON.parse(fs.readFileSync(B + '/build/satdata.json', 'utf8'));
+    const DD = sd.SATDATA || sd;
+    const bad = [];
+    ['gw', 'qf'].forEach(k => {
+      Object.keys((DD[k] && DD[k].launches) || {}).forEach(key => {
+        const v = DD[k].launches[key];
+        const nm = String((v && v[0]) || '');
+        if (!nm) return;
+        if (!/^(低轨\d+组|极轨\d+组|试验星\d+组?|试验星 KL-[A-Za-z0-9]+|高轨\d+星?|千帆 .+|星网 .+|DTC[ -]?\d+.*)$/.test(nm)) {
+          bad.push(k + ':' + key + '=' + nm);
+        }
+      });
+    });
+    assert('V1.9.4：所有台账批次名都符合 batchName() 的可译形态（新补录的百科行名也受约束）',
+      bad.length === 0, bad.slice(0, 4).join(' | '));
+  }
+  // ---- V1.9.1（A19）：搜索补池（dead / pend）+ satcat 缺失的**显式**探测 ----
 // 为什么 satcatOk 是必需的：A19 的两池与 1.4-D 的 st='r' 在**输入缺失时都会退化成空**
 //   （2026-10-10 实际发生过：satcat.csv 不见了 → 已再入标记一条都没有，而构建照常成功）。
 //   若只断言"池为空"，就把"通路断了"当成了"确实没有这类对象"。两种原因必须能区分。

@@ -127,6 +127,28 @@ function mergeResults(meta) {
   });
   return out;
 }
+// 把百科行的载荷名规范化成**手工台账同款批次名**：
+//   '卫星互联网低轨27组 (9)'      → '低轨27组'
+//   '卫星互联网低轨27组（共9颗）'  → '低轨27组'
+//   '千帆极轨19组卫星（共10颗）'   → '极轨19组'
+//   '卫星互联网技术试验卫星11组A星~D星（4颗）' → '试验星11组'
+// 为什么要规范化：页面端 batchName() 的英文翻译是**精确匹配**（^低轨(\d+)组$ 等），
+//   百科原文带前缀/颗数后缀 → 匹配不上 → 英文界面直接漏出中文（i18n 审计当场抓到）。
+// ⚠️ 只做"去前缀 + 去颗数"这类**无损**压缩；解析不出标准形态就原样返回（宁可不译也不瞎编）。
+function normBatchName(payload) {
+  let s = String(payload || '').trim();
+  if (!s) return '';
+  s = s.replace(/[（(]\s*(?:共)?\s*\d{1,3}\s*颗?\s*[)）]\s*$/,'')   // 去尾部「(9)」「（共10颗）」
+         .replace(/\s*\(\s*\d{1,3}\s*\)\s*$/,'')                   // 再去一次兜底（ defensive ）
+         .trim();
+  s = s.replace(/^卫星互联网技术试验卫星\s*/,'试验星')               // 技术试验卫星 → 试验星
+         .replace(/^卫星互联网\s*/,'')                              // 去掉星座前缀
+         .replace(/^千帆\s*/,'')
+         .replace(/卫星$/,'组')                                     // 「低轨27组卫星」→「低轨27组」
+         .replace(/组卫星$/,'组')
+         .trim();
+  return s;
+}
 // ★★ V1.9.4：**给台账自动补新批次**（用户报的"新录入卫星没有批次/组号、制造商、在轨日"的真因）
 //
 // 旧管线的窗口期问题：新批次先在 CelesTrak 编目（TLE 里有星）→ 人再往 GW_LAUNCH/QF_LAUNCH
@@ -141,7 +163,7 @@ function mergeResults(meta) {
 //        但 TLE 名已写明 `GUOWANG 27` → 由此得批次名「低轨27组」。
 //
 // A 的合成字段（wiki 有该行时）：
-//     [0] 批次名    = payload 原文（百科口径，不猜不改写；人工补录后可被手工台账覆盖）
+//     [0] 批次名    = normBatchName(payload)（去星座前缀/颗数后缀，规范成手工台账同款，见该函数）
 //     [1] 发射时间  = date + 'T00:00'（百科只记到日，时刻未知 → 记当天 00:00 并标 `_dayOnly`）
 //     [2] 火箭      = rocket 原文
 //     [3] 发射场    = site 原文
@@ -176,14 +198,14 @@ function autoFillLedger(meta, tag, sats) {
     if (have.has(key) || !inCat.has(key)) return;
     const w = WIKI_LAUNCHES[full];
     if (!w.date) return;                                        // 拆列失败的行不补（宁缺勿错）
-    const v = [w.payload || '新批次', w.date + 'T00:00',
+    const v = [normBatchName(w.payload) || '新批次', w.date + 'T00:00',
       w.rocket || '', w.site || '', 0, w.res || '', w.n || 0];
     if (w.u) v.push(w.u);
     // ⚠️ 标记必须写进**数组元素**（JSON 数组会丢掉挂在对象上的自定义属性，
     //   实测 `v._auto=1` 过序列化就没了 → 页面/断言全看不到）。约定 v[8] = 标记串。
     v[8] = 'auto' + (w.date ? ',day' : '');           // 'auto,day' = 自动补录 + 只精确到日
     meta[key] = v;
-    added.push(key + '(' + (w.payload || '?') + ')[百科]');
+    added.push(key + '(' + (v[0] || '?') + ')[百科]');
     have.add(key);
   });
   // —— B. TLE 名兜底：百科还没收录该发，但 TLE 名已写明组号 ——
