@@ -3257,10 +3257,17 @@ assert('V1.9.2：右侧留白按"要标几条"动态加宽（否则名称会被�
       const L = k3.netLabels();
       for (let i = 0; i < L.length; i++) {
         for (let j = i + 1; j < L.length; j++) {
+          // ★ V1.9.4：**两条曲线各自的末端标签不算重叠**。
+          //   netPickLabels 里末端（last）标签**不做**重叠丢弃 —— 每条曲线的最新值必须显示。
+          //   `all` 档下星网与千帆的末端落在同一 x（最新周），垂直可能只差十几 px
+          //   （CI 实测 dx=0.0 dy=12.6）。这是设计取舍（末端必显示 > 绝对不挤），
+          //   断言不该把它判成缺陷 —— 否则就是在否定"末端必显示"这条规则。
+          if (L[i].last && L[j].last && L[i].key !== L[j].key) continue;
           const dx = Math.abs(L[i].x - L[j].x), dy = Math.abs(L[i].y - L[j].y);
           if (dx < 28 && dy < 13) {
-            labelOverlaps.push(sp + ':[' + L[i].t + '@' + L[i].x + ',' + L[i].y + ']×[' +
-              L[j].t + '@' + L[j].x + ',' + L[j].y + '] dx=' + dx.toFixed(1) + ' dy=' + dy.toFixed(1));
+            labelOverlaps.push(sp + ':[' + L[i].key + (L[i].last ? '*' : '') + '@' + L[i].x + ',' + L[i].y +
+              ']×[' + L[j].key + (L[j].last ? '*' : '') + '@' + L[j].x + ',' + L[j].y +
+              '] dx=' + dx.toFixed(1) + ' dy=' + dy.toFixed(1));
           }
         }
       }
@@ -3268,6 +3275,14 @@ assert('V1.9.2：右侧留白按"要标几条"动态加宽（否则名称会被�
     assert('V1.9.2：节点标签**两两不重叠**（近处的标签被放弃、点仍保留）—— 三档都成立',
       labelOverlaps.length === 0,
       labelOverlaps.length ? ('重叠 ' + labelOverlaps.length + ' 对 → ' + labelOverlaps.slice(0, 3).join(' | ')) : '无重叠');
+    // 上面豁免了"两条曲线末端互相靠近"，所以要另有一条断言守住这个豁免的前提：**末端必须都在**
+    // （否则"末端被丢弃了"会被误当成合规）。gw/qf 各至少 1 个 last 标签。
+    assert('V1.9.4：豁免的前提成立 —— 两条曲线的**末端标签都必须显示**（gw 与 qf 各 ≥1 个 last）',
+      (function () {
+        k3.netSetSpan('all');
+        const L = k3.netLabels();
+        return L.some(x => x.last && x.key === 'gw') && L.some(x => x.last && x.key === 'qf');
+      })());
     assert('V1.9.2：贴左缘的标签画到节点**右侧**（否则第一个节点在纵轴线上，标签会被绘图区切掉一半）',
       /var xx = \(J\.x - LAB_PAD - tw < PL\) \? \(J\.x \+ LAB_PAD\) : \(J\.x - LAB_PAD - tw\);/.test(appCode) &&
       (function () {
