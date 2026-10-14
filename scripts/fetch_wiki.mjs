@@ -88,18 +88,33 @@ async function fetchArticle(url, { timeoutMs = 90000, pollMs = 2000 } = {}) {
   const child = spawn(exe, [
     '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
     '--disable-extensions', '--disable-background-networking', '--mute-audio',
+    // ★ V1.9.3（2026-10-14 CI 实测）：**容器/CI 里 Chrome 起不来就是因为缺这两条**。
+    //   `--no-sandbox`：CI runner 上 Chrome 的 setuid sandbox 用不了（无 CAP_SYS_ADMIN /
+    //     seccomp 限制），不加它 Chrome 直接静默退出、DevToolsActivePort 永远不出现。
+    //   `--disable-dev-shm-usage`：runner 的 /dev/shm 只有 64MB，Chrome 默认往那儿写
+    //     共享内存，满了会崩。这两条在 Windows 上都是无害的（Chrome 接受但不改变行为），
+    //     所以本地任务不受影响。
+    //   实测证据：诊断 run 38529951399 —— Chrome 明明在 /usr/bin/google-chrome，
+    //     却报「浏览器没能在 10s 内启动调试端口」。加上后同一环境成功。
+    '--no-sandbox', '--disable-dev-shm-usage',
     '--remote-debugging-port=0', '--user-data-dir=' + udd, '--user-agent=' + UA, 'about:blank',
-  ], { stdio: 'ignore' });
+    // stderr 不再 ignore：CI 上浏览器起不来时，把它的抱怨带出来（否则只有一句
+    // "没能在 10s 内启动调试端口"，什么都看不出来）。\r 去掉是为了日志干净。
+  ], { stdio: ['ignore', 'ignore', 'pipe'] });
+  let chromeErr = '';
+  try { child.stderr.on('data', (b) => { chromeErr += String(b).replace(/\r/g, ''); }); } catch (e) {}
   let c = null;
   try {
     // 等 Edge 把实际端口写进 DevToolsActivePort（第一行 = 端口）
+    // ★ V1.9.3：等待从 10s 放宽到 30s —— CI runner 比本机慢，冷启动 Chrome 经常要 5~15s。
     let port = 0;
-    for (let i = 0; i < 100; i++) {
+    for (let i = 0; i < 300; i++) {
       await sleep(100);
       try { port = parseInt(String(fs.readFileSync(portFile, 'utf8')).split(/\r?\n/)[0], 10) || 0; } catch (e) {}
       if (port) break;
     }
-    if (!port) throw new Error('浏览器没能在 10s 内启动调试端口');
+    if (!port) throw new Error('浏览器没能在 30s 内启动调试端口' +
+      (chromeErr ? '；浏览器 stderr: ' + chromeErr.slice(0, 500) : '（无 stderr 输出）'));
     // 注意：/json/version 给的是**浏览器级** WebSocket（只支持 Browser.* 域），
     // 要操作页面必须连 /json/list 里的 **page** 目标（否则报 "Page.enable wasn't found"）。
     let page = null;
