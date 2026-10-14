@@ -4416,6 +4416,24 @@ assert('V1.9.3：两个 e2e 脚本都设了 `CISTRACK_SKIP_STALE_CHECK`（否则
     /AbortSignal\.timeout\(timeoutMs \|\| FETCH_TIMEOUT_MS\)/.test(rf));
   assert('V1.9.3：satcat 失败时**打出真实原因**（旧日志只有 `status 0`，看不出超时/DNS/连接重置）',
     /r\.err \? '，原因：' \+ r\.err : ''/.test(rf));
+  // ★★ V1.9.3：fetch_wiki.mjs 的 WAF 判据（用户问"wiki 只能本地吗"时 5 轮 CI 诊断的收获）
+  //   旧判据只查中文「请稍候」，而 Cloudflare 挑战页标题是**英文** "Just a moment..."
+  //   → 挑战页一出现就被判成"已通过"，读到 5.7KB 挑战页 → 解析失败（~50/50 的玄学故障）。
+  {
+    const fw = fs.readFileSync(B + '/scripts/fetch_wiki.mjs', 'utf8');
+    assert('V1.9.3：WAF 判据**同时认中英文挑战页标题**（旧版只查「请稍候」→ 英文 "Just a moment..." 被误判为已通过）',
+      /just a moment/i.test(fw) && /请稍候/.test(fw) &&
+      /isChallenge/.test(fw));
+    assert('V1.9.3：WAF 判据还要求**内容真的出现**（infobox-label），不只靠标题',
+      /infobox-label/.test(fw) && /!isChallenge && hasBox/.test(fw));
+    assert('V1.9.3：Chrome 启动带 `--no-sandbox` / `--disable-dev-shm-usage`（CI/容器里起不来的经典原因）',
+      /--no-sandbox/.test(fw) && /--disable-dev-shm-usage/.test(fw));
+    assert('V1.9.3：读旧 wiki.json **有容错**（文件不在时不能崩，要按"无旧数据"继续）',
+      /try \{ old = JSON\.parse\(fs\.readFileSync\(OUT, 'utf8'\)\)/.test(fw) &&
+      /按"无旧数据"继续/.test(fw));
+    assert('V1.9.3：诊断 workflow 已删除（一次性探针不留仓库垃圾）',
+      !fs.existsSync(B + '/.github/workflows/diag-wiki-reach.yml'));
+  }
   assert('V1.9.3：workflow 有 **actions/cache 兜底**（gitignore 的文件也能跨 run 保留旧副本）',
     /path: data\/satcat\.csv/.test(yml) &&
     /uses: actions\/cache@v4/.test(yml) &&
