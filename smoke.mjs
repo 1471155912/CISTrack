@@ -430,10 +430,10 @@ console.log('--- V1.4.2 ---');
 // V1.8.0（需求6）：在「批次/组」之后插入「发射时间」列（ltime），Manufacturer 顺延到第 5 列
 // V1.9.1（1.4-D）：卫星表在 NORAD 之后插入了「在轨状态」列（status），列序整体后移一位。
 assert('表头前五列 = 名称/NORAD/在轨状态/批次·组/发射时间，第 6 列才是 Manufacturer',
-  [...d.querySelectorAll('#satTable thead th')].slice(0, 6).map(t => t.getAttribute('data-key')).join('|') === 'name|norad|status|launch|ltime|maker',
+  [...d.querySelectorAll('#satTable thead th')].slice(0, 6).map(t => t.getAttribute('data-key')).join('|') === 'name|norad|status|launch|ltime|manufacturer',
   [...d.querySelectorAll('#satTable thead th')].slice(0, 6).map(t => t.getAttribute('data-key')).join('|'));
-// V1.9.1（A13）：t_maker 原为 ['Manufacturer','Manufacturer'] —— **中文页也显示英文**（真 bug）→ 改中文「制造商」。
-assert('表头文案「批次/组」「制造商」', /t_launch: \['批次\/组'/.test(appSrc) && /t_maker: \['制造商', 'Manufacturer'\]/.test(appSrc));
+// V1.9.1（A13）：t_manufacturer 原为 ['Manufacturer','Manufacturer'] —— **中文页也显示英文**（真 bug）→ 改中文「制造商」。
+assert('表头文案「批次/组」「制造商」', /t_launch: \['批次\/组'/.test(appSrc) && /t_manufacturer: \['制造商', 'Manufacturer'\]/.test(appSrc));
 assert('V1.9.1（A13）：BSTAR 列补上 data-i18n（原为硬编码，中英都写死 "BSTAR"）',
   /data-key="bstar"[^>]*data-i18n="t_bstar"/.test(tpl) && /t_bstar: \['大气阻力系数', 'BSTAR'\]/.test(appSrc));
 // V1.9.1（1.4-D）：在轨状态列 —— 用户要求已再入卫星能在卫星列表里呈现。
@@ -476,12 +476,12 @@ assert('V1.9.1（1.4-D）：已再入的整行带 .gone 类（供样式与联动
 assert('V1.9.1（1.4-D）：「已再入」纳入搜索词（用户口径：不可联动但可搜索）',
   /s\.st === 'r' \? \(t\('st_gone'\)/.test(appSrc));
 assert('Manufacturer数据已注入（星网 ≥38 批 / 千帆 ≥18 批）',
-  Object.keys(RAW.gw.makers || {}).length >= 38 && Object.keys(RAW.qf.makers || {}).length >= 18,
-  Object.keys(RAW.gw.makers || {}).length + ' / ' + Object.keys(RAW.qf.makers || {}).length);
+  Object.keys(RAW.gw.manufacturers || {}).length >= 38 && Object.keys(RAW.qf.manufacturers || {}).length >= 18,
+  Object.keys(RAW.gw.manufacturers || {}).length + ' / ' + Object.keys(RAW.qf.manufacturers || {}).length);
 assert('Manufacturer走简称映射 + 词条外链',
-  /function makerShortList\(/.test(appSrc) && /function makerCell\(/.test(appSrc) && /maker-link/.test(tpl) &&
+  /function manufacturerShortList\(/.test(appSrc) && /function manufacturerCell\(/.test(appSrc) && /manufacturer-link/.test(tpl) &&
   /https:\/\/sat\.huijiwiki\.com/.test(appSrc));
-assert('首行Manufacturer单元格已渲染（有 .maker 列）', (function(){ var r = d.querySelector('#tbody tr'); return !!r && !!r.querySelector('.maker'); })());
+assert('首行Manufacturer单元格已渲染（有 .manufacturer 列）', (function(){ var r = d.querySelector('#tbody tr'); return !!r && !!r.querySelector('.manufacturer'); })());
 // 注：首行是 NORAD 最大的卫星，可能正好属于唯一没匹配上的批次，所以看整体而不是首行
 // ★ 2026-10-11 修脆弱性（CI 报错邮件里的第二条）：
 //   原判据是「**当前页**（首屏 10 行）里 ≥6 行渲染出简称」。但表格首行按 NORAD **降序**
@@ -494,9 +494,9 @@ assert('首行Manufacturer单元格已渲染（有 .maker 列）', (function(){ 
 //        它不依赖表格当前显示哪几行，因此不会随数据波动。
 //   这不是放宽标准：覆盖率由数据层那条严格把关，本处的职责收窄回"渲染层能用"。
 assert('Manufacturer简要渲染：简称都是短文本（≤20 字），且渲染层确实渲染出了值', (function () {
-  var a = [...d.querySelectorAll('#satTable tbody tr td.maker')].map(x => x.textContent.trim());
+  var a = [...d.querySelectorAll('#satTable tbody tr td.manufacturer')].map(x => x.textContent.trim());
   return a.filter(Boolean).length >= 1 && a.every(x => x.length <= 20);
-})(), [...d.querySelectorAll('#satTable tbody tr td.maker')].map(x => x.textContent.trim()).join(' | '));
+})(), [...d.querySelectorAll('#satTable tbody tr td.manufacturer')].map(x => x.textContent.trim()).join(' | '));
 // ②③ 地图与地球的滑动区
 assert('地图改成 92vw 居中（与轨道章节图同宽）',
   /\.canvas-wrap\.bleed \{ width:92vw; margin-left:auto; margin-right:auto; \}/.test(tpl) &&
@@ -543,10 +543,10 @@ assert('地图与轨道容器宽度一致（92vw）', (function () {
 assert('表头项一律居中（含首列）',
   /\.ltable th \{ text-align:center;/.test(tpl) && /thead th:first-child \{ text-align:center; \}/.test(tpl) &&
   /\.ltable th:first-child \{ text-align:center; \}/.test(tpl) && /#launchTable th \{ text-align:center; \}/.test(tpl));
-assert('Manufacturer数据格居中 + 每行最多两个（maker-line）',
-  /\.ltable td\.maker \{ text-align:center/.test(tpl) && /\.maker-line \{ display:flex; justify-content:center/.test(tpl) &&
+assert('Manufacturer数据格居中 + 每行最多两个（manufacturer-line）',
+  /\.ltable td\.manufacturer \{ text-align:center/.test(tpl) && /\.manufacturer-line \{ display:flex; justify-content:center/.test(tpl) &&
   /for \(var i = 0; i < cells\.length; i \+= 2\)/.test(appSrc) &&
-  /lines\.map\(function \(ln\) \{ return '<span class="maker-line">'/.test(appSrc));
+  /lines\.map\(function \(ln\) \{ return '<span class="manufacturer-line">'/.test(appSrc));
 assert('Manufacturer不再写「等 N 家」', !/等 ' \+ parts\.length \+ ' 家/.test(appSrc) && !/ 等 \+ parts/.test(appSrc));
 assert('Manufacturer：每机构独立配对词条链接（不再只有第一家可点）',
   /var ls = m\.ls \|\| \[\];/.test(appSrc) && /ls\[i\]\.n\.indexOf\(it\.full\) >= 0 \|\| it\.full\.indexOf\(ls\[i\]\.n\) >= 0/.test(appSrc) &&
@@ -557,9 +557,9 @@ assert('Manufacturer双语简称（英文界面显示缩写：CAST/SAST/Microsat
   /'氦星光联', 'Histarlink'/.test(appSrc) && /'鸿擎科技', 'HongQing Tech'/.test(appSrc) &&
   /'航天二院', 'Acad\. 2nd, CASIC'/.test(appSrc) && /'垣信科技', 'SpaceSail'/.test(appSrc) &&
   /var name = \(LANG === 'en' && it\.en\) \? it\.en : it\.zh;/.test(appSrc));
-assert('制造方列标签：中文「制造商」/ 英文 Manufacturer（A13 修掉中文页显示英文的 bug）', /t_maker: \['制造商', 'Manufacturer'\]/.test(appSrc));
-assert('Manufacturer首格带 .maker-link 链接', d.querySelectorAll('#satTable tbody td.maker a.maker-link').length > 0,
-  d.querySelectorAll('#satTable tbody td.maker a.maker-link').length + ' 个链接');
+assert('制造方列标签：中文「制造商」/ 英文 Manufacturer（A13 修掉中文页显示英文的 bug）', /t_manufacturer: \['制造商', 'Manufacturer'\]/.test(appSrc));
+assert('Manufacturer首格带 .manufacturer-link 链接', d.querySelectorAll('#satTable tbody td.manufacturer a.manufacturer-link').length > 0,
+  d.querySelectorAll('#satTable tbody td.manufacturer a.manufacturer-link').length + ' 个链接');
 // ⑤ 发射场链接
 assert('发射场链接覆盖率 100%（含南海海上平台）', (function () {
   var miss = [];
@@ -664,7 +664,7 @@ assert('退出全屏回竖屏', /want = document\.fullscreenElement \? 'landscap
 assert('章节标题前无多余的 > 字符', tpl.indexOf('</button>>') < 0 && html.indexOf('</button>>') < 0);
 assert('CISTrack 标志链到仓库主页', /href="https:\/\/github\.com\/1471155912\/CISTrack"/.test(tpl));
 assert('搜索别名表：火箭 / 发射设施 / 制造商', /var ROCKET_ALIAS/.test(appSrc) &&
-  /var SITE_ALIAS/.test(appSrc) && /var MAKER_ALIAS/.test(appSrc) && /function aliasHit/.test(appSrc));
+  /var SITE_ALIAS/.test(appSrc) && /var MANUFACTURER_ALIAS/.test(appSrc) && /function aliasHit/.test(appSrc));
 assert('联想区：括号标注 + 分割线 + 历史记录',
   /function sugItemHtml/.test(appSrc) && /var SEARCH_HISTORY/.test(appSrc) &&
   /\.sug-item \+ \.sug-item \{ border-top/.test(tpl) && /class="sug-note"/.test(appSrc));
@@ -4043,7 +4043,7 @@ assert('V1.9.1（#9）：JS 起来后仍然接管（语言切换 / 真实历元�
 //   而品牌扫过（clip-path 过渡，主线程驱动 —— 已实测排除合成器路径）正好在那时
 //   **在 25% 处冻结 133ms**。元凶是 `measureRowUnits`：它把**全部 262 行**渲染进离屏表格
 //   逐行量高度（单次 renderTable 43~52ms，半程被调两次）。
-//   修法：行高只由**可换行的制造商列**决定（`.ltable td` 全是 nowrap，只有 `.ltable td.maker`
+//   修法：行高只由**可换行的制造商列**决定（`.ltable td` 全是 nowrap，只有 `.ltable td.manufacturer`
 //   覆写为 normal），而制造商按**批次**挂 → 同批次行高必然相同 ⇒ **只按批次抽一行量**。
 //   实测：长任务 120ms → **0**，最大帧间隔 133ms → 17~33ms，renderTable 95ms → 16ms。
 {
@@ -4060,9 +4060,9 @@ assert('V1.9.1（#9）：JS 起来后仍然接管（语言切换 / 真实历元�
     /var w = tbl \? \(tbl\.clientWidth \|\| Math\.round\(tbl\.getBoundingClientRect\(\)\.width\) \|\| 0\) : 0;/.test(appSrc) &&
     /var sig = rows\.length \+ '\|' \+ LANG \+ '\|' \+ w \+ '\|' \+ \(rows\[0\] \? rows\[0\]\._s\.lk : ''\);/.test(appSrc));
   // 前提守卫：这套去重**依赖**"只有制造商列能换行"这一 CSS 事实 —— 一旦有人把别的列改成可换行，去重就不再等价
-  assert('性能根治的前提：全表 nowrap、**只有 `.ltable td.maker` 可换行**（若这条变了，按批次去重就不再等价）',
+  assert('性能根治的前提：全表 nowrap、**只有 `.ltable td.manufacturer` 可换行**（若这条变了，按批次去重就不再等价）',
     /\.ltable td \{ padding:7px 10px; border-bottom:1px solid var\(--hair\); white-space:nowrap;/.test(tpl) &&
-    /\.ltable td\.maker \{ text-align:center; white-space:normal; \}/.test(tpl) &&
+    /\.ltable td\.manufacturer \{ text-align:center; white-space:normal; \}/.test(tpl) &&
     (tpl.match(/white-space:normal; \}/g) || []).length >= 1);
 }
 

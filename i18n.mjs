@@ -191,8 +191,8 @@ ok('I18N 的英文侧零 CJK 字符', enCjk.length === 0, enCjk.join(' | '));
     inlineCjk.length === 0, inlineCjk.join(' | '));
 
   // (e) A14 点名的两处历史疑点 —— 现在就固化成守卫，防以后被改回去
-  ok('A14：t_maker 中英不同（"制造商 / Manufacturer" —— 它是**可译词**，不是术语）',
-    !!I18N.t_maker && I18N.t_maker[0] !== I18N.t_maker[1], (I18N.t_maker || []).join('/'));
+  ok('A14：t_manufacturer 中英不同（"制造商 / Manufacturer" —— 它是**可译词**，不是术语）',
+    !!I18N.t_manufacturer && I18N.t_manufacturer[0] !== I18N.t_manufacturer[1], (I18N.t_manufacturer || []).join('/'));
   ok('A14：BSTAR 表头带 data-i18n（第六轮抓到过的"无 data-i18n 静态文本"）',
     /<th[^>]*data-i18n="t_bstar"[^>]*>/.test(tpl) || /<th[^>]*data-i18n="([^"]+)"[^>]*>[^<]*大气阻力系数/.test(tpl));
   ok('A14：天数词走 i18n 表（d_day1 / d_dayN），不再内联中文',

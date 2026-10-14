@@ -34,7 +34,7 @@ const KEEP_FILES = [
   // 构建输入
   'app.js', 'template.html', 'build.mjs',
   // 构建/刷新脚本（npm scripts 会用到，删了就没法重建数据）
-  'mkdata.mjs', 'mkmaker.mjs', 'mkcoast.mjs', 'refresh.mjs',
+  'mkdata.mjs', 'mkmanufacturers.mjs', 'mkcoast.mjs', 'refresh.mjs',
   // 自测与清理
   'smoke.mjs', 'visual.mjs', 'clean.mjs',
   // 发布与文档

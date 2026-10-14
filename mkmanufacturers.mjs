@@ -1,5 +1,5 @@
 // 从卫星百科两个词条抓「研发机构 / 研制单位」，按 COSPAR 与发射日期建索引
-// → data/makers.json（供 mkdata.mjs 注入到每个批次）
+// → data/manufacturers.json（供 mkdata.mjs 注入到每个批次）
 // 说明：词条有 WAF，必须用真实浏览器 + --disable-blink-features=AutomationControlled，
 // 且首次访问要等 20–35 秒过验证。所以这份数据是缓存，不必每次构建都跑（--force 才重抓）。
 import http from 'node:http';
@@ -33,12 +33,12 @@ const EDGE = (function () {
 //   原来这里逐个候选里把 `TEMP` 排在前，而本机 TEMP 就在 C 盘 → 临时 profile 全落 C 盘；
 //   而删除会被 safe-delete 守卫改成"移入回收站"→ 只增不减，C 盘回收站曾堆到 2.4 GB。
 const TMPROOT = tmpRoot();
-const OUT = B + '/data/makers.json';
+const OUT = B + '/data/manufacturers.json';
 const PORT = 9482;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 if (fs.existsSync(OUT) && !process.argv.includes('--force')) {
-  console.log('已有 data/makers.json（加 --force 可重抓）');
+  console.log('已有 data/manufacturers.json（加 --force 可重抓）');
   const j = JSON.parse(fs.readFileSync(OUT, 'utf8'));
   console.log('  条目', Object.keys(j.byCospar || {}).length, '项｜更新时间', j._fetched || '?');
   process.exit(0);
@@ -47,7 +47,7 @@ if (fs.existsSync(OUT) && !process.argv.includes('--force')) {
 const ch = spawn(EDGE,
   ['--headless=new', '--disable-gpu', '--no-first-run', '--disable-blink-features=AutomationControlled',
     '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-    '--user-data-dir=' + path.join(TMPROOT, 'edge-profile-mkmaker'),
+    '--user-data-dir=' + path.join(TMPROOT, 'edge-profile-mkmanufacturers'),
     '--remote-debugging-port=' + PORT, '--window-size=1600,1200', 'about:blank'], { stdio: 'ignore' });
 async function wsUrl() {
   for (let i = 0; i < 60; i++) {
@@ -105,13 +105,13 @@ for (const [key, url] of PAGES) {
         if (cs.length <= iMk) return;
         var cell = cs[iMk];
         var a = cell.querySelector('a');
-        var maker = (cell.innerText || '').trim().replace(/\\s+/g, '');
+        var manufacturer = (cell.innerText || '').trim().replace(/\\s+/g, '');
         var aList = [].slice.call(cell.querySelectorAll('a')).map(function (x) {
           return { n: (x.innerText || '').trim(), u: x.getAttribute('href') || '' };
         }).filter(function (x) { return x.n && x.u; });
-        if (!maker) return;
+        if (!manufacturer) return;
         out.push({
-          maker: maker,
+          manufacturer: manufacturer,
           url: a ? a.getAttribute('href') : '',
           links: aList,
           cospar: iCos >= 0 && cs[iCos] ? (cs[iCos].innerText || '').trim().replace(/\\s+/g, '') : '',
@@ -135,7 +135,7 @@ for (const r of rows) {
   if (c) {
     const m = c.match(/^(\d{4})-(\d{1,4})/);
     if (m) c = m[1] + '-' + m[2];
-    if (c && !byCospar[c]) byCospar[c] = { maker: r.maker, url: r.url, links: r.links || [] };
+    if (c && !byCospar[c]) byCospar[c] = { manufacturer: r.manufacturer, url: r.url, links: r.links || [] };
   }
   if (r.site && r.siteUrl) {
     if (!bySite[r.site]) bySite[r.site] = { u: r.siteUrl };
@@ -145,7 +145,7 @@ for (const r of rows) {
   const d = (r.date || '').match(/(\d{4})年(\d{1,2})月(\d{1,2})日/);
   if (d) {
     const k = d[1] + '-' + ('0' + d[2]).slice(-2) + '-' + ('0' + d[3]).slice(-2);
-    if (!byDate[k]) byDate[k] = { maker: r.maker, url: r.url, links: r.links || [] };
+    if (!byDate[k]) byDate[k] = { manufacturer: r.manufacturer, url: r.url, links: r.links || [] };
   }
 }
 fs.writeFileSync(OUT, JSON.stringify({
@@ -154,5 +154,5 @@ fs.writeFileSync(OUT, JSON.stringify({
 }, null, 1), 'utf8');
 console.log('写入', OUT, fs.statSync(OUT).size, 'bytes');
 console.log('COSPAR 索引', Object.keys(byCospar).length, '项｜日期索引', Object.keys(byDate).length, '项｜发射场索引', Object.keys(bySite).length, '项');
-console.log('样例:', Object.keys(byCospar).slice(0, 12).map(k => k + '=' + byCospar[k].maker).join(' | '));
+console.log('样例:', Object.keys(byCospar).slice(0, 12).map(k => k + '=' + byCospar[k].manufacturer).join(' | '));
 ws.close(); ch.kill(); process.exit(0);

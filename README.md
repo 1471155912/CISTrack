@@ -101,15 +101,15 @@ node scripts/fetch_wiki.mjs        # 起一个本机 Edge/Chrome 过 WAF → 解
 
 ```bash
 node refresh.mjs        # 拉取最新 TLE（四路来源合并）与完整 NORAD 目录
-node mkmaker.mjs        # 抓卫星百科词条的「研发机构」表（有缓存，--force 才重抓）
+node mkmanufacturers.mjs        # 抓卫星百科词条的「研发机构」表（有缓存，--force 才重抓）
 node mkdata.mjs         # 生成 build/satdata.json（按批次差分包）与 build/wiki.json
 node build.mjs          # 组装成单文件 HTML + 复制 wiki.json 到同级目录
 node smoke.mjs          # 逻辑冒烟测试（jsdom，无外部依赖）
 node visual.mjs         # 可选：真浏览器布局与交互实测（需要本机 Edge + ws）
 ```
 
-> `mkmaker.mjs` 需要过词条的 WAF 验证：脚本用真实浏览器打开，并轮询标题直到验证页自己过去
-> （实测 20–35 秒）。结果缓存在 `data/makers.json`，日常重建不必重跑。
+> `mkmanufacturers.mjs` 需要过词条的 WAF 验证：脚本用真实浏览器打开，并轮询标题直到验证页自己过去
+> （实测 20–35 秒）。结果缓存在 `data/manufacturers.json`，日常重建不必重跑。
 
 ## 🔄 数据从哪来 · 怎么更新
 

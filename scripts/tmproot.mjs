@@ -1,7 +1,7 @@
 /* tmproot.mjs —— 统一的「临时根目录」解析（V1.9.1 / 1.4-C 新增）
  * ---------------------------------------------------------------------------
  * 为什么必须收口成一处：
- *   临时目录原本由 6 个脚本各自解析（visual / mkmaker / fetch_wiki / fetch_launch_results
+ *   临时目录原本由 6 个脚本各自解析（visual / mkmanufacturers / fetch_wiki / fetch_launch_results
  *   / e2e_omm_offline / e2e_include_offline），写法还不一致 —— 其中两个 e2e 脚本直接用
  *   `os.tmpdir()`，**完全无视 CISTRACK_TMP**，于是永远落在系统盘。
  *   后果（实测）：本机 `TEMP` 指向 C 盘，而 C 盘长期只剩 2 GB 左右；每次跑视觉回归会生成

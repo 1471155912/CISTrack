@@ -190,7 +190,7 @@ var I18N = {
   // V1.8.0（需求15 i18n 审计）：原 ph_search 键早已没有任何引用（搜索框占位符统一走
   //   d_search_ph），属于死键 —— 清掉，避免审计里长期挂着一条"未被引用"的噪声。
   // V1.9.1（A13）：修 bug —— 原为 `['Manufacturer', 'Manufacturer']`，**中文页也显示英文**。
-  t_name: ['卫星', 'Satellite'], t_launch: ['批次/组', 'Batch / Group'], t_maker: ['制造商', 'Manufacturer'], t_sma: ['半长轴, KM', 'SMA, KM'],
+  t_name: ['卫星', 'Satellite'], t_launch: ['批次/组', 'Batch / Group'], t_manufacturer: ['制造商', 'Manufacturer'], t_sma: ['半长轴, KM', 'SMA, KM'],
   // V1.9.1（A13）：BSTAR 列原本**完全没有 data-i18n**（中英都写死 "BSTAR"）→ 补上键，
   //   中文用「大气阻力系数」、英文保留 `BSTAR`（业内通行写法）。
   //   注意：表头是**导出图片**的列名来源（exportTable 读 th.textContent）→ 改一处即可两处生效。
@@ -656,7 +656,7 @@ function build(key) {
   var st = {
     key: key, name: c.name, en: c.en, org: c.org, sub: c.sub,
     launches: launches, sats: sats, lmap: lmap, bad: bad,
-    makers: c.makers || {},            // V1.4.2：制造方（按批次 key 索引，来自词条）
+    manufacturers: c.manufacturers || {},            // V1.4.2：制造方（按批次 key 索引，来自词条）
     // V1.9.1（A11）：按批次的「已再入」清单（satcat 的 DECAY_DATE）—— 发射记录弹窗的 X/T 用它算
     goneCount: c.goneCount || {},
     // V1.9.1（A19）：**搜索补池** —— 「已再入」与「尚未编目」这两类**库内没有 TLE** 的对象，
@@ -2962,7 +2962,7 @@ function orbitStatusHtml(r) {
 function tableVals(s) {
   var b = S.model === 'brouwer';
   var L = s.launch;
-  var mkRow = makerOf(s);
+  var mkRow = manufacturerOf(s);
   return {
     name: cnName(s), norad: s.norad, launch: L.name,
     // V1.9.1（1.4-D）：「在轨状态」列 —— 0=在轨 / 1=已再入（排序用数值：在轨排前面）。
@@ -2974,7 +2974,7 @@ function tableVals(s) {
     // V1.8.0（需求12）：卫星表格新增「发射时间 (GMT+8)」列 —— 值取本批发射时刻（已是北京时间），
     //   排序用毫秒值（ltime），显示用 lstr；元数据缺失的批次（无台账）显示「—」。
     ltime: L.dateMs || 0, lstr: L.dateStr && L.dateStr !== '—' ? L.dateStr.replace('T', ' ') : '—',
-    maker: mkRow ? mkRow.items.map(function (x) { return (LANG === 'en' && x.en) ? x.en : x.zh; }).join(' ') : '',  // V1.4.2/4.3：制造方（供排序/搜索）
+    manufacturer: mkRow ? mkRow.items.map(function (x) { return (LANG === 'en' && x.en) ? x.en : x.zh; }).join(' ') : '',  // V1.4.2/4.3：制造方（供排序/搜索）
     sma: b ? s.smaB : s.smaK, hp: b ? s.hpB : s.hpK, ha: b ? s.haB : s.haK,
     // V1.9.2（A7）：额外给「在轨状态」列一份**固定 brouwer 口径**的半长轴 —— 该列的高度
     //   必须与构建期算 wk 的历史库同口径，不能随页面 model（brouwer/kepler）切换而变，
@@ -2995,9 +2995,9 @@ function tableVals(s) {
 }
 var LAST_ROWS = [];                    // V1.3.7：图→表联动要用「当前排序/筛选后的行序」
 // ---------------------------------------------------------------- V1.4.2：制造方（研发机构）
-// 数据来自卫星百科词条表格（见 mkmaker.mjs），按 COSPAR / 发射日期匹配到每个发射批次。
+// 数据来自卫星百科词条表格（见 mkmanufacturers.mjs），按 COSPAR / 发射日期匹配到每个发射批次。
 // 词条里写的是全称，这里统一收成简称；点简称跳词条对应机构页。
-var MAKER_SHORT = [
+var MANUFACTURER_SHORT = [
   // 正则（匹配词条全称）             中文简称        英文缩写（英文界面用；空串 = 暂无通用缩写，保持中文）
   [/微小卫星创新研究院|上海微小卫星工程中心|微小卫星/, '上海微小', 'Microsat'],
   [/格思航天|格斯航天|格思/, '格思航天', 'Genesat'],
@@ -3017,7 +3017,7 @@ var MAKER_SHORT = [
 ];
 // 把词条那一格拆成机构列表：{ zh: 中文简称, en: 英文缩写, full: 词条原文 }
 // 表格里每行最多两个、行内居中；英文界面显示英文缩写（没给缩写的机构保持中文，不编造）。
-function makerShortList(raw) {
+function manufacturerShortList(raw) {
   if (!raw) return [];
   var seen = {};
   return raw.split(/[、,，\/]/).map(function (one) {
@@ -3025,8 +3025,8 @@ function makerShortList(raw) {
     if (!n) return '';
     var zh = n, en = '';
     var hitRule = null;
-    for (var i = 0; i < MAKER_SHORT.length; i++) {
-      if (MAKER_SHORT[i][0].test(n)) { hitRule = MAKER_SHORT[i]; break; }
+    for (var i = 0; i < MANUFACTURER_SHORT.length; i++) {
+      if (MANUFACTURER_SHORT[i][0].test(n)) { hitRule = MANUFACTURER_SHORT[i]; break; }
     }
     if (hitRule) { zh = hitRule[1]; en = hitRule[2]; }
     else {
@@ -3039,11 +3039,11 @@ function makerShortList(raw) {
 }
 // 每个机构各自找自己的词条链接：mokers 数据里现在带 ls（词条里这一格挂的所有 <a>），
 // 按机构全称互相包含来配对 —— 此前整格只有第一个机构有链接，其余都是纯文本。
-function makerOf(s) {
-  var m = cur().makers && cur().makers[s.lk];
+function manufacturerOf(s) {
+  var m = cur().manufacturers && cur().manufacturers[s.lk];
   if (!m || !m.m) return null;
   var ls = m.ls || [];
-  var items = makerShortList(m.m).map(function (it) {
+  var items = manufacturerShortList(m.m).map(function (it) {
     var u = '';
     for (var i = 0; i < ls.length; i++) {
       if (ls[i].n && (ls[i].n.indexOf(it.full) >= 0 || it.full.indexOf(ls[i].n) >= 0)) { u = ls[i].u; break; }
@@ -3054,18 +3054,18 @@ function makerOf(s) {
 }
 // 制造方那一格：全部列出；每行最多两个、行内居中（1 个 → 居中；3 个 → 2+1；5 个 → 2+2+1）。
 // 有词条链接的机构用主题色 + 下划线，没有的保持纯文本。
-function makerCell(s) {
-  var mk = makerOf(s);
+function manufacturerCell(s) {
+  var mk = manufacturerOf(s);
   if (!mk || !mk.items.length) return '';
   var cells = mk.items.map(function (it) {
     var name = (LANG === 'en' && it.en) ? it.en : it.zh;
     return it.url
-      ? '<a class="maker-link" href="' + it.url + '" target="_blank" rel="noopener" title="' + it.full + '">' + name + '</a>'
+      ? '<a class="manufacturer-link" href="' + it.url + '" target="_blank" rel="noopener" title="' + it.full + '">' + name + '</a>'
       : '<span title="' + it.full + '">' + name + '</span>';
   });
   var lines = [];
   for (var i = 0; i < cells.length; i += 2) lines.push(cells.slice(i, i + 2));
-  return lines.map(function (ln) { return '<span class="maker-line">' + ln.join('') + '</span>'; }).join('');
+  return lines.map(function (ln) { return '<span class="manufacturer-line">' + ln.join('') + '</span>'; }).join('');
 }
 
 // V1.4.0：把卫星表格的行模板抽成函数 —— 表格渲染与「导出多页/全页」共用同一套 HTML，
@@ -3105,7 +3105,7 @@ function satRowHtml(r) {
       ? '<span class="batch-none">\u2212</span>'
       : '<span class="batch-link" data-lk="' + s.lk + '" title="' + t('d_sel_group') + '">' + batchName(r.launch) + '</span>') + '</td>' +
     '<td class="ltime">' + r.lstr + '</td>' +
-    '<td class="maker">' + makerCell(s) + '</td>' +
+    '<td class="manufacturer">' + manufacturerCell(s) + '</td>' +
     '<td>' + V(fmtNum(r.sma, 1)) + '</td>' +
     '<td>' + V(fmtNum(r.hp, 1)) + '</td>' +
     '<td>' + V(fmtNum(r.ha, 1)) + '</td>' +
@@ -3183,8 +3183,8 @@ function launchRowHtml(L) {
 // ★★ V1.9.1（性能根治 · 2026-10-10 实测）：**只按批次抽一行来量**，不再渲染全部行。
 //   为什么可以这样（依据是 CSS，不是猜）：
 //     `.ltable td { white-space:nowrap }` 把**所有列**都钉成不换行，**唯一**的例外是
-//     `.ltable td.maker { white-space:normal }` —— 于是**行高只是「制造商单元格」的函数**；
-//     而制造商是按批次挂的（`cur().makers[s.lk]`）→ **同一批次内所有卫星的行高必然完全相同**。
+//     `.ltable td.manufacturer { white-space:normal }` —— 于是**行高只是「制造商单元格」的函数**；
+//     而制造商是按批次挂的（`cur().manufacturers[s.lk]`）→ **同一批次内所有卫星的行高必然完全相同**。
 //   为什么必须改（实测数据，真浏览器 1440×900 @2x）：
 //     旧实现把**全部 262 行**都渲染进离屏表格再逐行量高度 → 单次 `renderTable()` 就要 43~52ms；
 //     而切星座的半程会连续调用两次（`rebuild()` 一次、`afterConstelSwap({jump:true})` 一次）
@@ -3240,7 +3240,7 @@ function measureRowUnits(rows) {
   } catch (e) {
     // 量尺失败时退化为「按文本长度估算」，保证功能不中断（同样按 1/4 行粒度返回）
     rows.forEach(function (r) {
-      var a = String(r.maker || '').length, b = String(r.name || '').length;
+      var a = String(r.manufacturer || '').length, b = String(r.name || '').length;
       byLk[r._s.lk] = Math.max(4, Math.ceil(a / 12) * 4, Math.ceil(b / 30) * 4);
     });
   }
@@ -7601,7 +7601,7 @@ var SITE_ALIAS = [
   ['渤海', ['渤海', 'bohai sea', 'bohai']]
 ];
 // 制造商：中文简称 / 全称 / 英文缩写 / 拼音
-var MAKER_ALIAS = [
+var MANUFACTURER_ALIAS = [
   ['中国科学院微小卫星创新研究院（上海微小）', ['微小卫星', '上海微小', '卫星创新院', '中科院微小', '微小', 'microsat', 'shanghai micro satellite', 'shanghaiweixiao', 'weixiaoweixing', 'weixiao', 'zhongguokexueyuan', 'kexueyuan', 'zhongkeyuan', 'shanghaiweixiaoweixing', 'wxy', 'zkywx', 'wxwxgccxyjy', 'shwxwxgcczx']],
   ['航天科技五院（中国空间技术研究院）', ['五院', '航天五院', '空间技术研究院', 'cast', 'china academy of space technology', 'hangtianwuyuan', 'wuyuan', 'kongjianjishuyanjiuyuan', 'zhongguokongjianjishu', 'ht5y', 'wuy', 'zgkjjsyjy']],
   ['银河航天', ['银河', '银河航天', 'galaxy space', 'galaxyspace', 'yinhehangtian', 'yinhe', 'yhht', 'yinghe', 'yinghehangtian', 'yingheht']],
@@ -7619,7 +7619,7 @@ var MAKER_ALIAS = [
   ['垣信卫星', ['垣信', 'yuanxin', 'spacesail', 'yuanxin weixing', 'yuanxinweixing', 'yxwx', 'yx']]
 ];
 // 数据里出现的「带颗数后缀」的原始制造商名（如「银河航天（2颗）」）—— 用于精确反向命中
-var MAKER_RAW = {
+var MANUFACTURER_RAW = {
   '上海微小卫星工程中心': '中国科学院微小卫星创新研究院（上海微小）',
   '中国科学院微小卫星创新研究院': '中国科学院微小卫星创新研究院（上海微小）',
   '五院': '航天科技五院（中国空间技术研究院）',
@@ -7696,13 +7696,13 @@ function aliasHit(word, table) {
   return e ? e[0] : '';
 }
 // V1.7.0：输入 → 规范制造商名的全部候选（含数据原名映射），供搜索时双向匹配
-function makerAliasSet(word) {
-  var e = aliasEntry(word, MAKER_ALIAS);
+function manufacturerAliasSet(word) {
+  var e = aliasEntry(word, MANUFACTURER_ALIAS);
   if (!e) return null;
   var canon = e[0];
   var names = [canon].concat(e[1] || []);
   // 把数据里的原始名（含（1颗）等后缀）也加进来
-  Object.keys(MAKER_RAW).forEach(function (raw) { if (MAKER_RAW[raw] === canon) names.push(raw); });
+  Object.keys(MANUFACTURER_RAW).forEach(function (raw) { if (MANUFACTURER_RAW[raw] === canon) names.push(raw); });
   return { canon: canon, names: names };
 }
 // 截断：超长时保留前几个字 + 省略号（联想区尾部标注用）
@@ -7843,7 +7843,7 @@ function searchCandidates(q) {
     }
     // —— ③ 制造商：命中 → 该制造商参与批次的全部卫星
     // V1.7.0：支持拼音（yinghe / yhht / yinghehangtian）+ 大小写不敏感 + 数据原名（含（N颗）后缀）
-    var mkset = makerAliasSet(w);
+    var mkset = manufacturerAliasSet(w);
     var mk = mkset ? mkset.canon : '';
     if (mk) {
       // V1.6.3：用该机构的全部别名（含数据里的原名）与记录双向包含匹配，
@@ -7852,7 +7852,7 @@ function searchCandidates(q) {
       // V1.6.3：制造商数据在全局 SATDATA 里（键 = COSPAR 裸号，值 = { m, ls:[{n}] }），
       // 与内部 CONST 的字段名/键格式都不一致 —— 之前一直取不到记录。改为直接用 SATDATA 双向匹配。
       var SD = (typeof SATDATA !== 'undefined' && SATDATA) ? (SATDATA[st.key] || SATDATA[S.key]) : null;
-      var MKD = (SD && SD.makers) ? SD.makers : (st.makers || null);
+      var MKD = (SD && SD.manufacturers) ? SD.manufacturers : (st.manufacturers || null);
       if (MKD) {
         Object.keys(MKD).forEach(function (ck) {
           var rec = MKD[ck];
@@ -7868,8 +7868,8 @@ function searchCandidates(q) {
                    mmBase.indexOf(nm) >= 0 || nm.indexOf(mmBase) >= 0;
           });
           if (!hitMk) return;
-          // V1.6.3 真因修复：L.cospar 形如 '2023-095'（自带 '20' 前缀），而 makers 的键是裸号 '23095'，
-          // 归一化后仍不相等 → 之前恒不匹配。这里直接用 L.key（其值就是 makers 的键）比对。
+          // V1.6.3 真因修复：L.cospar 形如 '2023-095'（自带 '20' 前缀），而 manufacturers 的键是裸号 '23095'，
+          // 归一化后仍不相等 → 之前恒不匹配。这里直接用 L.key（其值就是 manufacturers 的键）比对。
           st.launches.forEach(function (L) {
             if (!L || !L.sats || !L.sats.length) return;
             if (String(L.key) !== String(ck)) return;
@@ -7978,7 +7978,7 @@ function sugItemHtml(o, mark) {
     attrs = ' data-kind="group" data-lk="' + L.key + '"';
   }
   // V1.7.0：note 里可能带 <b>...</b>（表示命中字段），把它按语言转写：
-  //   英文界面下，把括号里的中文关键词转换成对应英文（用 makerAliasSet 反查规范名）。
+  //   英文界面下，把括号里的中文关键词转换成对应英文（用 manufacturerAliasSet 反查规范名）。
   right = localizeNote(right);
   return '<div class="sug-item' + cls + '"' + attrs + '>' +
     '<span class="sug-name">' + (mark ? '<i class="sug-mark">' + mark + '</i>' : '') + name +
@@ -8001,12 +8001,12 @@ function enKeyword(kw) {
   if (!w) return w;
   // 1) 制造商（含（N颗）后缀 → 规范名）
   var base = w.replace(/（[^）]*）/g, '').replace(/\([^)]*\)/g, '').trim();
-  for (var i = 0; i < MAKER_ALIAS.length; i++) {
-    var canon = MAKER_ALIAS[i][0];
-    var names = MAKER_ALIAS[i][1];
+  for (var i = 0; i < MANUFACTURER_ALIAS.length; i++) {
+    var canon = MANUFACTURER_ALIAS[i][0];
+    var names = MANUFACTURER_ALIAS[i][1];
     for (var j = 0; j < names.length; j++) {
       if (base === names[j] || base.indexOf(names[j]) === 0 || names[j].indexOf(base) >= 0) {
-        return EN_MAKER[canon] || canon;
+        return EN_MANUFACTURER[canon] || canon;
       }
     }
   }
@@ -8014,7 +8014,7 @@ function enKeyword(kw) {
   return zh2enKw(w);
 }
 // 制造商规范名 → 英文名
-var EN_MAKER = {
+var EN_MANUFACTURER = {
   '中国科学院微小卫星创新研究院（上海微小）': 'Shanghai Micro Satellite',
   '航天科技五院（中国空间技术研究院）': 'CAST (5th Academy)',
   '银河航天': 'Galaxy Space',

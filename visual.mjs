@@ -349,7 +349,7 @@ async function probe(tag, expectTwoLinePager, expectEn) {
   })()`));
   // V1.8.0（需求12/13）：卫星表在「批次/组」后插入了「发射时间」列 → 制造方顺延到第 5 列（idx 4）；
   //   同时需求13 要求「两表记录一律居中」，实际生效的是「首列左对齐（tbody td:first-child）+ 其余全居中」。
-  //   所以这里不再逐列点名 maker / 数字列，改成验这条更强的规则。
+  //   所以这里不再逐列点名 manufacturer / 数字列，改成验这条更强的规则。
   ck('卫星表格：首列左对齐、其余各列一律居中（V1.8.0 需求13）', await ev(`(function(){
     var tr = document.querySelector('#satTable tbody tr');
     if (!tr) return false;

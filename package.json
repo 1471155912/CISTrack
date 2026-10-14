@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "refresh": "node refresh.mjs",
-    "makers": "node mkmaker.mjs",
+    "manufacturers": "node mkmanufacturers.mjs",
     "data": "node mkdata.mjs",
     "build": "node build.mjs",
     "smoke": "node smoke.mjs",

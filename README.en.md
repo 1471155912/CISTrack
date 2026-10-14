@@ -97,14 +97,14 @@ node scripts/fetch_wiki.mjs        # drives a local Edge/Chrome past the WAF →
 
 ```bash
 node refresh.mjs        # fetch the latest TLEs (four sources merged) and the full NORAD catalogue
-node mkmaker.mjs        # scrape the "developer" table of the wiki articles (cached; --force to refetch)
+node mkmanufacturers.mjs        # scrape the "developer" table of the wiki articles (cached; --force to refetch)
 node mkdata.mjs         # build build/satdata.json (per-batch delta packing) and build/wiki.json
 node build.mjs          # assemble the single-file HTML and copy wiki.json next to it
 node smoke.mjs          # logic smoke test (jsdom, no external dependencies)
 node visual.mjs         # optional: real-browser layout and interaction checks (needs a local Edge + ws)
 ```
 
-> `mkmaker.mjs` has to get past the article WAF: it opens a real browser and polls the title until the challenge page clears itself (20–35 s in practice). The result is cached in `data/makers.json`, so routine rebuilds do not need it.
+> `mkmanufacturers.mjs` has to get past the article WAF: it opens a real browser and polls the title until the challenge page clears itself (20–35 s in practice). The result is cached in `data/manufacturers.json`, so routine rebuilds do not need it.
 
 ## 🔄 Where the data comes from · how it is updated
 

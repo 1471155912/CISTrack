@@ -175,14 +175,14 @@ function rocketSegs(str) {
     return { t: t };
   });
 }
-// V1.4.3：发射地点优先用词条里抓到的链接（mkmaker.mjs 顺带抓了「发射基地/发射地点」列），
+// V1.4.3：发射地点优先用词条里抓到的链接（mkmanufacturers.mjs 顺带抓了「发射基地/发射地点」列），
 // 这样南海海域、东方航天港号这类海上平台也能点进去；抓不到再回落到手工维护的 SITE_URL。
-// 注意：MAKERS 必须在这里之前就赋值（它是 const，跑到后面才定义会触发 TDZ）。
-const MAKERS = (() => {
+// 注意：MANUFACTURERS 必须在这里之前就赋值（它是 const，跑到后面才定义会触发 TDZ）。
+const MANUFACTURERS = (() => {
   try {
-    return JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'makers.json'), 'utf8'));
+    return JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'manufacturers.json'), 'utf8'));
   } catch (e) {
-    console.log('!! makers.json 读不到（先跑 node mkmaker.mjs）：', e.message);
+    console.log('!! manufacturers.json 读不到（先跑 node mkmanufacturers.mjs）：', e.message);
     return null;
   }
 })();
@@ -195,7 +195,7 @@ const SITE_EXTRA = {
 function siteLink(str) {
   var t = String(str);
   var key = t.split(/[\s]/)[0];
-  var bySite = (MAKERS && MAKERS.bySite) || {};
+  var bySite = (MANUFACTURERS && MANUFACTURERS.bySite) || {};
   var hit = bySite[t];
   if (!hit && key) {
     Object.keys(bySite).some(function (k) {
@@ -547,23 +547,23 @@ console.log('差分打包：gw', JSON.stringify(gwPack.sats).length + JSON.strin
   'bytes（原', JSON.stringify(gw).length, '）｜qf',
   JSON.stringify(qfPack.sats).length + JSON.stringify(qfPack.tpls).length, 'bytes（原', JSON.stringify(qf).length, '）');
 
-// V1.4.2：研发机构（制造方）—— 来自词条表格，由 mkmaker.mjs 抓取缓存到 data/makers.json。
+// V1.4.2：研发机构（制造方）—— 来自词条表格，由 mkmanufacturers.mjs 抓取缓存到 data/manufacturers.json。
 // 先按 COSPAR 精确匹配，匹配不到再用发射日期兜底；两者都没有就留空（前端不显示这一格）。
-function makerOf(key, dateStr) {
-  if (!MAKERS) return null;
+function manufacturerOf(key, dateStr) {
+  if (!MANUFACTURERS) return null;
   const cospar = '20' + key.slice(0, 2) + '-' + key.slice(2);          // 24240 → 2024-240
-  let hit = MAKERS.byCospar[cospar];
+  let hit = MANUFACTURERS.byCospar[cospar];
   if (!hit && dateStr) {
     const d = String(dateStr).match(/^(\d{4})-(\d{2})-(\d{2})/);       // 2024-08-06T14:42
-    if (d) hit = MAKERS.byDate[d[1] + '-' + d[2] + '-' + d[3]];
+    if (d) hit = MANUFACTURERS.byDate[d[1] + '-' + d[2] + '-' + d[3]];
   }
-  return hit ? { m: hit.maker, u: hit.url, ls: (hit.links || []).filter(function (x) { return x.n && x.u; }) } : null;
+  return hit ? { m: hit.manufacturer, u: hit.url, ls: (hit.links || []).filter(function (x) { return x.n && x.u; }) } : null;
 }
-function makerMap(launches) {
+function manufacturerMap(launches) {
   const out = {};
   Object.keys(launches).forEach(k => {
     const v = launches[k];
-    const hit = makerOf(k, v && v[1]);
+    const hit = manufacturerOf(k, v && v[1]);
     if (hit) out[k] = hit;
   });
   return out;
@@ -596,7 +596,7 @@ const DATA = {
     dead: GW_POOLS.dead, pend: GW_POOLS.pend,
     wiki: WIKI_STAT.gw,
     links: linkMap(GW_LAUNCH),
-    makers: makerMap(GW_LAUNCH),
+    manufacturers: manufacturerMap(GW_LAUNCH),
     sats: gwPack.sats, tleTpl: gwPack.tpls,
   },
   qf: {
@@ -607,7 +607,7 @@ const DATA = {
     dead: QF_POOLS.dead, pend: QF_POOLS.pend,
     wiki: WIKI_STAT.qf,
     links: linkMap(QF_LAUNCH),
-    makers: makerMap(QF_LAUNCH),
+    manufacturers: manufacturerMap(QF_LAUNCH),
     sats: qfPack.sats, tleTpl: qfPack.tpls,
   },
   urls: URLS,
