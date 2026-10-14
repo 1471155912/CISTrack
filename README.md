@@ -87,14 +87,14 @@ node scripts/fetch_wiki.mjs        # 起一个本机 Edge/Chrome 过 WAF → 解
 ```
 
 - **零依赖**：只用 Node 自带能力（`child_process` + 内置 `fetch` + 内置 `WebSocket` 走 CDP），
-  不再需要 `playwright`——所以在本机计划任务那种没有 `node_modules` 的环境里也能跑。
+  不再需要 `playwright`——所以在没有 `node_modules` 的环境（如纯计划任务）里也能跑。
 - 浏览器可执行文件自动在常见路径里找；也可以用环境变量 `CISTRACK_EDGE` 指定（兼容旧名 `EDGE_PATH`）。
 - 数字没变化时**不写文件**（便于 `git` 判断是否要提交）。
 - 抓不到（WAF 不过 / 解析失败）会以**非零退出码**结束，方便计划任务与 CI 标红。
 - **隐私**：只访问 `sat.huijiwiki.com` 的两个公开词条页，用的是通用桌面 Chrome UA，
   不发送任何本机信息；产出只有一份公开统计数字。
 
-> 如果用 Windows 计划任务自动运行这个脚本：任务里必须允许「用电池时启动」（`DisallowStartIfOnBatteries = false`），
+> 如果用计划任务自动运行这个脚本：任务里必须允许「用电池时启动」（`DisallowStartIfOnBatteries = false`），
 > 否则笔记本一旦没插电，任务会被系统直接拒绝、静默不跑。
 
 **方式二：完整重建（需要 Node.js 18+）**
@@ -128,7 +128,7 @@ node visual.mjs         # 可选：真浏览器布局与交互实测（需要本
 
 **自动化（V1.8.0 起采用 A＋B 双轨）**
 
-- **A · 本机计划任务**：`update_tle.bat` / `update_wiki.bat` 负责 `refresh → mkdata → build → build_release → git push`。
+- **A · 本地计划任务**：`update_tle.bat` / `update_wiki.bat` 负责 `refresh → mkdata → build → build_release → git push`。
   - 每一步都查退出码，**失败自动重试最多 3 次**（间隔 90 s），全过程追加到 `logs/tle_refresh.log` / `logs/wiki_refresh.log`；
   - 两个任务**共用 `logs/git.lock` 互斥**（都在 00:00 与 12:00 触发），避免同时提交打架；锁超过 5 分钟视为陈旧并自动清除；
   - 推送前先 `git pull --rebase --autostash`（云端可能刚推过）；
@@ -218,7 +218,7 @@ build.mjs       # 把上面几块注入 template → 单文件 HTML
 
 **日常维护**：不需要人工干预——
 
-1. `refresh.mjs`（本机计划任务每 12 小时）拉最新 TLE 时顺手把当天要素追加进源库；
+1. `refresh.mjs`（本地任务每 12 小时）拉最新 TLE 时顺手把当天要素追加进源库；
 2. `mkdata.mjs`（构建时）把源库采样打包成发布分片，随 `build.mjs` 一起复制到产物目录；
 3. 源库有容量治理兜底（每星 ≤3000 点、单库 24 MB），永不无限膨胀；
 4. 新批次发射后自动出现在索引里，无需改代码。

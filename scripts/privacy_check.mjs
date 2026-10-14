@@ -24,14 +24,15 @@ import { fileURLToPath } from 'node:url';
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 
 // —— 判定为"作者私有环境叙事"的关键词（大小写不敏感）——
-// ⚠️ 口径：只拦**与使用者无关、纯作者本机运维/诊断**的叙事。
-//   脚本文件名（update_tle.bat 等）作为 CHANGELOG 里"某版本做过什么"的历史描述**不算**私有叙事，
-//   不拦；拦的是这些文件名**外面包裹的本机网络/邮件/家用 IP 叙事**。
+// ⚠️ 口径（2026-10-14 定）：只拦**与使用者无关、纯作者本机运维/诊断**的叙事。
+//   脚本文件名（update_tle.bat 等）作为"某版本做过什么"的历史描述**不算**私有叙事，不拦。
+//   "网络不通"这类**通用技术词**也不拦（refresh.mjs 的日志提示、e2e 的容错说明都属正常工程
+//   表述）；拦的是"本机到 X 不通（附代理 502 / 家用 IP 等本机诊断细节）"这种**带私有环境指纹**的句子。
 const BAD = [
   ['报错邮件叙事', /报错邮件|邮件通知|收件箱|GitHub\s*发来|还在发.*邮件|老版本时期.*没发生过/],
   ['家用/住宅 IP', /家用\s*IP|住宅\s*IP|home\s*ip|residential\s*ip/i],
-  ['本机连通性诊断', /本机到\s*celestrak|网络不通|CONNECT\s*tunnel|代理\s*502|直连超时|疑似网络.*不可达|检查本机.*连通/],
-  ['已知与本机环境相关', /已知与本机环境|本机环境相关的事项|本机实测.*网络|本机没有旧副本|本机.*不通/],
+  ['本机诊断细节', /本机到\s*celestrak|本机.*网络.*不通|本机没有旧副本|本机实测.*网络|检查本机.*连通|本机环境相关的事项/],
+  ['代理错误码叙事', /代理\s*502|CONNECT\s*tunnel|直连超时/],
   ['CI 邮件/红灯叙事', /CI\s*(两次)?红灯|GitHub\s*Actions.*(报错|邮件)|排查.*报错/],
   ['Windows 计划任务负责', /Windows\s*计划任务.*负责|计划任务.*可过\s*WAF|仍由本机.*负责/],
 ];
@@ -40,7 +41,8 @@ const BAD = [
 function skip(rel) {
   return /(^|\/)(node_modules|archive|junk|shots|build|history|_secrets|\.secrets)\//.test(rel)
     || /\.min\.js$/.test(rel) || /\.(png|jpg|jpeg|gif|ico|zip|gz)$/i.test(rel)
-    || rel === 'PROCESS.md';   // 纯本地过程日志，不发布
+    || rel === 'PROCESS.md'                       // 纯本地过程日志，不发布
+    || rel === 'scripts/privacy_check.mjs';       // 本脚本自身（关键词表就在里面）
 }
 
 const argi = process.argv.indexOf('--files-from');

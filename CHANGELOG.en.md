@@ -126,7 +126,7 @@ joined by `×10`. Applied to the **eccentricity** and **BSTAR** columns.
 
 ### ⑦ ★ The real cause of the two CI red lights: satellites with no history left the tri-state fields `undefined`
 
-> Not on the user's list — uncovered while investigating the "GitHub failure email".
+> Not on the requirements list — uncovered while investigating data-pipeline reliability.
 
 **Symptom** (CI log): `A7: tri-state fields complete` reported "512 satellites: 400 in orbit / 105 raising" —
 400+105 = 505 ≠ 512, **7 missing**; and `A7: working altitude is a 10 km step` also failed.
@@ -727,7 +727,7 @@ The three round documents that had mistakenly entered the repository (containing
 
 **⑥ Cleanup and disk** (the user authorized a "large-scale cleanup" this round, especially the recycle bin)
 
-- On this machine, deletions are always redirected to the recycle bin by a `safe-delete` hook — **judging only by "the file is gone" would falsely report success**,
+- Deletions are redirected to the recycle bin by a `safe-delete` hook — **judging only by "the file is gone" would falsely report success**,
   and space is only really released after the recycle bin is emptied. After emptying accordingly: **C drive free 6.12 → 6.95 GB**,
   **D drive recycle bin 2.22 GB → 0.3 MB** (net release 2.21 GB).
 - Source directory: `_tmp` 2.1 GB → 0, `过程归档` 116.2 → 21 MB, one-off probe scripts and `_probe_dbg.html` etc. moved out.
@@ -1313,7 +1313,7 @@ to be reused directly when writing the V1.7.2 task list.
 - Measured: **955 MB** cleaned out (the vast majority being the headless Edge user-data directories `.edgeprof` / `.edgeprof2`, about 450–500 MB each).
 - `.gitignore` completed with these patterns; `package.json` gained two scripts, `clean` / `clean:apply`.
 - ⚠️ An implementation pitfall: `clean.mjs` early on used `execFileSync` to spawn a child process to call itself,
-  which on this machine **reliably reported EBUSY** (under Windows the same node.exe is occupied when spawned again).
+  which **reliably reported EBUSY** (under Windows the same node.exe is occupied when spawned again).
   Now changed to an **in-module call** (`clean.mjs` exports `scan/applyMove/report`, and `build.mjs` imports it with `await import()`).
 
 **⑤ Improvements along the way**

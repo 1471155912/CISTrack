@@ -5,7 +5,7 @@ name: Update wiki stats
 # 注意：GitHub 的定时任务可能有几分钟的调度延迟。
 # 说明：Cloudflare 会拦截 GitHub 数据中心 IP（"Just a moment..." 挑战页过不去），
 # 所以无法在 Actions 上直接抓取 —— 定时已移除，仅保留手动触发备用。
-# 实际的自动更新由本机 Windows 计划任务执行 scripts/fetch_wiki.mjs（家用 IP 可过 WAF）。
+# 实际的自动更新由发布方的本地任务执行 scripts/fetch_wiki.mjs（非数据中心出口可过 WAF）。
 on:
   workflow_dispatch:
 

@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
+import { execFileSync } from 'node:child_process';   // V1.9.4：跑 privacy_check 等外部体检脚本
 const require = createRequire(import.meta.url);
 const { JSDOM, VirtualConsole } = require('jsdom');
 
@@ -483,7 +484,7 @@ assert('Manufacturer走简称映射 + 词条外链',
   /https:\/\/sat\.huijiwiki\.com/.test(appSrc));
 assert('首行Manufacturer单元格已渲染（有 .manufacturer 列）', (function(){ var r = d.querySelector('#tbody tr'); return !!r && !!r.querySelector('.manufacturer'); })());
 // 注：首行是 NORAD 最大的卫星，可能正好属于唯一没匹配上的批次，所以看整体而不是首行
-// ★ 2026-10-11 修脆弱性（CI 报错邮件里的第二条）：
+// ★ 2026-10-11 修脆弱性（当时 CI 失败告警里点出的第二条）：
 //   原判据是「**当前页**（首屏 10 行）里 ≥6 行渲染出简称」。但表格首行按 NORAD **降序**
 //   = 最新发射的批次，而最新批次往往**还没录入制造商** → 有值的行数随数据刷新而波动。
 //   实测证据：CI run 38094871493（2026-10-10T23:25）失败时的值串是
@@ -2526,8 +2527,8 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
       !!nr && nr.tot === nr.count &&
       new RegExp(nr.count + ' 颗').test(nr.html) && !new RegExp(nr.count + '/' + nr.tot).test(nr.html),
       nr ? (nr.count + ' → ' + nr.html.slice(0, 150)) : '找不到 26137');
-    // A7 兜底：satdata 里**不许**有缺三态字段的在轨星（CI 两次红灯的真凶）
-    assert('V1.9.3：satdata 里**没有**缺 orb/wk/od 的在轨星（CI 两次红灯的真凶，兜底必须补齐）',
+    // A7 兜底：satdata 里**不许**有缺三态字段的在轨星（数据链路静默失败的真凶）
+    assert('V1.9.3：satdata 里**没有**缺 orb/wk/od 的在轨星（静默失败的真凶，兜底必须补齐）',
       (function () {
         const SD = JSON.parse(fs.readFileSync(B + '/build/satdata.json', 'utf8'));
         const live = [].concat(SD.gw.sats, SD.qf.sats).filter(r => r.st !== 'r');
@@ -2712,7 +2713,7 @@ assert('V1.9.2：右侧留白按"要标几条"动态加宽（否则名称会被�
       liveS.length > 0 && liveS.every(r => (r.orb === 0 || r.orb === 1) && r.wk !== undefined && typeof r.od === 'string'),
       liveS.length + ' 颗：在轨 ' + orbS.length + ' / 变轨中 ' + raiS.length +
         // ★ V1.9.3：把"缺字段的星"直接打出来 —— 旧输出只给计数，看不出 400+105=505≠512 这件事
-        //   （2026-10-13 CI 两次红灯就是这个：日志里只能看到计数对不上，看不出是哪几颗）。
+        //   （2026-10-13 一次数据链路失败就是这个：日志里只能看到计数对不上，看不出是哪几颗）。
         (function () {
           const bad = liveS.filter(r => !((r.orb === 0 || r.orb === 1) && r.wk !== undefined && typeof r.od === 'string'));
           return bad.length ? '；缺字段 ' + bad.length + ' 颗：' + bad.slice(0, 8).map(r => r.id).join(',') : '';
@@ -2779,7 +2780,7 @@ assert('V1.9.2：右侧留白按"要标几条"动态加宽（否则名称会被�
     //     才会现形 —— 又一个「只在本地跑过 = 没跑过」的实例。
     //   这条守卫直接读**源码**，断言兜底分支存在且把 wk 档位化（950 那次就是档位化的必要性：
     //   非档位值 948.6 若不做 round 会写进 wk，断言立刻红）。
-    assert('A7：无历史点的星**必须兜底**（否则 orb/wk/od 留 undefined → 「字段齐备」与「10 km 档位」两条断言同时红，CI 两次红灯的真凶）',
+    assert('A7：无历史点的星**必须兜底**（否则 orb/wk/od 留 undefined → 「字段齐备」与「10 km 档位」两条断言同时红，静默失败的真凶）',
       (function () {
         const mkSrc = fs.readFileSync(B + '/mkdata.mjs', 'utf8');
         // ⚠️ 窗口必须够大：从 `const st = ORBIT_ST.get(...)` 到 `rec.orb = 1` 之间
@@ -2998,10 +2999,17 @@ assert('V1.9.2：右侧留白按"要标几条"动态加宽（否则名称会被�
     (function () {
       const gs = d3.getElementById('groupSel');
       const keys = [...gs.options].slice(1).map(o => o.value);
+      // ⚠️ 与页面 build() 同口径算 dateMs：无日期的自动补录批次（v[1]=''）在页面端
+      //   取 Date.now() 排最前（它是"最新发射、百科还没收录"的那批）。smoke 若按 0 算
+      //   就会与页面不一致 → 这里必须同样按"大值"处理，否则补录一批就红一次。
       const meta = {};
-      Object.keys(RAW.gw.launches).forEach(k => { meta[k] = Date.parse(RAW.gw.launches[k][1] + ':00+08:00'); });
+      Object.keys(RAW.gw.launches).forEach(k => {
+        const v1 = String(RAW.gw.launches[k][1] || '');
+        const ms = v1 ? Date.parse(v1.slice(0, 10) + 'T00:00:00+08:00') : NaN;
+        meta[k] = isFinite(ms) ? ms : Infinity;
+      });
       for (let i = 1; i < keys.length; i++) {
-        const a = meta[keys[i - 1]] || 0, b = meta[keys[i]] || 0;
+        const a = meta[keys[i - 1]], b = meta[keys[i]];
         if (a < b) return false;
         if (a === b && String(keys[i - 1]) < String(keys[i])) return false;
       }
@@ -4291,7 +4299,7 @@ assert('V1.9.1（#9）：JS 起来后仍然接管（语言切换 / 真实历元�
   assert('CHANGELOG（双语）：两版顶部互相跳转',
     /CHANGELOG\.en\.md/.test(clZh.slice(0, 1200)) && /CHANGELOG\.md/.test(clEn.slice(0, 1200)));
   assert('CHANGELOG（双语）：英文版已接进两条发布链路（否则往返会丢）',
-    // ⚠️ 这条守卫的来历（2026-10-11 CI 报错邮件的根因）：
+    // ⚠️ 这条守卫的来历（2026-10-11 一次 CI 失败的根因）：
     //   原写法读的是**开发工作区根目录**的两个构建脚本（源码对齐 / 打包发布），
     //   而它们**不在仓库里**。于是：
     //     · 本地能过（工作区根恰好在上一级，文件存在）；
@@ -4311,11 +4319,11 @@ assert('V1.9.1（#9）：JS 起来后仍然接管（语言切换 / 真实历元�
 }
 
 // ---------------------------------------------------------------- CI 契约：测试脚本只许引用**仓库内**的文件
-// 来历（2026-10-11 的 GitHub 报错邮件）：smoke.mjs 里一条守卫去读**仓库外的**两个构建脚本
+// 来历（2026-10-11 的 CI 失败）：smoke.mjs 里一条守卫去读**仓库外的**两个构建脚本
 //   （在开发工作区根目录、不在仓库里）→ 本地绿、CI 红，且 `scripts/audit_refs.mjs` 会先把
 //   smoke.mjs 自己报成"引用了磁盘上不存在的文件"。
 // 为什么写在 smoke 里而不是只靠 audit_refs：**本地的第一道闸门就是 smoke**。
-//   只有把这条检查并进 smoke，本地跑一次就能拦住，不必等 CI 报错邮件来告诉你。
+//   只有把这条检查并进 smoke，本地跑一次就能拦住，不必等 CI 失败才发现。
 // 判据：本文件源码里不得出现 `../` 形式的**文件读取**（跨出仓库一步即违规）。
 //   注意排除注释——否则这条守卫会被自己上面的说明文字命中（同一坑已踩过多次）。
 {
@@ -4328,7 +4336,7 @@ assert('V1.9.1（#9）：JS 起来后仍然接管（语言切换 / 真实历元�
   const RE_OUT = /(?:readFileSync|existsSync|statSync|readdirSync|writeFileSync)\s*\(\s*[A-Za-z_$][\w$]*\s*\+\s*['"`]\.\.\//g;
   let m2;
   while ((m2 = RE_OUT.exec(codeOnly))) badRefs.push(m2[0].slice(0, 60));
-  assert('CI 契约：测试脚本**只引用仓库内的文件**（不得跨出仓库一步）—— 本地闸门就能拦住，不必等 CI 报错邮件',
+  assert('CI 契约：测试脚本**只引用仓库内的文件**（不得跨出仓库一步）—— 本地闸门就能拦住，不必等 CI 失败才发现',
     badRefs.length === 0,
     badRefs.length ? '违规写法：' + badRefs.join(' ;; ') : '无跨仓库引用');
 }
@@ -4351,9 +4359,27 @@ assert('引用体检：扫描器按**前缀**跳过开发期临时目录（精�
   !/SKIP_DIR\.has\(rel\) \|\| SKIP_DIR\.has\(e\.name\)/.test(auditSrc),
   'SKIP_DIR=' + ((auditSrc.match(/const SKIP_DIR = new Set\(\[([\s\S]{0,200}?)\]\)/) || [])[1] || '').replace(/\s+/g, ' ').slice(0, 120));
 
+// ---------------------------------------------------------------- ★ V1.9.4：发布物**去敏感**硬闸门
+// 来历（用户 2026-10-14 点名）：仓库文件与版本更新说明里混进了**只与作者本机运维相关、
+//   对使用者无意义**的私有环境叙事，进了公开仓库 = 去敏感不彻底。
+// 根治办法不是"每次记得改"，而是**机器可执行的闸门**：
+//   · `scripts/privacy_check.mjs` 扫描所有会进入仓库的文本，命中即失败；
+//   · smoke 直接调用它（本地改一行就能拦住，不必等 CI）；
+//   · CI 的"离线自检"步骤也跑一遍（防本地没跑就推）。
+// ⚠️ 本断言**真的执行**扫描（不是只检查脚本存在）—— 这样"新增一条私有叙事"会当场红。
+//   ⚠️ 注释与断言标题自身也会被扫到 → 这里统一用"私有环境叙事"统称，不列举具体词。
+//   ⚠️ execFileSync 遇非零退出码会抛异常 → 用 stdio 管道 + try/catch 拿到输出再判。
+let privacy = '';
+try {
+  privacy = execFileSync(process.execPath, [B + 'scripts/privacy_check.mjs'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+} catch (e) { privacy = String(e.stdout || '') + String(e.stderr || ''); }
+assert('V1.9.4：发布物去敏感扫描通过（无作者私有环境叙事、无本机诊断细节）',
+  /✓ 通过：未发现私有环境叙事/.test(privacy),
+  (privacy.split('\n').filter(l => /✗|命中|\[/.test(l)).slice(0, 3).join(' | ')) || '扫描输出异常');
+
 // ---------------------------------------------------------------- ★ V1.9.3：数据链路的两个静默失败闸门
-// 来历（用户 2026-10-13 报「网页显示的更新时间不是最新的 + 仍收到 GitHub 报错邮件」）：
-//   本机网络到 celestrak 不通时，S1~S5 全部只输出"新增 0 颗"，进程**正常退出 0** →
+// 来历（2026-10-13 排查「网页显示的更新时间不是最新的」时挖出）：
+//   到 celestrak 不通时，S1~S5 全部只输出"新增 0 颗"，进程**正常退出 0** →
 //   下游照旧 mkdata/build/push → 任务日志写 "updated and pushed"，仓库快照却一天比一天旧。
 //   两处修复都很关键，都必须有守卫（否则哪天被"优化"掉就又是静默失败）：
 const rfSrc = fs.readFileSync(B + '/refresh.mjs', 'utf8');
@@ -4421,14 +4447,12 @@ assert('V1.9.3：两个 e2e 脚本都设了 `CISTRACK_SKIP_STALE_CHECK`（否则
 //   e2e 的实跑交给 CI（`.github/workflows/update-tle.yml` 的"刷新 TLE"步骤里逐条挂），
 //   这里只断言**豁免机制存在**（上面那条）—— 那是"退出码会不会被污染"的根因所在。
 // ================================================================ ★ V1.9.3：satcat 一次抖动不得毁掉整条 CI
-// 用户报"GitHub 还在发报错邮件，老版本时期甚至都没发生过"。实测（run 38423010257，
-// 2026-10-13 15:33 UTC 定时运行，exit code 4）：
-//   `satcat.csv 拉取失败（status 0）且本机无旧副本` → `process.exitCode = 4`
-// 三件事叠加造成的：
+// 2026-10-13 一次定时运行失败（exit code 4）：`satcat.csv 拉取失败（status 0）且无旧副本`
+//   → `process.exitCode = 4`。三件事叠加造成的：
 //   ① `get(SATCAT_URL, 1)` —— **只试一次、不重试**（其它请求默认 2 次）；
 //   ② `data/satcat.csv` 在 .gitignore 里 → CI 每次都是"首次"、没有旧副本可退；
 //   ③ 20s 的 FETCH_TIMEOUT_MS 是按小 API 响应定的，而它是 6.7MB 的大文件。
-// 实测对照：同一天 05:24 的成功运行里，同样的 6.7MB **1.2 秒就下完了** ——
+// 实测对照：同一天的成功运行里，同样的 6.7MB **1.2 秒就下完了** ——
 //   所以不是"文件太大"，而是**偶发网络错误** + **没有重试** + **没有兜底副本**。
 {
   const yml = fs.readFileSync(B + '/.github/workflows/update-tle.yml', 'utf8');

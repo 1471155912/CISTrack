@@ -4,7 +4,7 @@
  *   1.4 要补的那批卫星（CX-19/20/26、KL-Alpha/Beta、DTC-01、GEO 高轨三颗 等）的 satcat 名字
  *   **完全不含星座关键字**，只能按 COSPAR 批次点名纳入。而名字正则分布在 refresh.mjs 的
  *   **两处**（构建 catByPrefix 时 / 最终 out 过滤时）—— 漏改任一处都会出现
- *   "查到了却被丢掉"或"没查却留下了"的诡异现象，且**本机到 celestrak.org 不通**、无法真跑验证。
+ *   "查到了却被丢掉"或"没查却留下了"的诡异现象，且**到 celestrak.org 不通时**无法真跑验证。
  *   所以用离线桩把整条 refresh 跑一遍。
  *
  * 做法：与 e2e_omm_offline.mjs 同款 —— 把 refresh/scripts/data 复制到临时目录 → 同进程 import

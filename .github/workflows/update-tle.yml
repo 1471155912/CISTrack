@@ -2,31 +2,29 @@ name: Update TLE data
 
 # V1.8.0（需求14 / Q7 方案 B）：把 **TLE 链路**搬上 GitHub Actions，每 12 小时一次。
 #
-# 为什么可以搬：CelesTrak 不拦数据中心 IP（实测 Actions 上能正常拉到 TLE 与 satcat.csv）。
+# 为什么可以搬：CelesTrak 不拦数据中心 IP（Actions 上能正常拉到 TLE 与 satcat.csv）。
 # 为什么只搬这一半：卫星百科（wiki.json / wiki_launches.json）在 Cloudflare 后面，
-#   数据中心 IP 过不去 WAF —— 那部分仍由本机 Windows 计划任务负责（家用 IP 可过）。
+#   数据中心 IP 过不去 WAF —— 那部分由发布方的本地任务负责（非数据中心出口可过）。
 #
 # 两条链路的分工：
 #   本工作流（云端，每 12h）：refresh.mjs → mkdata.mjs → build.mjs → release.mjs
 #     产出 = data/ct_*.tle 快照 + 重新打包的 CISTrack.html / CISTrack_v<版本>.html
-#   ★ V1.9.3（2026-10-14）：本机原本还有一个 update_tle.bat 跑同样的链路，
-#     但实测**本机到 celestrak.org 网络不通**（代理 CONNECT tunnel failed, 502），
-#     三轮重试全部失败 —— 而云端一直正常（CI 连续 success）。既然云端能做好，
-#     本地那份就是纯冗余，已删除文件并请用户注销计划任务。
+#   ★ V1.9.3（2026-10-14）：早期本仓库还有一个本地脚本跑同样的 TLE 链路，
+#     与云端重复；既然云端能做好，本地那份是纯冗余，已移除。
 #     于是 TLE 这一侧**只剩本工作流**，不再有"两边同时 push"的竞态。
-#   本机任务（update_wiki.bat）：只抓卫星百科（wiki.json / wiki_launches.json）
-#     —— 那部分 CI 做不了（Cloudflare 拦数据中心 IP），必须留在家用 IP 上。
+#   本地任务（wiki 侧）：只抓卫星百科（wiki.json / wiki_launches.json）
+#     —— 那部分 CI 做不了（Cloudflare 拦数据中心 IP），必须在非数据中心出口执行。
 #
 # 注意：访客打开页面时本来就会自己现拉最新 TLE（多路查询 + 代理兜底）。
 #   本任务修的是另一件事：**离线兜底快照**的老化 —— 大陆网络到不了 CelesTrak 的访客
 #   会回落到内置快照，以前那份快照可能停在很多天前，现在最多旧半天。
 #
-# ⚠️ V1.9.3：update_tle.bat 删除后，本地不再有 build_release.mjs 的自动调用
+# ⚠️ V1.9.3：本地 TLE 脚本移除后，本地不再有 build_release.mjs 的自动调用
 #   （它原本负责 SRC → REPO 的源码/产物回推）。改代码后需要**手动**跑：
 #     node sync_src.mjs && node build.mjs && node release.mjs
 #   这也是好事：以前任务运行的 ~25 分钟内改仓库源码会被 SRC 旧版静默覆盖。
 #
-# 与本地任务共存：两边都会 push，所以先 commit 再 pull --rebase 再 push，并重试一次。
+# 与 wiki 本地任务共存：两边都会 push，所以先 commit 再 pull --rebase 再 push，并重试一次。
 # 定时任务有几分钟调度延迟属正常。
 
 on:
@@ -51,13 +49,15 @@ jobs:
         with:
           fetch-depth: 0
 
-      # ★ V1.9.3【用户报"GitHub 还在发报错邮件"的根治之一】
+      # ★ V1.9.3：让"单个补充数据源的一次网络抖动"不再有资格毁掉整条日常链路。
       #   `data/satcat.csv`（6.7MB）被 .gitignore → **不在仓库里** → 每个 runner 都是全新的、
       #   没有旧副本。而它是**每周才需要一份新**的补充数据（驱动已再入标记/台账扣减/搜索补池）。
-      #   旧行为：每次 run 都现拉；偶发一次网络抖动（2026-10-13 15:33 UTC 实测：
-      #   10.5s 后 status 0）就 exitCode=4 → 整个 run 失败 → 发报错邮件。
-      #   加了缓存后：**跨 run 保留最近一份**。即使某次真的拉不到，也有旧副本可退
-      #   （refresh.mjs 的 `age > 7` 判断会照常尝试更新，失败则沿用）。
+      #   旧行为：每次 run 都现拉、且只试一次不重试；一次偶发网络错误就会让整个 run 失败。
+      #   现在的三道防护（缺一不可）：
+      #     ① 抓取端 3 次重试 + 大文件独立超时（见 refresh.mjs 的 SATCAT_TRIES/TIMEOUT）；
+      #     ② 本缓存：跨 run 保留最近一份 —— 即使某次真的拉不到，也有旧副本可退
+      #        （refresh.mjs 的 `age > 7` 判断会照常尝试更新，失败则沿用）；
+      #     ③ 失败时打出真实原因（不能只有 `status 0`）。
       #   缓存 key 用 run_id（永不命中）+ restore-keys（回退到最新一份）=
       #   "总是存最新、总是取最新"，这正是每周数据想要的行为。
       #   GitHub 缓存 7 天无访问会自动过期，所以内容最旧也就 7 天，与"每周一份"的节奏吻合。
@@ -90,6 +90,10 @@ jobs:
           #   注意必须用 `-z`：默认输出会给非 ASCII 文件名加八进制转义 → 体检自己变误报源。
           git ls-files -z > "$RUNNER_TEMP/tracked.txt"
           node scripts/audit_refs.mjs "$RUNNER_TEMP/tracked.txt"
+          # V1.9.4：**发布物去敏感体检** —— 拦"只与作者本机运维相关、对使用者无意义"的
+          #   私有环境叙事进入公开仓库。与 smoke 里的同一条断言双保险
+          #   （本地改一行就能拦住，不必等 CI）。
+          node scripts/privacy_check.mjs
 
       - name: 刷新 TLE 并重新打包单文件
         env:

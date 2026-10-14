@@ -117,10 +117,10 @@ function lkOfCospar(cp) {
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 /**
  * ★ V1.9.3：给每个请求加**硬超时** —— 旧实现用裸 `fetch()`，**没有任何超时**。
- *   2026-10-13 实测（本机网络到 celestrak 不通时）：一次 refresh 卡在 S2 超过 12 分钟，
+ *   实测：网络不通时一次 refresh 能卡在 S2 超过 12 分钟，
  *   而 S1/S2/S3/S4/S5 各有 2~4 次尝试 × 多个名字查询 → 最坏情况能挂到任务被强杀，
- *   既拿不到数据、又把 git.lock 一直占着（update_wiki.bat 要等它）。
- *   超时时间取 20s：正常响应（实测 CI 上）在 1s 内完成，20s 足够宽容；
+ *   既拿不到数据、又把 git.lock 一直占着（另一个本地任务要等它）。
+ *   超时时间取 20s：正常响应在 1s 内完成，20s 足够宽容；
  *   连不上时立即失败 → 重试 800ms 后走下一次，整体从"十几分钟"降到"几十秒"。
  *   ⚠️ 用 AbortSignal.timeout（Node 18+ 原生支持），不引入依赖。
  */
@@ -204,14 +204,12 @@ const catPath = path.join(D, 'satcat.csv');
 const age = fs.existsSync(catPath) ? (Date.now() - fs.statSync(catPath).mtimeMs) / 86400000 : 999;
 if (forceCat || age > 7) {
   console.log('satcat.csv 拉取中（' + (age > 900 ? '首次' : '已 ' + age.toFixed(1) + ' 天') + '）…');
-  // ★★ V1.9.3【用户报"GitHub 还在发报错邮件"的真因】
+  // ★★ V1.9.3：让"单个补充数据源的一次网络抖动"不再有资格毁掉整条日常链路。
   //   旧写法：`await get(SATCAT_URL, 1)` —— **只试一次、不重试**，且沿用 20s 的小文件超时。
-  //   2026-10-13 实测：正常时 6.7MB 只要 1.2s；但当天 15:33 UTC 那次**偶发**网络错误
-  //   （10.5s 后 status 0）→ 本机无旧副本（data/satcat.csv 被 gitignore）→ exitCode=4
-  //   → 整个 CI 挂掉 → 用户收到报错邮件。**一次抖动毁掉整条日常链路**，这就是"根治"的对象。
-  //   修法（三管齐下，缺一不可）：
+  //   而 data/satcat.csv 被 .gitignore → 每个 runner 都是全新的、没有旧副本可退。
+  //   于是一次偶发网络错误就足以让整个 CI 失败。**修法（三管齐下，缺一不可）**：
   //     ① **3 次重试**（默认只 1 次）—— 偶发抖动自己会好；
-  //     ② **180s 独立超时**（大文件不套小文件的 20s）；
+  //     ② **180s 独立超时**（6.7MB 大文件不套小文件的 20s）；
   //     ③ workflow 里加 actions/cache —— 跨 run 保留旧副本，见 update-tle.yml。
   //   另外把**真实错误原因**打出来：旧日志只有 `status 0`，看不出是超时、DNS 还是连接重置，
   //   下次再挂还得从头查一遍。
@@ -220,7 +218,7 @@ if (forceCat || age > 7) {
     fs.writeFileSync(catPath, r.text, 'utf8');
     console.log('  satcat.csv saved', r.text.length, 'bytes');
   } else if (!fs.existsSync(catPath)) {
-    // V1.9.1：拉不到 **且本机没有旧副本** → 三处功能（已再入标记 / 台账扣减 / 搜索补池）会静默失效，
+    // V1.9.1：拉不到 **且没有旧副本** → 三处功能（已再入标记 / 台账扣减 / 搜索补池）会静默失效，
     //   产物看起来却完全正常。所以这里主动失败（非零退出，CI 的 `set -e` 会截断后续步骤）。
     console.error('  ✗ satcat.csv 拉取失败（status ' + r.status + (r.err ? '，原因：' + r.err : '') +
       '，已重试 3 次）且本机无旧副本 ——' +
@@ -493,7 +491,7 @@ for (const key of ['gw', 'qf']) {
     console.log(key, 'S5 OMM    → 待补', ommTodo.length, '颗（处理', Math.min(ommTodo.length, OMM_CAP), '），补到', from.omm || 0, '颗，失败', ommErr);
     ommErrMsg.forEach(m => console.log('             · ' + m));
     // ★ 全失败时**必须显式告警**（旧版静默 → 数据静默缺失，是最难查的一类问题）
-    if ((from.omm || 0) === 0 && ommErr > 0) console.log('             ⚠️ 全部失败：疑似网络/上游不可达 —— 请检查本机到 celestrak.org 的连通性');
+    if ((from.omm || 0) === 0 && ommErr > 0) console.log('             ⚠️ 全部失败：疑似网络/上游不可达 —— 请检查到 celestrak.org 的连通性');
     if (ommTodo.length > OMM_CAP) console.log('             ⚠️ 超过处理上限 ' + OMM_CAP + '，本次有 ' + (ommTodo.length - OMM_CAP) + ' 颗未处理');
   }
 
@@ -639,18 +637,18 @@ console.log('\n报告已写入 data/refresh_report.json（OMM 映射 ' + Object.
 }
 
 // ---------------------------------------------------------------- ★ V1.9.3：数据新鲜度守卫
-// 来历（用户 2026-10-13 报「网页显示的更新时间不是最新的」）：
-//   本机网络到 celestrak 不通时，S1/S2/S3/S4/S5 **全部失败**，但每一步都只是
+// 来历：排查"网页显示的更新时间不是最新的"时发现的**静默失败**。
+//   网络不通时，S1/S2/S3/S4/S5 **全部失败**，但每一步都只是
 //   "新增 0 颗" —— 进程**正常退出 0**，下游照旧 mkdata/build/push。
 //   结果是：任务日志写着 `updated and pushed`，仓库里的快照却**一天比一天旧**，
-//   而页面上显示的「TLE 更新时间」停在旧历元 —— 用户看到的现象与"任务成功"矛盾。
+//   而页面上显示的「TLE 更新时间」停在旧历元 —— 现象与"任务成功"矛盾。
 //   ⇒ 这是典型的**静默失败**：不报错、看起来正常、产出却是错的。
 // 判据：取两个 .tle 里**最新的那份历元**，若距"现在"超过 `STALE_DAYS` 天，就明确报警。
 //   为什么用"最新历元"而不是"本轮是否抓到新数据"：
 //     上游本来就可能几天不更新某颗星，用"有没有新增"会误报；
 //     而"最新历元很旧"只可能有两个原因 —— 网络不通（本轮拿旧文件顶替）或上游真的停了。
 //     两种情况都值得让任务**失败可见**（而不是继续把旧快照当成新数据推送）。
-// 阈值 3 天：TLE 通常每天多次更新；3 天没动基本可以确定是链路问题（实测本机不通时停在 4 天）。
+// 阈值 3 天：TLE 通常每天多次更新；3 天没动基本可以确定是链路问题。
 // ⚠️ 只设 exitCode 不 throw —— 与上面的坏行闸门同一套（同进程 import 的测试不能被杀掉）。
 // ⚠️ **端到端测试必须豁免**：`scripts/e2e_*_offline.mjs` 会拿**桩数据**（合成 TLE，历元是假的）
 //   同进程 import 本脚本 → 残缺的历元必然触发这条闸门 → exitCode 会污染测试进程的退出码
@@ -676,7 +674,7 @@ if (!process.env.CISTRACK_SKIP_STALE_CHECK) {
   if (worst.ageDays > STALE_DAYS) {
     console.error('❌ 数据新鲜度闸门：最新 TLE 历元已落后 ' + worst.ageDays.toFixed(1) + ' 天（>' + STALE_DAYS + ' 天，' +
       worst.file + '）—— 本轮刷新**没有拿到新数据**。');
-    console.error('   大概率原因：本机到 celestrak.org 的网络不通（代理 502 / 直连超时）。');
+    console.error('   大概率原因：到 celestrak.org 的网络层不通（代理异常或连接超时）。');
     console.error('   影响：仓库里的离线兜底快照会停在旧日期，页面上的「TLE 更新时间」不前进。');
     console.error('   已以非零码（5）结束，让任务/CI 显式可见（而不是"成功但数据是旧的"）。');
     console.error('   排查：`curl -sSI https://celestrak.org/NORAD/elements/gp.php?GROUP=hulianwang` 看连通性。');
