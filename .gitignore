@@ -30,8 +30,16 @@ PROCESS.md
 PERF_NOTES.md
 audit_wiki.mjs
 scripts/recycle.mjs
-# 旧版本 HTML：约定只保留「当前版 + 上一版」，更早的移出仓库（回滚靠 git 历史）
-CISTrack_v1.9.2.html
+# ★ V1.9.5（H38）：开发/验证工具也留本地 —— 用户点名（clean / i18n / visual / audit_tle）。
+#   CI 不需要它们（CI 跑的是 smoke.mjs + 构建链），使用者也不需要；
+#   它们的副本在仓库外的 `维护文档/移出仓库的文件_2026-10-15/`（visual.mjs 仍从本仓库的
+#   node_modules 里解析 `ws`，所以 package.json 的 devDependencies 要保留 ws）。
+clean.mjs
+i18n.mjs
+visual.mjs
+scripts/audit_tle.mjs
+# 旧版本 HTML：约定只保留「当前版 + 上一版」，更早的由 release.mjs **自动裁剪**（H28，V1.9.5 起）。
+#   这里不再逐版本登记（原 `CISTrack_v1.9.2.html` 一行已删 —— 自动裁剪上线后它没有意义了）。
 
 # 版本归档（本地回滚用，不进仓库）
 archive/

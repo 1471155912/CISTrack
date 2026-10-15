@@ -13,7 +13,7 @@ const { JSDOM, VirtualConsole } = require('jsdom');
 const B = fileURLToPath(new URL('.', import.meta.url));
 // V1.8.0：允许用环境变量指向别的产物 —— 便于「拿旧版跑同一套断言」做 FAIL 归因
 // （旧版也 FAIL 的 = 过期断言；只有新版 FAIL 的 = 本次改动引入的真回归）。
-const FILE = process.env.SMOKE_HTML || (B + '/星网与千帆在轨追踪.html');
+const FILE = process.env.SMOKE_HTML || (B + '/CISTrack.html');
 const html = fs.readFileSync(FILE, 'utf8');
 
 const errors = [];
@@ -117,7 +117,7 @@ const rawSrc = fs.readFileSync(B + '/build/satdata.json', 'utf8');
   const gate = ['app.js', 'template.html'].map(f => {
     try {
       const sm = fs.statSync(path.join(B, f)).mtimeMs;
-      const pm = fs.statSync(path.join(B, '星网与千帆在轨追踪.html')).mtimeMs;
+      const pm = fs.statSync(path.join(B, 'CISTrack.html')).mtimeMs;
       return { f: f, stale: sm > pm + 1000 };
     } catch (e) { return { f: f, stale: false, err: e.code || e.message }; }
   });
@@ -4508,6 +4508,83 @@ assert('V1.9.5：仓库卫生扫描通过（根目录无过程类文件、子目
     /const BLOCK = \[/.test(hg) &&
     /const MAX_VERSIONED_HTML = 2;/.test(hg) &&
     /--files-from/.test(hg));
+}
+
+// ---------------------------------------------------------------- ★ V1.9.5：四条新闸门（H33–H36）
+// 来历（2026-10-16 全项目审查）：这四类问题**都真实发生过**，但当时只能靠人发现。
+//   判据一律写"性质/双向对齐/一致性"，不写死会随数据演进过期的数字（本项目的反复教训）。
+{
+  // H33：全部 .mjs 语法自检 —— `mkcoast.mjs` 的语法错误曾在仓库里躺了约一年没人发现，
+  //   直到要换海岸线数据时才发现"这脚本从来没跑过"。`node --check` 是零成本的普查。
+  {
+    const files = execFileSync('git', ['ls-files', '-z', '--', '*.mjs'], { cwd: B, encoding: 'utf8' })
+      .split('\0').filter(Boolean);
+    const bad = [];
+    for (const f of files) {
+      try { execFileSync(process.execPath, ['--check', path.join(B, f)], { stdio: ['ignore', 'pipe', 'pipe'] }); }
+      catch (e) { bad.push(f); }
+    }
+    assert('V1.9.5（H33）：仓库内全部 .mjs 通过 `node --check`（语法坏在仓库里 = 长期无人发现）',
+      bad.length === 0, bad.slice(0, 5).join(' / ') || ('共检查 ' + files.length + ' 个 .mjs'));
+  }
+  // H34：产物族的**同段载荷一致** —— 2026-10-15 实测 `CISTrack.html` 落后一整个构建（少跑一次 release）
+  //   而**无人发现**，直到人工比对。
+  //   ⚠️ 只比"最新产物 vs 与之同名的那份版本快照"（上一版内容本来就不同，不能拿来比 —— 首版写错过）。
+  {
+    const sig = f => {
+      const s = fs.readFileSync(path.join(B, f), 'utf8');
+      return ((s.match(/var VERSION = '([^']+)'/) || [])[1] || '') + '|' +
+        ((s.match(/"generated":"([^"]+)"/) || [])[1] || '') + '|' + s.length;
+    };
+    const ver = (fs.readFileSync(path.join(B, 'app.js'), 'utf8').match(/var VERSION = 'V([^']+)'/) || [])[1] || '';
+    const cur = 'CISTrack_v' + ver + '.html';
+    const ok = fs.existsSync(path.join(B, cur)) && sig(cur) === sig('CISTrack.html');
+    assert('V1.9.5（H34）：最新产物与同名版本快照内容一致（版本 + 数据时间戳 + 体积）—— 不一致即少跑了 release',
+      ok, '期望 ' + cur + ' 与 CISTrack.html 同内容；实际 ' +
+      (fs.existsSync(path.join(B, cur)) ? 'v快照=' + sig(cur) + ' 主产物=' + sig('CISTrack.html') : '缺 ' + cur));
+  }
+  // H35：海岸线数据的**性质判据**（"文件在"≠"数据对"：脚本坏了一年而产物照旧存在）
+  {
+    const c = fs.readFileSync(path.join(B, 'data', 'coast.js.txt'), 'utf8');
+    const arr = JSON.parse(c.replace(/^window\.COAST_DATA=/, '').replace(/;\s*$/, ''));
+    const pts = arr.reduce((a, l) => a + l.length, 0);
+    let ok = true;
+    for (const l of arr) for (const p of l) {
+      if (!(p[0] >= -180 && p[0] <= 180) || !(p[1] >= -90 && p[1] <= 90)) ok = false;
+    }
+    assert('V1.9.5（H35）：海岸线数据成性质（线数/点数在量级内、经纬度合法、无退化）',
+      arr.length >= 100 && arr.length <= 5000 && pts >= 2000 && pts <= 60000 && ok,
+      'lines=' + arr.length + ' pts=' + pts + ' 坐标合法=' + ok);
+  }
+  // H36：历史 **索引 ↔ 分片双向对齐**。依据是 `scripts/histpack.mjs:180` 的构造性不变量：
+  //   只有"有统计的批次"才会 push 进索引、同时写出分片 → 索引里的批次**必然**有分片。
+  //   失效后的症状很隐蔽：该批次的曲线**静默空白**（页面按需加载拿不到分片）。
+  //   ⚠️ 若将来"允许某批次合法地没有分片"，要在这条断言里**显式登记豁免**，而不是放宽判据本身。
+  {
+    const hd = path.join(B, 'history');
+    const miss = [], orphan = [];
+    if (fs.existsSync(hd)) {
+      const files = fs.readdirSync(hd);
+      const shards = files.filter(f => /^(gw|qf)-\d+[^/]*\.json$/.test(f) && !/^index-/.test(f));
+      const keys = new Set();
+      for (const idx of files.filter(f => /^index-.*\.json$/.test(f))) {
+        const j = JSON.parse(fs.readFileSync(path.join(hd, idx), 'utf8'));
+        const who = idx.replace(/^index-/, '').replace(/\.json$/, '');
+        (j.batches || []).forEach(b => {
+          const k = String(b.k);
+          keys.add(who + ':' + k);
+          if (!shards.some(f => f.indexOf(who + '-' + k) === 0)) miss.push(who + '-' + k);
+        });
+      }
+      shards.forEach(f => {
+        const who = f.slice(0, 2), k = f.replace(/^[a-z]+-/, '').split(/[-.]/)[0];
+        if (!keys.has(who + ':' + k)) orphan.push(f);
+      });
+    }
+    assert('V1.9.5（H36）：历史索引与分片双向对齐（索引里的分片都存在；分片都被索引引用）',
+      miss.length === 0 && orphan.length === 0,
+      '缺分片: ' + (miss.slice(0, 4).join(' / ') || '无') + '；无主分片: ' + (orphan.slice(0, 4).join(' / ') || '无'));
+  }
 }
 
 // ---------------------------------------------------------------- ★ V1.9.3：数据链路的两个静默失败闸门

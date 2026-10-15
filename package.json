@@ -1,6 +1,6 @@
 {
   "name": "cistrack",
-  "version": "1.9.4",
+  "version": "1.9.5",
   "description": "星网（CSCN）与千帆星座在轨追踪 —— 单文件、纯离线、零后端的网页工具",
   "type": "module",
   "scripts": {
@@ -9,10 +9,7 @@
     "data": "node mkdata.mjs",
     "build": "node build.mjs",
     "smoke": "node smoke.mjs",
-    "visual": "node visual.mjs",
-    "clean": "node clean.mjs --deep",
-    "clean:apply": "node clean.mjs --deep --apply",
-    "all": "node refresh.mjs && node mkdata.mjs && node build.mjs"
+    "all": "node refresh.mjs && node mkdata.mjs && node build.mjs && node release.mjs"
   },
   "dependencies": {},
   "devDependencies": {

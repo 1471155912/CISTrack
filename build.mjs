@@ -51,7 +51,11 @@ html = html
   .replace('<!--INJECT_DATA-->', '<script>window.SATDATA=' + data + ';</script>')
   .replace('<!--INJECT_APP-->', '<script>\n' + app + '\n</script>');
 
-const out = `${B}/星网与千帆在轨追踪.html`;
+// ★ V1.9.5（H46）：产物名统一为 `CISTrack.html`（不再产出中文名的那一份）。
+//   原因：中文名 `星网与千帆在轨追踪.html` 与 `CISTrack.html` 一直是**内容完全相同**的两份
+//   （哈希一致），仓库里等于白占 1.46 MB，而且让读者困惑"为什么有两个一样的文件"。
+//   release.mjs 仍负责写 `CISTrack_v<版本>.html` 快照。
+const out = `${B}/CISTrack.html`;
 fs.writeFileSync(out, html, 'utf8');
 console.log('written', out, fs.statSync(out).size, 'bytes');
 console.log('placeholders left:', (html.match(/<!--INJECT/g) || []).length);

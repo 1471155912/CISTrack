@@ -1,6 +1,6 @@
 # CISTrack · Satellite Tracking for GuoWang (SatNet) and Qianfan
 
-<p align="center"><img src="https://img.shields.io/badge/version-1.9.4-ff6b6b?style=flat-square" alt="version"></p>
+<p align="center"><img src="https://img.shields.io/badge/version-1.9.5-ff6b6b?style=flat-square" alt="version"></p>
 
 <p align="center"><a href="https://sat.huijiwiki.com/wiki/%E6%98%9F%E7%BD%91"><img src="https://img.shields.io/badge/%E6%98%9F%E7%BD%91-CSCN-ff6b6b?style=flat-square" alt="星网"></a> <a href="https://sat.huijiwiki.com/wiki/%E5%8D%83%E5%B8%86%E6%98%9F%E5%BA%A7"><img src="https://img.shields.io/badge/%E5%8D%83%E5%B8%86-G60-4dabf7?style=flat-square" alt="千帆"></a></p>
 
@@ -259,6 +259,27 @@ with 0 requests. Run `--prune` afterwards for capacity governance.
 - **The map is only a rough outline of continental coastlines and does not accurately represent any actual projection.**
 - Neither the generated images nor the page may be used for any professional purpose.
 
+## 🔗 Sources and attribution
+
+| Item | We take it from | Upstream source | Licence / terms |
+|---|---|---|---|
+| Orbital elements (TLEs) | CelesTrak | US Space Force **18 SDS** (distributed via Space-Track) | CelesTrak [usage policy](https://celestrak.org/usage-policy.php) |
+| Batches / vehicles / sites / developers / Chinese names / article links | Satellite Wiki (SatNet & Qianfan articles) | Community editors | [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/deed.en) ([copyright page](https://sat.huijiwiki.com/wiki/Project:%E7%89%88%E6%9D%83)) |
+| Coastlines | Natural Earth (embedded) | Natural Earth | [Terms](https://www.naturalearthdata.com/about/terms-of-use/) (public domain) |
+| SGP4 | satellite.js (MIT) | Spacetrack Report #3 / CSSI | [satellite-js](https://github.com/shashwatak/satellite-js) |
+| Font | Audiowide (embedded base64) | Google Fonts / Astigmatic | SIL [OFL 1.1](https://openfontlicense.org/) |
+| Orbit-raising methodology | findrassvet.ru | same | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/deed.en), credit `findrassvet.ru, V. Bulybenko` |
+| Engineering approaches | Kayhan Space open source | same | [MIT](https://github.com/Kayhan-Space/sgp4gl) |
+| This page | — | — | [MIT](LICENSE) |
+
+## 📜 Disclaimer and privacy
+
+- **Accuracy**: data comes from third-party catalogues and a community wiki; it may contain errors and lag. TLE / SGP4 are **not suitable for conjunction assessment, flight operations or business decisions**; nothing here is professional advice.
+- **Availability**: provided "as is"; upstream changes may leave the data stale.
+- **AI involvement**: parts of the code, documentation and scripts are **AI-assisted** (vibe coding). The author has tested and reviewed them, but gives **no warranty against residual defects**; the Chinese text is authoritative for translations.
+- **Privacy**: **nothing is collected or uploaded** — no accounts, cookies, analytics, ads or third-party scripts. Settings and a 30-minute element cache live locally only and can be cleared anytime. At runtime the page requests same-origin `wiki.json` / `history/` and may contact `celestrak.org` (**that site sees your IP**; on failure it falls back to public CORS proxies, which also see it). GitHub Pages logs access under its own privacy statement.
+- **Unofficial**: a personal hobby project, **not affiliated with or authorised by** any space agency or constellation operator.
+
 ## ⚖️ License
 
 [MIT](LICENSE) — free to use, modify and distribute (commercial use included), as long as the copyright and licence notice are kept.
@@ -268,10 +289,9 @@ with 0 requests. Run `--prune` afterwards for capacity governance.
 ```
 CISTrack.html           ★ latest build (no version in the name) — use it for the stable link:
                           https://1471155912.github.io/CISTrack/CISTrack.html
-星网与千帆在轨追踪.html   the build's original filename (what build.mjs writes; the in-page "how to use offline"
-                          note and release.mjs both refer to it)
-CISTrack_v1.9.4.html    snapshot of the current version
-CISTrack_v1.9.3.html    snapshot of the previous version (for rollback / comparison)
+CISTrack_v1.9.5.html    snapshot of the current version
+CISTrack_v1.9.4.html    snapshot of the previous version (for rollback / comparison)
+                        ↑ older ones are **trimmed automatically** by `release.mjs` (current + previous only)
 index.html              entry page (an 811-byte redirect to CISTrack.html)
 assets/                 assets used by the READMEs (the wordmark animation cistrack-logo.gif)
 README.md / README.en.md
@@ -291,10 +311,11 @@ build.mjs / mk*.mjs     build scripts (pack the sources into the single-file HTM
                           mkcoast.mjs          Natural Earth coastlines → data/coast.js.txt (selectable tiers; see the script header)
                           mkmanufacturers.mjs  manufacturer / developer cache (self-expires after 3 days)
                           refresh.mjs          fetches the current TLEs
-release.mjs             path-independent artifact sync (CISTrack.html + CISTrack_v<version>.html + package.json version + README badges)
-clean.mjs               development-time cleanup of one-off artifacts (moves them into junk/; restorable)
-smoke.mjs / visual.mjs  tests: logic and source assertions / real-browser layout checks
-i18n.mjs                bilingual copy audit (four static checks + four runtime passes)
+release.mjs             path-independent artifact sync (writes the CISTrack_v<version>.html snapshot, package.json version
+                        and README badges, and **trims** older versioned artifacts down to current + previous)
+smoke.mjs               tests: logic and source assertions (jsdom) — **the suite CI runs**
+                        ↑ development/verification tools (`clean.mjs` / `i18n.mjs` / `visual.mjs` / `scripts/audit_tle.mjs`)
+                          have lived **outside the repository** since V1.9.5 (see "Files not in the repository")
 scripts/fetch_wiki.mjs          fetches and updates wiki.json (zero dependencies; see "Updating the data")
 scripts/fetch_launch_results.mjs fetches the wiki's yearly launch pages → wiki_launches.json (zero dependencies)
 scripts/fetch_history.mjs       bulk historical TLE fetch (for seeding / backfilling; not needed for routine maintenance; see "Historical orbit database")
@@ -302,7 +323,6 @@ scripts/histstore.mjs           history source store: read/write plus capacity g
 scripts/histpack.mjs            history published-shard packing (v2 encoding + change-driven sampling)
 scripts/omm.mjs                 6-digit catalog numbers (CelesTrak 100000+) and TLE epoch conversion
 scripts/audit_refs.mjs          reference-integrity check ("a test references a file that is not in the repository")
-scripts/audit_tle.mjs           full TLE completeness audit (the wiki article is the sole roster; per-batch verdicts)
 scripts/privacy_check.mjs       de-sensitisation gate (author-private environment narrative → hard fail)
 scripts/repo_hygiene.mjs        repository-hygiene gate (root allowlist + process-file blocklist → hard fail)
 scripts/import_history.mjs etc. see each script's header (history import / climb-algorithm self-test / search pools / offline e2e / temp-root resolution)
@@ -310,8 +330,9 @@ scripts/import_history.mjs etc. see each script's header (history import / climb
 ```
 
 > **Files not in the repository** (see `.gitignore`, enforced by `scripts/repo_hygiene.mjs`): development notes
-> such as `PROCESS.md` and `PERF_NOTES.md`; the per-round "task list / acceptance checklist / cross-check tables";
-> one-off audit scripts; `archive/` holds local version snapshots; `build/`, `data/satcat.csv` and
+> (`PROCESS.md`, `PERF_NOTES.md`); the per-round "task list / acceptance checklist / cross-check tables";
+> **development and verification tools** (`clean.mjs` / `i18n.mjs` / `visual.mjs` / `scripts/audit_tle.mjs`,
+> kept locally since V1.9.5); `archive/` holds local version snapshots; `build/`, `data/satcat.csv` and
 > `data/wiki_cache/` are regenerable intermediates; `junk/` is a staging area for one-off artifacts.
 > The rule in one sentence: **the repository only carries what users need directly plus the minimal source chain
 > needed to rebuild it** — everything else (development process, maintainer-side tooling, debugging leftovers) stays out.
@@ -324,6 +345,7 @@ scripts/import_history.mjs etc. see each script's header (history import / climb
 > clone had to download; they have been removed, and rollback is now covered by **git history**
 > plus the local `archive/` baseline snapshot (not committed). Use `git log` to reach an older version.
 
-> The build and test scripts (`build.mjs` / `mk*.mjs` / `smoke.mjs` / `visual.mjs` / `scripts/*.mjs`)
-> **are maintained together with the repository** so that anyone can rebuild and re-test locally; running the tests needs `jsdom` and `ws`
-> (`npm i -D jsdom ws`). The build itself only needs Node and `data/`.
+> The **rebuild chain** (`build.mjs` / `mk*.mjs` / `refresh.mjs` / `release.mjs` / `smoke.mjs` / `scripts/*.mjs`)
+> **is maintained together with the repository** so that anyone can rebuild and re-test locally; CI runs `smoke.mjs`
+> (needs `jsdom`). **Development/verification tools** (`clean.mjs` / `i18n.mjs` / `visual.mjs` / `scripts/audit_tle.mjs`)
+> live outside the repository.

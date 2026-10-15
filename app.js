@@ -11,7 +11,7 @@ var DAY = 86400000;
 var SGP4 = window.satellite;
 var RAW = window.SATDATA;
 var COAST = window.COAST_DATA || [];
-var VERSION = 'V1.9.4';          // 页脚版本号，后续更新在此改动
+var VERSION = 'V1.9.5';          // 页脚版本号，后续更新在此改动
 
 // ---------------------------------------------------------------- V1.3.7：TLE 分组差分解码
 // 构建脚本按发射批次（COSPAR 前缀）把「名称+两行要素」压成公共模板 + 每颗星的差异串，
@@ -327,6 +327,9 @@ var I18N = {
   d_pick_btn_on: ['退出观测点模式', 'Exit site mode'],
   d_loading: ['正在获取最新轨道要素…', 'Fetching the latest orbital elements…'],
   d_updated: ['已更新至最新轨道要素', 'Updated to the latest elements'],   // V1.3.9：不再缀纪元，第三行已有
+  // ★ V1.9.5（H44）：联网失败的药丸提示（红色、停留更久）。文案由用户 2026-10-16 指定：
+  //   中文「联网失败，缓存数据可能已过时」；英文同名键。中英必须成对（i18n 审计会查漏译）。
+  d_netfail: ['联网失败，缓存数据可能已过时', 'Network unavailable — cached data may be out of date'],
   d_offline: ['未能联网更新，正在使用内置轨道要素快照', 'Could not update online — using the built-in element snapshot'],
   d_page: ['第 ', 'Page '], d_page2: [' 页', ' of '],
   d_sel_group: ['点击可选中该批次的全部卫星', 'Click to select all satellites of this group'],
@@ -6401,7 +6404,7 @@ var README_ZH = [
   '',
   '## 🚀 快速开始',
   '',
-  '1. 拿到 `星网与千帆在轨追踪.html`（单文件）；',
+  '1. 拿到 `CISTrack.html`（单文件）；',
   '2. 用现代浏览器（Edge / Chrome / Firefox / Safari）双击打开 —— **无需安装、无需联网**；',
   '3. 联网时页面会自动拉取最新一期轨道要素（三路分组/名称查询并发 + 两个公共代理兜底，各约 30–40 KB，6 秒内完成；全部失败时改用打包时内置的那一份）。',
   '',
@@ -6475,12 +6478,21 @@ var README_ZH = [
   '',
   '表格中的「在轨日, 天」= 从该批次发射时间到现在的天数，括号内为换算后的年月日（例如 `652d（01y09m15d）`）。它衡量的是整批卫星的在轨时长，可以配合半长轴看出电推进爬升的进度。',
   '',
-  '## 🔗 数据来源',
+  '## 🔗 数据来源与引用合规',
   '',
-  '- 🌐 [CelesTrak](https://celestrak.org/) —— NORAD 空间目标目录公开轨道要素（TLE），星网对应 `hulianwang` 分组、千帆对应 `qianfan` 分组；',
-  '- 📚 [卫星百科](https://sat.huijiwiki.com/) —— 「星网」「千帆星座」词条的发射记录（批次、时间、运载火箭、发射地点）与**顶部星座总计数**（发射 / 在轨卫星数量、发射成功次数）均以词条记载为准，本页所有火箭 / 发射地点链接取自其词条原文；',
-  '- 🗺️ [Natural Earth](https://www.naturalearthdata.com/) —— 公有领域海岸线底图（110m，经 Douglas-Peucker 简化后内联）；',
-  '- 🧮 [satellite-js](https://github.com/shashwatak/satellite-js) —— MIT 协议的 SGP4 轨道推算开源实现。',
+  '- 🌐 [CelesTrak](https://celestrak.org/) —— 公开轨道要素（TLE）的分发方；**本源**是美国太空军第 18 太空防御中队（18 SDS）的公开编目（经 Space-Track 分发）。本项目按 CelesTrak 的[使用政策](https://celestrak.org/usage-policy.php)取数（按更新节奏、只取需要的）；',
+  '- 📚 [卫星百科](https://sat.huijiwiki.com/) —— 「星网」「千帆星座」词条的批次、时间、运载火箭、发射地点、研发机构与顶部计数。词条内容按 [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/deed.zh-hans) 共享（[版权页](https://sat.huijiwiki.com/wiki/Project:%E7%89%88%E6%9D%83)）：本项目**署名并链接协议**、只呈现事实性条目；你若转载本页内容，请一并遵守该协议；',
+  '- 🗺️ [Natural Earth](https://www.naturalearthdata.com/) —— **公有领域**海岸线底图（[条款](https://www.naturalearthdata.com/about/terms-of-use/)：无需许可、无需署名）；',
+  '- 🧮 [satellite-js](https://github.com/shashwatak/satellite-js)（MIT）→ 算法本源为 **Spacetrack Report #3 / CSSI**；🔤 字体 [Audiowide](https://fonts.google.com/specimen/Audiowide)（SIL OFL 1.1）；📐 变轨呈现的方法论参考 [findrassvet.ru](https://findrassvet.ru/)（[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/deed.zh-hans)，署名 `findrassvet.ru, V. Bulybenko`）；🛰️ 部分工程做法参考 [Kayhan Space 的开源实现](https://github.com/Kayhan-Space/sgp4gl)（MIT）。',
+  '',
+  '## 📜 免责声明与隐私',
+  '',
+  '- **数据准确性**：数据来自第三方公开目录与社区词条，可能有错漏与延迟；TLE / SGP4 本身**不适合碰撞规避、飞控或任何业务决策**，本页不构成专业建议；',
+  '- **可用性**：按"现状"提供，不保证随时可用或完全无误；上游数据源变更或停用可能造成数据陈旧；',
+  '- **AI 参与**：本项目部分代码、文档与数据处理脚本由 **AI 辅助生成**（vibe coding），作者已做测试与人工复核，但**不担保不残留缺陷**；AI 生成的译文可能有误，请以中文原文为准；',
+  '- **隐私**：本页**不收集、不上传**任何用户数据 —— 没有账号、Cookie、统计或广告；仅在本地保存设置（`localStorage`）与 30 分钟内的轨道要素缓存（`sessionStorage`），可随时清除。运行时只请求同源的 `wiki.json` / `history/` 分片，并可能直连 `celestrak.org` 取最新要素（**该站可见你的 IP**；直连失败时退回公共 CORS 代理，同样可见）；托管方 GitHub Pages 会按其隐私声明记录访问日志；',
+  '- **非官方**：本项目为个人爱好项目，与任何航天机构、星座运营方**无隶属或授权关系**；',
+  '- **许可**：代码 MIT；数据与词条内容按各自来源的许可（见上一节）。',
   '',
   '## 🧩 本地重建（开发者）',
   '',
@@ -6591,7 +6603,7 @@ var README_EN = [
   '',
   '## 🚀 Quick start',
   '',
-  '1. Get `星网与千帆在轨追踪.html` (a single file);',
+  '1. Get `CISTrack.html` (a single file);',
   '2. Open it in a modern browser — **no install, no network required**;',
   '3. Online, it fetches the latest elements for the two constellation groups (~30–40 KB each, within 6 s, otherwise it falls back to the built-in snapshot).',
   '',
@@ -6658,12 +6670,21 @@ var README_EN = [
   '',
   'The "Days in orbit" column counts from the group\'s launch date to now, with a years/months/days breakdown in brackets (e.g. `652d (01y09m15d)`).',
   '',
-  '## 🔗 Sources',
+  '## 🔗 Sources and attribution',
   '',
-  '- 🌐 [CelesTrak](https://celestrak.org/) — public NORAD catalog elements (`hulianwang` / `qianfan` groups);',
-  '- 📚 [Satellite Wiki](https://sat.huijiwiki.com/) — launch records of the SatNet and Qianfan articles **and the constellation totals at the top of the page** (all rocket/site links come from those pages);',
-  '- 🗺️ [Natural Earth](https://www.naturalearthdata.com/) — public-domain coastlines (110m, Douglas-Peucker simplified);',
-  '- 🧮 [satellite-js](https://github.com/shashwatak/satellite-js) — MIT-licensed SGP4 implementation.',
+  '- 🌐 [CelesTrak](https://celestrak.org/) — distributor of the public orbital elements (TLEs); the **upstream source** is the public catalogue of the US Space Force **18th Space Defense Squadron (18 SDS)**, distributed via Space-Track. We fetch per CelesTrak\'s [usage policy](https://celestrak.org/usage-policy.php) (on their update cadence, only what we need);',
+  '- 📚 [Satellite Wiki](https://sat.huijiwiki.com/) — batches, dates, launch vehicles, sites, developers and the header counters, all from the SatNet / Qianfan articles. Its content is shared under [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/deed.en) ([copyright page](https://sat.huijiwiki.com/wiki/Project:%E7%89%88%E6%9D%83)): we **credit it and link the licence** and reproduce factual entries only; if you republish from this page, keep the same licence;',
+  '- 🗺️ [Natural Earth](https://www.naturalearthdata.com/) — **public-domain** coastlines ([terms](https://www.naturalearthdata.com/about/terms-of-use/): no permission or credit needed);',
+  '- 🧮 [satellite-js](https://github.com/shashwatak/satellite-js) (MIT) → the algorithm itself comes from **Spacetrack Report #3 / CSSI**; 🔤 [Audiowide](https://fonts.google.com/specimen/Audiowide) (SIL OFL 1.1); 📐 orbit-raising presentation follows the methodology of [findrassvet.ru](https://findrassvet.ru/) ([CC BY 4.0](https://creativecommons.org/licenses/by/4.0/deed.en), credit `findrassvet.ru, V. Bulybenko`); 🛰️ some engineering approaches follow [Kayhan Space\'s open-source work](https://github.com/Kayhan-Space/sgp4gl) (MIT).',
+  '',
+  '## 📜 Disclaimer and privacy',
+  '',
+  '- **Accuracy**: the data comes from third-party public catalogues and a community wiki; it may contain errors and may lag. TLE / SGP4 are **not suitable for conjunction assessment, flight operations or any business decision**; nothing here is professional advice;',
+  '- **Availability**: provided "as is", with no guarantee of uptime or correctness; upstream changes or shutdowns may leave the data stale;',
+  '- **AI involvement**: parts of the code, documentation and data-processing scripts were **AI-assisted** (vibe coding). The author has tested and reviewed them, but **no warranty against residual defects** is given; AI translations may contain mistakes — the Chinese text is authoritative;',
+  '- **Privacy**: this page **collects and uploads nothing** — no accounts, cookies, analytics or ads. It stores settings (`localStorage`) and a 30-minute element cache (`sessionStorage`) locally only, and you can clear them anytime. At runtime it requests the same-origin `wiki.json` / `history/` shards and may contact `celestrak.org` directly for the latest elements (**that site sees your IP**; if the direct request fails it falls back to public CORS proxies, which also see it). GitHub Pages, as the host, logs access under its own privacy statement;',
+  '- **Unofficial**: a personal hobby project — **not affiliated with or authorised by** any space agency or constellation operator;',
+  '- **Licence**: code is MIT; data and wiki content follow their own licences (see above).',
   '',
   '## 🧩 Rebuild (developers)',
   '',
@@ -7437,6 +7458,8 @@ function showToast(txt, mode) {
     toastEl.classList.toggle('pool-dead', mode === 'dead');
     toastEl.classList.toggle('pool-pend', mode === 'pend');
     toastEl.classList.toggle('inv', mode === 'inv');
+    // ★ V1.9.5（H44）：'fail' = 联网失败的红色药丸（文案见 i18n 的 d_netfail），停留更久。
+    toastEl.classList.toggle('fail', mode === 'fail');
     var pill = document.getElementById('clockPill');
     if (pill) {
       var r = pill.getBoundingClientRect();
@@ -7446,7 +7469,9 @@ function showToast(txt, mode) {
     toastEl.classList.remove('show');
     void toastEl.offsetWidth;               // 强制回流：保证连续触发时也能重新淡入
     toastEl.classList.add('show');
-    toastTimer = setTimeout(function () { toastEl.classList.remove('show'); }, 1800);
+    // ★ V1.9.5（H44）：'fail'（联网失败）停留更久 —— 5.2s vs 普通提示 1.8s。
+    //   理由：这是"你看到的轨位可能不是最新的"这类要紧信息，1.8 秒读不完。
+    toastTimer = setTimeout(function () { toastEl.classList.remove('show'); }, mode === 'fail' ? 5200 : 1800);
   } catch (e) {}
 }
 // V1.9.1（A19）：搜索补池（已再入 / 尚未编目）条目的点击行为 —— 任务清单 Q35。
@@ -9140,6 +9165,24 @@ function loadHistoryJson() {
   //   规模重估后（数万~数十万颗）单个大 JSON 会撞 GitHub 100MB 硬限，故按批次分片 + 索引，
   //   页面只取选中的那一批。读不到（file:// 打开、或没放）→ 用 satdata 里的**精简内置兜底**。
   loadHistoryJson();
+  // ★ V1.9.5（H44）：**联网取数门控** —— 内嵌数据距今 < 1 小时就**直接跳过联网**。
+  //   为什么是 1 小时（用户 2026-10-16 定的口径）：CelesTrak 的 GP 每 2 小时才更新一次，
+  //   而我们打包时已经取过一份 → 门控既省请求（对上游更礼貌、也少一次可能的失败），
+  //   又不损失"打开即最新"的收益。sessionStorage 那层 30 分钟缓存仍然保留（管同一会话内的重复取数）。
+  var FRESH_SKIP_MS = 60 * 60 * 1000;
+  var bootAgeMs = (function () {
+    try {
+      var g = window.SATDATA && window.SATDATA.generated;
+      if (!g) return Infinity;
+      var t0 = Date.parse(g);
+      return isFinite(t0) ? (Date.now() - t0) : Infinity;
+    } catch (e) { return Infinity; }
+  })();
+  if (bootAgeMs < FRESH_SKIP_MS) {
+    setLoadEpoch(t('d_epoch') + ' ' + fmtUTC(cur().epochMax) + ' UTC');
+    endLoad(t('d_updated'), true);
+    return;
+  }
   Promise.all([tryOne('gw'), tryOne('qf')]).then(function (r) {
     if (!r[0] || !r[1]) { throw new Error('empty'); }
     // V1.7.0 第四轮（需求1）：必须在 applyFresh 之前置位 —— applyFresh→rebuild()→renderHeader()
@@ -9155,6 +9198,11 @@ function loadHistoryJson() {
     //   断网时用打包时的内置要素这件事写进页内说明的数据来源章节。
     setLoadEpoch(t('d_epoch') + ' ' + fmtUTC(cur().epochMax) + ' UTC');
     endLoad(t('d_offline'), false);
+    // ★ V1.9.5（H44）：联网失败要**进主页面之后**看得见 —— 顶部药丸（与"已全选/已再入"提示同款），
+    //   红色、留存比普通提示更久（见 showToast 的 'fail' 模式）。
+    //   文案（用户 2026-10-16 定）：中「联网失败，缓存数据可能已过时」/ 英同名键。
+    //   为什么要提示：访客看到的轨位来自打包时的那份快照，不说清楚会被当成实时值。
+    setTimeout(function () { showToast(t('d_netfail'), 'fail'); }, 1500);
   });
 })();
 

@@ -1,6 +1,6 @@
 # CISTrack · 星网与千帆在轨追踪
 
-<p align="center"><img src="https://img.shields.io/badge/version-1.9.4-ff6b6b?style=flat-square" alt="version"></p>
+<p align="center"><img src="https://img.shields.io/badge/version-1.9.5-ff6b6b?style=flat-square" alt="version"></p>
 
 <p align="center"><a href="https://sat.huijiwiki.com/wiki/%E6%98%9F%E7%BD%91"><img src="https://img.shields.io/badge/%E6%98%9F%E7%BD%91-CSCN-ff6b6b?style=flat-square" alt="星网"></a> <a href="https://sat.huijiwiki.com/wiki/%E5%8D%83%E5%B8%86%E6%98%9F%E5%BA%A7"><img src="https://img.shields.io/badge/%E5%8D%83%E5%B8%86-G60-4dabf7?style=flat-square" alt="千帆"></a></p>
 
@@ -261,6 +261,27 @@ build.mjs       # 把上面几块注入 template → 单文件 HTML
 - **地图仅为粗略的地球大陆海岸线轮廓示意图，不能准确代表实际投影情况。**
 - 生成的图片与页面均不得用于任何形式的专业用途。
 
+## 🔗 数据来源与引用合规
+
+| 数据项 | 本项目取自 | 上游本源 | 许可 / 条款 |
+|---|---|---|---|
+| 轨道要素（TLE） | CelesTrak | 美国太空军 **18 SDS**（经 Space-Track 分发） | CelesTrak [使用政策](https://celestrak.org/usage-policy.php)（按更新节奏取数、只取所需） |
+| 批次 / 火箭 / 发射场 / 研发机构 / 中文名 / 词条链接 | 卫星百科「星网」「千帆星座」词条 | 社区词条作者 | [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/deed.zh-hans)（[版权页](https://sat.huijiwiki.com/wiki/Project:%E7%89%88%E6%9D%83)：署名 + 相同方式共享） |
+| 海岸线底图 | Natural Earth（打包内嵌） | Natural Earth（公有领域，NACIS 等协作） | [条款](https://www.naturalearthdata.com/about/terms-of-use/)（公有领域，无需署名） |
+| SGP4 推算 | satellite.js（MIT） | Spacetrack Report #3 / CSSI | [satellite-js](https://github.com/shashwatak/satellite-js) |
+| 字体 | Audiowide（base64 内嵌） | Google Fonts / Astigmatic | SIL [OFL 1.1](https://openfontlicense.org/) |
+| 变轨方法学 | findrassvet.ru | 同上 | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/deed.zh-hans)，署名 `findrassvet.ru, V. Bulybenko` |
+| 工程做法（借鉴） | Kayhan Space 开源实现 | 同上 | [MIT](https://github.com/Kayhan-Space/sgp4gl) |
+| 本页自身 | —— | —— | [MIT](LICENSE) |
+
+## 📜 免责声明与隐私
+
+- **数据准确性**：数据来自第三方公开目录与社区词条，可能有错漏与延迟；TLE / SGP4 **不适合碰撞规避、飞控或任何业务决策**，本页不构成专业建议。
+- **可用性**：按"现状"提供；上游变更或停用可能造成数据陈旧。
+- **AI 参与**：本项目部分代码、文档与脚本由 **AI 辅助生成**（vibe coding），作者已测试与复核，但**不担保不残留缺陷**；AI 译文中若有出入，以中文为准。
+- **隐私**：**不收集、不上传**任何用户数据 —— 无账号、无 Cookie、无统计、无广告、无第三方脚本。仅在本地保存设置与 30 分钟要素缓存（可随时清除）。运行时只请求同源的 `wiki.json` / `history/`，并可能直连 `celestrak.org`（**该站可见你的 IP**；失败时回退公共 CORS 代理，同样可见）；托管方 GitHub Pages 按其隐私声明记录访问日志。
+- **非官方**：个人爱好项目，与任何航天机构、星座运营方**无隶属或授权关系**。
+
 ## ⚖️ 许可证
 
 [MIT](LICENSE) —— 可自由使用、修改、分发（包括商用），保留版权与许可声明即可。
@@ -268,11 +289,12 @@ build.mjs       # 把上面几块注入 template → 单文件 HTML
 ## 仓库结构
 
 ```
-CISTrack.html           ★ 最新版（不带版本号）—— 固定链接就用它：
+CISTrack.html           ★ 唯一产物名（不带版本号）—— 固定链接就用它：
                           https://1471155912.github.io/CISTrack/CISTrack.html
-星网与千帆在轨追踪.html   构建产物原名（build.mjs 的输出；页内「如何离线使用」与 release.mjs 都指向它）
-CISTrack_v1.9.4.html    当前版本快照
-CISTrack_v1.9.3.html    上一版快照（回滚 / 对照用）
+                          （V1.9.5 起 build.mjs 直接写这个名字；原先那份同内容的中文名产物已取消）
+CISTrack_v1.9.5.html    当前版本快照
+CISTrack_v1.9.4.html    上一版快照（回滚 / 对照用）
+                        ↑ 更早的版本由 `release.mjs` **自动裁剪**（只留当前版 + 上一版）
 index.html              入口页（811 字节的跳转页，自动跳到 CISTrack.html）
 assets/                 README 用到的素材（顶栏字标动图 cistrack-logo.gif）
 README.md / README.en.md
@@ -292,10 +314,11 @@ build.mjs / mk*.mjs     构建脚本（把源码打包成单文件 HTML）：
                           mkcoast.mjs          Natural Earth 海岸线 → data/coast.js.txt（可选档位，见脚本头）
                           mkmanufacturers.mjs  制造商/研发机构缓存（3 天自过期）
                           refresh.mjs          拉取当期 TLE
-release.mjs             路径无关的产物同步（CISTrack.html + CISTrack_v<版本>.html + package.json 版本 + README 徽章）
-clean.mjs               开发期一次性产物的清理（搬进 junk/，可整包搬回）
-smoke.mjs / visual.mjs  测试：逻辑与源码断言 / 真实浏览器布局实测
-i18n.mjs                中英文案审计（静态四查 + 运行时四遍）
+release.mjs             路径无关的产物同步（写 CISTrack_v<版本>.html 快照 + package.json 版本 + README 徽章
+                          + **自动裁剪**更早的版本产物，只留当前版与上一版）
+smoke.mjs               测试：逻辑与源码断言（jsdom）—— **在 CI 里跑的那一套**
+                        ↑ 开发/验证工具（`clean.mjs` / `i18n.mjs` / `visual.mjs` / `scripts/audit_tle.mjs`）
+                          自 V1.9.5 起**留在本地、不进仓库**（见下方"不进仓库的文件"）
 scripts/fetch_wiki.mjs          抓取并更新 wiki.json（零依赖，详见「更新数据」）
 scripts/fetch_launch_results.mjs 抓取卫星百科年度发射记录页 → wiki_launches.json（零依赖）
 scripts/fetch_history.mjs       历史 TLE 批量拉取（灌库 / 补数用，日常维护不需要；详见「历史轨道数据库」）
@@ -303,17 +326,17 @@ scripts/histstore.mjs           历史源库读写与容量治理（mergeInto / 
 scripts/histpack.mjs            历史发布分片打包（v2 编码 + 变化驱动采样）
 scripts/omm.mjs                 6 位编目号（CelesTrak 100000+）解析与 TLE 历元换算
 scripts/audit_refs.mjs          引用完整性体检（"测试引用了仓库里不存在的文件"）
-scripts/audit_tle.mjs           全量 TLE 完整性核对（以百科词条为唯一名单，逐批次判定）
 scripts/privacy_check.mjs       发布物去敏感闸门（本机私有环境叙事 → 命中即失败）
 scripts/repo_hygiene.mjs        仓库卫生闸门（根目录白名单 + 过程类文件黑名单 → 命中即失败）
 scripts/import_history.mjs 等   见各脚本头部注释（历史库导入 / CT 爬升算法自证 / 搜索补池 / 离线 e2e / 临时根解析 等）
 .github/workflows/      云端自动化：update-tle.yml 每 12 小时刷新 TLE 并重新打包
 ```
 
-> **不进仓库的文件**（见 `.gitignore`，并有 `scripts/repo_hygiene.mjs` 把关）：`PROCESS.md`、
-> `PERF_NOTES.md` 等开发笔记；逐轮的「任务清单 / 验收检查清单 / 核对表」；一次性核对脚本
-> （如早期的词条名单核对）；`archive/` 是本地版本快照；`build/`、`data/satcat.csv`、
-> `data/wiki_cache/` 属可再生的中间产物；`junk/` 是一次性产物暂存区。
+> **不进仓库的文件**（见 `.gitignore`，并有 `scripts/repo_hygiene.mjs` 把关）：开发笔记（`PROCESS.md`、
+> `PERF_NOTES.md`）；逐轮的「任务清单 / 验收检查清单 / 核对表」；**开发与验证工具**
+> （`clean.mjs` / `i18n.mjs` / `visual.mjs` / `scripts/audit_tle.mjs`，V1.9.5 起留本地）；
+> `archive/` 是本地版本快照；`build/`、`data/satcat.csv`、`data/wiki_cache/` 属可再生的中间产物；
+> `junk/` 是一次性产物暂存区。
 > 口径就一句话：**仓库只放「使用者直接能用的 + 重建它所需的最小源码链」**，
 > 其余（开发过程、本机运维、调试件）一律留在仓库外。
 
@@ -324,6 +347,6 @@ scripts/import_history.mjs 等   见各脚本头部注释（历史库导入 / CT
 > 共 8 个旧快照（合计约 5 MB，且每次 clone 都要拉下来），已删除；回滚职责改由 **git 历史**
 > 与本地 `archive/` 基座快照（不进仓库）承担：要更早的版本用 `git log` 找到对应提交即可。
 
-> 构建与测试脚本（`build.mjs` / `mk*.mjs` / `smoke.mjs` / `visual.mjs` / `scripts/*.mjs`）
-> **随仓库一起维护**，方便任何人本地重建与复测；运行测试需要 `jsdom` 与 `ws`
-> （`npm i -D jsdom ws`）。构建本身只需要 Node 与 `data/`。
+> **重建链**（`build.mjs` / `mk*.mjs` / `refresh.mjs` / `release.mjs` / `smoke.mjs` / `scripts/*.mjs`）
+> **随仓库一起维护**，方便任何人本地重建与复测；CI 跑的是 `smoke.mjs`（需要 `jsdom`）。
+> **开发/验证工具**（`clean.mjs` / `i18n.mjs` / `visual.mjs` / `scripts/audit_tle.mjs`）留本地、不进仓库。

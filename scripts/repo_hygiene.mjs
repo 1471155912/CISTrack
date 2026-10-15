@@ -33,15 +33,16 @@ const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 // ---- ① 根目录白名单（写类别/角色，不写版本号）----
 const ALLOW_ROOT_EXACT = new Set([
   // 产物（用户直接打开的东西）
-  'CISTrack.html',              // 固定链接用（不带版本号）
-  '星网与千帆在轨追踪.html',      // 构建产物原名（页面内说明与 README 都指向它）
+  'CISTrack.html',              // ★ 唯一产物名（V1.9.5 起 build.mjs 直接写它；不再产出中文名的那份）
   'index.html',                 // GitHub Pages 入口（跳转到 CISTrack.html）
   // 说明与授权
   'README.md', 'README.en.md', 'CHANGELOG.md', 'CHANGELOG.en.md', 'LICENSE',
   // 重建链：源码 + 构建脚本 + 测试
+  //   ⚠️ V1.9.5：`clean.mjs` / `i18n.mjs` / `visual.mjs` **不在仓库里了**（开发/验证工具，留本地），
+  //   它们被下面的黑名单明确拦下；CI 唯一需要的测试是 `smoke.mjs`（依赖 jsdom）。
   'app.js', 'template.html',
   'build.mjs', 'mkcoast.mjs', 'mkdata.mjs', 'mkmanufacturers.mjs', 'refresh.mjs', 'release.mjs',
-  'clean.mjs', 'smoke.mjs', 'i18n.mjs', 'visual.mjs',
+  'smoke.mjs',
   // 运行时数据与依赖清单
   'wiki.json', 'wiki_launches.json', 'package.json', 'package-lock.json',
   // 版本控制配置
@@ -58,6 +59,10 @@ const BLOCK = [
   ['开发笔记（不进仓库）', /(^|\/)(PERF_NOTES|PROCESS|NOTES)\.(md|txt)$/],
   ['一次性核对脚本', /(^|\/)audit_wiki\.mjs$/],
   ['本机运维小工具（与项目无关）', /(^|\/)recycle\.mjs$/],
+  // ★ V1.9.5（H38）：开发/验证工具留本地 —— 用户 2026-10-16 明确点名（clean/i18n/visual 等
+  //   "应该留在本地而不是上传到 github 仓库"）。它们不影响用户使用，也不是 CI 的重建链。
+  ['开发/验证工具（留本地）', /(^|\/)(clean|i18n|visual)\.mjs$/],
+  ['手工核对工具（留本地）', /(^|\/)audit_tle\.mjs$/],
   ['暂存/中间/归档目录', /(^|\/)(junk|build|archive|logs|shots|node_modules|过程归档|维护文档)\//],
   ['开发期调试件（`_` 前缀）', /(^|\/)_[^/]*$/],
   ['临时产物', /\.(tmp|log|bak)$/],
@@ -80,6 +85,10 @@ const bad = [];
 let versioned = 0;
 for (const rel of files) {
   const p = rel.replace(/\\/g, '/');
+  // ★ V1.9.5：**只体检"磁盘上真实存在"的文件** —— `git ls-files` 也会列出"已删但本次提交才带走"的
+  //   路径（例如 release.mjs 裁剪掉的旧版本产物），把它们计进"版本产物份数"会造成假 FAIL
+  //   （实测：裁剪后本地算 3 份、CI 全新检出只有 2 份）。"tracked 但缺失"由 audit_refs 负责，不在这里重复。
+  if (!fs.existsSync(path.join(ROOT, p))) continue;
   let blocked = false;
   for (const [tag, re] of BLOCK) {
     if (re.test(p)) { bad.push({ rel: p, why: tag }); blocked = true; break; }

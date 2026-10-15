@@ -17,8 +17,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
-const BUNDLE = path.join(ROOT, '星网与千帆在轨追踪.html');
-const STABLE = 'CISTrack.html';
+// ★ V1.9.5（H46）：产物名统一 —— build.mjs 直接写 `CISTrack.html`（不再产出中文名的那份），
+//   本脚本只负责"打版本快照"与版本号同步，不再复制一份同内容的固定链接文件。
+const BUNDLE = path.join(ROOT, 'CISTrack.html');
 
 function readVersion() {
   const src = fs.readFileSync(path.join(ROOT, 'app.js'), 'utf8');
@@ -37,9 +38,28 @@ if (!fs.existsSync(BUNDLE)) {
 }
 
 const before = fs.statSync(BUNDLE).size;
-fs.copyFileSync(BUNDLE, path.join(ROOT, STABLE));
 fs.copyFileSync(BUNDLE, path.join(ROOT, ARTIFACT));
-console.log('产物 ' + before + ' B → ' + STABLE + ' / ' + ARTIFACT);
+console.log('产物 ' + before + ' B → ' + ARTIFACT + '（固定链接 CISTrack.html 由 build.mjs 直接产出）');
+
+// ★ V1.9.5（H28）：**旧版本自动裁剪** —— 仓库只留「当前版 + 上一版」两份带版本号产物。
+//   用户 2026-10-15 明确要求："自动删除旧 html，并且除非我再指令此后无需备份老版本文件并上传"。
+//   只处理本目录里形如 `CISTrack_v<主>.<次>.<修>.html` 的文件，按版本号倒序保留最新 2 份；
+//   其它文件（CISTrack.html / index.html / assets/ …）一律不碰，避免误删。
+//   ⚠️ 版本比较必须按分段数字，不能靠字典序 —— 否则 v1.10.0 会被判成小于 v1.9.9。
+{
+  const re = /^CISTrack_v(\d+)\.(\d+)\.(\d+)\.html$/;
+  const cand = fs.readdirSync(ROOT).filter(function (f) { return re.test(f); }).map(function (f) {
+    const m = f.match(re);
+    return { f: f, k: [+m[1], +m[2], +m[3]] };
+  }).sort(function (a, b) { return (b.k[0] - a.k[0]) || (b.k[1] - a.k[1]) || (b.k[2] - a.k[2]); });
+  const drop = cand.slice(2);
+  drop.forEach(function (d) {
+    try { fs.unlinkSync(path.join(ROOT, d.f)); console.log('裁剪旧产物：' + d.f); }
+    catch (e) { console.log('⚠ 裁剪失败（跳过）：' + d.f + ' — ' + (e && e.message)); }
+  });
+  console.log('带版本号产物保留：' + cand.slice(0, 2).map(function (x) { return x.f; }).join(' / ') +
+    (drop.length ? '' : '（本次无需裁剪）'));
+}
 
 // package.json 版本号同步（以前它常年停在旧版本，与页面显示的版本号对不上）
 {

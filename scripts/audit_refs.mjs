@@ -56,6 +56,13 @@ const OPTIONAL = {
   //   ⚠️ 这个条目是 CI 抓出来的：本地磁盘上有它所以体检通过，CI 的干净 checkout 直接失败 ——
   //   又一次"只在本地跑过 = 没跑过"。以后凡是被引用、又是构建期生成的，都要在这里登记理由。
   'coast.txt': '海岸线文本转写（mkcoast.mjs 顺带产出，.gitignore；构建只用 data/coast.js.txt）',
+  // 2026-10-16（V1.9.5 / H38）：开发与验证工具已**移出仓库**（用户点名：留在本地）。
+  //   它们仍被"按设计可缺席"地引用：`build.mjs` 对 `clean.mjs` 是 `existsSync` 守卫 + 动态 import
+  //   （缺了直接跳过），`scripts/repo_hygiene.mjs` 把这三个名字写在**黑白名单与注释**里。
+  //   所以登记在这里，而不是把引用删掉 —— 以后想恢复本地工具，只要把文件放回来即可。
+  'clean.mjs': '开发工具（V1.9.5 起留本地）；build.mjs 的清理步骤是 existsSync 守卫，缺失即跳过',
+  'i18n.mjs': '验证工具（V1.9.5 起留本地，不进仓库）',
+  'visual.mjs': '验证工具（V1.9.5 起留本地，不进仓库；需 Edge + ws）',
 };
 // 只出现在注释/URL/运行时拼出来的名字（不是真的文件依赖）—— 逐条列明，便于日后复核
 const NOT_A_PATH = new Set([

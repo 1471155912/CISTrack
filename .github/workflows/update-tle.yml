@@ -177,7 +177,7 @@ jobs:
           CISTRACK_TMP: ${{ runner.temp }}
         run: |
           set -e
-          npm install --no-audit --no-fund --loglevel=error
+          npm ci --no-audit --no-fund --loglevel=error
           node smoke.mjs
 
       - name: 仓库卫生检查（防过程类文件入库 —— V1.9.5 起强制）
@@ -202,7 +202,8 @@ jobs:
           # 本机任务可能刚推过 → 先 rebase 再推；仍失败就整体重试一次。
           # ★ V1.9.1：**必须带 `-X theirs`** —— 产物是**生成物**（三个 HTML + history 分片），
           #   本机任务与 CI 都会重新生成它们，两边同时提交 → rebase 时**必然冲突**。
-          #   2026-10-10 实测：`CISTrack.html` / `CISTrack_v1.9.0.html` / `星网与千帆在轨追踪.html`
+          #   2026-10-10 实测：`CISTrack.html` / `CISTrack_v1.9.0.html` / 中文名产物（V1.9.5 起已统一为
+          #   `CISTrack.html`，不再产出中文名的那一份）
           #   三处 CONFLICT → 整个 run 以 exit 128 失败，**连数据都没推上去**（静默丢掉一次刷新）。
           #   在 rebase 里 "theirs" = **本次 CI 刚构建出来的那份**，正是要保留的（比远端可能已过时的产物新）。
           #   冲突只会发生在产物/数据上（CI 不改代码），所以这个偏向是安全的。
