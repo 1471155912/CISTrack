@@ -270,8 +270,8 @@ build.mjs       # 把上面几块注入 template → 单文件 HTML
 ```
 CISTrack.html           ★ 最新版（不带版本号）—— 固定链接就用它：
                           https://1471155912.github.io/CISTrack/CISTrack.html
-CISTrack_v1.9.1.html    当前版本快照
-CISTrack_v1.9.0.html    上一版快照（回滚 / 对照用）
+CISTrack_v1.9.4.html    当前版本快照
+CISTrack_v1.9.3.html    上一版快照（回滚 / 对照用）
 index.html              入口页（自动跳转到 CISTrack.html）
 assets/                 README 用到的素材（顶栏字标动图 cistrack-logo.gif）
 README.md / README.en.md
