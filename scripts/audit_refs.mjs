@@ -51,6 +51,11 @@ const OPTIONAL = {
   'satcat.csv': 'CelesTrak 目录（6.7MB，.gitignore，由 refresh.mjs 下载）',
   'omm_norad.json': '6 位编目号映射（由 refresh.mjs 产出，缺了则 6 位号卫星算不出轨道）',
   'wiki.json': '词条统计（由 fetch_wiki.mjs 产出，缺了退回内置静态值）',
+  // 2026-10-15：`coast.txt` 是 mkcoast.mjs 顺带写出的**文本转写**（人看/比对用，构建只读
+  //   `coast.js.txt`），已按"派生中间产物"列入 .gitignore → 全新 clone 里没有它。
+  //   ⚠️ 这个条目是 CI 抓出来的：本地磁盘上有它所以体检通过，CI 的干净 checkout 直接失败 ——
+  //   又一次"只在本地跑过 = 没跑过"。以后凡是被引用、又是构建期生成的，都要在这里登记理由。
+  'coast.txt': '海岸线文本转写（mkcoast.mjs 顺带产出，.gitignore；构建只用 data/coast.js.txt）',
 };
 // 只出现在注释/URL/运行时拼出来的名字（不是真的文件依赖）—— 逐条列明，便于日后复核
 const NOT_A_PATH = new Set([
