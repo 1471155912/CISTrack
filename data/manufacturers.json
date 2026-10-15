@@ -1,5 +1,5 @@
 {
- "_fetched": "2026-09-30T18:51:41.788Z",
+ "_fetched": "2026-10-15T14:44:12.380Z",
  "_src": [
   "https://sat.huijiwiki.com/wiki/%E5%8D%83%E5%B8%86%E6%98%9F%E5%BA%A7",
   "https://sat.huijiwiki.com/wiki/%E6%98%9F%E7%BD%91"
@@ -638,6 +638,16 @@
      "u": "/wiki/%E4%BA%94%E9%99%A2"
     }
    ]
+  },
+  "2026-230": {
+   "manufacturer": "中国科学院微小卫星创新研究院",
+   "url": "/wiki/%E4%B8%AD%E5%9B%BD%E7%A7%91%E5%AD%A6%E9%99%A2%E5%BE%AE%E5%B0%8F%E5%8D%AB%E6%98%9F%E5%88%9B%E6%96%B0%E7%A0%94%E7%A9%B6%E9%99%A2",
+   "links": [
+    {
+     "n": "中国科学院微小卫星创新研究院",
+     "u": "/wiki/%E4%B8%AD%E5%9B%BD%E7%A7%91%E5%AD%A6%E9%99%A2%E5%BE%AE%E5%B0%8F%E5%8D%AB%E6%98%9F%E5%88%9B%E6%96%B0%E7%A0%94%E7%A9%B6%E9%99%A2"
+    }
+   ]
   }
  },
  "byDate": {
@@ -1272,6 +1282,16 @@
     {
      "n": "五院",
      "u": "/wiki/%E4%BA%94%E9%99%A2"
+    }
+   ]
+  },
+  "2026-10-10": {
+   "manufacturer": "中国科学院微小卫星创新研究院",
+   "url": "/wiki/%E4%B8%AD%E5%9B%BD%E7%A7%91%E5%AD%A6%E9%99%A2%E5%BE%AE%E5%B0%8F%E5%8D%AB%E6%98%9F%E5%88%9B%E6%96%B0%E7%A0%94%E7%A9%B6%E9%99%A2",
+   "links": [
+    {
+     "n": "中国科学院微小卫星创新研究院",
+     "u": "/wiki/%E4%B8%AD%E5%9B%BD%E7%A7%91%E5%AD%A6%E9%99%A2%E5%BE%AE%E5%B0%8F%E5%8D%AB%E6%98%9F%E5%88%9B%E6%96%B0%E7%A0%94%E7%A9%B6%E9%99%A2"
     }
    ]
   }
@@ -2370,6 +2390,22 @@
    "site": "海商 LCC-1",
    "siteUrl": "/wiki/%E6%B5%B7%E5%8D%97%E5%95%86%E4%B8%9A%E8%88%AA%E5%A4%A9%E5%8F%91%E5%B0%84%E5%9C%BA",
    "name": "卫星互联网低轨26组",
+   "grp": "gw"
+  },
+  {
+   "manufacturer": "中国科学院微小卫星创新研究院",
+   "url": "/wiki/%E4%B8%AD%E5%9B%BD%E7%A7%91%E5%AD%A6%E9%99%A2%E5%BE%AE%E5%B0%8F%E5%8D%AB%E6%98%9F%E5%88%9B%E6%96%B0%E7%A0%94%E7%A9%B6%E9%99%A2",
+   "links": [
+    {
+     "n": "中国科学院微小卫星创新研究院",
+     "u": "/wiki/%E4%B8%AD%E5%9B%BD%E7%A7%91%E5%AD%A6%E9%99%A2%E5%BE%AE%E5%B0%8F%E5%8D%AB%E6%98%9F%E5%88%9B%E6%96%B0%E7%A0%94%E7%A9%B6%E9%99%A2"
+    }
+   ],
+   "cospar": "2026-230",
+   "date": "2026年10月10日03:27",
+   "site": "海商 LCC-2",
+   "siteUrl": "/wiki/%E6%B5%B7%E5%8D%97%E5%95%86%E4%B8%9A%E8%88%AA%E5%A4%A9%E5%8F%91%E5%B0%84%E5%9C%BA",
+   "name": "卫星互联网低轨27组",
    "grp": "gw"
   }
  ]

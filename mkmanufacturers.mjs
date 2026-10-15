@@ -11,7 +11,7 @@ import path from 'node:path';
 import { tmpRoot } from './scripts/tmproot.mjs';
 import { fileURLToPath } from 'node:url';
 const ROOT = path.dirname(fileURLToPath(import.meta.url));   // 脚本所在目录（发布包内任意位置可用）
-const require = createRequire('file:///x.js');
+const require = createRequire(import.meta.url);   // ★ 修复：原来写 file:///x.js → Node 22 抛 ERR_INVALID_ARG_VALUE，脚本根本跑不了（制造商缓存因此冻结）
 const { WebSocket } = require('ws');
 const B = ROOT;
 
@@ -37,11 +37,18 @@ const OUT = B + '/data/manufacturers.json';
 const PORT = 9482;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
+// ★ 2026-10-15：新鲜度自判断 —— 旧版"文件存在就跳过"导致缓存**永不更新**
+//   （实际冻结在 2026-09-30，新批次 therefore 没有制造商）。现在超过 MAX_AGE_DAYS 天就自动重抓，
+//   `--force` 仍可强制；`--cached` 表示只读缓存不联网（给离线/CI 用）。
+var MAX_AGE_DAYS = 3;
+if (process.argv.includes('--cached')) MAX_AGE_DAYS = Infinity;
 if (fs.existsSync(OUT) && !process.argv.includes('--force')) {
-  console.log('已有 data/manufacturers.json（加 --force 可重抓）');
-  const j = JSON.parse(fs.readFileSync(OUT, 'utf8'));
-  console.log('  条目', Object.keys(j.byCospar || {}).length, '项｜更新时间', j._fetched || '?');
-  process.exit(0);
+  const j0 = JSON.parse(fs.readFileSync(OUT, 'utf8'));
+  const ageDays = j0._fetched ? (Date.now() - Date.parse(j0._fetched)) / 86400000 : Infinity;
+  console.log('缓存：' + Object.keys(j0.byCospar || {}).length + ' 项｜更新于 ' + (j0._fetched || '?') +
+    '｜已 ' + (isFinite(ageDays) ? ageDays.toFixed(1) : '?') + ' 天（阈值 ' + (isFinite(MAX_AGE_DAYS) ? MAX_AGE_DAYS : '∞') + ' 天）');
+  if (ageDays <= MAX_AGE_DAYS) { console.log('未过期，跳过重抓（--force 可强制）'); process.exit(0); }
+  console.log('已过期 → 自动重抓');
 }
 
 const ch = spawn(EDGE,
