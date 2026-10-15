@@ -253,7 +253,10 @@ var I18N = {
   h_climb: ['变轨情况', 'Orbits Change Status'],
   lead_climb: ['选定一颗卫星或一个批次/组，画出它们的轨道半长轴随时间的变化 —— 刚入轨时低、随后被发动机一点点抬到工作高度的那段"爬坡"。',
     'Pick one satellite or one batch/group and see how its orbital semi-major axis changes over time — the climb from a low initial altitude up to the working height.'],
-  climb_pick: ['对象', 'Object'], climb_take: ['纵轴量', 'Y axis'], climb_rate: ['升轨速度', 'Climb rate'],
+  // ★ V1.9.5（H12）：术语统一 —— 「升轨速度」→「**变轨速度**」（用户 2026-10-15 要求）。
+  //   理由：同一栏还承载"降轨/再入前"等非升轨场景，叫"升轨"名不副实。
+  //   ⚠️ 英文同步改（Climb rate → Maneuver rate），i18n 审计会查漏译。
+  climb_pick: ['对象', 'Object'], climb_take: ['纵轴量', 'Y axis'], climb_rate: ['变轨速度', 'Maneuver rate'],
   // ↓ R17 画布与说明行用到的键（全部成对，缺一个就会在页面上显示键名本身）
   // V1.9.1（A6/F3）：`climb_pick_auto`（「跟随选中（默认）」）已**删除** —— 那个空选项已被
   //   "直接默认选中最新批次"取代（Q13），键留着就是死键。
@@ -265,9 +268,9 @@ var I18N = {
   // V1.9.1（A1）：信息窗最末行 —— 当前节点相比该星**前一个历史节点**的半长轴变化量
   climb_delta: ['轨道高度变更', 'Altitude change'],
   climb_take_sma: ['半长轴（离地高度）', 'Semi-major axis (altitude)'],
-  climb_take_rate: ['升轨速度（±2 天最小二乘）', 'Climb rate (±2 d least squares)'],
+  climb_take_rate: ['变轨速度（±2 天最小二乘）', 'Maneuver rate (±2 d least squares)'],
   climb_y_alt: ['离地高度, km', 'Altitude, km'],
-  climb_y_rate: ['升轨速度, km/天', 'Climb rate, km/day'],
+  climb_y_rate: ['变轨速度, km/天', 'Maneuver rate, km/day'],
   t_defclimb: ['恢复 04 变轨情况的初始设置', 'Restore the default settings of 04 Orbits Change Status'],
   // ↑↑ V1.9.0（R17）：05 章的三段式 i18n（标题/说明/选择器），其中「升轨速度」的算法口径见 climbNote
   t_defprogress: ['恢复 05 组网进度的初始设置', 'Restore the default settings of 05 Network Progress'],
@@ -277,7 +280,10 @@ var I18N = {
   d_net_span: ['数据跨度', 'Data span'],
   t_age: ['在轨日, 天', 'Days in orbit'],
   foot_data: ['轨道数据来自 NORAD 空间目标目录', 'Orbit data from the NORAD satellite catalog'],
-  foot_use: ['本页素材可自由使用，注明来源即可', 'Free to use and redistribute with attribution'],
+  // ★ V1.9.5（H17）：页脚文案改为正式的 MIT 表述（原句"本页素材可自由使用，注明来源即可"偏口语）。
+  //   与 README/LICENSE 的口径一致：MIT 允许自由使用/修改/分发，**条件**是保留版权与许可声明。
+  foot_use: ['本项目为 MIT 开源项目，可自由使用、修改与分发（保留版权与许可声明即可）',
+             'MIT-licensed open source: free to use, modify and redistribute (keep the copyright and licence notice)'],
   // 动态文案
   d_epoch: ['要素历元', 'Epoch'], d_epoch2: ['更新历元：', 'Epoch: '], d_pending_suffix: ['颗待编目', 'awaiting catalog'],
   d_in_orbit: ['颗', 'in orbit'], d_more_pending: [' · 另有 ', ' · '], d_more_pending2: [' 颗待编目', ' more pending'],

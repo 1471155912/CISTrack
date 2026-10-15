@@ -917,8 +917,8 @@ footer .readme-btn { flex:0 0 auto; }
 footer a { color:var(--dim); text-decoration:none; border-bottom:1px solid var(--hair); transition:color .2s var(--ease), border-color .2s var(--ease); }
 footer a:hover { color:var(--fg); border-bottom-color:var(--fg); }
 /* V1.9.0（需求10）：页脚数据来源后的「（CelesTrak）」—— 加粗 + 下划线（下划线沿用 footer a 的 border-bottom）+ 跳链 */
-footer .foot-celes { color:var(--dim); font-weight:700; border-bottom:1px solid var(--dim); }
-footer .foot-celes:hover { color:var(--fg); border-bottom-color:var(--fg); }
+/* ★ V1.9.5（H16）：`.foot-celes` 样式已删 —— 用户要求页脚不再出现"CelesTrak"字样
+   （数据来源与许可统一由页内「说明」的合规章节承担，页脚只留"轨道数据来自 NORAD 空间目标目录"）。 */
 /* ── V1.9.0（需求9）「已全选」绿色提示 ──────────────────────────────────────────────
    position/top 由 JS 按顶部时间药丸的实际底边算出（见 showToast），这里只管外观与淡入淡出。
    z-index 取 140：高于页面内容与右下角章节药丸，低于说明弹窗遮罩（300）。 */
@@ -1000,10 +1000,17 @@ html.modal-open, html.modal-open body { overflow:hidden; }
 #loadMask.hide { opacity:0; pointer-events:none; }
 /* 遮罩显示期间禁止滑动后面的主页面（与 README 弹窗同一套做法） */
 html.loading, html.loading body { overflow:hidden; touch-action:none; }
-.lm-txt { font-family:var(--mono); font-size:11px; letter-spacing:0.16em; color:var(--dim); text-align:center; padding:0 24px; }
+.lm-txt { font-family:var(--mono); font-size:14px; letter-spacing:0.16em; color:var(--dim); text-align:center; padding:0 24px; }
 /* 白色圆环加载器（取代原来的细长进度条） */
-.lm-ring { width:34px; height:34px; border:2px solid rgba(255,255,255,0.18); border-top-color:#fff; border-radius:50%; animation:lmspin .9s linear infinite; }
-:root[data-theme="light"] .lm-ring { border-color:rgba(0,0,0,0.14); border-top-color:#101215; }
+/* ★ V1.9.5（H4）：加载圈改为 **Material You 风格的红蓝交替**（用户拍的 A 方案）：
+   双色锥形渐变 + 非线性缓动旋转（cubic-bezier），圈径 34→52px（字号 11→14px 见上一条）。
+   用 conic-gradient + mask 挖空中心 —— 比"border-top 单色圈"更接近 Material 的观感，
+   且深浅主题共用一套配色（红=星网 / 蓝=千帆，与页面主题色同源）。 */
+.lm-ring { width:52px; height:52px; border-radius:50%;
+  background:conic-gradient(from 0deg, #e53935 0deg, #e53935 100deg, #4dabf7 200deg, #4dabf7 260deg, #e53935 360deg);
+  -webkit-mask:radial-gradient(farthest-side, transparent calc(100% - 6px), #000 calc(100% - 5px));
+          mask:radial-gradient(farthest-side, transparent calc(100% - 6px), #000 calc(100% - 5px));
+  animation:lmspin 1.15s cubic-bezier(.62,.13,.35,.87) infinite; }
 @keyframes lmspin { to { transform:rotate(360deg); } }
 .lm-epoch { font-family:var(--mono); font-size:10.5px; letter-spacing:0.1em; color:var(--faint); text-align:center; padding:0 24px; }
 @media (prefers-reduced-motion: reduce) { .lm-ring { animation-duration:2.4s; } }
@@ -2329,8 +2336,8 @@ html[data-theme="light"] .res-fail { color:#c72929; }
 <footer>
   <div class="foot-side">
     <span id="footCopy"></span>
-    <span id="footData" data-i18n="foot_data">轨道数据来自 NORAD 空间目标目录</span><span>（<a class="foot-celes" href="https://celestrak.org/" target="_blank" rel="noopener">CelesTrak</a>）</span>
-    <span id="footUse" data-i18n="foot_use">本页素材可自由使用，注明来源即可</span>
+    <span id="footData" data-i18n="foot_data">轨道数据来自 NORAD 空间目标目录</span>
+    <span id="footUse" data-i18n="foot_use">本项目为 MIT 开源项目，可自由使用、修改与分发（保留版权与许可声明即可）</span>
   </div>
   <button class="readme-btn btn-accent" id="readmeBtn" type="button" data-i18n="b_readme">说明</button>
   <div class="foot-side foot-right">
