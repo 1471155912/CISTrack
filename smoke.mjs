@@ -3432,12 +3432,20 @@ assert('V1.9.2：右侧留白按"要标几条"动态加宽（否则名称会被�
     //   旧判据要求"1100/1127/1149 三档各自独立"，但它们的间距只有 27~49 km，
     //   在 35000 km 的纵轴上画出来**必然互相重叠**（要分开就得把半径压到 <1 像素）。
     //   新判据：**数据空间里分不出来就合并**（同族），而真正离得远的不同族仍须独立。
-    assert('A9（V1.9.2 重新划分）：50° 上同族的高度微差簇已合并，而真正不同族的 935km 仍独立成簇',
+    // ★ 2026-10-15：旧版钉死"50° 上必须同时存在 <1000km 与 >1000km 两个簇"——那是**数据快照**。
+    //   CI 定时刷新后（新 TLE）50° 只剩一个簇 → 断言红，且**卡住了"有变化才提交"那一步**，
+    //   数据推不上去、还会触发失败告警。改为**性质判据**：同一倾角分箱上的簇必须按高度分离
+    //   （分箱宽 25 km）——既覆盖原意（同族微差应合并、不同族不得并簇），又不钉死具体高度。
+    assert('A9（V1.9.2 重新划分·数据自适应）：同一倾角分箱内的簇按高度分离（同族微差合并、异族不并簇）',
       (function () {
-        const at50 = cls.filter(c => Math.abs(c.x - 50) < 0.1).map(c => c.y).sort((a, b) => a - b);
-        return at50.length >= 2 && at50.every((v, i) => i === 0 || v > at50[i - 1]) &&
-               at50[0] < 1000 && at50[at50.length - 1] > 1000;
-      })(), JSON.stringify(cls.filter(c => Math.abs(c.x - 50) < 0.1).map(c => [c.x, c.y, c.n])));
+        if (!cls.length) return false;
+        const byInc = {};
+        cls.forEach(c => { const k = Math.round(c.x); (byInc[k] = byInc[k] || []).push(c.y); });
+        return Object.keys(byInc).every(k => {
+          const ys = byInc[k].slice().sort((a, b) => a - b);
+          return ys.every((v, i) => i === 0 || v - ys[i - 1] > 25);   // 25 = CHART_CL_BIN_ALT
+        });
+      })(), JSON.stringify(cls.map(c => [Math.round(c.x), Math.round(c.y), c.n])));
     assert('A9（V1.9.2）：圈与圈**互不相交**（用户报的"互相重合"已根治；缩到看不见的簇会被丢弃）',
       (function () {
         for (let a = 0; a < cls.length; a++) for (let b = a + 1; b < cls.length; b++) {
