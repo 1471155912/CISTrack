@@ -302,7 +302,8 @@ console.log('--- 加载与缓存 ---');
 assert('加载页第一行不重复纪元',
   /d_updated: \['已更新至最新轨道要素', 'Updated to the latest elements'\]/.test(appSrc) &&
   /endLoad\(t\('d_updated'\), true\)/.test(appSrc));
-assert('加载页第三行是要素历元', /id="lmEpoch"/.test(tpl) && /要素历元/.test($('#lmEpoch').textContent), $('#lmEpoch').textContent);
+assert('V1.9.5（H4）：加载页第三行是固定文案「加载中…」（不再写历元；历元只在主页面内显示）',
+  /id="lmThird"/.test(tpl) && /d_loading3/.test(tpl) && /加载中/.test($('#lmThird').textContent), $('#lmThird').textContent);
 assert('TLE 刷新带会话缓存（30 分钟）',
   /TLE_CACHE_KEY/.test(appSrc) && /sessionStorage\.getItem\(TLE_CACHE_KEY\)/.test(appSrc) && /30 \* 60 \* 1000/.test(appSrc));
 assert('多源抓取（GROUP + NAME）', /NAME=HULIANWANG/.test(appSrc) && /NAME=QIANFAN/.test(appSrc));
@@ -1056,11 +1057,10 @@ assert('需求1：TLE 自动更新标志 TLE_LIVE 保留，且界面上已无「
 // V1.7.2 第七轮（新需求A）：口径收紧 ——
 //   「TLE更新时间」只允许出现在主标题下方（#pageEpoch）这一处；
 //   加载蒙层改用「要素历元 / Epoch」，避免同一个说法满屏都是。
-assert('V1.7.2r7（新需求A）：加载蒙层用「要素历元 / Epoch」，不用「TLE更新时间」',
-  /setLoadEpoch\(t\('d_epoch'\)/.test(appCode) &&
-  !/setLoadEpoch\(t\('d_dataupd'\)/.test(appCode) &&
-  /e\.textContent = t\('d_epoch'\) \+ ' ' \+ fmtUTC\(/.test(appCode) &&
-  /d_epoch: \['要素历元', 'Epoch'\]/.test(appCode));
+assert('V1.9.5（H4）：加载蒙层的「要素历元」写法已彻底移除（函数/调用/键三处都不留死代码）',
+  !/setLoadEpoch/.test(appCode) && !/d_epoch: \[/.test(appCode) &&
+  /d_loading3: \['加载中…', 'Loading…'\]/.test(appCode) &&
+  /d_epoch2: \['更新历元：', 'Epoch: '\]/.test(appCode));
 // V1.7.0 第四轮补丁：TLE_LIVE 必须早于 applyFresh 置位。
 // applyFresh → rebuild() → renderHeader() 会立刻读 TLE_LIVE；
 // 置位晚一步会导致"联网成功"也被当成失败态（V1.7.1 已不再往界面写后缀，但时序约束保留：
@@ -4010,12 +4010,13 @@ assert('A9（V1.9.2 重新划分）：合并判据 = 数据空间可分辨阈值
 //   要等 JS 解析完（单文件 1.2MB + SGP4 初始化）才出现两行字。现在从首帧起就是"两行字"版本。
 assert('V1.9.1（#9）：加载页两行字写死进 HTML（首帧就有字，不靠 JS 填）',
   /<div class="lm-txt" id="lmTxt" data-i18n="d_loading_tle">正在获取最新轨道要素…<\/div>/.test(tpl) &&
-  /<div class="lm-epoch" id="lmEpoch">要素历元 —<\/div>/.test(tpl) &&
+  /<div class="lm-epoch" id="lmThird" data-i18n="d_loading3">加载中…<\/div>/.test(tpl) &&
   // 产物里同样在（模板 → 产物的注入过程不能把它冲掉）
   /id="lmTxt"[^>]*>正在获取最新轨道要素…</.test(html) &&
-  /id="lmEpoch"[^>]*>要素历元 —</.test(html), '');
+  /id="lmThird"[^>]*>加载中…</.test(html), '');
 assert('V1.9.1（#9）：JS 起来后仍然接管（语言切换 / 真实历元替换）—— 两条路径都保留',
-  /function refreshMaskText\(\)/.test(appSrc) && /function setLoadEpoch\(txt\)/.test(appSrc) &&
+  /function refreshMaskText\(\)/.test(appSrc) && !/setLoadEpoch/.test(appSrc) &&
+  /data-i18n="d_loading3"/.test(tpl) &&
   /tx\.textContent = t\('d_updated'\)/.test(appSrc));
 
 // ================================================================ V1.9.1（#7）：非线性过场泛化

@@ -285,7 +285,7 @@ var I18N = {
   foot_use: ['本项目为 MIT 开源项目，可自由使用、修改与分发（保留版权与许可声明即可）',
              'MIT-licensed open source: free to use, modify and redistribute (keep the copyright and licence notice)'],
   // 动态文案
-  d_epoch: ['要素历元', 'Epoch'], d_epoch2: ['更新历元：', 'Epoch: '], d_pending_suffix: ['颗待编目', 'awaiting catalog'],
+  d_loading3: ['加载中…', 'Loading…'], d_epoch2: ['更新历元：', 'Epoch: '], d_pending_suffix: ['颗待编目', 'awaiting catalog'],
   d_in_orbit: ['颗', 'in orbit'], d_more_pending: [' · 另有 ', ' · '], d_more_pending2: [' 颗待编目', ' more pending'],
   d_page_track: ['本页实时推算 ', 'This page propagates '], d_page_track2: [' 颗', ' live'],
   d_groups_stat: [' 批在轨 / 共 ', ' groups with elements / '], d_groups_total: [' 批', ' total'],
@@ -371,15 +371,10 @@ function paren(s) { return LANG === 'en' ? ' (' + s + ')' : '（' + s + '）'; }
 // V1.5.3：切语言时同步刷新加载蒙层文案（它只在加载时写一次，否则切换语言后会残留旧语言）
 function refreshMaskText() {
   try {
-    var tx = document.getElementById('lmTxt'), e = document.getElementById('lmEpoch');
+    // ★ V1.9.5（H4）：第三行已改为固定文案「加载中…」，这里只负责刷新**第一行**（语言切换时）。
+    var tx = document.getElementById('lmTxt');
     if (tx && tx.textContent && tx.textContent.trim()) tx.textContent = t('d_updated');
-    if (e && e.textContent && /[0-9]{4}-[0-9]{2}-[0-9]{2}/.test(e.textContent)) {
-      // V1.7.2 第七轮（新需求A）：这里刻意用「要素历元 / Epoch」而**不是**「TLE更新时间」——
-      //   用户要求「TLE更新时间」只能出现在主标题下方那一处。加载蒙层是瞬态覆盖层，
-      //   说清"这是哪一版要素"即可，用另一个词既满足口径又不丢信息。
-      e.textContent = t('d_epoch') + ' ' + fmtUTC(CONST[S.key] ? CONST[S.key].epochMax : e.textContent) + ' UTC';
-    }
-  } catch (err) {}
+  } catch (e) {}
 }
 // V1.7.0 第三轮（需求5）：把焦点从搜索框让出去 ——
 // 手机上选中卫星后输入框仍保持焦点，长按拖动信息框时浏览器会把焦点拉回"最近的输入框"，于是弹出键盘。
@@ -9004,10 +8999,6 @@ function applyFresh(gwList, qfList) {
 }
 // V1.3.6：加载页第三行是「要素历元」；遮罩显示期间给 <html> 挂 .loading 锁住背后页面的滑动，
 // 收起遮罩时同步摘掉（否则页面会一直不能滚）。
-function setLoadEpoch(txt) {
-  var e = document.getElementById('lmEpoch');
-  if (e) e.textContent = txt;
-}
 function hideMask(m) {
   if (!m) return;
   m.classList.add('hide');
@@ -9185,7 +9176,6 @@ function loadHistoryJson() {
     } catch (e) { return Infinity; }
   })();
   if (bootAgeMs < FRESH_SKIP_MS) {
-    setLoadEpoch(t('d_epoch') + ' ' + fmtUTC(cur().epochMax) + ' UTC');
     endLoad(t('d_updated'), true);
     return;
   }
@@ -9196,13 +9186,11 @@ function loadHistoryJson() {
     TLE_LIVE = true;
     var ep = applyFresh(r[0], r[1]);
     checkNewSats();                     // V1.4.2：对一下在线目录与打包时收录的那份，有新卫星就提示
-    setLoadEpoch(t('d_epoch') + ' ' + fmtUTC(CONST[S.key] ? CONST[S.key].epochMax : ep) + ' UTC');
     endLoad(t('d_updated'), true);      // V1.3.9：纪元只留在加载圈下面那行
   }).catch(function () {
     // V1.7.1（需求3）：联网失败时**不再**显示「（内置快照）」—— 访客看不懂这个说法。
     //   成功与失败现在显示的都是同一种格式的时间，口径一致；区别只体现在标题（已更新 / 离线），
     //   断网时用打包时的内置要素这件事写进页内说明的数据来源章节。
-    setLoadEpoch(t('d_epoch') + ' ' + fmtUTC(cur().epochMax) + ' UTC');
     endLoad(t('d_offline'), false);
     // ★ V1.9.5（H44）：联网失败要**进主页面之后**看得见 —— 顶部药丸（与"已全选/已再入"提示同款），
     //   红色、留存比普通提示更久（见 showToast 的 'fail' 模式）。
@@ -11139,7 +11127,6 @@ rebuild();
 try { afterConstelSwap(); } catch (e) {}
 BUILTIN_NORAD = noradSetNow();          // V1.4.2：先记下打包时收录的那份有哪些 NORAD 编号
 // 第三行：内置快照的要素历元（联网成功后再刷新成最新的）
-setLoadEpoch(t('d_epoch') + ' ' + fmtUTC(cur().epochMax) + ' UTC');
 // V1.3.4：先恢复上次保存的设置（初始打开就是默认配置，此时「还原所有默认设置」暗淡不可点）
 // V1.4.1：不再读取上次的设置 —— 每次打开都是默认初始状态（默认配置 + 实时时刻 + 暗色主题）。
 // 会话内的改动照常生效，各章节「默认设置」按钮照常可用，只是不会跨会话沿用。
