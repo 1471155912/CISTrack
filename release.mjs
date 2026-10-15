@@ -59,3 +59,31 @@ console.log('产物 ' + before + ' B → ' + STABLE + ' / ' + ARTIFACT);
     console.log('⚠ package.json 读不到，跳过版本同步（' + (e && e.message) + '）');
   }
 }
+
+// ★ README（双语）顶部 version 徽章同步 —— 与 package.json 同一病根：
+//   版本号散落在多处（app.js 的 VERSION、package.json、README 徽章 URL），升版时靠人记住改，
+//   V1.9.3/V1.9.4 就漏过徽章（停在 1.9.2）。现在 release.mjs 统一改写：
+//   只匹配 shields.io 的 version 徽章 URL 里的数字段，不动其余任何内容；
+//   smoke 另有一条"徽章版本 == app.js VERSION"的断言兜底（漏跑 release 也会红）。
+{
+  const BADGE_RE = /(img\.shields\.io\/badge\/version-)([0-9]+\.[0-9]+\.[0-9]+)/g;
+  ['README.md', 'README.en.md'].forEach(function (f) {
+    const p = path.join(ROOT, f);
+    try {
+      const src = fs.readFileSync(p, 'utf8');
+      let n = 0;
+      const out = src.replace(BADGE_RE, function (_, pre, ver) {
+        if (ver === VER) return pre + ver;
+        n++; return pre + VER;
+      });
+      if (n) {
+        fs.writeFileSync(p, out, 'utf8');
+        console.log(f + ' 版本徽章: → ' + VER + '（改 ' + n + ' 处）');
+      } else {
+        console.log(f + ' 版本徽章已是 ' + VER);
+      }
+    } catch (e) {
+      console.log('⚠ ' + f + ' 读不到，跳过徽章同步（' + (e && e.message) + '）');
+    }
+  });
+}

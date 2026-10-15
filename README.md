@@ -1,6 +1,10 @@
 # CISTrack · 星网与千帆在轨追踪
 
-![version](https://img.shields.io/badge/version-1.9.2-ff6b6b?style=flat-square) ![license](https://img.shields.io/badge/license-MIT-4dabf7?style=flat-square) [![星网](https://img.shields.io/badge/%E6%98%9F%E7%BD%91-CSCN-ff6b6b?style=flat-square)](https://sat.huijiwiki.com/wiki/%E6%98%9F%E7%BD%91) [![千帆](https://img.shields.io/badge/%E5%8D%83%E5%B8%86-G60-4dabf7?style=flat-square)](https://sat.huijiwiki.com/wiki/%E5%8D%83%E5%B8%86%E6%98%9F%E5%BA%A7)
+<p align="center"><img src="https://img.shields.io/badge/version-1.9.4-ff6b6b?style=flat-square" alt="version"></p>
+
+<p align="center"><a href="https://sat.huijiwiki.com/wiki/%E6%98%9F%E7%BD%91"><img src="https://img.shields.io/badge/%E6%98%9F%E7%BD%91-CSCN-ff6b6b?style=flat-square" alt="星网"></a> <a href="https://sat.huijiwiki.com/wiki/%E5%8D%83%E5%B8%86%E6%98%9F%E5%BA%A7"><img src="https://img.shields.io/badge/%E5%8D%83%E5%B8%86-G60-4dabf7?style=flat-square" alt="千帆"></a></p>
+
+<p align="center"><img src="https://img.shields.io/badge/license-MIT-4dabf7?style=flat-square" alt="license"></p>
 
 
 <div align="center">

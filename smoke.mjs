@@ -411,6 +411,25 @@ assert('地图合规表述换成新句子且为粗体（中英）',
   /\*\*地图仅为粗略的地球大陆海岸线轮廓示意图，不能准确代表实际投影情况。\*\*/.test(appSrc) &&
   /\*\*The map is only a rough outline of continental coastlines/.test(appSrc));
 assert('仓库 README 同步用新表述', /\*\*地图仅为粗略的地球大陆海岸线轮廓示意图/.test(fs.readFileSync(B + '/README.md', 'utf8')));
+// ★ V1.9.4+：README 顶部 version 徽章必须与 app.js 的 VERSION 一致。
+//   病根：版本号散落在 app.js / package.json / README 徽章三处，V1.9.3、V1.9.4 发布时
+//   徽章都停在 1.9.2 —— release.mjs 现在会自动改写徽章（与 package.json 同一趟），
+//   这条断言是"漏跑 release 也想推"时的兜底闸门。
+{
+  const ver = (fs.readFileSync(B + '/app.js', 'utf8').match(/var VERSION\s*=\s*'V?([0-9]+\.[0-9]+\.[0-9]+)'/) || [])[1];
+  const rdZh = fs.readFileSync(B + '/README.md', 'utf8');
+  const rdEn = fs.readFileSync(B + '/README.en.md', 'utf8');
+  assert('README（双语）顶部 version 徽章与 app.js VERSION 一致（升版走 release.mjs，别手改漏）',
+    !!ver && (rdZh.match(/badge\/version-([0-9]+\.[0-9]+\.[0-9]+)/) || [])[1] === ver &&
+    (rdEn.match(/badge\/version-([0-9]+\.[0-9]+\.[0-9]+)/) || [])[1] === ver,
+    'app.js=' + ver + ' README=' + ((rdZh.match(/badge\/version-([0-9]+\.[0-9]+\.[0-9]+)/) || [])[1] || '无') +
+    ' README.en=' + ((rdEn.match(/badge\/version-([0-9]+\.[0-9]+\.[0-9]+)/) || [])[1] || '无'));
+  // 徽章排版：三行居中（version 一行、星座两个一行、license 一行）—— V1.9.4+ 用户要求的版式
+  assert('README（双语）徽章为三行居中版式（version / 星座两枚 / license 各一行，<p align="center">）',
+    (rdZh.match(/<p align="center">/g) || []).length === 3 &&
+    (rdEn.match(/<p align="center">/g) || []).length === 3 &&
+    /<p align="center"><img src="https:\/\/img\.shields\.io\/badge\/version-/.test(rdZh));
+}
 // V1.8.0 收尾：CHANGELOG 里承诺过「末尾署名与页内说明**对齐**」，但上一轮只改了 README.md，
 //   app.js 里 README_ZH 的那句漏了结尾的「与布局。」→ 页内说明与 README 字面不一致。
 //   这里补一条守卫，防止两边以后再各自漂移。
@@ -3376,9 +3395,11 @@ assert('V1.9.2：右侧留白按"要标几条"动态加宽（否则名称会被�
     assert('A9：任一簇的成员数不超过其星座总点数（分箱不重复计数）',
       (function () {
         const total = cls.reduce((a, c) => a + c.n, 0);
-        const pts = k3.chartCL && d3.querySelectorAll('#chartCv').length;   // 只做存在性；点数另取
-        return total <= 244 && total > 0;                                   // 星网共 244 颗
-      })(), cls.reduce((a, c) => a + c.n, 0) + ' / 244');
+        // ★ V1.9.4+：上限从写死的 244 改成**真实目录数**（写"性质"不写"当前数据快照"——
+        //   244 会随新批次过期，而这条断言的原意只是"分箱不重复计数"）。
+        const gwTotal = (RAW.gw.sats || []).length;
+        return total <= gwTotal && total > 0;
+      })(), cls.reduce((a, c) => a + c.n, 0) + ' / ' + ((RAW.gw.sats || []).length));
     assert('A9：**重叠的簇已合并**（实测：86.36° 与 86.65° 被 1° 分箱切开的 32+29 已并成 1 个 61 颗的簇）',
       (function () {
         const at86 = cls.filter(c => c.x >= 86 && c.x < 87);
