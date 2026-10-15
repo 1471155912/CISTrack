@@ -38,8 +38,10 @@ const KEEP_FILES = [
   // 自测与清理
   'smoke.mjs', 'visual.mjs', 'clean.mjs',
   // 发布与文档
+  // ⚠️ 2026-10-15：`PERF_NOTES.md` 已移出仓库（开发笔记，与 `PROCESS.md` 同类，见 .gitignore），
+  //   所以这里不再列它 —— 本清单只登记"仓库里必须原样保留的东西"。
   'package.json', 'index.html', '.gitignore', 'LICENSE',
-  'README.md', 'CHANGELOG.md', 'PROCESS.md', 'PERF_NOTES.md',
+  'README.md', 'CHANGELOG.md', 'PROCESS.md',
   // 运行时数据（HTML 会去读的同级 wiki.json）
   'wiki.json',
   // 构建产物

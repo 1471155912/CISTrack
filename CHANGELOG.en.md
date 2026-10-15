@@ -1,7 +1,8 @@
 # Changelog
 
 All dates are GMT+8. **Starting with V1.9.1, the repository keeps only two versioned HTML files: the current version + the previous version** (Q1: the 8 old snapshots formerly at the repository root, v1.5.2~v1.8.0, have been deleted, about 5 MB); a baseline snapshot is additionally kept locally under `archive/` for rollback and is not committed to the repository;
-the per-version technical details and pitfall records live in the local development doc `PROCESS.md` (**contains working notes, not committed to the repository**).
+the per-version technical details and pitfall records live in the local development doc `PROCESS.md` (**contains working notes, not committed to the repository**);
+development notes, per-round task/review checklists and one-off audit scripts are likewise **not committed** (the convention and its machine-enforceable gate are described in `scripts/repo_hygiene.mjs` and in the "Repository layout" section of the README).
 
 The version is written in the footer (`CISTrack · Vx.y.z`), and the bottom bar of exported images carries the same version number.
 

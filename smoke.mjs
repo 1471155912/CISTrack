@@ -4485,6 +4485,31 @@ assert('V1.9.4：发布物去敏感扫描通过（无作者私有环境叙事、
   /✓ 通过：未发现私有环境叙事/.test(privacy),
   (privacy.split('\n').filter(l => /✗|命中|\[/.test(l)).slice(0, 3).join(' | ')) || '扫描输出异常');
 
+// ---------------------------------------------------------------- ★ V1.9.5：仓库卫生硬闸门
+// 来历（用户 2026-10-15 点名）：仓库里混进了逐轮的任务清单、人工审查清单、一次性核对脚本、
+//   开发笔记、以及与项目本身无关的本机小工具 —— 使用者根本用不到。
+//   用户口径：仓库只留「用户能直接用的（产物 / 说明 / 许可 / 运行时数据）+ 重建它所需的最小源码链」。
+//   `scripts/repo_hygiene.mjs` 把这条变成机器可执行的规则（根目录白名单 + 全路径类别黑名单 +
+//   带版本号产物的数量上限），本地与 CI 的提交前都跑它。
+//   ⚠️ 与隐私闸门同理：这里**真的执行**扫描（不是只检查脚本存在），新增一个过程类文件当场就红。
+let hygiene = '';
+try {
+  hygiene = execFileSync(process.execPath, [B + 'scripts/repo_hygiene.mjs'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+} catch (e) { hygiene = String(e.stdout || '') + String(e.stderr || ''); }
+assert('V1.9.5：仓库卫生扫描通过（根目录无过程类文件、子目录无调试件/临时产物、产物数量合规）',
+  /✓ 通过：根目录与子目录均无过程类\/临时类文件/.test(hygiene),
+  (hygiene.split('\n').filter(l => /✗|←/.test(l)).slice(0, 3).join(' | ')) || '扫描输出异常');
+// 闸门自身不能被"悄悄改空"：三条判据缺一条就等于放行
+{
+  const hg = fs.readFileSync(B + 'scripts/repo_hygiene.mjs', 'utf8');
+  assert('V1.9.5：卫生闸门三条判据齐备（根目录白名单 / 全路径黑名单 / 带版本号产物 ≤2 份）',
+    /const ALLOW_ROOT_EXACT = new Set\(\[/.test(hg) &&
+    /const ALLOW_DIR = new Set\(\[/.test(hg) &&
+    /const BLOCK = \[/.test(hg) &&
+    /const MAX_VERSIONED_HTML = 2;/.test(hg) &&
+    /--files-from/.test(hg));
+}
+
 // ---------------------------------------------------------------- ★ V1.9.3：数据链路的两个静默失败闸门
 // 来历（2026-10-13 排查「网页显示的更新时间不是最新的」时挖出）：
 //   到 celestrak 不通时，S1~S5 全部只输出"新增 0 颗"，进程**正常退出 0** →

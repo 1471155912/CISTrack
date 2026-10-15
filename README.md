@@ -270,32 +270,52 @@ build.mjs       # 把上面几块注入 template → 单文件 HTML
 ```
 CISTrack.html           ★ 最新版（不带版本号）—— 固定链接就用它：
                           https://1471155912.github.io/CISTrack/CISTrack.html
+星网与千帆在轨追踪.html   构建产物原名（build.mjs 的输出；页内「如何离线使用」与 release.mjs 都指向它）
 CISTrack_v1.9.4.html    当前版本快照
 CISTrack_v1.9.3.html    上一版快照（回滚 / 对照用）
-index.html              入口页（自动跳转到 CISTrack.html）
+index.html              入口页（811 字节的跳转页，自动跳到 CISTrack.html）
 assets/                 README 用到的素材（顶栏字标动图 cistrack-logo.gif）
 README.md / README.en.md
                         本说明：中文版（默认）/ 英文版（V1.9.1 A16 起拆出，顶部可互跳）
+CHANGELOG.md / CHANGELOG.en.md
+                        更新日志（逐版改动、数据来源变更；中 / 英）
+LICENSE                 MIT
+package.json / package-lock.json
+                        依赖清单（仅测试需要 jsdom / ws；构建本身只要 Node）
 history/                历史轨道数据库发布分片（04 变轨情况的数据，按需加载；详见「历史轨道数据库」）
 app.js / template.html  源码（单文件产物 = 这两者 + data/ 由 build.mjs 打包）
-data/                   卫星数据（含制造商研发机构、离线兜底的 TLE 快照、历史轨道源库 data/history/）
+data/                   卫星数据（含制造商研发机构、离线兜底的 TLE 快照、海岸线数据、历史轨道源库 data/history/）
 wiki.json               卫星百科统计缓存（顶部「发射 / 在轨 / 发射次数」的来源；页面运行时读它）
 wiki_launches.json      星网/千帆逐次发射的任务结果（发射历史「任务结果」列 + 05 组网进度口径）
+build.mjs / mk*.mjs     构建脚本（把源码打包成单文件 HTML）：
+                          mkdata.mjs           TLE + 批次元数据 → build/satdata.json（含差分编码）
+                          mkcoast.mjs          Natural Earth 海岸线 → data/coast.js.txt（可选档位，见脚本头）
+                          mkmanufacturers.mjs  制造商/研发机构缓存（3 天自过期）
+                          refresh.mjs          拉取当期 TLE
+release.mjs             路径无关的产物同步（CISTrack.html + CISTrack_v<版本>.html + package.json 版本 + README 徽章）
+clean.mjs               开发期一次性产物的清理（搬进 junk/，可整包搬回）
+smoke.mjs / visual.mjs  测试：逻辑与源码断言 / 真实浏览器布局实测
+i18n.mjs                中英文案审计（静态四查 + 运行时四遍）
 scripts/fetch_wiki.mjs          抓取并更新 wiki.json（零依赖，详见「更新数据」）
 scripts/fetch_launch_results.mjs 抓取卫星百科年度发射记录页 → wiki_launches.json（零依赖）
 scripts/fetch_history.mjs       历史 TLE 批量拉取（灌库 / 补数用，日常维护不需要；详见「历史轨道数据库」）
 scripts/histstore.mjs           历史源库读写与容量治理（mergeInto / pruneRecords）
 scripts/histpack.mjs            历史发布分片打包（v2 编码 + 变化驱动采样）
-smoke.mjs / visual.mjs  测试：逻辑与源码断言 / 真实浏览器布局实测
-i18n.mjs                中英文案审计（静态四查 + 运行时四遍）
-build.mjs / mk*.mjs     构建脚本（把源码打包成单文件 HTML）
-release.mjs             路径无关的产物同步（CISTrack.html + CISTrack_v<版本>.html + package.json 版本）
+scripts/omm.mjs                 6 位编目号（CelesTrak 100000+）解析与 TLE 历元换算
+scripts/audit_refs.mjs          引用完整性体检（"测试引用了仓库里不存在的文件"）
+scripts/audit_tle.mjs           全量 TLE 完整性核对（以百科词条为唯一名单，逐批次判定）
+scripts/privacy_check.mjs       发布物去敏感闸门（本机私有环境叙事 → 命中即失败）
+scripts/repo_hygiene.mjs        仓库卫生闸门（根目录白名单 + 过程类文件黑名单 → 命中即失败）
+scripts/import_history.mjs 等   见各脚本头部注释（历史库导入 / CT 爬升算法自证 / 搜索补池 / 离线 e2e / 临时根解析 等）
 .github/workflows/      云端自动化：update-tle.yml 每 12 小时刷新 TLE 并重新打包
 ```
 
-> **不进仓库的文件**（见 `.gitignore`）：`PROCESS.md` 与逐轮的「任务清单 / 验收检查清单」属内部过程
-> 文档（含本机路径与工作笔记）；`archive/` 是本地版本快照；`build/`、`data/satcat.csv`、
+> **不进仓库的文件**（见 `.gitignore`，并有 `scripts/repo_hygiene.mjs` 把关）：`PROCESS.md`、
+> `PERF_NOTES.md` 等开发笔记；逐轮的「任务清单 / 验收检查清单 / 核对表」；一次性核对脚本
+> （如早期的词条名单核对）；`archive/` 是本地版本快照；`build/`、`data/satcat.csv`、
 > `data/wiki_cache/` 属可再生的中间产物；`junk/` 是一次性产物暂存区。
+> 口径就一句话：**仓库只放「使用者直接能用的 + 重建它所需的最小源码链」**，
+> 其余（开发过程、本机运维、调试件）一律留在仓库外。
 
 > **关于链接**：GitHub Pages 的地址规则是 `https://<用户名>.github.io/<仓库>/<文件名>`，
 > 所以只要仓库里有一份 **`CISTrack.html`**，链接就永远是

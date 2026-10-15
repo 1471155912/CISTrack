@@ -180,6 +180,14 @@ jobs:
           npm install --no-audit --no-fund --loglevel=error
           node smoke.mjs
 
+      - name: 仓库卫生检查（防过程类文件入库 —— V1.9.5 起强制）
+        # 为什么挂在**提交之前**：紧随其后的 `git add -A` 会把工作区里一切新文件都提交上去 ——
+        #   历史上"逐轮任务清单 / 一次性核对脚本 / 开发笔记"正是这样进的仓库（使用者用不到，
+        #   还会让 clone 变重）。本步按「已跟踪 + 未被忽略的新文件」这一批（= git add -A 的候选
+        #   全集）做体检：根目录白名单 + 全路径类别黑名单 + 带版本号产物的数量上限，命中即失败，
+        #   于是提交根本不会发生。判据与白名单在 `scripts/repo_hygiene.mjs` 里逐条写明。
+        run: node scripts/repo_hygiene.mjs
+
       - name: 有变化才提交并推送
         run: |
           set -e

@@ -268,32 +268,53 @@ with 0 requests. Run `--prune` afterwards for capacity governance.
 ```
 CISTrack.html           ★ latest build (no version in the name) — use it for the stable link:
                           https://1471155912.github.io/CISTrack/CISTrack.html
-CISTrack_v1.9.1.html    snapshot of the current version
-CISTrack_v1.9.0.html    snapshot of the previous version (for rollback / comparison)
-index.html              entry page (redirects to CISTrack.html)
+星网与千帆在轨追踪.html   the build's original filename (what build.mjs writes; the in-page "how to use offline"
+                          note and release.mjs both refer to it)
+CISTrack_v1.9.4.html    snapshot of the current version
+CISTrack_v1.9.3.html    snapshot of the previous version (for rollback / comparison)
+index.html              entry page (an 811-byte redirect to CISTrack.html)
 assets/                 assets used by the READMEs (the wordmark animation cistrack-logo.gif)
 README.md / README.en.md
                         this documentation: Chinese (default) / English (split out in V1.9.1 A16, cross-linked at the top)
+CHANGELOG.md / CHANGELOG.en.md
+                        changelogs (per-version changes and data-source changes; Chinese / English)
+LICENSE                 MIT
+package.json / package-lock.json
+                        dependency manifest (jsdom / ws are needed for the tests only; the build itself needs only Node)
 history/                published shards of the historical orbit database (the data behind 04 Orbits Change Status, loaded on demand; see "Historical orbit database")
 app.js / template.html  sources (the single-file build = these two + data/, packed by build.mjs)
-data/                   satellite data (manufacturer table, offline TLE fallback snapshot, history source store data/history/)
+data/                   satellite data (manufacturer table, offline TLE fallback snapshot, coastline data, history source store data/history/)
 wiki.json               cached satellite-wiki statistics (the source of the header counters; the page reads it at runtime)
 wiki_launches.json      per-launch mission results for both constellations (the "result" column in Launch history + the basis of 05 Network progress)
+build.mjs / mk*.mjs     build scripts (pack the sources into the single-file HTML):
+                          mkdata.mjs           TLEs + batch metadata → build/satdata.json (delta-encoded)
+                          mkcoast.mjs          Natural Earth coastlines → data/coast.js.txt (selectable tiers; see the script header)
+                          mkmanufacturers.mjs  manufacturer / developer cache (self-expires after 3 days)
+                          refresh.mjs          fetches the current TLEs
+release.mjs             path-independent artifact sync (CISTrack.html + CISTrack_v<version>.html + package.json version + README badges)
+clean.mjs               development-time cleanup of one-off artifacts (moves them into junk/; restorable)
+smoke.mjs / visual.mjs  tests: logic and source assertions / real-browser layout checks
+i18n.mjs                bilingual copy audit (four static checks + four runtime passes)
 scripts/fetch_wiki.mjs          fetches and updates wiki.json (zero dependencies; see "Updating the data")
 scripts/fetch_launch_results.mjs fetches the wiki's yearly launch pages → wiki_launches.json (zero dependencies)
 scripts/fetch_history.mjs       bulk historical TLE fetch (for seeding / backfilling; not needed for routine maintenance; see "Historical orbit database")
 scripts/histstore.mjs           history source store: read/write plus capacity governance (mergeInto / pruneRecords)
 scripts/histpack.mjs            history published-shard packing (v2 encoding + change-driven sampling)
-smoke.mjs / visual.mjs  tests: logic and source assertions / real-browser layout checks
-i18n.mjs                bilingual copy audit (four static checks + four runtime passes)
-build.mjs / mk*.mjs     build scripts (pack the sources into the single-file HTML)
-release.mjs             path-independent artifact sync (CISTrack.html + CISTrack_v<version>.html + package.json version)
+scripts/omm.mjs                 6-digit catalog numbers (CelesTrak 100000+) and TLE epoch conversion
+scripts/audit_refs.mjs          reference-integrity check ("a test references a file that is not in the repository")
+scripts/audit_tle.mjs           full TLE completeness audit (the wiki article is the sole roster; per-batch verdicts)
+scripts/privacy_check.mjs       de-sensitisation gate (author-private environment narrative → hard fail)
+scripts/repo_hygiene.mjs        repository-hygiene gate (root allowlist + process-file blocklist → hard fail)
+scripts/import_history.mjs etc. see each script's header (history import / climb-algorithm self-test / search pools / offline e2e / temp-root resolution)
 .github/workflows/      cloud automation: update-tle.yml refreshes the TLEs and rebuilds every 12 hours
 ```
 
-> **Files not in the repository** (see `.gitignore`): `PROCESS.md` and the per-round "task list / acceptance checklist"
-> are internal process documents (they contain local paths and working notes); `archive/` holds local version snapshots;
-> `build/`, `data/satcat.csv` and `data/wiki_cache/` are regenerable intermediates; `junk/` is a staging area for one-off artifacts.
+> **Files not in the repository** (see `.gitignore`, enforced by `scripts/repo_hygiene.mjs`): development notes
+> such as `PROCESS.md` and `PERF_NOTES.md`; the per-round "task list / acceptance checklist / cross-check tables";
+> one-off audit scripts; `archive/` holds local version snapshots; `build/`, `data/satcat.csv` and
+> `data/wiki_cache/` are regenerable intermediates; `junk/` is a staging area for one-off artifacts.
+> The rule in one sentence: **the repository only carries what users need directly plus the minimal source chain
+> needed to rebuild it** — everything else (development process, maintainer-side tooling, debugging leftovers) stays out.
 
 > **About the link**: GitHub Pages addresses are `https://<user>.github.io/<repo>/<file>`,
 > so as long as the repository contains **`CISTrack.html`**, the link is always
