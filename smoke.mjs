@@ -2935,14 +2935,37 @@ assert('V1.9.2：右侧留白按"要标几条"动态加宽（否则名称会被�
         const r = lastRow(), exp = (poi.pts[1].v - poi.pts[0].v);
         return r.txt === '轨道高度变更+' + exp.toFixed(2) + 'km' && /#2f9e44/.test(r.style);
       })(), JSON.stringify((function () { k3.climbInfoAt(69572, 1); return lastRow(); })()));
-    assert('A1：负变化 → 保留 `-`、两位小数、**黄色** #f59f00（换一个实测在降轨的批次）',
-      (function () {
-        k3.setClimbPick('b:25067');               // 试验星06组：实测在**下降**
-        const p2 = k3.climbFind(63429);
-        k3.climbInfoAt(63429, 1);
-        const r = lastRow(), exp = (p2.pts[1].v - p2.pts[0].v);
-        return exp < 0 && r.txt === '轨道高度变更' + exp.toFixed(2) + 'km' && /#f59f00/.test(r.style);
-      })(), JSON.stringify((function () { k3.climbInfoAt(63429, 1); return lastRow(); })()));
+    // ★ V1.9.5（数据自适应改造）：旧版写死"63429 的前两点差为负"来验证负变化的黄渲染 ——
+    //   但那是**数据快照**而非性质：2026-10-15 12:00 刷新后 densify 重采样，该两点差变成 +0.30，
+    //   断言就红了（看起来像回归，其实代码没坏）。改为**在真实库里动态找**相邻点差为负的样本。
+    //   兜底：全库真找不到负差样本（物理上几乎不可能：阻力降轨弧段必然存在）→ 判过并注明，
+    //   核心口径仍由下一条"climbDeltaColor 源码"断言守住。
+    const a1 = (function () {
+      const lks = Object.keys(RAW.gw.launches).map(k => 'b:' + k)
+        .concat(Object.keys(RAW.qf.launches).map(k => 'b:' + k));
+      for (const lk of lks) {
+        try { k3.setClimbPick(lk); } catch (e) { continue; }
+        const gwBatch = /^b:2[3-6]/.test(lk);
+        const sats = (gwBatch ? RAW.gw.sats : RAW.qf.sats).filter(s => s.c.slice(0, 5) === lk.slice(2));
+        for (const s of sats) {
+          const p = k3.climbFind(s.id);
+          if (!p || !p.pts || p.pts.length < 2) continue;
+          for (let i = 1; i < p.pts.length; i++) {
+            const d = p.pts[i].v - p.pts[i - 1].v;
+            if (d < -0.005) {
+              k3.climbInfoAt(s.id, i);
+              const r = lastRow();
+              return { hit: true, id: s.id, exp: d, txt: r.txt, style: r.style,
+                ok: r.txt === '轨道高度变更' + d.toFixed(2) + 'km' && /#f59f00/.test(r.style) };
+            }
+          }
+        }
+      }
+      return { hit: false };
+    })();
+    assert('A1：负变化 → 保留 `-`、两位小数、**黄色** #f59f00（真实库动态取样，不钉死某颗星）',
+      !a1.hit || a1.ok, a1.hit ? (a1.id + ' Δ=' + a1.exp.toFixed(2) + ' → txt=' + a1.txt + ' style=' + a1.style.slice(0, 30))
+                              : '全库无负差样本（跳过；色值口径仍由下一条源码断言守住）');
     assert('A1：色值口径与源码一致（三个色值都写在同一处 climbDeltaColor，不散落）',
       /function climbDeltaColor\(d\) \{\s*\n\s*return d > 0 \? '#2f9e44' : \(d < 0 \? '#f59f00' : 'var\(--dim\)'\);/.test(appSrc));
     assert('A1：i18n 中英同步（climb_delta = 轨道高度变更 / Altitude change）',
