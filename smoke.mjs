@@ -125,12 +125,43 @@ const rawSrc = fs.readFileSync(B + '/build/satdata.json', 'utf8');
     } catch (e) { return { f: f, stale: false, err: e.code || e.message }; }
   });
   const bad = gate.filter(x => x.stale);
-  if (bad.length) {
-    console.log('\n!! 产物比源码旧：' + bad.map(x => x.f).join(' / ') + ' 有更新但未重新构建。');
-    console.log('   smoke 校验的是**产物 HTML**，现在跑的是旧行为 —— 先执行 `node build.mjs` 再跑本测试。\n');
+  // ★ V1.9.5（H39 批跟进）：**数据新鲜度闸门** —— `build/satdata.json` 必须不比数据源旧。
+  //   为什么必须有：smoke 的「数据层」断言读 `build/satdata.json`，而「渲染层」断言读**产物 HTML**
+  //   里内嵌的那份数据；两者的**唯一**同步手段就是跑 `node mkdata.mjs`。
+  //   实测（2026-10-16 13:3x）：`git pull` 拉回 CI 的 TLE 刷新后，本地 build/satdata.json 停在 12:08，
+  //   同一颗星 69321 的 rr 旧值 -0.02 / 新值 2.07 → A7 渲染层断言当场红，而 CI 上是绿的
+  //   —— 即"数据版本不一致"制造的**假 FAIL**（差点被当成真回归去改断言）。
+  //   数据源 = mkdata 的全部输入：data/ct_*.tle + data/history/*.json。
+  const dataGate = (function () {
+    let pm = 0;
+    try { pm = fs.statSync(path.join(B, 'build', 'satdata.json')).mtimeMs; }
+    catch (e) { return { ok: false, why: '缺 build/satdata.json（数据层断言会崩）' }; }
+    let newest = 0, newestF = '';
+    const consider = (p, f) => { try { const m = fs.statSync(p).mtimeMs; if (m > newest) { newest = m; newestF = f; } } catch (e) {} };
+    const dir = path.join(B, 'data');
+    ['ct_hulianwang.tle', 'ct_qianfan.tle'].forEach(f => consider(path.join(dir, f), f));
+    try {
+      fs.readdirSync(path.join(dir, 'history')).forEach(f => {
+        if (f.endsWith('.json') && !f.endsWith('.bak')) consider(path.join(dir, 'history', f), 'history/' + f);
+      });
+    } catch (e) {}
+    if (newest > pm + 5000) return { ok: false, why: '数据源比 build/satdata.json 新（最新：' + newestF + '）' };
+    return { ok: true, why: 'data → build/satdata.json' };
+  })();
+  if (bad.length || !dataGate.ok) {
+    if (bad.length) {
+      console.log('\n!! 产物比源码旧：' + bad.map(x => x.f).join(' / ') + ' 有更新但未重新构建。');
+      console.log('   smoke 校验的是**产物 HTML**，现在跑的是旧行为 —— 先执行 `node build.mjs` 再跑本测试。');
+    }
+    if (!dataGate.ok) {
+      console.log('\n!! 数据快照陈旧：' + dataGate.why);
+      console.log('   「数据层」断言读 build/satdata.json、「渲染层」读产物 HTML —— 两边版本不一致会报**假 FAIL**。');
+      console.log('   修法：先执行 `node mkdata.mjs` 再跑本测试。');
+    }
+    console.log('');
     process.exitCode = 1;
   } else {
-    console.log('产物新鲜度：OK（' + gate.map(x => x.f + (x.err ? '?' + x.err : '')).join(' / ') + '）');
+    console.log('产物新鲜度：OK（' + gate.map(x => x.f + (x.err ? '?' + x.err : '')).join(' / ') + '；' + dataGate.why + '）');
   }
 }
 const RAW = w.SATDATA;
