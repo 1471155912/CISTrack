@@ -2194,7 +2194,14 @@ function drawChart() {
   ctx.strokeStyle = C.dim; ctx.beginPath();
   ctx.moveTo(PL, PT); ctx.lineTo(PL, PT + ph); ctx.lineTo(PL + pw, PT + ph); ctx.stroke();
   ctx.save();
-  ctx.translate(15, PT + ph / 2); ctx.rotate(-Math.PI / 2);
+  // ★ V1.9.5：纵轴标题左移 15 → 8 —— 原来的位置与刻度标签**贴靠**（实测：标题墨迹带 x∈[10,21]，
+  //   而密集视图最宽的刻度 `35800km`（45px）左沿在 13 → 盒子重叠 8.1px，个别刻度行上
+  //   标题的字形会紧贴到标签左侧，看着像多出一个字符）。左移到 8 后墨迹带 [3,14]，
+  //   与最宽刻度的盒间距回到 ~0（墨迹间距 2~4px），且距画布左沿仍有 3px 余量、不会裁字。
+  //   实测依据（真浏览器 x 扫描，探针留在本地过程归档里）：标题 x=15 → 与最宽刻度的盒间距 −8.1px；
+  //   12 → −5.1；9 → −2.1；6 → +0.9；取 8 折中。
+  //   ⚠️ 这是**纯位移**：文案、字号、竖排方式、其余版面一律未动（刻度位置也没动）。
+  ctx.translate(8, PT + ph / 2); ctx.rotate(-Math.PI / 2);
   ctx.fillStyle = C.dim; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.font = '10px ' + MONO;
   ctx.fillText(MODE_LABEL(S.mode) + ', ' + MODE_UNIT(S.mode), 0, 0);
@@ -2919,11 +2926,27 @@ function globeBasis() {
     up: [-sp * cy, -sp * sy, cp]
   };
 }
+// ★ V1.9.5（H32-B）：投影改为**免分配** —— 结果写进复用的槽位 `_PJ`，而不是每点 new 一个对象。
+//   为什么要改：实测（真浏览器 / 1920×1080 / 251 颗星）drawGlobe **每帧调用 project() 24,651 次**
+//   （覆盖圈 + 轨道圈 + 卫星点 + 悬浮命中），旧写法每次返回一个 `{x,y,z}` →
+//   20 fps 下约 **50 万个短命对象/秒** —— 这正是 GC 抖动的直接来源。
+//   ⚠️ 使用契约：**返回的是同一个对象**（`_PJ`）。调用方读到 x/y/z 后必须**立即消费**，
+//     不得把它存进数组/闭包跨调用使用（那样会互相覆盖）。本文件里 4 个调用点都符合这条。
+var _PJ = { x: 0, y: 0, z: 0 };
 function project(p, B, cx, cy, R) {
   var dx = p[0] * B.right[0] + p[1] * B.right[1] + p[2] * B.right[2];
   var dy = p[0] * B.up[0] + p[1] * B.up[1] + p[2] * B.up[2];
   var dz = p[0] * B.view[0] + p[1] * B.view[1] + p[2] * B.view[2];
-  return { x: cx + dx * R, y: cy - dy * R, z: dz };
+  _PJ.x = cx + dx * R; _PJ.y = cy - dy * R; _PJ.z = dz;
+  return _PJ;
+}
+/** 同上，但入参是**三个数**（免去调用点为传参再拼一个临时数组）。返回同一个 `_PJ`。 */
+function projN(px, py, pz, B, cx, cy, R) {
+  var dx = px * B.right[0] + py * B.right[1] + pz * B.right[2];
+  var dy = px * B.up[0] + py * B.up[1] + pz * B.up[2];
+  var dz = px * B.view[0] + py * B.view[1] + pz * B.view[2];
+  _PJ.x = cx + dx * R; _PJ.y = cy - dy * R; _PJ.z = dz;
+  return _PJ;
 }
 function globeTracks(ms) {
   var st = cur(), tmin = Math.round(ms / 60000);
@@ -3013,10 +3036,10 @@ function drawGlobe(states, ms) {
       var started3 = false;
       for (var aq = 0; aq < CIRC.length; aq++) {
         var caq = CIRC[aq][0], saq = CIRC[aq][1];
-        var pq = [uq[0] * clq + (e1[0] * caq + nv[0] * saq) * slq,
-                  uq[1] * clq + (e1[1] * caq + nv[1] * saq) * slq,
-                  uq[2] * clq + (e1[2] * caq + nv[2] * saq) * slq];
-        var prq = project(pq, B, cx, cy, R);
+        // ★ H32-B：直接用三个数投影（不再拼临时数组 `pq`、也不再 new 结果对象）
+        var prq = projN(uq[0] * clq + (e1[0] * caq + nv[0] * saq) * slq,
+                        uq[1] * clq + (e1[1] * caq + nv[1] * saq) * slq,
+                        uq[2] * clq + (e1[2] * caq + nv[2] * saq) * slq, B, cx, cy, R);
         if (prq.z <= 0) { started3 = false; continue; }
         if (!started3) { ctx.moveTo(prq.x, prq.y); started3 = true; } else ctx.lineTo(prq.x, prq.y);
       }
@@ -3036,22 +3059,22 @@ function drawGlobe(states, ms) {
       var sg = tracks[si]; if (!sg || !sg.length) continue;
       var sAt = sAt0, sel3 = sel0;
       ctx.strokeStyle = colOf(sAt, 'globe');
-      // 分正面 / 背面两段，背面画得更淡
-      var segs = [], curSeg = null, curZ = null;
+      // ★ H32-B：由"先收集 segs（每个点一个对象 + 每颗星一个闭包）再 forEach 描边"
+      //   改为**边投影边描边**：几何点、分段边界、每段透明度都与原实现逐项相同，
+      //   只是不再分配 segs / 段对象 / 闭包（250 颗星 → 每帧少 250 个闭包 + ~1.4 万个点对象）。
+      var started2 = false, curZ = null;
       for (var k2 = 0; k2 < sg.length; k2++) {
         var pr = project(sg[k2], B, cx, cy, R);
         var zf = pr.z > 0;
-        if (curZ === null || zf !== curZ) { curSeg = { z: zf, p: [] }; segs.push(curSeg); curZ = zf; }
-        curSeg.p.push(pr);
+        if (curZ !== null && zf !== curZ) { ctx.stroke(); started2 = false; }
+        if (!started2) {
+          curZ = zf;
+          // V1.8.0（需求4①）：alpha 里带 TOG 系数 → 关掉开关时整层淡出，而不是瞬间消失
+          ctx.globalAlpha = (sel3 ? (zf ? 0.95 : 0.32) : (zf ? 0.34 : 0.12)) * TOG.showTracks;
+          ctx.beginPath(); ctx.moveTo(pr.x, pr.y); started2 = true;
+        } else ctx.lineTo(pr.x, pr.y);
       }
-      segs.forEach(function (sg2) {
-        ctx.globalAlpha = (sel3 ? (sg2.z ? 0.95 : 0.32) : (sg2.z ? 0.34 : 0.12)) * TOG.showTracks;   // V1.8.0（需求4①）
-        ctx.beginPath();
-        for (var i2 = 0; i2 < sg2.p.length; i2++) {
-          if (i2 === 0) ctx.moveTo(sg2.p[i2].x, sg2.p[i2].y); else ctx.lineTo(sg2.p[i2].x, sg2.p[i2].y);
-        }
-        ctx.stroke();
-      });
+      if (started2) ctx.stroke();
     }
     ctx.globalAlpha = 1;
   }
@@ -3061,8 +3084,8 @@ function drawGlobe(states, ms) {
     var g = states[m]; if (!g) continue;
     var rr2 = Math.sqrt(g.ux * g.ux + g.uy * g.uy + g.uz * g.uz);
     var ecf = g.ecf, k3 = globeRad(rr2);
-    var v4 = [ecf.x / rr2 * k3, ecf.y / rr2 * k3, ecf.z / rr2 * k3];
-    var pr2 = project(v4, B, cx, cy, R);
+    // ★ H32-B：三个数直接投影（免临时数组与结果对象）
+    var pr2 = projN(ecf.x / rr2 * k3, ecf.y / rr2 * k3, ecf.z / rr2 * k3, B, cx, cy, R);
     var hidden = false;
     if (pr2.z < 0) {
       var ddx = (pr2.x - cx) / R, ddy = (pr2.y - cy) / R;
@@ -6352,8 +6375,8 @@ function globeInfoAt(x, y) {
     for (var i = 0; i < st.sats.length; i++) {
       var g = frameStatesGlobe[i]; if (!g) continue;
       var rr = Math.sqrt(g.ux * g.ux + g.uy * g.uy + g.uz * g.uz), kk = globeRad(rr);
-      var v = [g.ecf.x / rr * kk, g.ecf.y / rr * kk, g.ecf.z / rr * kk];
-      var pr = project(v, B, cx, cy, R);
+      // ★ H32-B：三个数直接投影（免临时数组与结果对象）
+      var pr = projN(g.ecf.x / rr * kk, g.ecf.y / rr * kk, g.ecf.z / rr * kk, B, cx, cy, R);
       if (pr.z < 0) continue;
       var d = Math.hypot(pr.x - x, pr.y - y);
       if (d < bd) { bd = d; best = i; }
