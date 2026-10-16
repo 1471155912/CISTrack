@@ -29,13 +29,24 @@ const GROUPS = { gw: 'hulianwang', qf: 'qianfan' };
 const URL = (g, f) => `https://celestrak.org/NORAD/elements/gp.php?GROUP=${g}&FORMAT=${f}`;
 const EP_EPS = 2e-7;                    // "同一份要素"的历元判据（天）；见文件头说明
 
-/** 每个字段的允许偏差（按 **TLE 的打印精度** 定；两边都是数值，故用数值比较，不碰文本格式） */
+/** 每个字段的允许偏差（按 **TLE 的打印精度** 定；两边都是数值，故用数值比较，不碰文本格式）
+ *
+ * ★ 指数类字段（ndot / nddot / BSTAR）的容差要**按 TLE 的打印位数**给，否则会误报：
+ *   TLE 的这三个字段只打印 **5 位有效数字**（如 BSTAR `12066-3` = 1.2066e-4），
+ *   而 OMM JSON 给的是**全精度**（1.2065756e-4）→ 实测差值 ≈ 半个末位（2~4e-9）。
+ *   这是"JSON 比 TLE 更精确"，**不是数据不符** —— CI 第二轮就是被这里误报的（33 + 47 处）。
+ *   ⇒ 判据改成 `|Δ| > max(absFloor, rel·|a|)`：absFloor = 一个打印步长（1e-8），rel = 1e-4。
+ *   实测证据（CI run 38911207796，真上游）：
+ *     #60385 BSTAR TLE=0.00012066      vs JSON=0.00012065756   |Δ|=2.4e-9 → 判**一致** ✓
+ *     #63693 BSTAR TLE=-0.00019076…    vs JSON=-0.000190756    |Δ|=4.0e-9 → 判**一致** ✓
+ *     （对照：真拿错字段/拿错星会是 1e-4 量级的差异，本判据仍能抓到。）
+ *   （另注：迁移后我们写回页面的仍是 5 位定宽 TLE，故下游行为与迁移前**完全一致**。） */
 const FIELDS = [
   ['OBJECT_ID', 'cospar'],                                 // ★ 两种写法：TLE 侧是压缩的 `24240A`、
                                                            //   OMM 侧是完整的 `2024-240A` ——
                                                            //   **归一化后比**（cosparField，代码里也是这么用的）
   ['EPOCH_Y2', 0], ['EPOCH_DOY', 3e-8],                    // TLE 打 8 位小数；ISO 只有毫秒 → 留到 ~2.6 ms
-  ['MEAN_MOTION_DOT', 'rel', 2e-5], ['MEAN_MOTION_DDOT', 'rel', 2e-5], ['BSTAR', 'rel', 2e-5],
+  ['MEAN_MOTION_DOT', 'rel', 1e-4, 1e-8], ['MEAN_MOTION_DDOT', 'rel', 1e-4, 1e-8], ['BSTAR', 'rel', 1e-4, 1e-8],
   ['EPHEMERIS_TYPE', 0], ['ELEMENT_SET_NO', 0], ['REV_AT_EPOCH', 0],
   ['INCLINATION', 2e-4], ['RAAN', 2e-4],                   // TLE 打 4 位小数
   ['ECCENTRICITY', 2e-7],                                  // 7 位小数
@@ -69,11 +80,11 @@ export function comparePair(tles, omms) {
     const a = ommFromTLE(t.l1, t.l2), b = fromCelesTrakOmm(om);
     if (String(a.EPOCH_Y2) !== String(b.EPOCH_Y2) || Math.abs(a.EPOCH_DOY - b.EPOCH_DOY) > EP_EPS) { epDiff++; continue; }
     same++;
-    for (const [f, spec, rel] of FIELDS) {
+    for (const [f, spec, rel, abs] of FIELDS) {
       cmp++;
       let bad;
       if (spec === 'cospar') bad = cosparField(a[f]) !== cosparField(b[f]);
-      else if (spec === 'rel') bad = Math.abs(Number(a[f]) - Number(b[f])) > Math.max(1e-12, rel * Math.abs(Number(a[f])));
+      else if (spec === 'rel') bad = Math.abs(Number(a[f]) - Number(b[f])) > Math.max(abs || 1e-12, rel * Math.abs(Number(a[f])));
       else bad = Math.abs(Number(a[f]) - Number(b[f])) > spec;
       if (bad) {
         fieldBad++;
