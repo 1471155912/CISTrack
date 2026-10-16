@@ -11,6 +11,7 @@ import { execFileSync } from 'node:child_process';   // V1.9.4：跑 privacy_che
 //   做**跨端对拍**（两处实现必须逐字段一致；改一处忘另一处在这里就会被抓住）。
 import { climbPhases as nodeClimbPhases } from './scripts/climb.mjs';
 import { checkFormat } from './scripts/format_guard.mjs';   // ★ V1.9.5（H42）：格式变更探测（行为级断言用）
+import { auditLines } from './scripts/audit_assertions.mjs';   // ★ V1.9.5（H29）：断言普查（与人工普查同一份实现）
 const require = createRequire(import.meta.url);
 const { JSDOM, VirtualConsole } = require('jsdom');
 
@@ -211,6 +212,7 @@ assert('顶部在轨卫星数取自词条（页面值 === 数据源值，不写�
   '页面=' + $('#mSats').textContent.slice(0, 40) + ' 数据源=' + RAW.gw.wiki.inOrbit.n);
 assert('TLE 按批次差分（sats 只存差异串 + tleTpl）',
   /"d":"/.test(rawSrc) && RAW.gw.tleTpl && Object.keys(RAW.gw.tleTpl).length > 10);
+// H29-OK: TLE 规范固定 l1/l2 各 69 字符（写死 69 是对的 —— 它是格式规范，不随数据变化）
 assert('差分还原：每颗星都是两行 69 字符',
   RAW.gw.sats.concat(RAW.qf.sats).every(s => /^1 \d{5}U /.test(s.l1) && s.l1.length === 69 && s.l2.length === 69 && s.norad !== undefined || /^1 \d{5}U /.test(s.l1) && s.l1.length === 69 && s.l2.length === 69));
 // V1.9.0（R17）：satdata 里新增了历史库（gw/qf 的 hist 精简兜底），体积会**随存档天数增长**。
@@ -3496,9 +3498,18 @@ assert('V1.9.2：右侧留白按"要标几条"动态加宽（否则名称会被�
     setQ('25067');
     k3.selectGroup('25067');
     let t11 = k3.toast();
+    // ★ H29：X/T **不写死**（旧写法正则 `（3/4）`）——期望值由数据推导：T=该批总颗数、X=T−已再入数。
+    //   数据一刷新（新增/再入）也不会红，但"文案格式 + X<T 如实显示"这两条性质仍被真正校验。
+    //   ⚠️ 必须取 w3（本测试自己的 jsdom 窗口）里的 SATDATA —— 已再入注入是**运行时**改的，
+    //      与模块顶部的 RAW（主窗口）不是同一份，注入不会出现在那边。
+    const A11_D = w3.SATDATA;
+    const A11_T = A11_D.gw.sats.filter(s => String(s.c).indexOf('25067') === 0).length;
+    const A11_gone = ((A11_D.gw.goneCount || {})['25067'] || []).length;
+    const A11_X = A11_T - A11_gone;
     assert('A11：仍有卫星在轨的发射记录 → 绿色「已全选仍在轨卫星（X/T）」（X<T 时如实显示）',
-      !!t11 && /^已全选仍在轨卫星（3\/4）$/.test(t11.txt) && !/inv|pool-dead/.test(t11.cls),
-      JSON.stringify(t11));
+      !!t11 && new RegExp('^已全选仍在轨卫星（' + A11_X + '/' + A11_T + '）$').test(t11.txt) &&
+      A11_gone > 0 && A11_X < A11_T && !/inv|pool-dead/.test(t11.cls),
+      JSON.stringify(t11) + '｜期望 X/T=' + A11_X + '/' + A11_T);
     const s11 = k3.state();
     assert('A11：1/2/3 章只高亮**仍在轨**的那些（已再入的绝不进 S.sel —— 否则会画出过期轨道）',
       s11.sel.length === 3 && s11.selGone.length === 1, JSON.stringify(s11));
@@ -3506,9 +3517,11 @@ assert('V1.9.2：右侧留白按"要标几条"动态加宽（否则名称会被�
       (function () {
         const f = d3.querySelectorAll('#tbody tr.focused').length;
         const g2 = d3.querySelectorAll('#tbody tr.gone-focus').length;
-        return f === 3 && g2 === 1;                // 3 在轨 + 1 已再入
+        // ★ H29：期望值由数据推导（旧写法写死 3/1）；该批 ≤10 颗 → 不受分页影响
+        return A11_T <= 10 && f === A11_X && g2 === A11_gone;
       })(), 'focused=' + d3.querySelectorAll('#tbody tr.focused').length +
-      ' goneFocus=' + d3.querySelectorAll('#tbody tr.gone-focus').length);
+      ' goneFocus=' + d3.querySelectorAll('#tbody tr.gone-focus').length +
+      '｜期望 ' + A11_X + '/' + A11_gone);
 
     // ② **已全部再入**的情形：注入的 26137（低轨22组，9 颗全被标成已再入）
     setQ('26137');
@@ -3517,11 +3530,14 @@ assert('V1.9.2：右侧留白按"要标几条"动态加宽（否则名称会被�
     const s11b = k3.state();
     assert('A11：该次发射**已全部再入** → 红色「该批次/组已全部再入」（Q29 定稿文案）',
       !!t11 && t11.txt === '该批次/组已全部再入' && /pool-dead/.test(t11.cls), JSON.stringify(t11));
-    assert('A11：全部已再入 → 卫星表格**灰色**框选（9 颗全灰、无主题色框）',
+    assert('A11：全部已再入 → 卫星表格**灰色**框选（该批全部已再入行都灰框、无主题色框）',
       (function () {
-        return d3.querySelectorAll('#tbody tr.gone-focus').length === 9 &&
+        // ★ H29：不写死"9 颗" —— 期望值 = 注入器实际标成已再入的条数（batch 颗数变了也不会红）
+        const exp = ((w3.SATDATA.gw.goneCount || {})['26137'] || []).length;
+        return exp > 0 && d3.querySelectorAll('#tbody tr.gone-focus').length === exp &&
           d3.querySelectorAll('#tbody tr.focused').length === 0;
       })(), 'goneFocus=' + d3.querySelectorAll('#tbody tr.gone-focus').length +
+      ' 期望=' + ((w3.SATDATA.gw.goneCount || {})['26137'] || []).length +
       ' focused=' + d3.querySelectorAll('#tbody tr.focused').length);
     assert('A11：全部已再入 → **无 1/2/3 章联动**（S.sel 保持空）', s11b.sel.length === 0, JSON.stringify(s11b));
     assert('A11：全部已再入 → **升轨章仍切到该批次/组**（A11 的例外：这一条联动要保留）',
@@ -4076,6 +4092,19 @@ assert('A9（V1.9.2 重新划分）：合并判据 = 数据空间可分辨阈值
         const bad = Object.keys(dup).filter(k => dup[k] > 1);
         return bad.length === 0;
       })(), '共 ' + ((smokeSrc.match(/^\s+"  [A-Za-z_][A-Za-z0-9_]*: function/gm) || []).length) + ' 个探针键');
+    // ★ V1.9.5（H29）：**meta 守卫** —— 新断言不得写成"快照式"
+    //   （`=== N`（N≥20）与数据规模比较 = 上游一刷新就红的那类；要么改成性质判据，
+    //    要么在断言上一行写 `// H29-OK: 理由` 说明它为什么是真不变量）
+    (function () {
+      const rows = auditLines(smokeSrc.split('\n'));
+      const danger = rows.filter(r => r.bucket === 'DANGER');
+      const bad = danger.filter(r => !r.marked);
+      assert('H29：无"未标注的快照式断言"（`=== N`≥20 与数据规模比；真不变量需写 // H29-OK 理由）',
+        bad.length === 0,
+        '疑似快照 ' + danger.length + ' 条（均已标注）/ 未标注 ' + bad.length +
+        (bad.length ? '：' + bad.slice(0, 3).map(r => 'L' + r.line + ' ' + r.name.slice(0, 30)).join(' | ') : '') +
+        '｜普查口径见 scripts/audit_assertions.mjs');
+    })();
     // ★ V1.9.5（H32-A）：01/02 章标签避让换成**空间网格**（O(卫星×标签) → O(卫星×桶内标签)）
     assert('H32-A：网格结构齐备（labelStore/labelPush/labelEach + 32px 桶 + 开关可回退）',
       /var LABEL_GRID = true;/.test(appSrc) && /var LABEL_CELL = 32;/.test(appSrc) &&
@@ -5114,6 +5143,7 @@ assert('V1.9.1（#9）：JS 起来后仍然接管（语言切换 / 真实历元�
   assert('字标动图：红/蓝两次停留**等长**（各约 2s，差值 ≤40ms）—— 旧图是 1.5s vs 2.5s（1.67 倍）',
     longDurs.length === 2 && Math.abs(longDurs[0] - longDurs[1]) <= 40,
     JSON.stringify(longDurs));
+  // H29-OK: 45 = 打包进仓库的 logo 动图自身的帧数（静态资产属性，不随上游数据变化）
   assert('字标动图：两段扫过帧数对称（各约 22 帧 / 440ms）',
     g.frames.length === 45,
     g.frames.length + ' 帧');
