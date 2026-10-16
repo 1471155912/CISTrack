@@ -4976,6 +4976,45 @@ assert('V1.9.1（#9）：JS 起来后仍然接管（语言切换 / 真实历元�
     !/climb rate/i.test(appCode) &&
     /可切换纵轴量为「变轨速度」/.test(appCode) &&
     /switched to \*maneuver rate\*/.test(appCode));
+  // ★ V1.9.5（发布前补漏）：**静态回退文本必须与 i18n 表的中文值一致**。
+  //   为什么值得一条守卫：模板里的静态文本是 JS 执行前的兜底，i18n 表是运行时真正的文案 ——
+  //   两者**各改各的**，于是"改了表忘了模板"会静默漂移。2026-10-17 发布前全量扫描实测抓到 9 处：
+  //     · `climb_rate` 静态仍是旧术语「升轨速度」（H12 只改了表）
+  //     · `shot_multi` / `shot_all` 静态仍是旧文案「导出多页 / 导出全页」（V1.9.3 ⑫ 改了表）
+  //     · `l_group` 静态「批次」而表是「批次/组」；`t_manufacturer` 静态竟是英文 "Manufacturer"
+  //     · `kv_first` 静态「首批发射」而表是「首发发射」
+  //     · `lead_map` / `lead_chart` / `lead_table` 三段引导语整体落后于表（"此刻"→"实时"、
+  //       少了"默认按 NORAD 编号从大到小排列…"一句）
+  //   归一化口径（少一个都会误报）：去内层标签（表里有 `<b>实时</b>`／`<br>`）、
+  //     去**零宽断行符 U+200B**（`kv_launchok` 等 5 个键**故意**带它做中文断行机会）、去空白。
+  //   ⚠️ 抓静态文本时**不能**简单取到第一个 `<`（`lead_chart` 里就有 `<b>`），也**不能**一路取到
+  //     下一个闭合标签 —— 实测 `lead_climb` 的 `<p>` 当时**没有闭合**，一路取下去会把后面
+  //     `<div class="climb-bar">` 里的「对象」两个字也吞进来，凭空造出一个假 FAIL。
+  //     （那个未闭合的 `<p>` 已随手补上；判据改成"只允许行内标签"，两头都不再踩坑。）
+  assert('V1.9.5：每个 `data-i18n` 元素的**静态回退文本**都与 i18n 表的中文值一致（防"改了表忘了模板"漂移）',
+    (function () {
+      const M = {};
+      const i0 = appCode.indexOf('var I18N = {');
+      const blk = appCode.slice(i0, appCode.indexOf('\n};', i0));
+      const re = /([A-Za-z_][A-Za-z0-9_]*)\s*:\s*\[\s*'((?:[^'\\]|\\.)*)'\s*,\s*'((?:[^'\\]|\\.)*)'\s*\]/g;
+      let m; while ((m = re.exec(blk))) M[m[1]] = m[2];
+      const norm = x => x.replace(/<[^>]*>/g, '').replace(/[\u200b\u00a0]/g, '').replace(/\s+/g, '').trim();
+      // 只吃"纯文本 + 行内标签（b/i/em/strong/br）"，遇到块级或嵌套结构就停 → 不会吞到别人家的文字。
+      // ⚠️ 行内标签名后**必须**加 `\b`：否则 `</b` 会误匹配 `</button>` 的头两个字符，
+      //    于是 `<button>按卫星</button><button>按批次</button>` 会被读成「按卫星按批次」（实测踩到）。
+      const INLINE = '(?:\\/?(?:b|i|em|strong)\\b|br)';
+      const re2 = new RegExp('data-i18n="([A-Za-z_][A-Za-z0-9_]*)"[^>]*>((?:[^<]|<' + INLINE + '[^>]*>)*)', 'g');
+      let n = 0, withText = 0; const bad = [];
+      while ((m = re2.exec(tpl))) {
+        n++;
+        const k = m[1], txt = m[2];
+        if (!M[k] || !norm(txt)) continue;
+        withText++;
+        if (norm(txt) !== norm(M[k])) bad.push(k + '(' + norm(txt).slice(0, 14) + '≠' + norm(M[k]).slice(0, 14) + ')');
+      }
+      if (bad.length) console.log('     ↳ 静态文本落后的键：' + bad.join(', '));
+      return n >= 100 && withText >= 80 && bad.length === 0;
+    })(), '扫描到的 data-i18n 元素须 ≥100、其中带静态文本 ≥80，且 0 处不一致');
   assert('#7：过场只作用于 `.chart-wrap`（画布）—— 不把整章或表格一起淡掉',
     /\.chart-wrap\.chart-out canvas \{ opacity:0; \}/.test(tpl));
 }

@@ -2021,7 +2021,7 @@ html[data-theme="light"] .res-fail { color:#c72929; }
       <div><span class="k" data-i18n="kv_groups">发射批次</span><span class="v" id="mGroups">—</span></div>
       <div><span class="k" data-i18n="kv_alt">平均轨道高度</span><span class="v" id="mAlt">—</span></div>
       <div><span class="k" data-i18n="kv_inc">轨道倾角</span><span class="v" id="mInc">—</span></div>
-      <div><span class="k" data-i18n="kv_first">首批发射</span><span class="v" id="mFirst">—</span></div>
+      <div><span class="k" data-i18n="kv_first">首发​发射</span><span class="v" id="mFirst">—</span></div>
       <!-- V1.7.0 第四轮（需求2）：数据源说明 —— 页面除 TLE 外还用了卫星百科的口径数据（计数/制造商等），
            这里如实标注"卫星百科数据截至哪天"。取值来自 wiki.json 的 asOf（构建时与运行时都会写入）。 -->
       <div><span class="k" data-i18n="kv_wiki">卫星百科更新</span><span class="v" id="mWikiUpd">—</span></div>
@@ -2101,7 +2101,7 @@ html[data-theme="light"] .res-fail { color:#c72929; }
       <button data-shot="map" class="shot" type="button" aria-label="导出图片" data-i18n-title="t_shot"><svg viewBox="0 0 24 24"><path d="M7 9V3h10v6"/><path d="M5 19h14a2 2 0 0 0 2-2v-4a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v4a2 2 0 0 0 2 2z"/><path d="M7 15h10v6H7z"/></svg></button>
     </div>
   </div>
-  <p class="sec-lead below" data-i18n="lead_map">星座里每一颗卫星此刻在地球上的什么位置，以及它对地面形成的可视覆盖区与前后各半圈的地面轨迹。开启「选择地面观测点」后，鼠标在地图上移动可实时查看该点的可见情况，点击固定观测点并高亮可见卫星，再次点击已固定的观测点可恢复跟随。</p>
+  <p class="sec-lead below" data-i18n="lead_map">星座里每一颗卫星实时在地球上的什么位置，以及它对地面形成的可视覆盖区与前后各半圈的地面轨迹。</p>
   <p class="note" id="mapNote"></p>
   <div class="legend-groups" id="groupLegendMap"></div>
 </section>
@@ -2161,11 +2161,11 @@ html[data-theme="light"] .res-fail { color:#c72929; }
     <div class="sec-tools"><span></span></div>
     <span class="sec-num">03</span>
   </div>
-  <p class="sec-lead" data-i18n="lead_chart">横轴是轨道倾角，纵轴是它们<b>此刻</b>的轨道高度。同一批次的卫星挤在同一条倾角线上，往上爬的是已经抬到工作高度的——一张图就能看出整个星座分布在哪些轨道面上。</p>
+  <p class="sec-lead" data-i18n="lead_chart">横轴是轨道倾角，纵轴是它们<b>实时</b>的轨道高度。同一批次的卫星挤在同一条倾角线上，往上爬的是已经抬到工作高度的——一张图就能看出整个星座分布在哪些轨道面上。</p>
 
   <div class="controls">
     <div class="ctl">
-      <span class="lbl" data-i18n="l_group">批次</span>
+      <span class="lbl" data-i18n="l_group">批次/组</span>
       <select id="groupSel"></select>
     </div>
     <div class="ctl">
@@ -2223,7 +2223,7 @@ html[data-theme="light"] .res-fail { color:#c72929; }
     </div>
     <span class="sec-num">04</span>
   </div>
-  <p class="sec-lead" data-i18n="lead_climb">选定一颗卫星或一个批次/组，画出它们的轨道半长轴随时间的变化 —— 刚入轨时低、随后被发动机一点点抬到工作高度的那段"爬坡"。
+  <p class="sec-lead" data-i18n="lead_climb">选定一颗卫星或一个批次/组，画出它们的轨道半长轴随时间的变化 —— 刚入轨时低、随后被发动机一点点抬到工作高度的那段"爬坡"。</p>
 
   <div class="climb-bar">
     <label class="climb-pick"><span data-i18n="climb_pick">对象</span>
@@ -2232,7 +2232,7 @@ html[data-theme="light"] .res-fail { color:#c72929; }
     <label class="climb-take"><span data-i18n="climb_take">纵轴量</span>
       <span class="seg" id="climbTakeSeg">
         <button data-take="sma" class="on" data-i18n="m_sma">半长轴</button>
-        <button data-take="rate" data-i18n="climb_rate">升轨速度</button>
+        <button data-take="rate" data-i18n="climb_rate">变轨速度</button>
       </span>
     </label>
   </div>
@@ -2315,7 +2315,7 @@ html[data-theme="light"] .res-fail { color:#c72929; }
     </div>
     <span class="sec-num">06</span>
   </div>
-  <p class="sec-lead" data-i18n="lead_table">当前全部在轨卫星的轨道要素：半长轴、近地点、远地点、倾角、周期、在轨天数、轨道面升交点赤经、偏心率和轨道要素历元。点击表头排序，点击行选中卫星（Ctrl/⌘ 多选，再次点击取消）。</p>
+  <p class="sec-lead" data-i18n="lead_table">当前全部在轨卫星的轨道要素：半长轴、近地点、远地点、倾角、周期、在轨天数、轨道面升交点赤经、偏心率和轨道要素历元。默认按 NORAD 编号从大到小排列（新发射的在前），点击表头可换列或换方向；点击行选中卫星（再点一次或点空白处取消）；点击「批次」可直接选中该批次的全部卫星。</p>
   <div class="table-wrap">
     <table class="ltable" id="satTable">
       <thead><tr>
@@ -2324,7 +2324,7 @@ html[data-theme="light"] .res-fail { color:#c72929; }
         <th data-key="status" class="sortable" data-i18n="t_status">在轨状态</th>
         <th data-key="launch" class="sortable" data-i18n="t_launch">批次/组</th>
         <th data-key="ltime" class="sortable" data-i18n="t_ltime">发射时间 (GMT+8)</th>
-        <th data-key="manufacturer" class="sortable" data-i18n="t_manufacturer">Manufacturer</th>
+        <th data-key="manufacturer" class="sortable" data-i18n="t_manufacturer">制造商</th>
         <th data-key="sma" class="sortable" data-i18n="t_sma">半长轴, KM</th>
         <th data-key="hp" class="sortable" data-i18n="t_hp">近地点, KM</th>
         <th data-key="ha" class="sortable" data-i18n="t_ha">远地点, KM</th>
@@ -2346,9 +2346,9 @@ html[data-theme="light"] .res-fail { color:#c72929; }
       <button class="sp-btn" type="button" data-shot-do="cur" data-i18n="shot_cur">导出当前页</button>
       <div class="sp-multi">
         <input class="sp-num" id="shotNumSat" type="text" inputmode="numeric" maxlength="3" data-i18n-ph="shot_ph" placeholder="页数" />
-        <button class="sp-btn" type="button" data-shot-do="multi" data-i18n="shot_multi">导出多页</button>
+        <button class="sp-btn" type="button" data-shot-do="multi" data-i18n="shot_multi">接着导出 N 页</button>
       </div>
-      <button class="sp-btn" type="button" data-shot-do="all" data-i18n="shot_all">导出全页</button>
+      <button class="sp-btn" type="button" data-shot-do="all" data-i18n="shot_all">导出全部页</button>
       <label class="sp-toggle"><input type="checkbox" id="shotAllColsSat" checked /><span data-i18n="shot_all_cols">含全部列</span></label>
     </div>
   </div>
@@ -2379,9 +2379,9 @@ html[data-theme="light"] .res-fail { color:#c72929; }
       <button class="sp-btn" type="button" data-shot-do="cur" data-i18n="shot_cur">导出当前页</button>
       <div class="sp-multi">
         <input class="sp-num" id="shotNumLaunch" type="text" inputmode="numeric" maxlength="3" data-i18n-ph="shot_ph" placeholder="页数" />
-        <button class="sp-btn" type="button" data-shot-do="multi" data-i18n="shot_multi">导出多页</button>
+        <button class="sp-btn" type="button" data-shot-do="multi" data-i18n="shot_multi">接着导出 N 页</button>
       </div>
-      <button class="sp-btn" type="button" data-shot-do="all" data-i18n="shot_all">导出全页</button>
+      <button class="sp-btn" type="button" data-shot-do="all" data-i18n="shot_all">导出全部页</button>
       <label class="sp-toggle"><input type="checkbox" id="shotAllColsLaunch" checked /><span data-i18n="shot_all_cols">含全部列</span></label>
     </div>
   </div>

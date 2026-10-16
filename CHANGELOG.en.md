@@ -33,6 +33,42 @@ The version is written in the footer (`CISTrack · Vx.y.z`), and the bottom bar 
   ("「升轨速度」→「变轨速度」"), so testing the raw source would produce a **false red**. This bit us
   twice during this verification; it is recorded in the development doc.
 
+
+- **Static fallback text in the template had drifted behind the i18n table** (a full scan before release
+  caught 9 spots). The static text is the pre-JS fallback while the i18n table is the runtime copy, and
+  the two are edited separately, so they drift silently. All are now in sync, with a new smoke guard.
+  Measured drift: `climb_rate` still carried the old term 「升轨速度」; `shot_multi` / `shot_all` still
+  read 「导出多页 / 导出全页」 (V1.9.3 ⑫ changed the table but not the template); `l_group` read 「批次」
+  while the table says 「批次/组」; `t_manufacturer` was even in English (`Manufacturer`);
+  `kv_first` read 「首批发射」 vs 「首发发射」; and the three lead paragraphs (`lead_map` / `lead_chart` /
+  `lead_table`) had fallen behind wholesale ("此刻" → "实时", missing the sentence about the default
+  NORAD-descending sort).
+  ⚠️ Every part of the normalisation matters: strip inner tags (the table contains `<b>实时</b>` / `<br>`),
+  strip the **zero-width break opportunity U+200B** (five keys such as `kv_launchok` carry it on purpose),
+  and collapse whitespace. When capturing the static text, inline tag names **must** be followed by a word
+  boundary — otherwise `</b` matches the first two characters of `</button>`.
+- **One `<p class="sec-lead" data-i18n="lead_climb">` was never closed** (found by a whole-template `<p>`
+  pairing check). Browsers auto-close it on hitting the following `<div>`, so it never showed. `</p>`
+  added — the DOM is unchanged, so there is zero visual impact.
+
+
+- **Static fallback text in the template had drifted behind the i18n table** (a full scan before release
+  caught 9 spots). The static text is the pre-JS fallback while the i18n table is the runtime copy, and
+  the two are edited separately, so they drift silently. All are now in sync, with a new smoke guard.
+  Measured drift: `climb_rate` still carried the old term 「升轨速度」; `shot_multi` / `shot_all` still
+  read 「导出多页 / 导出全页」 (V1.9.3 ⑫ changed the table but not the template); `l_group` read 「批次」
+  while the table says 「批次/组」; `t_manufacturer` was even in English (`Manufacturer`);
+  `kv_first` read 「首批发射」 vs 「首发发射」; and the three lead paragraphs (`lead_map` / `lead_chart` /
+  `lead_table`) had fallen behind wholesale ("此刻" → "实时", missing the sentence about the default
+  NORAD-descending sort).
+  ⚠️ Every part of the normalisation matters: strip inner tags (the table contains `<b>实时</b>` / `<br>`),
+  strip the **zero-width break opportunity U+200B** (five keys such as `kv_launchok` carry it on purpose),
+  and collapse whitespace. When capturing the static text, inline tag names **must** be followed by a word
+  boundary — otherwise `</b` matches the first two characters of `</button>`.
+- **One `<p class="sec-lead" data-i18n="lead_climb">` was never closed** (found by a whole-template `<p>`
+  pairing check). Browsers auto-close it on hitting the following `<div>`, so it never showed. `</p>`
+  added — the DOM is unchanged, so there is zero visual impact.
+
 ### Attribution (H31)
 
 - **SGP4 now has a numerical regression against the official verification cases.** Every previous gate
