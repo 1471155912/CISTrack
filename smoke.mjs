@@ -1138,22 +1138,33 @@ assert('需求2：第0章概况「首发发射」下新增「卫星百科更新 
   /data-i18n="kv_wiki">卫星百科更新<\/span><span class="v" id="mWikiUpd">/.test(tpl) &&
   /wu\.textContent = \(wiki && wiki\.asOf\) \? wiki\.asOf \+ t\('d_bjtime'\) : \u2018\u2014\u2019/.test(appSrc) === false ? true : /mWikiUpd/.test(appSrc));
 // 需求3：倾角分布限位
-assert('需求3+V1.7.2（需求8）：倾角物理边界 0\u2013180\u00b0 / 0\u201336500km + clampChartView 全路径',
+assert('需求3+V1.7.2（需求8）+V1.9.5（H39）：倾角边界 0\u2013180\u00b0 / 等效高度 0\u20132200 + clampChartView 全路径',
   /var CHART_X_MIN = 0, CHART_X_MAX = 180;/.test(appSrc) &&
-  /var CHART_Y_MIN = 0, CHART_Y_MAX = 36500;/.test(appSrc) &&
+  /var CHART_GEO_EQUIV = true;/.test(appSrc) &&
+  /var CHART_Y_MAX = CHART_GEO_EQUIV \? 2200 : 36500;/.test(appSrc) &&
+  /var CHART_GEO_SHIFT = 33800;/.test(appSrc) &&
   /function clampChartView\(v\)/.test(appSrc) &&
   (appSrc.match(/clampChartView\(/g) || []).length >= 7 &&
   /chartView = clampChartView\(pendingChartView\)/.test(appSrc));
-// V1.9.1（1.4）：标签位置从 `by - 3`（bottom 基线，画在坐标轴之上、会溢出绘图区）
-//   改为 `by + 3`（top 基线，落在区内）—— 断言跟着更新，仍要求两条线都画。
-assert('需求3+V1.7.2（需求8）：画出边界线（180\u00b0 与 36500 km (GEO) 虚线，仅边界在视口内时）',
-  /ctx\.fillText\('180\u00b0', bx - 4, PT \+ 4\)/.test(appSrc) &&
-  /ctx\.fillText\('36500 km \(GEO\)', PL \+ 6, by \+ 3\)/.test(appSrc) &&
-  /if \(v\.x1 > CHART_X_MAX - 1e-6 && CHART_X_MAX >= v\.x0\)/.test(appSrc) &&
-  // ★ V1.9.1（A18）：纵轴那条 36500 线**只在非断轴时画** —— 断轴启用后上段（35750~35850）
-  //   本身就是"GEO 带"，而 36500 已落在上段之外（画出来也会被裁掉）；
-  //   此时由断轴标记（斜杠 + `2000~35750`）承担同样的告知作用。
-  /if \(v\.y1 > CHART_Y_MAX - 1e-6 && CHART_Y_MAX >= v\.y0 && !YM\.on\)/.test(appSrc));
+// ★ V1.9.5（H39）：**边界虚线全部退役** —— 用户明确"180° 红色虚线分割线也不需要"；
+//   边界改由 clampChartView 硬钳制保证（拖不出定义域）；GEO 上界由"等效高度 + 断轴符号 +
+//   35800km 刻度"表达，36500 km (GEO) 那条线随之删除。
+assert('V1.9.5（H39）：03 章不再画 180\u00b0 / 36500 边界虚线（源码中这两段已删除）',
+  !/fillText\('180\u00b0', bx - 4, PT \+ 4\)/.test(appSrc) &&
+  !/fillText\('36500 km \(GEO\)'/.test(appSrc) &&
+  !/CHART_X_MAX - 1e-6 && CHART_X_MAX >= v\.x0/.test(appSrc));
+// ★ V1.9.5（H39）：断轴符号只画在**竖向刻度**上、图本身是连续坐标系（不再有 YM.on 两段式）
+assert('V1.9.5（H39）：断轴符号画在等效高度 2000 的竖向刻度上（复用 brkDrawMark，无第二段映射）',
+  /if \(CHART_GEO_EQUIV && v\.y0 <= CHART_BRK_AT && CHART_BRK_AT <= v\.y1\)/.test(appSrc) &&
+  /brkDrawMark\(ctx, PL, Y\(CHART_BRK_AT\), pw\)/.test(appSrc) &&
+  /function chartAlt\(h\)/.test(appSrc) &&
+  /return h >= CHART_GEO_SHIFT \? h - CHART_GEO_SHIFT : h;/.test(appSrc));
+// ★ V1.9.5（H39）：刻度标签 —— 等效高度 ≥2000 改标**实际高度**（2000 → "35800km"，用户原话；
+//   纯数字中英同形 → 不需要 i18n 键）
+assert('V1.9.5（H39）：2000 刻度的标签改为 35800km（chartTickLabel）',
+  /function chartTickLabel\(t\)/.test(appSrc) &&
+  /if \(CHART_GEO_EQUIV && t >= CHART_BRK_AT\) return \(t \+ CHART_GEO_SHIFT\) \+ 'km';/.test(appSrc) &&
+  /ctx\.fillText\(chartTickLabel\(t\), PL - 8, y\);/.test(appSrc));
 // 需求4：未编目行只留黄色边框
 assert('需求4：未编目行不再染黄/弱化文字（COSPAR、待编目数量、日期列全部恢复普通样式），黄框保留',
   !/tr\.pend-part \./.test(tpl) && !/tr\.pend-none \./.test(tpl) && !/\.ltable td\.pend/.test(tpl) &&
@@ -1394,9 +1405,9 @@ assert('V1.7.2（需求7）：信息窗与导出图的「数据更新」都改�
   /d_dataupd: \['TLE更新时间', 'TLE updated'\]/.test(appCode) &&
   !/d_dataupd: \['数据更新'/.test(appCode));
 // 需求8：倾角限位
-assert('V1.7.2（需求8）：倾角定义域放宽到 0–180°（容纳逆行轨道），边界线标签同步',
+assert('V1.7.2（需求8）+V1.9.5（H39）：倾角定义域 0–180°（容纳逆行轨道）；边界虚线已按 H39 删除',
   /var CHART_X_MIN = 0, CHART_X_MAX = 180;/.test(appCode) &&
-  /ctx\.fillText\('180°', bx - 4, PT \+ 4\)/.test(appCode));
+  !/fillText\('180°', bx - 4, PT \+ 4\)/.test(appCode));
 // 需求10：表格单选
 assert('V1.7.2（需求10）：卫星表格内多选后单击任一颗 = 取消全部、单选它（仅表格）',
   /tbody\.addEventListener\('click'[\s\S]{0,900}?if \(S\.sel\.length > 1 \|\| S\.selGroup\) \{[\s\S]{0,300}?S\.sel = \[idx\];/.test(appCode));
@@ -2093,22 +2104,19 @@ assert('V1.9.0（R17）：升轨速率算法在页面端与构建期**同一口�
   }
 }
 
-// ---- V1.9.1（1.4 连带）：物理边界虚线必须在 clip **之内**画 ----
-// 视觉回归实测抓到：GEO 进来后纵轴首次被撑到 36500，于是画那条"36500 km (GEO)"边界线，
-//   而它以 `by = PT`（顶格）落点、`lineWidth=1` 的描边**以线为中心**铺开
-//   → 有 0.5px 落在绘图区之上，抗锯齿后成为一整条高饱和像素带（y=15 行，x=76…102）。
-//   根因是这两条线画在 `ctx.clip()` **之前**，压根没被裁剪。
-//   修法是把整个边界线块挪到 clip 之后。这条断言用**源码顺序**把它钉住：
-//   必须存在 `clip()`，且 `setLineDash([5, 4])`（边界线块的标志）出现在它之后。
+// ---- V1.9.5（H39）：边界虚线已删除 —— 原"clip 之内"与"36500 标签位置"两条断言随之作废 ----
+// 沿革（保留备查）：V1.9.1（1.4）时这两条线画在 clip 之前，`lineWidth=1` 以线为中心铺开 →
+//   0.5px 溢出绘图区形成高饱和像素带（视觉回归实测抓到）；修法是挪进 clip 之内。
+//   V1.9.5（H39）按用户口径**整段删除**（"180° 红色虚线分割线也不需要"）→ 溢出问题随之不存在。
+//   现在的守卫是"这两段确实没了"（见上方 H39 三条源码断言），加上 clip 本身仍在
+//   （光点/虚影硬裁剪，V1.8.0 需求⑱，与边界线无关）。
 {
   const src = fs.readFileSync(B + '/app.js', 'utf8');
   const clipAt = src.indexOf('ctx.rect(PL, PT, pw, ph); ctx.clip();');
-  const dashAt = src.indexOf('ctx.setLineDash([5, 4]); ctx.lineWidth = 1;');
-  assert('V1.9.1（1.4）：倾角分布的物理边界虚线画在 clip 之内（否则半个像素会溢出绘图区）',
-    clipAt > 0 && dashAt > clipAt, 'clip@' + clipAt + ' vs 边界线@' + dashAt);
-  assert('V1.9.1（1.4）："36500 km (GEO)" 标签在线的下方（旧写法 by-3 + bottom 基线画在坐标轴之上）',
-    /fillText\('36500 km \(GEO\)', PL \+ 6, by \+ 3\)/.test(src) &&
-    !/fillText\('36500 km \(GEO\)', PL \+ 6, by - 3\)/.test(src));
+  assert('V1.8.0（需求⑱）：绘图区硬裁剪仍在（clip 保留，与边界线删除无关）',
+    clipAt > 0, 'clip@' + clipAt);
+  assert('V1.9.5（H39）：drawChart 内不再出现 [5,4] 主题色边界虚线块（setLineDash([5, 4]) 已随删除移除）',
+    !/ctx\.setLineDash\(\[5, 4\]\); ctx\.lineWidth = 1;\n  ctx\.strokeStyle = C\.theme;/.test(src));
 }
 
 assert('V1.8.0（需求6）：launches 台账第 6 位=任务结果、第 7 位=百科记载颗数',
@@ -2586,6 +2594,25 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
     "  climbInfoText: function () { var e = document.getElementById('climbInfo'); return e ? e.textContent.trim().slice(0, 40) : ''; },\n" +
     "  climbPinnedNow: function () { return climbPinned; },\n" +
     "  chartY1: function () { if (!chartView) chartAutoView(); return Math.round(chartView.y1); },\n" +
+    // ★ V1.9.5（H39）：GEO 等效高度 + 双向边界的运行时入口
+    "  chartGeoY: function () { if (!chartPts.length) buildChartPoints();\n" +
+    "    return chartPts.filter(function (p) { return p.y > 1500; }).map(function (p) {\n" +
+    "      return { n: p.sat.id, y: +p.y.toFixed(1) }; }); },\n" +
+    "  chartLeoMax: function () { if (!chartPts.length) buildChartPoints();\n" +
+    "    var mx = -Infinity; chartPts.forEach(function (p) { if (p.y < 1500 && p.y > mx) mx = p.y; });\n" +
+    "    return isFinite(mx) ? +mx.toFixed(1) : null; },\n" +
+    "  chartClamp: function (x0, x1, y0, y1) { var v = clampChartView({ x0: x0, x1: x1, y0: y0, y1: y1 });\n" +
+    "    return { x0: +v.x0.toFixed(2), x1: +v.x1.toFixed(2), y0: +v.y0.toFixed(2), y1: +v.y1.toFixed(2) }; },\n" +
+    // ★ V1.9.5（H39③）：无撕裂的运行时证据 —— 取**真实绘图映射**（drawChart 用的同一个 brkYMap(chartView,...)），
+    //   量"每 100 km 对应多少像素"：跨折点(2000)与 LEO 区必须**完全一致**（旧的折点映射做不到）。
+    "  chartYmap: function (y0, y1) { if (!chartView) chartAutoView();\n" +
+    "    var v = (y0 == null) ? chartView : { x0: 0, x1: 180, y0: y0, y1: y1 };\n" +
+    "    var r = chartRect || { PL: 66, PT: 16, pw: 100, ph: 300 };\n" +
+    "    var M = brkYMap(v, r.PT, r.ph);\n" +
+    "    var per = function (a) { return Math.abs(M.Y(a + 100) - M.Y(a)); };   // 每 100 km 的像素数（取绝对值）\n" +
+    "    return { on: M.on, ph: r.ph, PT: r.PT,\n" +
+    "      leo: per(0), mid: per(1000), below: per(1900), above: per(2000), geo: per(2100),\n" +
+    "      full: Math.abs(M.Y(v.y0) - M.Y(v.y1)), y0: v.y0, y1: v.y1 }; },\n" +
     "  climbY1: function () { if (!climbView) climbAutoView(); clampClimbView(climbView); return Math.round(climbView.y1); },\n" +
     "  climbAuto: function () { return climbAutoPick(); },\n" +
     "  climbSelValue: function () { var s = document.getElementById('climbSel'); return s ? s.value : null; },\n" +
@@ -3857,10 +3884,62 @@ assert('A9（V1.9.2 重新划分）：合并判据 = 数据空间可分辨阈值
     assert('A18（V1.9.3）：反向映射（命中测试用）能还原同一竖直位置 —— 折叠与展开互为逆运算',
       Math.abs(M.inv(M.at(1149)) - 1149) < 1 && Math.abs(M.inv(M.at(35786)) - 35786) < 1,
       M.inv(M.at(1149)) + ' / ' + M.inv(M.at(35786)));
-    // 真实数据：GEO 三星入库后，两章的纵轴都应进入断轴量程
-    assert('A18（V1.9.3）：03 章实测纵轴上界 ≥ GEO 量程且已启用断轴（GEO 数据把轴撑过了 35700）',
-      k3.chartY1() > 35700 && k3.chartBrkOn() === true,
+    // 真实数据：GEO 三星入库后的表现 —— ★ V1.9.5（H39）起 03 章改**等效高度**，不再启用断轴
+    assert('V1.9.5（H39）：03 章纵轴 = 等效高度 0–2200（GEO 画进 2000km 附近，断轴不再启用）',
+      k3.chartY1() <= 2200 && k3.chartBrkOn() === false,
       'y1=' + k3.chartY1() + ' brk=' + k3.chartBrkOn());
+    // GEO 三星（24040A/24135A/24181A）的显示高度 = 实际 − 33800 ≈ 1986（用户口径"2000km 左右"）
+    assert('V1.9.5（H39）：GEO 三星按等效高度落在 ~1986（实际 35786 − 33800），LEO 原样',
+      (function () {
+        var g = k3.chartGeoY();
+        return g.length === 3 && g.every(function (r) { return r.y > 1900 && r.y < 2050; }) &&
+          k3.chartLeoMax() < 1300;
+      })(), 'GEO=' + JSON.stringify(k3.chartGeoY()) + ' LEOmax=' + k3.chartLeoMax());
+    // ① 双向边界：乱拖乱缩也出不去 0–180° / 0–2200（用户口径"恢复两个方向的滑动边界限制"）
+    assert('V1.9.5（H39）：clampChartView 硬边界（横 0–180° / 纵 0–2200，视口再大也钉死在定义域）',
+      (function () {
+        var a = k3.chartClamp(-500, 500, -500, 3000);       // 视口比定义域大 → 钉到定义域
+        var b = k3.chartClamp(-50, 20, -30, 40);            // 平移出界 → 整体拉回
+        var c = k3.chartClamp(160, 400, 2100, 3000);        // 右上出界 → 拉回
+        return a.x0 === 0 && a.x1 === 180 && a.y0 === 0 && a.y1 === 2200 &&
+          b.x0 === 0 && b.y0 === 0 && b.y1 <= 2200 &&
+          c.x1 === 180 && c.y1 === 2200 && c.x0 >= 0 && c.y0 >= 0;
+      })(), JSON.stringify([k3.chartClamp(-500, 500, -500, 3000), k3.chartClamp(-50, 20, -30, 40)]));
+    // ③ 消除撕裂（用户原话的落脚点）：**单一连续坐标系** —— 同一拖拽量在任意位置换算一致。
+    //   怎么测：取 drawChart 用的同一个映射，量"每 100 km 对应多少像素"。
+    //   旧的两段式（折点映射 + 固定 BRK_GAP）在两段上比例不同，正是"撕裂"的来源；
+    //   现在跨折点（1900→2000→2100）与 LEO 区（0→100）必须**逐位相同**。
+    assert('V1.9.5（H39③）：纵向映射单一连续 —— 每 100km 像素数跨折点(2000)与 LEO 区完全一致（撕裂根源消失）',
+      (function () {
+        var m = k3.chartYmap();
+        var ref = m.leo;
+        return m.on === false && ref > 0 &&
+          Math.abs(m.mid - ref) < 1e-9 && Math.abs(m.below - ref) < 1e-9 &&
+          Math.abs(m.above - ref) < 1e-9 && Math.abs(m.geo - ref) < 1e-9;
+      })(), JSON.stringify(k3.chartYmap()));
+    // 更强的一档：**把视口开到整个定义域（0~2200）** —— 这是能到达的最大跨度，也不得触发两段式。
+    assert('V1.9.5（H39③）：视口开到全定义域（0~2200）时同样不启用两段式（断轴只在等效轴之外的历史分支里）',
+      (function () {
+        var m = k3.chartYmap(0, 2200);
+        var ref = m.leo;
+        return m.on === false && ref > 0 &&
+          Math.abs(m.geo - ref) < 1e-9 && Math.abs(m.above - ref) < 1e-9;
+      })(), JSON.stringify(k3.chartYmap(0, 2200)));
+    assert('V1.9.5（H39③）：视口正好铺满绘图区高度（一个映射管全图，不再分上下两段各映射一次）',
+      (function () {
+        var m = k3.chartYmap();
+        return Math.abs(m.full - m.ph) < 1e-9;
+      })(), 'full=' + k3.chartYmap().full + ' ph=' + k3.chartYmap().ph);
+    // 拖拽换算的**源码形状**守卫：平移公式必须是线性比例（同一像素量在任何 y 位置都得同一个数据量），
+    //   且这段里不得再出现折叠函数 —— brkFold 一旦回归，拖拽就会重新变成"位置相关"（撕裂的老路）。
+    assert('V1.9.5（H39③）：图表拖拽换算不含折叠函数（平移 = 线性比例，任意位置换算一致）',
+      (function () {
+        var src = fs.readFileSync('app.js', 'utf8');
+        var i = src.indexOf('var dx = (p.x - chartDrag.x)');
+        if (i < 0) return false;
+        var seg = src.slice(i, i + 300);
+        return seg.indexOf('brkFold') < 0 && /dy = \(p\.y - chartDrag\.y\) \/ r\.ph \* \(v\.y1 - v\.y0\)/.test(seg);
+      })(), 'app.js 拖拽块');
     // ★ V1.9.3（用户要求 · 参考图五）：04 章纵轴改为「**贴合数据实际范围**」——
 //   下沿抬到数据下沿之下一点（不再是恒 180），上沿在数据最高之上一线。
 //   为什么改：旧口径下沿恒 180 时，对"九颗星都挤在 1112~1137 km"这类批次，
@@ -3946,8 +4025,9 @@ assert('A9（V1.9.2 重新划分）：合并判据 = 数据空间可分辨阈值
         const M = k3.brkMap(0, 35850, 16, 400);
         return M.at(18000) != null;          // 断轴区内的值**也有**像素位（折叠到折点行）
       })() && /var pen = false;/.test(appSrc));
-    assert('A18：36500 km 物理边界虚线在断轴模式下不再重复画（上段本身就是 GEO 带）',
-      /if \(v\.y1 > CHART_Y_MAX - 1e-6 && CHART_Y_MAX >= v\.y0 && !YM\.on\) \{/.test(appSrc));
+    // ★ V1.9.5（H39）：36500 km 边界虚线已整段删除（等效高度方案下 GEO 由 35800km 刻度 + 断轴符号表达）
+    assert('V1.9.5（H39）：36500 km 边界虚线块已删除（不再有任何 CHART_Y_MAX 边界线代码）',
+      !/v\.y1 > CHART_Y_MAX - 1e-6/.test(appSrc));
     k3.setClimbPick('b:24240');
 
     // ------------------------------------------------------------------
@@ -4048,9 +4128,11 @@ assert('A9（V1.9.2 重新划分）：合并判据 = 数据空间可分辨阈值
         return src.indexOf('atmLineDraw(') > 0 &&
           src.indexOf('atmLineDraw(') < src.indexOf("var scope = 'chart';");
       })());
-    assert('A12：断轴视图下也落在**下段**（下段就是 0~2000 km 的真实高度段）—— 03 默认视图 y0 = 0 时可见',
-      k3.chartViewY0() === 0 && k3.chartBrkOn() === true,
-      'y0=' + k3.chartViewY0() + ' brk=' + k3.chartBrkOn());
+    // ★ V1.9.5（H39）：03 章改等效高度单轴后**没有断轴两段**，100 km 线天然在量程内
+    //   （默认视图 y0 = 0 → atmLineDraw 的"下沿高于 100km 就不画"守卫不会触发）。
+    assert('A12：100 km 分界线在 03 默认视图量程内（y0 = 0；H39 后无断轴、无需再判段）',
+      k3.chartViewY0() === 0,
+      'y0=' + k3.chartViewY0());
   }
 
   // ================================================================ V1.9.1（A20）：04 章 hover 不再弹信息窗

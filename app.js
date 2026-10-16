@@ -1666,7 +1666,27 @@ var chartPts = [], chartView = null, chartRect = null;
 //   横轴倾角只可能是 0–90°；纵轴轨道高度必须 > 0、< 36500 km（地球静止轨道高度，低轨星座远够不到）。
 //   旧版只有『最小缩放下限』（0.05°），没有最大缩放/平移边界 → 图可以无限缩小、拖到哪儿都行。
 var CHART_X_MIN = 0, CHART_X_MAX = 180;       // 倾角（°）—— V1.7.2（需求8）：90 → 180
-var CHART_Y_MIN = 0, CHART_Y_MAX = 36500;     // 轨道高度（km，上界 = GEO）
+// ★★ V1.9.5（H39，用户 2026-10-15 第 13 条）：03 章纵轴改为**等效高度**单轴。
+//   用户原话：「把这几颗（GEO）卫星画在下方正常比例的原图内…画在 2000km 左右的区域
+//   （等效高度 = 实际高度 − 33800），并且把 2000 的刻度直接改为 35800km
+//   （竖向刻度画断轴线但是不对图本身做断轴处理）」+「恢复 0~180°/0~36600 两个方向的边界」。
+//   ⇒ GEO（35786）画在 1986；纵轴定义域 = **等效高度 0 ~ 2200**（= 实际 0 ~ 36000，
+//     用户口径"保留 36000−33800 的等效范围"）；断轴符号只画在**竖向刻度**上，图是单一连续坐标系。
+var CHART_GEO_EQUIV = true;                  // H39 总开关：true = 新口径；false = 回退 V1.9.3 断轴体系
+var CHART_GEO_SHIFT = 33800;                 // GEO 等效高度 = 实际高度 − 33800（35786 → 1986）
+var CHART_BRK_AT = 2000;                     // 断轴符号落在等效高度 2000 处（该刻度标签改为 35800km）
+var CHART_Y_MIN = 0;
+var CHART_Y_MAX = CHART_GEO_EQUIV ? 2200 : 36500;   // 等效高度上界（旧口径 = 实际高度，上界 GEO 36500）
+/** H39：实际高度 → 03 章显示高度（GEO 移进 2000km 附近区域；LEO 原样） */
+function chartAlt(h) {
+  if (!CHART_GEO_EQUIV || !isFinite(h)) return h;
+  return h >= CHART_GEO_SHIFT ? h - CHART_GEO_SHIFT : h;
+}
+/** H39：03 章纵轴刻度标签 —— 等效高度 ≥2000 的刻度改标**实际高度**（2000 → "35800km"） */
+function chartTickLabel(t) {
+  if (CHART_GEO_EQUIV && t >= CHART_BRK_AT) return (t + CHART_GEO_SHIFT) + 'km';
+  return t.toFixed(MODE_FMT);
+}
 
 // ---------------------------------------------------------------- V1.9.1（A18）：GEO **断轴**
 // 03 倾角分布与 04 变轨情况**共用同一套参数**（Q43 定稿）。
@@ -1810,6 +1830,22 @@ function atmLineDraw(ctx, C, PL, pw, Yval, label, y0) {
 }
 function clampChartView(v) {
   if (!v) return v;
+  // ★ V1.9.5（H39）：新口径 = **单一连续坐标系**（GEO 等效高度）→ 边界就是定义域本身：
+  //   横向 0–180°、纵向 0–2200（等效）。硬钳制：视口比定义域大就钉到定义域，平移出界整体拉回。
+  //   （旧口径要在 brkFold 折叠空间里钳制，因为断轴区把 33700km 压成了 0 宽 —— 见下方回退分支。）
+  if (CHART_GEO_EQUIV) {
+    var SX = CHART_X_MAX - CHART_X_MIN, SY = CHART_Y_MAX - CHART_Y_MIN;
+    if (v.x1 - v.x0 >= SX) { v.x0 = CHART_X_MIN; v.x1 = CHART_X_MAX; }
+    if (v.y1 - v.y0 >= SY) { v.y0 = CHART_Y_MIN; v.y1 = CHART_Y_MAX; }
+    if (v.x0 < CHART_X_MIN) { v.x1 += CHART_X_MIN - v.x0; v.x0 = CHART_X_MIN; }
+    if (v.x1 > CHART_X_MAX) { v.x0 -= v.x1 - CHART_X_MAX; v.x1 = CHART_X_MAX; }
+    if (v.y0 < CHART_Y_MIN) { v.y1 += CHART_Y_MIN - v.y0; v.y0 = CHART_Y_MIN; }
+    if (v.y1 > CHART_Y_MAX) { v.y0 -= v.y1 - CHART_Y_MAX; v.y1 = CHART_Y_MAX; }
+    if (v.x0 < CHART_X_MIN) v.x0 = CHART_X_MIN;     // 二次兜底（视口比定义域还宽时上面已钉过）
+    if (v.y0 < CHART_Y_MIN) v.y0 = CHART_Y_MIN;
+    return v;
+  }
+  // ---- 以下为 V1.9.3 断轴口径（CHART_GEO_EQUIV=false 时的回退路径）----
   // ★ V1.9.3（用户报"往上拉动是切换到 GEO 坐标图而不是两者真正画在一张图、页面会跳动"）：
   //   纵轴的"总高度"必须在**折叠空间**里量，不能拿真实高度直接相减 ——
   //   断轴区（2000~35700）被压成 0 宽，真实跨度 (=CHART_Y_MAX−CHART_Y_MIN) 与可见跨度
@@ -1850,7 +1886,8 @@ function buildChartPoints() {
     var g = byL[s.lk] || [s], gi = g.indexOf(s);
     // 同一批次的倾角几乎相同，沿横轴散开 ±0.25° 免得叠成一根实线
     var jitter = g.length > 1 ? (gi / (g.length - 1) - 0.5) * 0.5 : 0;
-    return { x: s.inc + jitter, y: val(s, S.mode), sat: s };
+    // ★ V1.9.5（H39）：GEO 走**等效高度**（实际 − 33800）画进 2000km 附近区域，LEO 原样
+    return { x: s.inc + jitter, y: chartAlt(val(s, S.mode)), sat: s };
   });
 }
 // 待编目批次在图表上的「摘要虚影」：横轴=目录摘要倾角，纵轴=该批次摘要高度。
@@ -1859,9 +1896,10 @@ function pendVal(L) {
   var nfo = L && L.pinfo; if (!nfo) return null;
   var x = nfo.inc;
   if (!isFinite(x)) return null;
-  if (S.mode === 'ha') return { x: x, y: nfo.apogee, lo: nfo.perigee, hi: nfo.apogee };
-  if (S.mode === 'hp') return { x: x, y: nfo.perigee, lo: nfo.perigee, hi: nfo.apogee };
-  return { x: x, y: (nfo.apogee + nfo.perigee) / 2, lo: nfo.perigee, hi: nfo.apogee };
+  // ★ V1.9.5（H39）：待编目虚影与卫星光点同一口径（GEO 等效高度）
+  if (S.mode === 'ha') return { x: x, y: chartAlt(nfo.apogee), lo: chartAlt(nfo.perigee), hi: chartAlt(nfo.apogee) };
+  if (S.mode === 'hp') return { x: x, y: chartAlt(nfo.perigee), lo: chartAlt(nfo.perigee), hi: chartAlt(nfo.apogee) };
+  return { x: x, y: chartAlt((nfo.apogee + nfo.perigee) / 2), lo: chartAlt(nfo.perigee), hi: chartAlt(nfo.apogee) };
 }
 function pendPts() {
   var st = cur();
@@ -1907,10 +1945,10 @@ function chartAutoView() {
   var yy1 = y1 + pad;
   yy1 = Math.min(yy1, Math.max(1800, y1 + pad));
   if (yy1 - yy0 < 20) { yy1 = 20; }
-  // V1.9.1（A18）：数据跨到 GEO 时改走**断轴量程** —— 上界钉在 BRK_GEO_LO +（GEO 的余量），
-  //   正好把 GEO（35786）装进上段。★ V1.9.3：断轴改为**折叠映射**（断轴区宽 0），
-  //   于是上界只要略高于 GEO 即可，"上段占 30% 高度"那种固定比例已不存在。
-  if (yy1 > BRK_LO) yy1 = BRK_GEO_LO + 200;
+  // ★ V1.9.5（H39）：GEO 已按等效高度（−33800）画进 2000km 附近 → 不需要旧的"跨 GEO 改断轴量程"，
+  //   上界统一钳到新定义域（2200 = 实际 36000）即可。星网默认视图因此是 0~2200（GEO 在近顶部），
+  //   千帆（无 GEO）保持 0~数据最高+余量 —— 与用户"像千帆章节那样的正常比例"一致。
+  if (yy1 > CHART_Y_MAX) yy1 = CHART_Y_MAX;
   chartView = clampChartView({ x0: x0, x1: x1, y0: yy0, y1: yy1 });   // V1.7.0 第四轮（需求3）
 }
 function chartVisiblePts() {
@@ -2059,7 +2097,8 @@ function drawChart() {
     if (y < PT - 2 || y > PT + ph + 2) return;
     ctx.strokeStyle = C.gridY; ctx.beginPath(); ctx.moveTo(PL, y); ctx.lineTo(PL + pw, y); ctx.stroke();
     ctx.fillStyle = C.tick;
-    ctx.fillText(t.toFixed(MODE_FMT), PL - 8, y);
+    // ★ V1.9.5（H39）：等效高度 ≥2000 的刻度改标**实际高度**（2000 → "35800km"）
+    ctx.fillText(chartTickLabel(t), PL - 8, y);
   });
   if (YM.on) {
     ctx.strokeStyle = C.dim;
@@ -2070,6 +2109,12 @@ function drawChart() {
     //   （旧版写 `2000~35750`，是"被隐藏"的区间；现在语义相同但更应说明折叠口径）。
     //   纯数字，中英同形 → 不需要 i18n 键。
     ctx.fillText(BRK_LO + '~' + BRK_GEO_LO, PL + 8, YM.cut);
+  }
+  // ★ V1.9.5（H39）：新口径的断轴符号 —— **只画在竖向刻度线上**（国际通用的双斜杠），
+  //   图本身是单一连续坐标系（无断轴、无两段）。落在等效高度 2000（= 实际 35800）处。
+  if (CHART_GEO_EQUIV && v.y0 <= CHART_BRK_AT && CHART_BRK_AT <= v.y1) {
+    ctx.strokeStyle = C.dim;
+    brkDrawMark(ctx, PL, Y(CHART_BRK_AT), pw);
   }
   // V1.3.6：X 轴 = 轨道倾角（°），数值刻度（不再是日期）
   var xt = niceTicks(v.x0, v.x1, 6);
@@ -2094,9 +2139,6 @@ function drawChart() {
   ctx.fillStyle = C.dim;
   ctx.fillText(t('d_x_inc') + ', °', PL + pw / 2, PT + ph + 24);
 
-  // V1.7.2（需求8）：物理边界线 —— 虚线画出 180°（倾角上限，含逆行轨道）与 36500 km（GEO 高度上限），
-  //   只在边界落在当前视口内时才画；配合 clampChartView，图再也缩不出/拖不出这个框。
-  //   横轴上界 90 → 180：原来 90° 把逆行轨道（倾角 > 90°）挡在定义域外，放宽后才能容纳。
   // V1.8.0（需求17 / ⑱）：绘图区硬裁剪 —— 卫星光点、待编目虚影与选中标注一律裁到
   //   横纵坐标轴围成的矩形内。此前只做了「越界点跳过」（x/y 超出 ±4px 就不画），
   //   于是正好压在轴上或半出轴的点仍会把圆点画到轴外（低倍率/窄屏/滑动时最明显）。
@@ -2104,30 +2146,12 @@ function drawChart() {
   ctx.save();
   ctx.beginPath(); ctx.rect(PL, PT, pw, ph); ctx.clip();
 
-  // ★ V1.9.1（1.4）：两条**物理边界虚线**（180° 与 36500 km）挪到 clip **之后**画。
-  //   为什么必须挪：它们是"上界"线，落点恰好在绘图区的边上（`by === PT`、`bx === PL+pw`），
-  //   而 `lineWidth = 1` 的描边是**以线为中心**铺开的 → 顶边那条线有 0.5px 落在 PT 之上，
-  //   抗锯齿后在绘图区外留下一整条高饱和像素带（视觉回归实测抓到：y=15 行、x=76…102）。
-  //   以前不暴露是因为纵轴/横轴从没被撑到上界（过去最高卫星 1200 km），
-  //   直到 1.4 把 GEO（35786 km，纵轴上界 36500）收进来才现形。
-  //   挪进 clip 内后，溢出的那半像素被裁掉，线正好"贴在坐标轴上截止"（需求⑱ 要的效果）。
-  ctx.setLineDash([5, 4]); ctx.lineWidth = 1;
-  ctx.strokeStyle = C.theme;
-  if (v.x1 > CHART_X_MAX - 1e-6 && CHART_X_MAX >= v.x0) {
-      var bx = X(CHART_X_MAX);
-      ctx.beginPath(); ctx.moveTo(bx, PT); ctx.lineTo(bx, PT + ph); ctx.stroke();
-      ctx.fillStyle = C.theme; ctx.textAlign = 'right'; ctx.textBaseline = 'top';
-      ctx.fillText('180°', bx - 4, PT + 4);
-  }
-  if (v.y1 > CHART_Y_MAX - 1e-6 && CHART_Y_MAX >= v.y0 && !YM.on) {
-    var by = Y(CHART_Y_MAX);
-    ctx.beginPath(); ctx.moveTo(PL, by); ctx.lineTo(PL + pw, by); ctx.stroke();
-    ctx.fillStyle = C.theme; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
-    // 标签画在线的**下方**（top 基线），天然落在绘图区内（旧写法 by - 3 + bottom 基线
-    // 是画在坐标轴之上，见上面那段说明）。
-    ctx.fillText('36500 km (GEO)', PL + 6, by + 3);
-  }
-  ctx.setLineDash([]);
+  // ★ V1.9.5（H39）：**两条物理边界虚线已删除**（180° 红色分割线 + 36500 km (GEO) 线）——
+  //   用户原话：「失去了原来要求的 0~36600 的上下和 0~180° 的左右两个方向的滑动边界限制
+  //   （现在的 180° 红色虚线分割线也不需要）」。
+  //   边界改由 clampChartView 的**硬钳制**保证（视口钉死在定义域内，拖不出去），无需画线；
+  //   GEO 上界改由"等效高度 + 2000 处断轴符号 + 35800km 刻度"表达，36500 那条线随之退役。
+  //   （V1.9.1 那条"边界虚线必须画在 clip 之内"的断言同时作废 —— 线已经不存在了。）
 
   // ---- V1.9.1（A12）：大气层分界线 y = 100 km（**网格之上、光点之下**，与 A9 圆圈同层）
   atmLineDraw(ctx, C, PL, pw, Y, '100 km', v.y0);
