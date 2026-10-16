@@ -475,10 +475,22 @@ assert('仓库 README 同步用新表述', /\*\*地图仅为粗略的地球大�
     'app.js=' + ver + ' README=' + ((rdZh.match(/badge\/version-([0-9]+\.[0-9]+\.[0-9]+)/) || [])[1] || '无') +
     ' README.en=' + ((rdEn.match(/badge\/version-([0-9]+\.[0-9]+\.[0-9]+)/) || [])[1] || '无'));
   // 徽章排版：三行居中（version 一行、星座两个一行、license 一行）—— V1.9.4+ 用户要求的版式
-  assert('README（双语）徽章为三行居中版式（version / 星座两枚 / license 各一行，<p align="center">）',
-    (rdZh.match(/<p align="center">/g) || []).length === 3 &&
-    (rdEn.match(/<p align="center">/g) || []).length === 3 &&
-    /<p align="center"><img src="https:\/\/img\.shields\.io\/badge\/version-/.test(rdZh));
+  // ★ 2026-10-17（用户要求改版式）：四枚徽章（版本号 / 星网 / 千帆 / MIT）改为
+  //   **排在 CISTrack 大 logo 之后、中英文切换之前的"一整行、均匀居中"**（原为三行）。
+  assert('README（双语）徽章为**一行居中**（版本号 / 星网 / 千帆 / MIT），位置在 logo 之后、语言切换之前',
+    (function () {
+      const ok = (rd) => {
+        const iLogo = rd.indexOf('cistrack-logo.gif'), iRow = rd.indexOf('<p align="center">'), iLang = rd.indexOf('> \u{1F310}');
+        if (!(iLogo > 0 && iRow > iLogo && iLang > iRow)) return false;
+        const row = rd.slice(iRow, rd.indexOf('</p>', iRow));
+        const seq = [/badge\/version-/, /%E6%98%9F%E7%BD%91-CSCN/, /%E5%8D%83%E5%B8%86-G60/, /badge\/license-MIT/];
+        let last = -1;
+        for (const re of seq) { const m = row.search(re); if (m < 0 || m < last) return false; last = m; }
+        return (rd.match(/<p align="center">/g) || []).length === 1;
+      };
+      return ok(rdZh) && ok(rdEn);
+    })(),
+    'zh: ' + (rdZh.match(/<p align="center">/g) || []).length + ' 行｜en: ' + (rdEn.match(/<p align="center">/g) || []).length + ' 行');
 }
 // V1.8.0 收尾：CHANGELOG 里承诺过「末尾署名与页内说明**对齐**」，但上一轮只改了 README.md，
 //   app.js 里 README_ZH 的那句漏了结尾的「与布局。」→ 页内说明与 README 字面不一致。

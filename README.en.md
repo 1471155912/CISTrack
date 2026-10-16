@@ -1,15 +1,16 @@
 # CISTrack · Satellite Tracking for GuoWang (SatNet) and Qianfan
 
-<p align="center"><img src="https://img.shields.io/badge/version-1.9.5-ff6b6b?style=flat-square" alt="version"></p>
-
-<p align="center"><a href="https://sat.huijiwiki.com/wiki/%E6%98%9F%E7%BD%91"><img src="https://img.shields.io/badge/%E6%98%9F%E7%BD%91-CSCN-ff6b6b?style=flat-square" alt="星网"></a> <a href="https://sat.huijiwiki.com/wiki/%E5%8D%83%E5%B8%86%E6%98%9F%E5%BA%A7"><img src="https://img.shields.io/badge/%E5%8D%83%E5%B8%86-G60-4dabf7?style=flat-square" alt="千帆"></a></p>
-
-<p align="center"><img src="https://img.shields.io/badge/license-MIT-4dabf7?style=flat-square" alt="license"></p>
-
 
 <div align="center">
   <img src="assets/cistrack-logo.gif" alt="CISTrack 顶栏字标 · 星网↔千帆切换时的非线性变色扫过" width="720">
 </div>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/version-1.9.5-ff6b6b?style=flat-square" alt="version">
+  <a href="https://sat.huijiwiki.com/wiki/%E6%98%9F%E7%BD%91"><img src="https://img.shields.io/badge/%E6%98%9F%E7%BD%91-CSCN-ff6b6b?style=flat-square" alt="SatNet"></a>
+  <a href="https://sat.huijiwiki.com/wiki/%E5%8D%83%E5%B8%86%E6%98%9F%E5%BA%A7"><img src="https://img.shields.io/badge/%E5%8D%83%E5%B8%86-G60-4dabf7?style=flat-square" alt="Qianfan"></a>
+  <img src="https://img.shields.io/badge/license-MIT-4dabf7?style=flat-square" alt="license">
+</p>
 
 > 🌐 [中文](README.md) | **English**
 
@@ -46,6 +47,14 @@ the original author for the discovery and the advice, and we encourage everyone 
 (citation guidance at the end of it).
 
 
+## 🚀 Quick start
+
+1. Download `CISTrack_v1.9.0.html` (or the same-named attachment from a Release; the repository's `index.html` redirects to the latest build)
+2. Double-click to open it in a browser (Chrome / Edge / Firefox / Safari all work)
+
+That is all. On first open it tries to fetch the latest TLEs; if that fails it falls back to the bundled snapshot and everything still works.
+
+
 ## ✨ What it does
 
 | Section | Contents |
@@ -76,13 +85,6 @@ The four search boxes (top bar / table / the two full-screen panels) stay in syn
 - Input and selection survive entering/leaving full screen, switching language and toggling controls
 
 
-
-## 🚀 Quick start
-
-1. Download `CISTrack_v1.9.0.html` (or the same-named attachment from a Release; the repository's `index.html` redirects to the latest build)
-2. Double-click to open it in a browser (Chrome / Edge / Firefox / Safari all work)
-
-That is all. On first open it tries to fetch the latest TLEs; if that fails it falls back to the bundled snapshot and everything still works.
 
 ## 🔄 Updating the data
 
@@ -317,7 +319,7 @@ release.mjs             path-independent artifact sync (writes the CISTrack_v<ve
                         and README badges, and **trims** older versioned artifacts down to current + previous)
 smoke.mjs               tests: logic and source assertions (jsdom) — **the suite CI runs**
                         ↑ development/verification tools (`clean.mjs` / `i18n.mjs` / `visual.mjs` / `scripts/audit_tle.mjs`)
-                          have lived **outside the repository** since V1.9.5 (see "Files not in the repository")
+                          have lived **outside the repository** since V1.9.5
 scripts/fetch_wiki.mjs          fetches and updates wiki.json (zero dependencies; see "Updating the data")
 scripts/fetch_launch_results.mjs fetches the wiki's yearly launch pages → wiki_launches.json (zero dependencies)
 scripts/fetch_history.mjs       bulk historical TLE fetch (for seeding / backfilling; not needed for routine maintenance; see "Historical orbit database")
@@ -331,23 +333,5 @@ scripts/import_history.mjs etc. see each script's header (history import / climb
 .github/workflows/      cloud automation: update-tle.yml refreshes the TLEs and rebuilds every 12 hours
 ```
 
-> **Files not in the repository** (see `.gitignore`, enforced by `scripts/repo_hygiene.mjs`): development notes
-> (`PROCESS.md`, `PERF_NOTES.md`); the per-round "task list / acceptance checklist / cross-check tables";
-> **development and verification tools** (`clean.mjs` / `i18n.mjs` / `visual.mjs` / `scripts/audit_tle.mjs`,
-> kept locally since V1.9.5); `archive/` holds local version snapshots; `build/`, `data/satcat.csv` and
-> `data/wiki_cache/` are regenerable intermediates; `junk/` is a staging area for one-off artifacts.
-> The rule in one sentence: **the repository only carries what users need directly plus the minimal source chain
-> needed to rebuild it** — everything else (development process, maintainer-side tooling, debugging leftovers) stays out.
 
-> **About the link**: GitHub Pages addresses are `https://<user>.github.io/<repo>/<file>`,
-> so as long as the repository contains **`CISTrack.html`**, the link is always
-> `https://1471155912.github.io/CISTrack/CISTrack.html` — **it will not change when you update the version**.
-> **From V1.9.1 only two versioned HTML files are kept — the current one and the previous one.**
-> The repository root used to carry eight older snapshots (v1.5.2 – v1.8.0, about 5 MB) which every
-> clone had to download; they have been removed, and rollback is now covered by **git history**
-> plus the local `archive/` baseline snapshot (not committed). Use `git log` to reach an older version.
 
-> The **rebuild chain** (`build.mjs` / `mk*.mjs` / `refresh.mjs` / `release.mjs` / `smoke.mjs` / `scripts/*.mjs`)
-> **is maintained together with the repository** so that anyone can rebuild and re-test locally; CI runs `smoke.mjs`
-> (needs `jsdom`). **Development/verification tools** (`clean.mjs` / `i18n.mjs` / `visual.mjs` / `scripts/audit_tle.mjs`)
-> live outside the repository.

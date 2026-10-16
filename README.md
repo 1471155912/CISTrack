@@ -1,15 +1,16 @@
 # CISTrack · 星网与千帆在轨追踪
 
-<p align="center"><img src="https://img.shields.io/badge/version-1.9.5-ff6b6b?style=flat-square" alt="version"></p>
-
-<p align="center"><a href="https://sat.huijiwiki.com/wiki/%E6%98%9F%E7%BD%91"><img src="https://img.shields.io/badge/%E6%98%9F%E7%BD%91-CSCN-ff6b6b?style=flat-square" alt="星网"></a> <a href="https://sat.huijiwiki.com/wiki/%E5%8D%83%E5%B8%86%E6%98%9F%E5%BA%A7"><img src="https://img.shields.io/badge/%E5%8D%83%E5%B8%86-G60-4dabf7?style=flat-square" alt="千帆"></a></p>
-
-<p align="center"><img src="https://img.shields.io/badge/license-MIT-4dabf7?style=flat-square" alt="license"></p>
-
 
 <div align="center">
   <img src="assets/cistrack-logo.gif" alt="CISTrack 顶栏字标 · 星网↔千帆切换时的非线性变色扫过" width="720">
 </div>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/version-1.9.5-ff6b6b?style=flat-square" alt="version">
+  <a href="https://sat.huijiwiki.com/wiki/%E6%98%9F%E7%BD%91"><img src="https://img.shields.io/badge/%E6%98%9F%E7%BD%91-CSCN-ff6b6b?style=flat-square" alt="星网"></a>
+  <a href="https://sat.huijiwiki.com/wiki/%E5%8D%83%E5%B8%86%E6%98%9F%E5%BA%A7"><img src="https://img.shields.io/badge/%E5%8D%83%E5%B8%86-G60-4dabf7?style=flat-square" alt="千帆"></a>
+  <img src="https://img.shields.io/badge/license-MIT-4dabf7?style=flat-square" alt="license">
+</p>
 
 > 🌐 **中文** | [English](README.en.md)
 
@@ -38,6 +39,14 @@
 也欢迎大家直接阅读这份方法文档（引用规范见其文末）。
 
 ---
+
+## 🚀 快速开始
+
+1. 下载 `CISTrack_v1.9.5.html`（或 Release 里的同名附件；仓库内的 `index.html` 会自动跳到最新版）
+2. 双击用浏览器打开（Chrome / Edge / Firefox / Safari 均可）
+
+就这两步。首次打开会尝试联网拉取最新 TLE，失败则用内置快照，功能完全不受影响。
+
 
 ## ✨ 它有什么
 
@@ -69,13 +78,6 @@
 - 输入内容与选中的卫星在进出全屏、切语言、开关控件后都保留，不会丢
 
 
-
-## 🚀 快速开始
-
-1. 下载 `CISTrack_v1.9.0.html`（或 Release 里的同名附件；仓库内的 `index.html` 会自动跳到最新版）
-2. 双击用浏览器打开（Chrome / Edge / Firefox / Safari 均可）
-
-就这两步。首次打开会尝试联网拉取最新 TLE，失败则用内置快照，功能完全不受影响。
 
 ## 🔄 更新数据
 
@@ -320,7 +322,7 @@ release.mjs             路径无关的产物同步（写 CISTrack_v<版本>.htm
                           + **自动裁剪**更早的版本产物，只留当前版与上一版）
 smoke.mjs               测试：逻辑与源码断言（jsdom）—— **在 CI 里跑的那一套**
                         ↑ 开发/验证工具（`clean.mjs` / `i18n.mjs` / `visual.mjs` / `scripts/audit_tle.mjs`）
-                          自 V1.9.5 起**留在本地、不进仓库**（见下方"不进仓库的文件"）
+                          自 V1.9.5 起**留在本地、不进仓库**
 scripts/fetch_wiki.mjs          抓取并更新 wiki.json（零依赖，详见「更新数据」）
 scripts/fetch_launch_results.mjs 抓取卫星百科年度发射记录页 → wiki_launches.json（零依赖）
 scripts/fetch_history.mjs       历史 TLE 批量拉取（灌库 / 补数用，日常维护不需要；详见「历史轨道数据库」）
@@ -334,21 +336,5 @@ scripts/import_history.mjs 等   见各脚本头部注释（历史库导入 / CT
 .github/workflows/      云端自动化：update-tle.yml 每 12 小时刷新 TLE 并重新打包
 ```
 
-> **不进仓库的文件**（见 `.gitignore`，并有 `scripts/repo_hygiene.mjs` 把关）：开发笔记（`PROCESS.md`、
-> `PERF_NOTES.md`）；逐轮的「任务清单 / 验收检查清单 / 核对表」；**开发与验证工具**
-> （`clean.mjs` / `i18n.mjs` / `visual.mjs` / `scripts/audit_tle.mjs`，V1.9.5 起留本地）；
-> `archive/` 是本地版本快照；`build/`、`data/satcat.csv`、`data/wiki_cache/` 属可再生的中间产物；
-> `junk/` 是一次性产物暂存区。
-> 口径就一句话：**仓库只放「使用者直接能用的 + 重建它所需的最小源码链」**，
-> 其余（开发过程、本机运维、调试件）一律留在仓库外。
 
-> **关于链接**：GitHub Pages 的地址规则是 `https://<用户名>.github.io/<仓库>/<文件名>`，
-> 所以只要仓库里有一份 **`CISTrack.html`**，链接就永远是
-> `https://1471155912.github.io/CISTrack/CISTrack.html` —— **以后更新版本，这个链接不用变**。
-> **V1.9.1 起只保留「当前版 + 上一版」两份带版本号的 HTML** —— 仓库根原先堆着 v1.5.2 ~ v1.8.0
-> 共 8 个旧快照（合计约 5 MB，且每次 clone 都要拉下来），已删除；回滚职责改由 **git 历史**
-> 与本地 `archive/` 基座快照（不进仓库）承担：要更早的版本用 `git log` 找到对应提交即可。
 
-> **重建链**（`build.mjs` / `mk*.mjs` / `refresh.mjs` / `release.mjs` / `smoke.mjs` / `scripts/*.mjs`）
-> **随仓库一起维护**，方便任何人本地重建与复测；CI 跑的是 `smoke.mjs`（需要 `jsdom`）。
-> **开发/验证工具**（`clean.mjs` / `i18n.mjs` / `visual.mjs` / `scripts/audit_tle.mjs`）留本地、不进仓库。
