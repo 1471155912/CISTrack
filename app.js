@@ -61,8 +61,10 @@ var BILI = 'https://space.bilibili.com/455972735';
 var LANG = 'zh';
 var I18N = {
   // V1.3.4：顶栏品牌固定为 CISTrack（中英同字、不翻译），原副标题移到页面顶部第一行居中
+  // ★ V1.9.5（英文核查）：英文**漏掉主语名词** —— 中文是「非官方**项目** · …」，
+  //   英文却写成一个光秃秃的形容词 "Unofficial · …"，读起来像半句话。补回 project。
   brandNote: ['非官方项目 · 数据来自 NORAD 空间目标目录公开轨道要素',
-    'Unofficial · orbit elements from the public NORAD satellite catalog'],
+    'Unofficial project · orbit elements from the public NORAD satellite catalog'],
   pageTitle: ['中国低轨互联网卫星在轨态势', 'China LEO Internet Constellations Live'],
   cn_gw: ['星网', 'CSCN'], cn_qf: ['千帆', 'Qianfan'],
   // V1.8.0（需求15 i18n 审计）：03.5 组网进度章的星座名（图例 / 信息窗 / 星座开关按钮共用）。
@@ -144,7 +146,7 @@ var I18N = {
   // V1.7.1（需求3）：原文说「页面内置快照」，与被删掉的「（内置快照）」后缀是同一个说法，
   //   访客看不懂。改成「本页面打包时收录的」—— 明确指出这是"打包那一刻的目录"，不是本次联网的结果。
   notice_new_m: ['在线目录比本页面打包时收录的多了 {n} 颗（最新 NORAD {id}），很可能又有一次发射。词条口径的统计数字不会自己更新 —— 更新 wiki.json 后刷新即可。',
-    'The live catalog has {n} more satellite(s) than the set bundled when this page was built (newest NORAD {id}) — likely a new launch. The article-based counts do not update themselves; refresh after updating wiki.json.'],
+    'The live catalog has {n} more satellite(s) than the set bundled with this page (newest NORAD {id}) — likely a new launch. The article-based counts do not update themselves; refresh after updating wiki.json.'],
   notice_ok: ['知道了', 'Got it'],
   // V1.7.0 第三轮（需求11）：全部 title 提示气泡接入 i18n（此前是硬编码中文，英文界面会漏出中文）
   t_repo: ['CISTrack 项目主页（GitHub）', 'CISTrack project home (GitHub)'],
@@ -175,8 +177,11 @@ var I18N = {
   //   注意 shot_live 用 'Live'（沿用原英文），**不是**复用 b_now 的 'Now'：两处语义不同，
   //   合并会顺手改掉英文文案，属于「该另立键却被合并」的反面例子。
   shot_live: ['实时', 'Live'], u_min: [' 分', ' min'],
+  // ★ V1.9.5（英文核查）：原英文 'Unofficial project; simulation based on open TLE data,
+  //   not the actual situation' 是中文「不代表实际情况」的**逐字直译**，英文里读起来生硬且
+  //   语义含混（not the actual situation 什么？）。改成地道的免责口吻，语义不变。
   d_shot_disc: ['非官方项目，模拟基于开源 TLE 数据，不代表实际情况',
-    'Unofficial project; simulation based on open TLE data, not the actual situation'],
+    'Unofficial project · simulated from open TLE data — does not reflect actual conditions'],
   b_pick: ['选择地面观测点', 'Pick ground site'], b_names: ['名称', 'Names'],
   b_spin: ['自转', 'Spin'], b_tracks: ['轨道', 'Orbits'],
   // V1.3.6：按钮名精简（"显示可视锥"→"可视区域"，"显示名称"→"名称"）
@@ -321,7 +326,8 @@ var I18N = {
   d_latlon: ['纬度 / 经度', 'Lat / Lon'],   // V1.3.6：观测点信息窗里原先写死成英文
   d_more_sat: [' 颗', ' more'],
   d_pending_tag: ['待编目 ', 'pending ×'],
-  d_pend_sum: ['目录摘要', 'catalog summary'],
+  // V1.9.5（英文核查）：标签首字母大写，与同区块其它标签一致
+  d_pend_sum: ['目录摘要', 'Catalog summary'],
   d_pend_obj: ['对象', 'objects'],
   d_row_launch: ['发射日期', 'Launch date'],
   d_pend_ghost: ['○ 空心点 = 待编目批次：目录已给摘要参数（周期/倾角/高度），但未发布轨道要素，故只画高度区间、不能定位。',
@@ -5547,6 +5553,46 @@ document.addEventListener('touchmove', function (e) {
   document.addEventListener(ev, function () { swipe = null; }, { passive: true });
 });
 // 主题
+// ★ V1.9.5：主题切换"圆形扩散"的**两条实现**，可一键回退，且**不需要重新构建**（用户 2026-10-17 需求）。
+//   'hole'（默认）= 洞式扫描：新快照整个不画，旧快照挖一个随动画长大的洞；洞里露出的是**活页面**，
+//       所以扩散的这 700ms 里地球继续自转、时间秒针继续走。圆外仍是旧快照、边界仍有主题色高光，
+//       时长/曲线/起点/半径与旧版**逐项相同**（见 template.html 的 html.vt-hole 那两条规则）。
+//       边界外观也**完全一致**：像素级复核已证明 classic 的 inset 边界高光是空操作（不渲染），
+//       所以 hole 刻意不加任何额外光层 —— 两者的边界都只是那条 1px 硬边，位置逐像素对齐。
+//   'classic' = V1.6.0–V1.9.5 的旧版：新快照裁圆盖在旧快照上；两张都是静态快照，且主循环在扩散期间
+//       整体暂停（V1.8.0 的掉帧治理）→ 地球停转 700ms。
+//   回退方式（任选，改完刷新即可）：
+//     ① 网址后缀加 ?vt=classic（或 ?vt=hole）—— 只影响这一次；
+//     ② 控制台 CISTrack.vtMode('classic') / CISTrack.vtMode('hole') —— **只在本次会话生效**；
+//     ③ 改下面 return 的默认值，再跑一次 build。
+//   ⚠️ 刻意**不落盘**（不写 localStorage / cookie）：本项目有一条硬规则「设置不落盘」——
+//     刷新即回到出厂态（暗色 + 洞式），三条还原路径必须落到同一状态。曾写成"控制台切换即持久"，
+//     被 smoke 的「app.js 里不再有任何 localStorage 写入」断言当场拦下，已改回不落盘。
+var THEME_VT = (function () {
+  var m = null;
+  try { m = new URLSearchParams(location.search).get('vt'); } catch (e) {}   // 只认网址参数
+  if (m !== 'classic' && m !== 'hole') m = 'hole';
+  // 洞要靠 @property 注册的 --vt-hole-r 做插值；没有 @property 的浏览器（老 Firefox / 老 Safari）
+  //   插不了值 → 那个洞会变成"0 → 满"的两段跳。这类浏览器直接退回旧版，观感与 V1.9.5 之前一致。
+  try { if (typeof CSS === 'undefined' || typeof CSS.registerProperty !== 'function') m = 'classic'; } catch (e) { m = 'classic'; }
+  return m;
+})();
+function vtApplyMode() {
+  try { document.documentElement.classList.toggle('vt-hole', THEME_VT === 'hole'); } catch (e) {}
+}
+vtApplyMode();
+window.CISTrack = window.CISTrack || {};
+// 一键回退入口（控制台可用，也供说明文档引用）；不带参数则返回当前模式。**不落盘**。
+window.CISTrack.vtMode = function (m) {
+  if (m === undefined) return THEME_VT;
+  if (m !== 'classic' && m !== 'hole') { console.warn('[vt] 只认 classic / hole，当前仍是 ' + THEME_VT); return THEME_VT; }
+  THEME_VT = m;
+  vtApplyMode();
+  console.info('[vt] 主题切换方式 → ' + m + (m === 'classic'
+    ? '（旧版：扩散期间画面是静态快照，地球停转）'
+    : '（洞式：扩散期间地球继续自转）'));
+  return THEME_VT;
+};
 // V1.7.0 第四轮（需求6）：主题也算「设置」，所以抽调出一个 setTheme ——
 //   三种还原路径（刷新 / 重新进入链接 / 点「还原所有默认设置」）必须落到同一状态。
 //   刷新与重进链接都由 <head> 里的启动脚本强制回暗色，所以「还原所有默认设置」也得把主题拨回暗色，
@@ -5607,6 +5653,11 @@ document.getElementById('themeBtn').addEventListener('click', function () {
   var dy = Math.max(r.top + r.height / 2, window.innerHeight - (r.top + r.height / 2));
   root.style.setProperty('--vt-r', Math.ceil(Math.sqrt(dx * dx + dy * dy)) + 'px');
   root.classList.add('vt-running');
+  // ★ V1.9.5（洞式扫描）：**不挂任何额外光层**。原计划用页面内元素复刻 classic 的"边界高光"，
+  //   但像素级复核（过程归档 _v196_glow.py / _v196_edge.py）证明 classic 那条
+  //   `box-shadow: inset …` **本来就是空操作**（快照是替换内容，inset 阴影被它整块盖住：
+  //   切换前外圈带偏蓝 −2.52，过渡中 −2.50/−2.10 完全不变）。既然 classic 没有可见光晕，
+  //   hole 也不该加 —— 边界就是遮罩的 1px 硬边，位置与 classic 的 clip-path 边逐像素对齐。
   var vt = null;
   try { vt = document.startViewTransition(apply); } catch (e) { vt = null; }
   if (vt && vt.finished && vt.finished.then) vt.finished.then(finishHeavy, finishHeavy);
@@ -6271,13 +6322,52 @@ function setPick(on) {
 }
 // V1.4.3：鼠标移动时的命中检测（要遍历几百颗卫星算距离）节流到约 30Hz ——
 // 指针事件本身可以到 120Hz+，每次重算既贵又没必要；拖动/点击不受影响。
-var HOVER_MIN_MS = 32;
+// ★ V1.9.5（§14.3-D「hover 命中测试收口」，用户 2026-10-17 批准并要求**可撤回**）：
+//   默认口径从**时间节流**（32ms）换成**每个动画帧一次**。
+//   为什么换：32ms ≈ 31Hz 与显示器刷新（60/120Hz）**不同拍** —— 同一帧里有时放行两次、
+//   有时连着两帧都不放行，于是指针匀速划过时命中结果会"抖"（浮窗在相邻两颗之间来回闪）。
+//   换成"每帧最多放行一次"后，命中判定与浮窗更新天然与刷新同拍，次数也降到最低。
+//   ★ 四章**同一道闸门**：03 倾角分布 / 01 地图 / 02 地球 / 04 在轨进度 ——
+//     其中 04 章原来**完全没有节流**（每个指针事件都整幅重绘 drawNet），是四章里最不一致的一路。
+//   ⚠️ 拖动/平移**不走**这道闸门（必须即时、不能延迟一帧），所以只有"悬停"这一路的手感会变。
+//   回退（可撤回）：网址加 ?hover=classic，或控制台 `CISTrack.hoverMode('classic')`
+//     → 立刻回到 V1.4.3 的 32ms 时间节流。**两条路径都留在代码里**（不是"删旧写新"）。
+//   ⚠️ 与 THEME_VT 同款：**刻意不落盘**（不写 localStorage/cookie），刷新即回出厂态。
+var HOVER_COALESCE = (function () {
+  var m = null;
+  try { m = new URLSearchParams(location.search).get('hover'); } catch (e) {}
+  return m !== 'classic';                    // 只认显式的 ?hover=classic，其余一律走新口径
+})();
+var HOVER_MIN_MS = 32;                       // 仅 classic 回退路径使用
+var _hoverFrame = 0, _hoverSeen = {}, _hoverTick = 0;
 function hoverDue(key) {
-  var t = performance.now();
-  if (HOVER_MIN_MS && hoverDue['t' + key] && (t - hoverDue['t' + key]) < HOVER_MIN_MS) return false;
-  hoverDue['t' + key] = t;
+  if (!HOVER_COALESCE) {                     // —— V1.4.3 旧口径：32ms 时间节流（回退路径）
+    var t = performance.now();
+    if (HOVER_MIN_MS && hoverDue['t' + key] && (t - hoverDue['t' + key]) < HOVER_MIN_MS) return false;
+    hoverDue['t' + key] = t;
+    return true;
+  }
+  // —— 新口径：本帧已放行过就丢弃这次。指针事件总在"本帧 rAF 之前"分发，而帧号在 rAF 里自增，
+  //    所以同一帧内的第二个及以后的事件读到的帧号相同 → 丢掉；下一帧第一个事件即被放行。
+  //    帧号只在**真有事件**时才去排一次 rAF（没有悬停就完全不排）—— 不新增常驻动画循环。
+  if (_hoverSeen[key] === _hoverFrame) return false;
+  _hoverSeen[key] = _hoverFrame;
+  if (!_hoverTick) {
+    _hoverTick = 1;
+    requestAnimationFrame(function () { _hoverTick = 0; _hoverFrame++; });
+  }
   return true;
 }
+window.CISTrack = window.CISTrack || {};
+// hover 闸门的一键回退入口（控制台；不带参数返回当前口径）。**不落盘**
+window.CISTrack.hoverMode = function (m) {
+  var cur = HOVER_COALESCE ? 'frame' : 'classic';
+  if (m === undefined) return cur;
+  if (m !== 'classic' && m !== 'frame') { console.warn('[hover] 只认 frame / classic，当前仍是 ' + cur); return cur; }
+  HOVER_COALESCE = (m === 'frame');
+  console.info('[hover] hover 命中闸门 → ' + m + (m === 'classic' ? '（旧口径：32ms 时间节流）' : '（每帧一次）'));
+  return m;
+};
 function isTouch() {
   return (window.matchMedia && (matchMedia('(pointer: coarse)').matches || matchMedia('(hover: none)').matches)) ||
     ('ontouchstart' in window && navigator.maxTouchPoints > 0);
@@ -9233,7 +9323,29 @@ function loop() {
   //   暂停 520ms 对画面无影响（卫星位置与秒针在半秒内看不出差别），但掉帧会明显减少。
   //   ★ 效果与时长**一律不动**（用户明确要求）：这里只改"谁在什么时候干活"，不碰任何视觉参数。
   //   vt-running 由主题按钮在动画开始时挂上、结束时摘下（见 finishHeavy），摘掉后本循环自然恢复。
-  if (document.documentElement.classList.contains('vt-running')) return;
+  // ★ V1.9.5（洞式扫描）：上面这条"暂停"的前提是**扩散期间画面是静态快照、看不见活页面** ——
+  //   那只在 classic 模式成立。hole 模式旧快照被挖了洞，洞内就是活页面，整体暂停会变成
+  //   "地球在扩散期间定住"。所以 hole 下改成**最小动作**：复用上一秒的推算结果，只推进自转 +
+  //   重画可见画布（不跑 SGP4 —— 半秒内的轨道位置看不出差别，与旧版口径一致），其余一概不碰。
+  if (document.documentElement.classList.contains('vt-running')) {
+    if (THEME_VT === 'hole') {
+      updateBreath();                                     // 时间秒针的填充呼吸别在扩散期间僵住
+      var nv = performance.now();
+      var dtv = lastSpinMs ? Math.min(200, nv - lastSpinMs) : 0;
+      lastSpinMs = nv;
+      if (S.spin && isVisible(globeCv) && dtv > 0) {
+        // ⚠ 推进与重画必须**分开**：角度每帧都推（与主路径同口径"按经过时间"），只有重画才限流。
+        //   第一版把两者写在同一个 if 里 → 每 50ms 才推一次、每次只推 16ms 的量，
+        //   实测扩散段自转只有正常速度的 30%（0.0084 vs 0.028 rad/s），地球明显变慢。
+        G.yaw += SPIN_RATE * dtv / 1000;
+        if (frameStatesGlobe && (nv - lastGlobeDraw > 50)) {
+          drawGlobe(frameStatesGlobe, simMs('globe'));    // 与主路径同一条重画限流（50ms ≈ 20fps）
+          globeDirty = false; lastGlobeDraw = nv;
+        }
+      }
+    }
+    return;
+  }
   var now = performance.now();
   // V1.7.3（需求9）：两章时间**各自独立** —— 各自的模拟时刻、各自的 SGP4 推算缓存。
   //   实时章跟墙钟每秒一推；冻结章的 simMs 恒定 → sec 不再变化 → 不重复推算（顺带省电）。
@@ -9295,14 +9407,28 @@ function renderChrome() {
 //   这个变量保留给页内说明与将来的统计用。
 // 打开页面**一定会**自动尝试联网更新（三路直连 CelesTrak + 两个公共代理，30 分钟 sessionStorage 缓存），
 // 成功则 applyFresh → rebuild → renderHeader 把顶栏/加载页/信息窗/导出图全部刷成新历元；失败才退回内置快照。
+// ★ V1.9.5（H42 收尾）：**运行时取数也迁到 OMM/JSON** ——
+//   构建侧 `refresh.mjs` 早在 V1.9.5 已改 `GP_FORMAT=json`，只剩访客浏览器这一条路径还停在
+//   `FORMAT=tle`（CelesTrak 的 legacy 文本格式，官方已宣布逐步停用）。本次把它补齐：
+//     · URL 一律改成 `FORMAT=json`；
+//     · 页面内自带一个**紧凑的 OMM → 两行 TLE** 转换器（约 1.5 KB），
+//       下游（satellite.js / 批次归属 / 表格 / 图表 / 历史库）**一行都不用改** ——
+//       它们的入口始终是 `{name,id,c,l1,l2}` 这个形状（见文件头的 unpackSat）。
+//     · 编目号直接用 OMM 的 `NORAD_CAT_ID`（**天然是 6 位真号**）→ 连 V1.9.3 的
+//       "占位号 → 真号" 还原（`ommMap`）这一步都不再需要，少一个静默缺口。
+//   ★ 用户 2026-10-17 明确要求保留的语义（一条都没动）：
+//     ① 打开页面照旧**自动尝试**联网更新，成功即覆盖内置快照；
+//     ② 任何一步失败（离线/超时/HTTP 错/字段坏）都**静默回落内置快照**，功能不受影响；
+//     ③ 新增一层保险：同一个 URL 回来的到底是 JSON 还是 TLE **自动判别** ——
+//        万一某个镜像/代理忽略 `FORMAT=json` 仍回 legacy 文本，照旧解析成功。
 var TLE_LIVE = false;
 var TLE_SRC = {
-  gw: ['https://celestrak.org/NORAD/elements/gp.php?GROUP=hulianwang&FORMAT=tle',
-       'https://celestrak.org/NORAD/elements/gp.php?NAME=HULIANWANG&FORMAT=tle',
-       'https://celestrak.org/NORAD/elements/gp.php?NAME=GUOWANG&FORMAT=tle'],
-  qf: ['https://celestrak.org/NORAD/elements/gp.php?GROUP=qianfan&FORMAT=tle',
-       'https://celestrak.org/NORAD/elements/gp.php?NAME=QIANFAN&FORMAT=tle',
-       'https://celestrak.org/NORAD/elements/gp.php?NAME=SPACESAIL&FORMAT=tle']
+  gw: ['https://celestrak.org/NORAD/elements/gp.php?GROUP=hulianwang&FORMAT=json',
+       'https://celestrak.org/NORAD/elements/gp.php?NAME=HULIANWANG&FORMAT=json',
+       'https://celestrak.org/NORAD/elements/gp.php?NAME=GUOWANG&FORMAT=json'],
+  qf: ['https://celestrak.org/NORAD/elements/gp.php?GROUP=qianfan&FORMAT=json',
+       'https://celestrak.org/NORAD/elements/gp.php?NAME=QIANFAN&FORMAT=json',
+       'https://celestrak.org/NORAD/elements/gp.php?NAME=SPACESAIL&FORMAT=json']
 };
 // 名称口径必须与构建脚本一致，避免 NAME= 的前缀匹配把别的星座也捞进来。
 // ★ V1.9.3（**兼容性体检抓到的第二个缺口**）：原正则太窄，会把 **9 颗**已知属于本星座的星滤掉。
@@ -9360,6 +9486,109 @@ function tleRealId(l1) {
   if (m && m[p5] != null) return m[p5];
   return parseInt(raw5, 10);
 }
+// ---------------------------------------------------------------- V1.9.5：OMM(JSON) → 两行 TLE
+// 为什么需要这一小段：CelesTrak 的 GP 服务正在从 legacy 的 `FORMAT=tle` 文本迁到 OMM。
+//   页面要做的事只有一件 —— 把 OMM 还原成**定宽规范**的两行 TLE，让 satellite.js 与全部业务代码
+//   继续按老口径跑。转换规则与构建侧 `scripts/omm.mjs` 的 `tleFromOmm` **逐列一致**
+//   （同一套 toTleNdot / toTleExp / cosparField / 校验位算法），这样"内置快照"与"联网现拉"
+//   两条来源在页面里是**同一种形状**，不会出现"只在联网时冒出来"的差异。
+//   ⚠️ 保留构建侧那条硬闸门：必填数值列必须是有限数，否则**抛错**。
+//      理由（V1.9.1 踩过）：`(NaN).toFixed(4)` 会得到字符串 "NaN"，补进 8 列后行总长照样合格 →
+//      TLE 看着"有内容"，satellite.js 却算不出轨道 —— 坏数据比直接报错危险得多（静默污染数据源）。
+function ommNum(om, keys) {
+  for (var i = 0; i < keys.length; i++) { var v = om[keys[i]]; if (v != null && v !== '') return Number(v); }
+  return NaN;
+}
+function tleChecksum(s68) {
+  var n = 0;
+  for (var i = 0; i < s68.length; i++) { var c = s68.charAt(i); if (c >= '0' && c <= '9') n += +c; else if (c === '-') n += 1; }
+  return String(n % 10);
+}
+function tleNdot(v) { var a = Math.abs(Number(v) || 0); return (v < 0 ? '-' : ' ') + '.' + String(Math.round(a * 1e8)).padStart(8, '0'); }
+function tleExp(v, digits) {
+  if (!isFinite(v) || v === 0) return ' ' + new Array(digits + 1).join('0') + '+0';
+  var sign = v < 0 ? '-' : ' ', a = Math.abs(v);
+  var exp = Math.floor(Math.log10(a)) + 1, mant = Math.round(a / Math.pow(10, exp - digits));
+  if (mant >= Math.pow(10, digits)) { mant = Math.round(mant / 10); exp += 1; }
+  return sign + String(mant).padStart(digits, '0').slice(0, digits) + (exp >= 0 ? '+' : '-') + Math.abs(exp);
+}
+// COSPAR 定宽 8 列（OMM 的 OBJECT_ID 是 9 字符 "2026-176A"，而 TLE 列只有 6 → 去掉世纪两位）
+function cosparField8(objectId) {
+  var id = String(objectId || '').trim();
+  var m = id.match(/^(\d{4})-(\d{3})([A-Z]{1,3})$/);
+  return (m ? (m[1].slice(2) + m[2] + m[3]) : id).padEnd(8).slice(0, 8);
+}
+function tleFromOmm(om) {
+  var req = ['INCLINATION', 'RAAN', 'ECCENTRICITY', 'ARG_OF_PERICENTER', 'MEAN_ANOMALY', 'MEAN_MOTION'];
+  for (var i = 0; i < req.length; i++) {
+    if (!isFinite(om[req[i]])) throw new Error('OMM 字段 ' + req[i] + ' 非有限数（' + om[req[i]] + '）');
+  }
+  var d = new Date(om.EPOCH), t = d.getTime();
+  if (!isFinite(t)) throw new Error('OMM EPOCH 无法解析：' + om.EPOCH);
+  var yr = d.getUTCFullYear();
+  var yy = String(yr % 100).padStart(2, '0');
+  // 年内日含小数（1 月 1 日 = 1.00000000），与 TLE 第 1 行 19–32 列同口径
+  var doy = ((t - Date.UTC(yr, 0, 1)) / 86400000 + 1).toFixed(8).padStart(12, '0');
+  // 编目号列只有 5 位：6 位真号（100203）按构建侧同一约定写成后 5 位（00203）。
+  //   本路径**不用**再靠 ommMap 还原 —— 记录里的 id 直接取 OMM 的 NORAD_CAT_ID（天然是 6 位真号）。
+  var cn = String(Number(om.NORAD_CAT_ID) % 100000).padStart(5, '0');
+  var l1 = '1 ' + cn + 'U ' + cosparField8(om.OBJECT_ID) + ' ' + yy + doy + ' ' +
+    tleNdot(om.MEAN_MOTION_DOT) + ' ' + tleExp(om.MEAN_MOTION_DDOT, 5) + ' ' + tleExp(om.BSTAR, 5) + ' ' +
+    String(om.EPHEMERIS_TYPE || 0) + ' ' + String(om.ELEMENT_SET_NO || 0).padStart(4);
+  var l2 = '2 ' + cn + ' ' +
+    om.INCLINATION.toFixed(4).padStart(8) + ' ' + om.RAAN.toFixed(4).padStart(8) + ' ' +
+    String(Math.round(om.ECCENTRICITY * 1e7)).padStart(7, '0') + ' ' +
+    om.ARG_OF_PERICENTER.toFixed(4).padStart(8) + ' ' + om.MEAN_ANOMALY.toFixed(4).padStart(8) + ' ' +
+    om.MEAN_MOTION.toFixed(8).padStart(11) + String(om.REV_AT_EPOCH || 0).padStart(5);
+  return [l1 + tleChecksum(l1), l2 + tleChecksum(l2)];
+}
+// OMM 数组 → 与 parseTleText **完全同形**的记录数组（{name,id,c,l1,l2}）
+function parseOmmJson(txt) {
+  var arr = JSON.parse(txt);
+  if (!Array.isArray(arr)) return [];
+  var out = [];
+  for (var i = 0; i < arr.length; i++) {
+    var om = arr[i];
+    if (!om || typeof om !== 'object') continue;
+    var id = Number(om.NORAD_CAT_ID);
+    if (!isFinite(id)) continue;
+    // 字段名归一：升交点赤经在 OMM 里叫 **RA_OF_ASC_NODE**（不叫 RAAN）——
+    //   构建侧曾因写错名字产出 55 颗 NaN 行；这里两种写法都认，避免同一坑再踩一次。
+    var n = {
+      OBJECT_ID: om.OBJECT_ID, EPOCH: om.EPOCH,
+      // ⚠️ NORAD_CAT_ID 必须一起带进归一化对象 —— tleFromOmm 要用它拼第 1/2 行的编目号列。
+      //   第一版漏了这一行，页面端生成的每一行都写成 `00NaNU`（Number(undefined) → NaN），
+      //   于是**联网时整批卫星都过不了 twoline2satrec**、静默退回内置快照：典型的
+      //   "只在联网时全失灵"缺口。由 smoke 的"与构建侧逐字节同源"断言当场抓出。
+      NORAD_CAT_ID: id,
+      MEAN_MOTION_DOT: ommNum(om, ['MEAN_MOTION_DOT']) || 0,
+      MEAN_MOTION_DDOT: ommNum(om, ['MEAN_MOTION_DDOT']) || 0,
+      BSTAR: ommNum(om, ['BSTAR']) || 0,
+      EPHEMERIS_TYPE: ommNum(om, ['EPHEMERIS_TYPE']) || 0,
+      ELEMENT_SET_NO: ommNum(om, ['ELEMENT_SET_NO']) || 0,
+      INCLINATION: ommNum(om, ['INCLINATION']),
+      RAAN: ommNum(om, ['RA_OF_ASC_NODE', 'RAAN']),
+      ECCENTRICITY: ommNum(om, ['ECCENTRICITY']),
+      ARG_OF_PERICENTER: ommNum(om, ['ARG_OF_PERICENTER']),
+      MEAN_ANOMALY: ommNum(om, ['MEAN_ANOMALY']),
+      MEAN_MOTION: ommNum(om, ['MEAN_MOTION']),
+      REV_AT_EPOCH: ommNum(om, ['REV_AT_EPOCH']) || 0
+    };
+    var lines;
+    try { lines = tleFromOmm(n); } catch (e) { continue; }   // 单条坏字段只丢这一条，不炸整批
+    out.push({ name: String(om.OBJECT_NAME || '').trim(), id: id, c: lines[0].slice(9, 17).trim(), l1: lines[0], l2: lines[1] });
+  }
+  return out;
+}
+// 一个 URL 回来的文本到底是 OMM(JSON) 还是 legacy TLE —— 自动判别，两种都认（用户要求保留的保险）
+function parseGpText(txt) {
+  var t = String(txt || '').trim();
+  if (!t) return [];
+  if (t.charAt(0) === '[' || t.charAt(0) === '{') {
+    try { return parseOmmJson(t); } catch (e) { /* 不是合法 JSON → 落到下面的 TLE 解析 */ }
+  }
+  return parseTleText(t);
+}
 function fetchText(url, timeoutMs) {
   return new Promise(function (res, rej) {
     var ctl = typeof AbortController === 'function' ? new AbortController() : null;
@@ -9390,7 +9619,10 @@ function mergeTle(lists) {
 // ★ V1.9.3：**版本号 v1 → v2** —— 缓存里存的是解析后的对象（含 `id`），
 //   而本轮修了 `parseTleText` 的 id 口径（占位号 → 真号）。若不换 key，
 //   同一会话里先前缓存的旧 id（如 `203`）会被继续使用 → 修复对"已打开过页面的用户"不生效。
-var TLE_CACHE_KEY = 'cistrack.tle.v2', TLE_CACHE_MS = 30 * 60 * 1000;
+// ★ V1.9.5（H42 收尾）：**v2 → v3** —— 取数源从 legacy TLE 换成 OMM(JSON)，
+//   `id` 来源从"占位号经 ommMap 还原"改成"直接取 NORAD_CAT_ID"。同一会话里先前缓存的
+//   v2 条目虽然形状相同，但来源口径已变，留着会让"刚迁完就打开页面"的用户读到旧口径的数据。
+var TLE_CACHE_KEY = 'cistrack.tle.v3', TLE_CACHE_MS = 30 * 60 * 1000;
 function cacheGet(group) {
   try {
     var raw = sessionStorage.getItem(TLE_CACHE_KEY);
@@ -9414,7 +9646,7 @@ function tryOne(group) {
   // 三路并发，各自失败就算了（Promise.allSettled 在老浏览器没有，手写一份）
   var jobs = TLE_SRC[group].map(function (u) {
     return fetchText(u, 5000).then(function (t) {
-      return parseTleText(t).filter(function (s) { return NAME_OK[group].test(s.name); });
+      return parseGpText(t).filter(function (s) { return NAME_OK[group].test(s.name); });
     }).catch(function () { return []; });
   });
   var direct = Promise.all(jobs).then(function (lists) { return mergeTle(lists); });
@@ -9422,7 +9654,7 @@ function tryOne(group) {
     return chain.then(function (list) {
       if (list && list.length > 20) return list;
       return fetchText(mk(TLE_SRC[group][0]), 6000).then(function (t) {
-        return parseTleText(t).filter(function (s) { return NAME_OK[group].test(s.name); });
+        return parseGpText(t).filter(function (s) { return NAME_OK[group].test(s.name); });
       }).catch(function () { return list; });
     });
   }, direct);
@@ -10576,6 +10808,10 @@ function netInit() {
   }, { passive: false });
   netCv.addEventListener('dblclick', function () { netView = null; netAutoView(); drawNet(); });
   netCv.addEventListener('mousemove', function (e) {
+    // ★ V1.9.5（§14.3-D）：补上与另外三章**同一道** hover 闸门 ——
+    //   这里原来是四章里唯一毫无节流的一路：每个指针事件都 `drawNet()` 整幅重绘。
+    //   与另外三章同一写法：指针按下期间（netDrag 非空）不拦，保证拖手感不变。
+    if (!netDrag && !hoverDue('net')) return;
     var r = netCv.getBoundingClientRect();
     var i = netWeekAt(e.clientX - r.left);
     if (i !== netHoverIdx) { netHoverIdx = i; drawNet(); }

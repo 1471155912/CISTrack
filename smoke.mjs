@@ -15,6 +15,8 @@ import { auditLines } from './scripts/audit_assertions.mjs';   // ★ V1.9.5（H
 // ★ V1.9.5（H30①）：CSSI 官方验证用例的派生器 —— smoke 直接调它的 **build()** 现场重算，
 //   再与已提交的 `data/cssi-testcases.json` 逐字节对拍（同一份实现，避免"另写一遍解析"）。
 import { build as buildCssi, serialize as serializeCssi } from './scripts/mk_cssi_vectors.mjs';
+// ★ V1.9.5（运行时取数迁移）：页面端 OMM→TLE 转换器要与构建侧这套实现**逐字节同源**，所以直接引用它做对拍
+import { tleFromOmm, fromCelesTrakOmm, tleChecksum, tleHealth } from './scripts/omm.mjs';
 const require = createRequire(import.meta.url);
 const { JSDOM, VirtualConsole } = require('jsdom');
 
@@ -4252,7 +4254,58 @@ assert('A9（V1.9.2 重新划分）：合并判据 = 数据空间可分辨阈值
       /::view-transition-new\(root\) \{[\s\S]{0,400}?box-shadow: inset 0 0 38px 6px var\(--vt-glow/.test(tpl) &&
       /animation:vtCircle var\(--anim-theme\) var\(--ease-slow-fast\) forwards !important;/.test(tpl));
     assert('H25：切换期间主循环早退（.vt-running）—— 所以必须显式画一帧，置脏不够',
-      /if \(document\.documentElement\.classList\.contains\('vt-running'\)\) return;/.test(appSrc));
+      /if \(document\.documentElement\.classList\.contains\('vt-running'\)\) return;/.test(appSrc) ||
+      /if \(document\.documentElement\.classList\.contains\('vt-running'\)\) \{[\s\S]{0,2400}?\n    return;\n  \}/.test(appSrc));
+    // ★ V1.9.5（洞式扫描）：早退必须**分模式** —— classic 整体早退；hole 只做"推进自转 + 重画地球"的最小动作。
+    //   守两条：① 早退块仍在（不许顺手删掉，那会让扩散期间跑满整条主循环）；
+    //          ② 角度推进与重画限流**分开写**（第一版把它们写在同一个 if 里 → 自转只有正常速度的 30%）。
+    assert('V1.9.5（洞式）：.vt-running 早退块按 `THEME_VT` 分模式 —— hole 只做最小动作（复用缓存推算、不跑 SGP4）',
+      /if \(document\.documentElement\.classList\.contains\('vt-running'\)\) \{[\s\S]{0,200}?if \(THEME_VT === 'hole'\) \{/.test(appSrc) &&
+      /THEME_VT === 'hole'\) \{[\s\S]{0,700}?drawGlobe\(frameStatesGlobe, simMs\('globe'\)\);/.test(appSrc) &&
+      !/THEME_VT === 'hole'\) \{[\s\S]{0,700}?propagateAll\(/.test(appSrc));
+    assert('V1.9.5（洞式）：扩散期间**角度每帧推进、只有重画限流**（写进同一个 if 会让自转掉到 30%）',
+      /G\.yaw \+= SPIN_RATE \* dtv \/ 1000;[\s\S]{0,600}?\n\s{4,12}if \(frameStatesGlobe && \(nv - lastGlobeDraw > 50\)\)/.test(appSrc));
+    assert('V1.9.5（洞式）：模式开关齐备 + **不落盘**（只认网址参数与控制台，刷新回出厂态）',
+      /var THEME_VT = \(function \(\) \{/.test(appSrc) &&
+      /new URLSearchParams\(location\.search\)\.get\('vt'\)/.test(appSrc) &&
+      /window\.CISTrack\.vtMode = function \(m\) \{/.test(appSrc) &&
+      /document\.documentElement\.classList\.toggle\('vt-hole', THEME_VT === 'hole'\)/.test(appSrc) &&
+      (function () {                          // vtMode 的实现体里不许出现任何落盘调用
+        // ⚠️ 用**去注释**的 appCode：紧随其后的 setTheme 注释里刚好提到过 localStorage（历史说明），
+        //   拿带注释的 appSrc 切片会把它算进来 → 假 FAIL。
+        const i = appCode.indexOf('window.CISTrack.vtMode = function');
+        const blk = i < 0 ? '' : appCode.slice(i, i + 900);
+        return blk.length > 100 && !/localStorage|sessionStorage|document\.cookie/.test(blk);
+      })());
+    assert('V1.9.5（洞式）：没有 `@property` 的浏览器自动退回 classic（未注册的自定义属性不能插值 → 洞会两段跳）',
+      /typeof CSS\.registerProperty !== 'function'\) m = 'classic'/.test(appSrc));
+    assert('V1.9.5（洞式）：CSS 三件套齐备 —— 新快照不画 / 旧快照挖洞（mask + 注册属性动画）/ hole 只在挂类时生效',
+      /html\.vt-hole::view-transition-new\(root\) \{ display:none !important; animation:none !important; \}/.test(tpl) &&
+      /@property --vt-hole-r \{ syntax: "<length>"; inherits: false; initial-value: 0px; \}/.test(tpl) &&
+      /html\.vt-hole::view-transition-old\(root\) \{[\s\S]{0,900}?mask-image: radial-gradient\(circle at var\(--vt-x, 96%\) var\(--vt-y, 4%\),/.test(tpl) &&
+      /@keyframes vtHole \{[\s\S]{0,200}?to   \{ --vt-hole-r: var\(--vt-r, 3000px\); \}/.test(tpl));
+    // ---- ★ V1.9.5（§14.3-D）：hover 命中测试收口（用户批准 + 要求可撤回）----
+    assert('V1.9.5（§14.3-D）：hover 闸门默认改成**每帧一次**，且旧 32ms 时间节流**仍在代码里**（可一键回退）',
+      /var HOVER_COALESCE = \(function \(\) \{/.test(appSrc) &&
+      /new URLSearchParams\(location\.search\)\.get\('hover'\)/.test(appSrc) &&
+      /return m !== 'classic';/.test(appSrc) &&
+      /if \(_hoverSeen\[key\] === _hoverFrame\) return false;/.test(appSrc) &&
+      /if \(HOVER_MIN_MS && hoverDue\['t' \+ key\] && \(t - hoverDue\['t' \+ key\]\) < HOVER_MIN_MS\) return false;/.test(appSrc));
+    assert('V1.9.5（§14.3-D）：**四章同一道闸门** —— 03 倾角分布 / 01 地图 / 02 地球 / 04 在轨进度（04 原来完全没有节流）',
+      /if \(!chartDrag && !hoverDue\('chart'\)\) return;/.test(appSrc) &&
+      /if \(!mapPan && !hoverDue\('map'\)\) return;/.test(appSrc) &&
+      /if \(!G\.dragging && !hoverDue\('globe'\)\) return;/.test(appSrc) &&
+      /if \(!netDrag && !hoverDue\('net'\)\) return;/.test(appSrc));
+    assert('V1.9.5（§14.3-D）：帧号只在**真有悬停事件**时才排一次 rAF（不新增常驻循环，空闲仍不跑）',
+      /if \(!_hoverTick\) \{[\s\S]{0,160}?requestAnimationFrame\(function \(\) \{ _hoverTick = 0; _hoverFrame\+\+; \}\);/.test(appSrc) &&
+      !/\n\(function hoverFrameTick\(\)/.test(appSrc));
+    assert('V1.9.5（§14.3-D）：hover 回退入口 `CISTrack.hoverMode` 存在且**不落盘**',
+      /window\.CISTrack\.hoverMode = function \(m\) \{/.test(appSrc) &&
+      (function () {
+        const i = appCode.indexOf('window.CISTrack.hoverMode = function');
+        const blk = i < 0 ? '' : appCode.slice(i, i + 700);
+        return blk.length > 100 && !/localStorage|sessionStorage|document\.cookie/.test(blk);
+      })());
     // 降级守卫：重绘失败**不许静默**（warn + 退回置脏，让主循环收尾补一次）
     //   ⚠️ jsdom 里点主题按钮触发不到处理器（实测 theme 属性不变、VT 也是 undefined），
     //   所以"点击 → 画布重绘"这条只能靠**真浏览器逐帧截图**验证（见样张 H25_frames_*）。
@@ -5861,6 +5914,133 @@ assert('V1.9.3：e2e 的实跑挂在 CI 上（本地 smoke 不跑，避免闸门
       // 允许个别缺失（已再入的会从 sats 移出，走 st:'r'）—— 但必须 ≤2 且能说明原因
       return missing.length <= 2;
     })(), '白名单点名的 NORAD 必须基本都在库');
+}
+
+// ================================================================ ★ V1.9.5：运行时取数迁移（OMM/JSON）
+// 背景：构建侧 refresh.mjs 早已迁到 GP **JSON/OMM**（`GP_FORMAT=json`），只剩**访客浏览器**
+//   这一条路径还停在 `FORMAT=tle`（CelesTrak 的 legacy 文本格式，官方已宣布逐步停用）。
+//   本轮把运行时也迁过来：URL 换 `FORMAT=json` + 页面内自带 OMM → 两行 TLE 的转换器。
+// 为什么值得一组断言：这是本轮唯一改**网络行为**的改动，而且它带着一条产品语义 ——
+//   「打开页面自动尝试更新，**失败即静默回落内置快照**」（用户 2026-10-17 明确要求保留）。
+// 三类一起守：
+//   ① 源与判别（源码级） ② 页面端转换器与构建侧脚本**逐字节同源**（行为级，最硬的一条）
+//   ③ 回落语义没被破坏（源码级）
+{
+  /** 从（已去注释的）appCode 里按名字抽出整段函数源码 —— 引号感知，避免字符串里的 `{` 干扰配对。 */
+  function pullFn(src, name) {
+    const i = src.indexOf('function ' + name + '(');
+    if (i < 0) return null;
+    let d = 0, q = 0, k = src.indexOf('{', i);
+    if (k < 0) return null;
+    for (; k < src.length; k++) {
+      const c = src[k];
+      if (q) { if (c === '\\') { k++; continue; } if (c === q) q = 0; continue; }
+      if (c === "'" || c === '"') { q = c; continue; }
+      if (c === '{') d++;
+      else if (c === '}') { d--; if (!d) break; }
+    }
+    return k < src.length ? src.slice(i, k + 1) : null;
+  }
+
+  // ① 源 URL：一个 legacy 都不许剩
+  const srcUrls = (appCode.match(/https:\/\/celestrak\.org\/NORAD\/elements\/gp\.php\?[^'"]+/g) || []);
+  assert('V1.9.5：运行时取数源**全部**是 `FORMAT=json`（3+3 条），一条 legacy `FORMAT=tle` 都不剩',
+    srcUrls.length >= 6 &&
+    srcUrls.every(u => /FORMAT=json/.test(u)) &&
+    !/FORMAT=tle/.test(appCode));
+  assert('V1.9.5：同一个 URL 返回 JSON 还是 TLE **自动判别**（`parseGpText`）—— 镜像/代理忽略参数时仍有保险',
+    /function parseGpText\(txt\) \{/.test(appCode) &&
+    /t\.charAt\(0\) === '\[' \|\| t\.charAt\(0\) === '\{'/.test(appCode) &&
+    /return parseTleText\(t\);/.test(appCode));
+  assert('V1.9.5：缓存键升到 `cistrack.tle.v3`（v2 条目是旧口径，留着会让"刚迁完就打开"的用户读到旧数据）',
+    /var TLE_CACHE_KEY = 'cistrack\.tle\.v3'/.test(appCode));
+  // ③ 回落语义：失败必须仍然 return null（= 继续用内置快照），且 URL 列表为空时不能抛
+  assert('V1.9.5：回落语义未被破坏 —— `tryOne` 失败仍返回 `null`（页面继续用内置保底快照）',
+    /if \(list && list\.length > 20\) \{ cacheSet\(group, list\); return list; \}/.test(appCode) &&
+    /return null;/.test(appCode) &&
+    /\.catch\(function \(\) \{ return \[\]; \}\);/.test(appCode) &&
+    /\.catch\(function \(\) \{ return list; \}\);/.test(appCode));
+
+  // ② 页面端转换器 vs 构建侧 scripts/omm.mjs —— 逐字节同源
+  const pgFns = ['ommNum', 'tleChecksum', 'tleNdot', 'tleExp', 'cosparField8', 'tleFromOmm',
+    'parseOmmJson', 'parseGpText', 'parseTleText', 'tleRealId'].map(n => pullFn(appCode, n));
+  assert('V1.9.5：页面端的 10 个取数/转换函数都能从 app.js 里抽出（抽不出说明改名或写法变了）',
+    pgFns.every(s => s && s.length > 40));
+  const PAGE = (function () {
+    // ⚠️ 必须把 `window` 与 `SATDATA` 都做成**真的作用域绑定**：产品代码里写的是
+    //   `window.SATDATA && SATDATA.ommMap` —— 浏览器里 `window.X` 会同时生成同名全局，
+    //   只挂 `window.SATDATA` 属性、不给裸 `SATDATA` 绑定就会 ReferenceError（第一版就这么崩的）。
+    const body = pgFns.join('\n') + '\nreturn { parseOmmJson: parseOmmJson, parseGpText: parseGpText };';
+    const sat = { ommMap: {} };
+    return new Function('window', 'SATDATA', body)({ SATDATA: sat }, sat);
+  })();
+  // 真实形态的 OMM 样本（字段名按 CelesTrak 的 FORMAT=json：**RA_OF_ASC_NODE**，EPOCH 是 ISO）
+  const OMM = {
+    OBJECT_NAME: 'HULIANWANG DIGUI-178', OBJECT_ID: '2024-240A', EPOCH: '2026-10-16T12:34:56.789000',
+    MEAN_MOTION: 15.12345678, ECCENTRICITY: 0.0012345, INCLINATION: 53.1234, RA_OF_ASC_NODE: 123.4567,
+    ARG_OF_PERICENTER: 200.1111, MEAN_ANOMALY: 300.2222, EPHEMERIS_TYPE: 0, CLASSIFICATION_TYPE: 'U',
+    NORAD_CAT_ID: 100203, ELEMENT_SET_NO: 999, REV_AT_EPOCH: 12345,
+    BSTAR: 0.00012345, MEAN_MOTION_DOT: 0.00001234, MEAN_MOTION_DDOT: 0
+  };
+  // ⚠️ 页面端要对拍的是**入口** `parseOmmJson`，不是内部的 `tleFromOmm` ——
+  //   字段归一化（RA_OF_ASC_NODE→RAAN、ISO EPOCH→YY/DOY）是在入口里做的，
+  //   直接喂原始 OMM 给内部函数必然报"RAAN 非有限数"（第一版断言就是这么写错的）。
+  const pgRec = PAGE.parseOmmJson(JSON.stringify([OMM]))[0] || null;
+  const pgLines = pgRec ? [pgRec.l1, pgRec.l2] : ['ERR:parseOmmJson 未产出记录', ''];
+  const bLines = tleFromOmm(fromCelesTrakOmm(OMM), '00203');     // 构建侧同一套实现（scripts/omm.mjs）
+  const TLE_LEN = 69;                                            // TLE 定宽规范：两行各 69 列
+  assert('V1.9.5：页面端 `tleFromOmm` 与构建侧 `scripts/omm.mjs` 的输出**逐字节相同**（L1/L2 两行）',
+    pgLines[0] === bLines[0] && pgLines[1] === bLines[1],
+    '页面端=' + pgLines[0] + ' | 构建侧=' + bLines[0]);
+  assert('V1.9.5：生成的两行 TLE 长度 = 69（定宽规范）且末位校验位正确',
+    // H29-OK：TLE_LEN 是 **TLE 定宽规范的格式不变量**（两行各 69 列），与卫星数/版本无关；
+    //   这里用它恰恰是在守"格式没被写坏"，不是拿它当基线快照。
+    pgLines[0].length === TLE_LEN && pgLines[1].length === TLE_LEN &&
+    tleChecksum(pgLines[0].slice(0, 68)) === pgLines[0][68] &&
+    tleChecksum(pgLines[1].slice(0, 68)) === pgLines[1][68] &&
+    tleHealth(pgLines[1]));
+  // 真跑一遍 satellite.js：这是"网络现拉的数据真的能画出图"的最终判据
+  //   （satellite.js 不是 npm 依赖，而是随产物注入的 `data/satellite.min.js` —— 这里用 vm 起一个
+  //    干净 realm 把它挂起来，与浏览器里 `window.satellite` 完全同源；跨 realm 只传数值，无 Date/instanceof 陷阱）
+  const SGP4n = (function () {
+    const vm = require('node:vm');
+    const ctx = {};
+    vm.createContext(ctx);
+    try { vm.runInContext(fs.readFileSync(B + '/data/satellite.min.js', 'utf8'), ctx); } catch (e) { return null; }
+    return ctx.satellite || null;
+  })();
+  assert('V1.9.5：能从 `data/satellite.min.js` 起出 SGP4（下面那条"真跑一遍"的前提）', !!SGP4n && !!SGP4n.twoline2satrec);
+  assert('V1.9.5：OMM 生成的两行 TLE 能过 `twoline2satrec`（rec.error=0）且轨道量回到原值',
+    (function () {
+      if (!SGP4n || !SGP4n.twoline2satrec) return false;
+      const rec = SGP4n.twoline2satrec(pgLines[0], pgLines[1]);
+      if (!rec || rec.error) return false;
+      const near = (a, b, eps) => Math.abs(a - b) <= eps;
+      // ⚠️ 平均运动**不能**用 `rec.no * 1440/(2π)` 去比 —— satellite.js 在 `sgp4init` 里会把
+      //   TLE 的**Kozai** 平均运动转成 **Brouwer**（J2 长期项修正），实测 15.12262 vs 输入 15.12346
+      //   （相对差 5.6e-5）——那是库的**正确**行为，TLE 路径同样如此（第一版断言错在这里，
+      //   差点被当成产品 bug 去改转换器）。要比"原值"就比 TLE 列本身。
+      return near(rec.inclo * 180 / Math.PI, OMM.INCLINATION, 1e-3) &&
+        near(rec.nodeo * 180 / Math.PI, OMM.RA_OF_ASC_NODE, 1e-3) &&
+        near(rec.ecco, OMM.ECCENTRICITY, 1e-7) &&
+        near(rec.argpo * 180 / Math.PI, OMM.ARG_OF_PERICENTER, 1e-3) &&
+        near(rec.mo * 180 / Math.PI, OMM.MEAN_ANOMALY, 1e-3) &&
+        pgLines[1].slice(52, 63).trim() === OMM.MEAN_MOTION.toFixed(8);
+    })());
+  // parseOmmJson：形状必须与 parseTleText **完全同形**（下游一行都不用改）
+  const recs = PAGE.parseOmmJson(JSON.stringify([OMM, { OBJECT_NAME: 'X', NORAD_CAT_ID: 5 }]));
+  assert('V1.9.5：`parseOmmJson` 产出的记录与 `parseTleText` 同形（{name,id,c,l1,l2}）' +
+    '，坏字段只丢单条不炸整批',
+    recs.length === 1 && recs[0].name === OMM.OBJECT_NAME && recs[0].id === 100203 &&
+    recs[0].c === '24240A' && recs[0].l1 === pgLines[0] && recs[0].l2 === pgLines[1] &&
+    Object.keys(recs[0]).join(',') === 'name,id,c,l1,l2');
+  assert('V1.9.5：`parseOmmJson` 的 `id` 直接取 `NORAD_CAT_ID`（6 位真号，不再经占位号还原）',
+    recs[0].id === 100203 && pgLines[0].slice(2, 7) === '00203');
+  // 自动判别：同一段文本，JSON 走 OMM、TLE 走老路
+  assert('V1.9.5：`parseGpText` 自动判别 —— JSON 数组走 OMM 路径、TLE 文本走 legacy 路径',
+    PAGE.parseGpText(JSON.stringify([OMM])).length === 1 &&
+    PAGE.parseGpText('ISS (ZARYA)\n' + pgLines[0] + '\n' + pgLines[1]).length === 1 &&
+    PAGE.parseGpText('').length === 0);
 }
 
 $('#themeBtn').dispatchEvent(new w.MouseEvent('click', { bubbles: true }));

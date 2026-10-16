@@ -1440,6 +1440,12 @@ section.fs-mobile .sec-head {
 
 /* ===== V1.6.0：明暗切换用"从右上角按钮扩散的圆形遮罩"（View Transitions）===== */
 /* V1.6.1：明暗切换独立时长（比语言略短），并屏蔽浏览器默认的淡入淡出，只保留我们的圆形扩散 */
+/* ★ V1.9.5：同一套观感有**两条实现**，二选一（开关见 app.js 的 THEME_VT / 控制台 CISTrack.vtMode()）
+     · classic（V1.6.0 起的旧版）：新快照裁成扩散圆、盖在旧快照上。圆外=旧快照、圆内=新快照，
+       两张都是**静态快照**，而且主循环在扩散期间整体暂停（V1.8.0 掉帧治理）→ 地球停转 700ms。
+     · hole（V1.9.5 默认，"洞式扫描"）：新快照**整个不画**，改成给旧快照挖一个同样长大的洞。
+       圆外仍是旧快照（观感与旧版一致），圆内露出的是**活页面** → 地球继续自转、年份秒针继续走。
+   时长 / 缓动曲线 / 起点 / 终点半径 / 边界高光位置，两条实现**完全共用**，没有一处视觉参数被改动。 */
 ::view-transition-group(root), ::view-transition-old(root) { animation:none !important; }
 ::view-transition-new(root) {
   animation:vtCircle var(--anim-theme) var(--ease-slow-fast) forwards !important;
@@ -1447,13 +1453,39 @@ section.fs-mobile .sec-head {
   /* ★ V1.9.5（H25 第二版）：**边界高光** —— 伪元素自己被 clip 成扩散圆，所以一层 inset 光晕
      会**贴着圆的边缘**一起走：既让"扫过的那条边界"看得见（用户把它叫"边界线扩散圆圈"），
      又完全不需要额外的绘制（同一张快照 + 一层阴影），不占主线程。
-     为什么不用页面里的圆环元素：VT 期间活 DOM 被静态快照替代，页面内动画会被冻住（思路已否）。 */
+     为什么不用页面里的圆环元素：VT 期间活 DOM 被静态快照替代，页面内动画会被冻住（思路已否）。
+     ⚠️ 但 2026-10-17 的像素级复核实测：这条 inset 阴影**根本没有渲染**（详见本块末尾结论）。 */
   box-shadow: inset 0 0 38px 6px var(--vt-glow, rgba(77,171,247,.22));
 }
 @keyframes vtCircle {
   from { clip-path:circle(0% at var(--vt-x, 96%) var(--vt-y, 4%)); }
   to   { clip-path:circle(var(--vt-r, 150%) at var(--vt-x, 96%) var(--vt-y, 4%)); }
 }
+/* ---- V1.9.5：hole 模式的两条覆盖规则（同特异性 + 源序在后 → 生效；<html> 没挂 .vt-hole 时全部不匹配）----
+   洞口为什么要用 mask：clip-path 只能裁出**一个形状**，挖不出洞；mask 的径向渐变天然能"中间透明"。
+   洞口半径为什么能平滑长大：--vt-hole-r 经 @property 注册成 <length> 才是**可插值**的（未注册的自定义
+   属性只能离散跳变，动画会变成 0→满 的两段跳）。老浏览器没有 @property → app.js 直接把模式退回 classic。 */
+html.vt-hole::view-transition-new(root) { display:none !important; animation:none !important; }
+html.vt-hole::view-transition-old(root) {
+  /* 旧快照自己就是那条时间轴：洞口 0 → --vt-r（= 到最远一角的距离，整屏刚好被挖穿） */
+  animation:vtHole var(--anim-theme) var(--ease-slow-fast) forwards !important;
+  -webkit-mask-image: radial-gradient(circle at var(--vt-x, 96%) var(--vt-y, 4%),
+      rgba(0,0,0,0) 0, rgba(0,0,0,0) var(--vt-hole-r, 0px), rgba(0,0,0,1) calc(var(--vt-hole-r, 0px) + 1px));
+  mask-image: radial-gradient(circle at var(--vt-x, 96%) var(--vt-y, 4%),
+      rgba(0,0,0,0) 0, rgba(0,0,0,0) var(--vt-hole-r, 0px), rgba(0,0,0,1) calc(var(--vt-hole-r, 0px) + 1px));
+}
+@keyframes vtHole {
+  from { --vt-hole-r: 0px; }
+  to   { --vt-hole-r: var(--vt-r, 3000px); }
+}
+@property --vt-hole-r { syntax: "<length>"; inherits: false; initial-value: 0px; }
+/* ★ 2026-10-17 复核结论（过程归档 _v196_glow.py / _v196_edge.py，像素级）：
+     上面 ::view-transition-new(root) 那条 `box-shadow: inset …` **自 V1.9.5 起就从未渲染过** ——
+     VT 快照是**替换内容**，而 inset 阴影按绘制顺序被画在"背景之上、内容之下"，被快照整块盖住。
+     实测：切换前外圈带偏蓝 −2.52 → classic 过渡中 −2.50/−2.10（不变）；而把同一阴影放在普通
+     页内元素上做对照，偏蓝立刻升到 +4.06/+3.07。→ 该声明目前是**空操作**（保留未删，因为它不产生
+     任何可见效果；要不要真正做成"可见的边界光晕"由用户裁决，见合订审查清单）。
+     因此 hole 模式**不加任何额外光层**：边界就是遮罩的 1px 硬边，与 classic 的 clip-path 边走同一位置。 */
 /* V1.6.0：控件行左缘让开 × 按钮 */
 #sec-chart.fs-mobile .controls { padding-left:calc(16px + var(--fs-ctl-h) + 20px); }
 

@@ -28,6 +28,158 @@ The version is written in the footer (`CISTrack · Vx.y.z`), and the bottom bar 
     files in its sdist). The tolerance convention comes from its tests too.
   - Test-only data, never shipped to the page; the sha256 of both source files is recorded in the derived file's `meta`.
 
+### ① ★ The globe keeps spinning during a theme switch ("hole wipe") — requested, and **revertible in one step**
+
+**What you reported**: "no more jumping, but the globe stops spinning while switching — can a smooth
+switch keep the globe turning?"
+
+**Root cause (not a browser mechanism — we paused it ourselves)**: `loop()` contains a V1.8.0
+frame-drop measure, `if (document.documentElement.classList.contains('vt-running')) return;` — the
+main loop bails out for the whole 700 ms wipe, so `G.yaw` never advances and the globe is never
+redrawn. Measured in a real browser against the real build: in classic mode the globe advances
+**0 rad/s** during the wipe (nominal 0.028).
+
+**Approach** — the same look, implemented twice, pick one:
+
+| Mode | Mechanism | During the wipe |
+|---|---|---|
+| `classic` (since V1.6.0) | new snapshot clipped to the growing circle, laid over the old one | inside the circle is a **static snapshot** → the globe freezes |
+| **`hole` (new default)** | the new snapshot is not painted at all; instead the **old snapshot gets a growing hole** | inside the hole is the **live page** → the globe keeps spinning |
+
+- The hole is cut with a `mask` radial gradient (`clip-path` can only clip a shape, not cut a hole);
+  the hole radius `--vt-hole-r` must be registered via `@property` as `<length>` to be
+  **interpolable** — an unregistered custom property only steps discretely, turning the animation
+  into a two-step jump. Browsers without `@property` (older Firefox / Safari) **fall back to classic**.
+- Duration, easing curve, origin and end radius are **untouched**; the boundary looks identical (see ②).
+- During the wipe the cost is minimised: it **reuses the previous second's propagation**, only
+  advancing the spin and redrawing the visible canvas — **no SGP4 run** (half a second of orbital
+  motion is imperceptible; same stance as V1.8.0).
+
+**Measured** (Edge headless, real build, 1920×1080, globe visible, spin on):
+
+| Mode | Spin during wipe | Mean angular rate | Attainment | Frame p50 / max | Frames >50 ms |
+|---|---|---|---|---|---|
+| **hole** | 0.01868 rad | **0.0283 rad/s** | **101%** (nominal 0.028) | 16.7 / 31.2 ms | **0** |
+| classic | 0 | 0 rad/s | 0% (behaviour identical to V1.9.4) | 16.7 / 19.9 ms | 0 |
+
+**Rollback** (you asked for the option to be kept; three ways, **none of them persists anything**):
+① URL suffix `?vt=classic`; ② console `CISTrack.vtMode('classic')`; ③ change the `THEME_VT` default
+and rebuild. Both code paths **remain** (it is not "delete the old, write the new"); refreshing
+returns to the factory state (dark + hole).
+
+### ② ★ Also established: the V1.9.5 "boundary glow" **never actually rendered** (unchanged, for you to decide)
+
+Pixel-level review (row scans plus a per-band statistic on the viewport border) shows that
+`box-shadow: inset 0 0 38px 6px var(--vt-glow)` on `::view-transition-new(root)` is a **no-op**:
+a VT snapshot is **replaced content**, and by paint order an inset shadow is drawn above the
+background but **below the content**, so the snapshot covers it completely.
+
+| Observation point | Border-band blueness (positive = themed glow) |
+|---|---|
+| Before the switch | −2.52 |
+| During a classic wipe (+150 / +350 ms) | −2.50 / −2.10 (**same as before → no glow**) |
+| Same shadow on an ordinary in-page element (control) | **+4.06 / +3.07** (glow appears immediately) |
+
+**So hole mode deliberately adds no extra glow layer**: in both modes the boundary is just that 1 px
+hard edge, aligned pixel for pixel. **Whether to make the boundary glow actually visible is your
+call** (it would change the current presentation, so per our discipline it was left alone).
+
+### ③ ★ Hover hit-testing consolidated (§14.3-D; approved, and you required it to be **revertible**)
+
+**What changed is the gate, not the hit-test semantics**: the default moves from the V1.4.3
+**32 ms time throttle** to **once per animation frame**.
+
+- 32 ms ≈ 31 Hz is **out of step** with the display refresh (60/120 Hz): some frames admit twice,
+  some admit nothing → while the pointer sweeps at a steady speed the hit result "shakes" (the
+  floating panel flickers between two neighbours). One admission per frame locks it to the refresh.
+- **All four chapters share one gate**: 03 Inclination Distribution / 01 Map / 02 Globe /
+  **04 Network Progress** — 04 used to be the only one with **no throttling at all** (a full
+  `drawNet()` per pointer event).
+- Dragging/panning **bypasses** the gate (it must be immediate), so only hovering changes feel.
+- The frame counter only schedules a `requestAnimationFrame` **when a hover event actually occurs** —
+  **no new permanent loop** (still idle when idle).
+
+**Behavioural measurement** (injected counter, 705 ms of synthetic pointer movement every 8 ms):
+
+| Mode | Sent | Admitted | Observed rate | Expected |
+|---|---|---|---|---|
+| `frame` (new default) | 88 | 43 | **61 /s** | ≈ 60 Hz refresh |
+| `classic` (rollback) | 88 | 21 | **30 /s** | ≈ 1000/32 |
+
+**Rollback**: URL `?hover=classic` or console `CISTrack.hoverMode('classic')` (also **non-persistent**).
+
+### ④ ★ Runtime data fetching migrated to OMM/JSON (H42 wrap-up)
+
+The build side (`refresh.mjs`) had already moved to `GP_FORMAT=json`; only the **visitor's browser**
+still fetched `FORMAT=tle` (CelesTrak's legacy text format, officially being retired). Now fixed:
+
+- All six source URLs use `FORMAT=json`; the page carries a **compact OMM → two-line TLE converter**
+  (column-for-column identical to `tleFromOmm` in the build-side `scripts/omm.mjs`), so nothing
+  downstream changes — satellite.js / batch attribution / table / charts / history all still consume
+  `{name,id,c,l1,l2}`.
+- The catalogue number comes straight from the OMM `NORAD_CAT_ID` (**already the real 6-digit id**),
+  so even V1.9.3's "placeholder → real id" restoration (`ommMap`) is no longer needed on this path —
+  one less silent failure mode.
+- **None of the semantics you asked to keep were touched**: the page still **tries** to update online
+  on open; any failure (offline / timeout / HTTP error / bad field) **silently falls back to the
+  built-in snapshot**; and one extra safety net was added — the format returned by a URL (JSON or
+  TLE) is **auto-detected**, so a mirror or proxy that ignores the parameter still parses.
+- Cache key `cistrack.tle.v2` → **v3** (v2 entries carry the old convention; keeping them would let
+  someone who opens the page right after the migration read stale data).
+
+**A real bug was caught by our own cross-check assertions**: the first version **omitted
+`NORAD_CAT_ID`** when building the normalised object, so the page wrote `00NaN` into the catalogue
+column of every line → **in online mode the entire batch failed `twoline2satrec`** and silently fell
+back to the built-in snapshot — a textbook "only breaks when online" hole. Fixed, and now guarded
+permanently by smoke.
+
+**Nine new smoke assertions**, the hardest of which **extracts those ten fetch/convert functions from
+app.js and actually runs them**, comparing the output **byte for byte** with the build-side
+`scripts/omm.mjs` (currently identical: `1 00203U 24240A   26289.19093506  .00001234  00000+0  12345-3 0  9994`).
+
+### ⑤ Chapter 03: the three GEO satellites are drawn as **themed circles** with name labels (your request)
+
+- They changed from "small dots like everything else" to **themed-stroke circles** (8 px radius) with
+  the satellite name beside them.
+- Labels are laid out **deterministically in a vertical stack**: the three are within ~1 km of the
+  same altitude, so the previous random avoidance stacked their labels on top of each other; now they
+  shift down by 13 px only on collision — predictable and identical every time.
+
+### ⑥ Chapter 03 pan no longer drags the view out of its domain + a **pre-draw safety clamp** (this recurred several times; hardened this round)
+
+- The `chartDrag` pan branch had **no clamping** (the other two paths — Shift box zoom and wheel
+  zoom — both go through `clampChartView`), making it the only way to drag the view out of its
+  domain (0–180° / 0–2200). Measured after dragging right: `x0 = −35.85`; after dragging down:
+  `y1 = 4212.9`. It now goes through the **same** clamp as the other two.
+- More fundamentally, a new `guardView(name, v, clampFn)` adds a "clamp once before drawing" step at
+  the **three draw entry points** (`drawChart` / `drawNet` / `drawClimb`), warning on any out-of-range
+  value (once per view name). So even if a future write path forgets to clamp, **the picture can no
+  longer go out of range**.
+
+### ⑦ Two-way linkage between the Orbits-Change chapter and the other chapters
+
+- Forward: selecting a batch here syncs to the global selection set;
+- Backward: selecting a satellite/batch elsewhere makes this chapter follow;
+- A `climbSync` re-entry guard prevents the two sides from triggering each other in a loop.
+
+### ⑧ README (zh + en) adjusted in sync (your request)
+
+- The four badges (version / CSCN / Qianfan / MIT) now sit **on one evenly centred line, directly
+  below the big CISTrack logo and directly above the language switch**;
+- "Quick start" moved to just after "Project origin and credits";
+- Removed the internal self-archive sections ("files not committed / rebuild chain / link rules") —
+  they are not project documentation.
+
+### ⑨ English review: 4 wording fixes + 4 items for your decision
+
+All **255 UI strings** were reviewed one by one, plus a **structural alignment check** of the
+documentation pairs (headings / version numbers / code fences / table rows / external links).
+Overall the English passes; **4 fixes were applied directly** (`brandNote` missing its head noun,
+`d_shot_disc` a word-for-word translation, `d_pend_sum` capitalisation, `notice_new_m` phrasing).
+**Items you had already finalised were left untouched**; four before/after comparisons and four
+bilingual multiple-choice questions are attached for your ruling. The full list is in the local doc
+`维护文档/V1.9.5_英文核查_修正清单与待裁决项（2026-10-17）.md` (Chinese).
+
 ---
 
 ## [V1.9.4] — 2026-10-14
