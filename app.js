@@ -5667,7 +5667,14 @@ chartCv.addEventListener('mousemove', function (e) {
     if (!r || !v) return;
     var dx = (p.x - chartDrag.x) / r.pw * (v.x1 - v.x0);
     var dy = (p.y - chartDrag.y) / r.ph * (v.y1 - v.y0);
-    v.x0 -= dx; v.x1 -= dx; v.y0 += dy; v.y1 += dy;
+    // ★ V1.9.5（2026-10-17 用户报"滑动边界似乎没有钉死"）：**这里原来没有钳制** ——
+    //   旧写法直接 `v.x0 -= dx; v.x1 -= dx; v.y0 += dy; v.y1 += dy;` 就地改 chartView，然后立刻重画。
+    //   而 Shift+框选缩放（mouseup 分支）与滚轮缩放**都**过 clampChartView → 于是"拖动平移"成了唯一
+    //   能把视图拖出定义域（0–180° / 0–2200）的路径。实测（真浏览器合成拖动）：
+    //   右拖后 `x0 = −35.85`、下拖后 `y1 = 4212.9` —— 都跑出了定义域。
+    //   修法：平移同样过一遍 clampChartView（与另两条路径**同一套**钳制），再就地写回。
+    var pc = clampChartView({ x0: v.x0 - dx, x1: v.x1 - dx, y0: v.y0 + dy, y1: v.y1 + dy });
+    v.x0 = pc.x0; v.x1 = pc.x1; v.y0 = pc.y0; v.y1 = pc.y1;
     chartDrag.x = p.x; chartDrag.y = p.y;
     drawChart(); return;
   }
@@ -10495,6 +10502,9 @@ var climbInfo = document.getElementById('climbInfo');
 var climbRect = null, climbView = null, CLIMB = null;
 var climbHover = null;                 // 悬停的 { key, idx }（批次级）或 { norad }
 var climbPinned = false;
+// ★ 2026-10-17：本章与全局选中的**双向联动重入保护**（两个方向的调用链会互相触发：
+//   climbSelect → selectGroup → afterSelection → climbFollowSelection → climbSelect…）
+var climbSync = false;
 // ★ V1.9.1（A2）：**最后点选的节点**（`{norad, ms}`）—— 导出图片的第 4 段要用它。
 //   为什么要有这个状态：改版前信息窗是 hover 即显、**不记任何节点**，导出时根本拿不到
 //   "用户点的是哪个点"，只能写该星的最新值。A20 之后单击才显示并固定，正好在这里落账。
@@ -11510,12 +11520,33 @@ function renderClimbSel() {
   opts.forEach(function (o) { html += '<option value="' + o.v + '">' + o.label + '</option>'; });
   sel.innerHTML = html;
   // A6-3：自动模式（S.climbPick 为空）→ 选中**最新批次**；显式选了 → 显示该项
-  var want = S.climbPick || climbAutoPick();
+  // ★ 2026-10-17（用户报"双向联动不完整"）：**全局选中了某个批次**时，本章自动模式要显示**那个批次**
+  //   （而不是永远显示最新批次）—— 这就是"其他章选批次 → 变轨情况跟着切"的落点。
+  var selLk = climbBatchFromSel();
+  var grp = (!S.climbPick && selLk) ? ('b:' + selLk) : '';
+  if (grp && !C[selLk]) grp = '';                   // 该批次没有历史曲线 → 退回"最新批次"
+  var want = S.climbPick || grp || climbAutoPick();
   sel.value = want;
   // 选不到（例如索引还没有数据）→ 退回第一项，避免显示空
   if (sel.value !== want && opts.length) sel.value = opts[0].v;
   // 悬停某个批次名 → 列出该批次的成员星（不改变当前选择，避免误触）
   sel.title = t('climb_sel_tip');
+}
+/** 从**全局选中**推导"该看哪个批次"（2026-10-17 新增，供反向联动用）
+ *  · `S.selGroup` 只在"整批无 TLE / 全再入"这类边角情形里被赋值，**正常整批选中时它是 null**
+ *    （见 selectGroup：正常分支 `S.selGroup = null; S.sel = alive;`）→ 所以不能只看它；
+ *  · 这里按"选中集合是否同属一个批次"推导：全都同批 → 返回该批；跨批/无选中 → 返回空（不切）。 */
+function climbBatchFromSel() {
+  if (S.selGroup) return S.selGroup;
+  if (!S.sel || !S.sel.length) return '';
+  var st = cur(), lk = null;
+  for (var i = 0; i < S.sel.length; i++) {
+    var s = st.sats[S.sel[i]];
+    if (!s || !s.lk) return '';
+    if (lk === null) lk = s.lk;
+    else if (s.lk !== lk) return '';
+  }
+  return lk || '';
 }
 /** 全局选中变化 → 05 章跟随（需求：双向联动） */
 function climbFollowSelection() {
@@ -11523,6 +11554,16 @@ function climbFollowSelection() {
   if (!sel || sel.__lock) return;
   // 若用户显式选了批次/单星，就**不**被全局选中覆盖（用户意图优先）
   if (S.climbPick) return;
+  // ★ 2026-10-17（用户报"选择没有和其他章节双向联动"）：全局**选中了批次** → 本章也要切到那个批次
+  //   （此前这里只是"重画一遍"，选中的批次不会跟着换，用户看到的仍是上一个批次）。
+  //   这里**不写 S.climbPick** —— 一旦写了就变成"用户显式选择"，后续全局选中将被永久忽略
+  //   （A6/Q21 的"有选中则跟"会被无声破坏）。显示哪一项由 renderClimbSel() 按 S.selGroup 推导。
+  var lk = climbBatchFromSel();
+  if (lk && !climbSync) {
+    climbSync = true;                                   // 重入保护：selectGroup → afterSelection → 本函数
+    try { climbEnsureAndDraw(lk); } catch (e) {}
+    climbSync = false;
+  }
   CLIMB = null;                    // 曲线内容与选中无关，缓存可留；视图要重算
   climbView = null;
   renderClimbSel();
@@ -11544,6 +11585,14 @@ function climbSelect(v) {
   if (climbInfo) hideInfo(climbInfo, 'climb');
   // 规模方案下批次数据是**按需拉取**的：先切过去（画面立即响应），数据到了再重画
   if (v && v.indexOf('b:') === 0) climbEnsureAndDraw(v.slice(2));
+  // ★ 2026-10-17（用户报"反之亦然"缺失）：在**本章选批次**也要同步到全局选中
+  //   —— 否则表格/地图/地球都不知道你切了批次（旧版只切本章曲线）。
+  //   加 climbSync 重入保护：selectGroup → afterSelection → climbFollowSelection → 本函数。
+  if (v && v.indexOf('b:') === 0 && !climbSync && S.selGroup !== v.slice(2)) {
+    climbSync = true;
+    try { selectGroup(v.slice(2)); } catch (e) {}
+    climbSync = false;
+  }
   // 选了单星 → 同步全局选中（另一个方向的联动）
   if (v && v.indexOf('s:') === 0) {
     var idx = climbSatIdx(+v.slice(2));

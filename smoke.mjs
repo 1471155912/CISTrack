@@ -2809,6 +2809,10 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
     "  climbSelValue: function () { var s = document.getElementById('climbSel'); return s ? s.value : null; },\n" +
     "  climbSelText: function () { var s = document.getElementById('climbSel'); return s ? s.options[s.selectedIndex].textContent : null; },\n" +
     "  climbSelect: function (v) { climbSelect(v); },\n" +
+    // ★ 2026-10-17：双向联动验证用钩子
+    "  clearSelAll: function () { S.sel = []; S.selGroup = null; S.focusIdx = null; infoClearClosed(); afterSelection(); },\n" +
+    "  batchFromSel: function () { return climbBatchFromSel(); },\n" +
+    "  selGroupOf: function (lk) { selectGroup(lk); return { grp: S.selGroup, n: S.sel.length }; },\n" +
     // V1.9.1（A2）：导出底栏六段（真值验证：不进 canvas，直接看数据）
     "  shotLines: function (v) { return shotSatLines(v || 'climb'); },\n" +
     "  pickNode: function (n, ms) { climbPickNode = (n == null) ? null : { norad: n, ms: ms }; },\n" +
@@ -3563,10 +3567,28 @@ assert('V1.9.2：右侧留白按"要标几条"动态加宽（否则名称会被�
     assert('A6：选择框**不再有**「跟随选中（默认）」空选项（`value=""` 的项应为 0 个）',
       !!sel && [...sel.options].filter(o => o.value === '').length === 0,
       'options=' + (sel ? [...sel.options].map(o => JSON.stringify(o.value)).slice(0, 4).join(',') : 'null'));
+    // ★ 2026-10-17（用户报"滑动边界似乎没有钉死"）：03 章**拖动平移也必须过钳制**。
+    //   旧写法直接 `v.x0 -= dx; v.x1 -= dx; ...` 就地改 chartView → 平移成了唯一能把视图
+    //   拖出定义域（0–180° / 0–2200）的路径（实测：右拖后 x0=−35.85、下拖后 y1=4212.9）。
+    assert('2026-10-17：03 章拖动平移与另两条路径**同一套钳制**（clampChartView），不再能拖出定义域',
+      /var pc = clampChartView\(\{ x0: v\.x0 - dx, x1: v\.x1 - dx, y0: v\.y0 \+ dy, y1: v\.y1 \+ dy \}\);/.test(appCode) &&
+      !/v\.x0 -= dx; v\.x1 -= dx; v\.y0 \+= dy; v\.y1 \+= dy;/.test(appCode));
+    // ★ 2026-10-17（用户报"变轨情况章与其他章节联动不完整"）：双向联动 + 重入保护
+    assert('2026-10-17：变轨章与其他章节**双向联动**（本章选批次→全局选中；全局选中批次→本章跟随且不写 climbPick）',
+      /function climbBatchFromSel\(\)/.test(appCode) &&
+      /if \(v && v\.indexOf\('b:'\) === 0 && !climbSync && S\.selGroup !== v\.slice\(2\)\)/.test(appCode) &&
+      /try \{ selectGroup\(v\.slice\(2\)\); \} catch \(e\) \{\}/.test(appCode) &&
+      /var lk = climbBatchFromSel\(\);/.test(appCode) &&
+      /var climbSync = false;/.test(appCode) &&
+      /var selLk = climbBatchFromSel\(\);/.test(appCode));
     assert('A6：首屏**默认选中最新发射的批次**（= climbAutoPick()，且它就是列表第一项）',
       (function () {
         k3.climbSelect('');                      // ⚠️ 先归零：前面的 A11 用例调过 climbSelect('b:26137')，
                                                  //    不复位会把"首屏默认"测成那个残留值（第一次就这么误报的）
+        // ★ 2026-10-17（双向联动落地后）：还**必须清掉全局选中** —— 现在"本章选批次"会同步全局选中
+        //   （用户新要求），而"全局选中了某批次"时本章**会跟随显示该批次**（也是新要求）。
+        //   所以"首屏默认 = 最新批次"这条只在**无任何选中**时成立，测前要先清干净。
+        k3.clearSelAll();
         const auto = k3.climbAuto(), v = k3.climbSelValue(), opts = k3.climbOpts();
         return !!auto && v === auto && opts.length > 0 && opts[0].v === auto;
       })(), 'value=' + k3.climbSelValue() + ' auto=' + k3.climbAuto() + ' 首项=' + (k3.climbOpts()[0] || {}).v);
