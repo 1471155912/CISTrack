@@ -10,6 +10,26 @@ The version is written in the footer (`CISTrack · Vx.y.z`), and the bottom bar 
 
 ---
 
+## [Unreleased] — V1.9.5 (in progress)
+
+> This section grows as development proceeds and is **finalised at release** (version number, date, full entries).
+
+### Attribution (H31)
+
+- **SGP4 now has a numerical regression against the official verification cases.** Every previous gate
+  checked only structure / order of magnitude / coordinate validity — **never whether the numbers were right** —
+  so a regression in `satellite-js` (e.g. after an upgrade) would shift every satellite position undetected.
+  Added `data/cssi/` (two **verbatim** official files: `SGP4-VER.TLE` inputs + `tcppver.out` expected values)
+  and `data/cssi-testcases.json` (deterministically derived by `scripts/mk_cssi_vectors.mjs`:
+  33 scenarios / 667 cases); `smoke` compares them against the very implementation the page runs,
+  with the reference implementation's own tolerance (`2e-7`).
+  - Cases: [CSSI / Spacetrack Report #3 official verification cases](https://celestrak.org/NORAD/documentation/).
+  - Obtained via [python-sgp4](https://github.com/brandon-rhodes/python-sgp4) (MIT, ships the verbatim official
+    files in its sdist). The tolerance convention comes from its tests too.
+  - Test-only data, never shipped to the page; the sha256 of both source files is recorded in the derived file's `meta`.
+
+---
+
 ## [V1.9.4] — 2026-10-14
 
 > A focused round after re-review: **new batches now enter the launch ledger automatically**

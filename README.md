@@ -251,6 +251,7 @@ build.mjs       # 把上面几块注入 template → 单文件 HTML
 - [卫星百科](https://sat.huijiwiki.com/) —— 词条口径的发射/在轨统计、批次名称、运载火箭与发射场
 - [Natural Earth](https://www.naturalearthdata.com/) —— 海岸线（公有领域）
 - [satellite-js](https://github.com/shashwatak/satellite-js) —— MIT 许可的 SGP4 实现
+- [Spacetrack Report #3 / CSSI 官方验证用例](https://celestrak.org/NORAD/documentation/) —— SGP4 的**数值回归标尺**（33 个场景 / 667 条期望位置与速度；`data/cssi/` 内为原文，仅用于测试）；原文经 [python-sgp4](https://github.com/brandon-rhodes/python-sgp4)（MIT）的分发包取得（该分发内附官方原文），容差口径亦取自其测试（`error = 2e-7`）
 - [findrassvet.ru METHODOLOGY.md](https://github.com/vbklgd/findrassvet/blob/main/METHODOLOGY.md) —— 升轨速率（RATE/ТЕМП）方法论（本项目灵感来源，见页首致谢）
 - [Audiowide](https://fonts.google.com/specimen/Audiowide) —— SIL OFL 1.1，已以 base64 内嵌
 
@@ -269,6 +270,7 @@ build.mjs       # 把上面几块注入 template → 单文件 HTML
 | 批次 / 火箭 / 发射场 / 研发机构 / 中文名 / 词条链接 | 卫星百科「星网」「千帆星座」词条 | 社区词条作者 | [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/deed.zh-hans)（[版权页](https://sat.huijiwiki.com/wiki/Project:%E7%89%88%E6%9D%83)：署名 + 相同方式共享） |
 | 海岸线底图 | Natural Earth（打包内嵌） | Natural Earth（公有领域，NACIS 等协作） | [条款](https://www.naturalearthdata.com/about/terms-of-use/)（公有领域，无需署名） |
 | SGP4 推算 | satellite.js（MIT） | Spacetrack Report #3 / CSSI | [satellite-js](https://github.com/shashwatak/satellite-js) |
+| SGP4 回归测试用例 | [python-sgp4](https://github.com/brandon-rhodes/python-sgp4)（MIT，分发内附官方原文） | Spacetrack Report #3 / [CSSI 官方验证用例](https://celestrak.org/NORAD/documentation/) | 官方测试数据，随仓库保留原文（`data/cssi/`）；仅用于测试，不参与页面运行 |
 | 字体 | Audiowide（base64 内嵌） | Google Fonts / Astigmatic | SIL [OFL 1.1](https://openfontlicense.org/) |
 | 变轨方法学 | findrassvet.ru | 同上 | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/deed.zh-hans)，署名 `findrassvet.ru, V. Bulybenko` |
 | 工程做法（借鉴） | Kayhan Space 开源实现 | 同上 | [MIT](https://github.com/Kayhan-Space/sgp4gl) |

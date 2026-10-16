@@ -249,6 +249,7 @@ with 0 requests. Run `--prune` afterwards for capacity governance.
 - [Satellite wiki](https://sat.huijiwiki.com/) — article-level launch/in-orbit statistics, batch names, launch vehicles and sites
 - [Natural Earth](https://www.naturalearthdata.com/) — coastline (public domain)
 - [satellite-js](https://github.com/shashwatak/satellite-js) — MIT-licensed SGP4 implementation
+- [Spacetrack Report #3 / CSSI official verification cases](https://celestrak.org/NORAD/documentation/) — the **numerical regression baseline** for SGP4 (33 scenarios / 667 expected positions and velocities; the verbatim files live in `data/cssi/` and are used for testing only). The files come from the [python-sgp4](https://github.com/brandon-rhodes/python-sgp4) (MIT) source distribution, which ships the verbatim official copies; the tolerance convention (`error = 2e-7`) comes from its test suite as well.
 - [findrassvet.ru METHODOLOGY.md](https://github.com/vbklgd/findrassvet/blob/main/METHODOLOGY.md) — orbit-raising rate (RATE/ТЕМП) methodology (our project's origin; see the thanks section at the top)
 - [Audiowide](https://fonts.google.com/specimen/Audiowide) — SIL OFL 1.1, embedded as base64
 
@@ -267,6 +268,7 @@ with 0 requests. Run `--prune` afterwards for capacity governance.
 | Batches / vehicles / sites / developers / Chinese names / article links | Satellite Wiki (SatNet & Qianfan articles) | Community editors | [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/deed.en) ([copyright page](https://sat.huijiwiki.com/wiki/Project:%E7%89%88%E6%9D%83)) |
 | Coastlines | Natural Earth (embedded) | Natural Earth | [Terms](https://www.naturalearthdata.com/about/terms-of-use/) (public domain) |
 | SGP4 | satellite.js (MIT) | Spacetrack Report #3 / CSSI | [satellite-js](https://github.com/shashwatak/satellite-js) |
+| SGP4 regression vectors | [python-sgp4](https://github.com/brandon-rhodes/python-sgp4) (MIT, ships the verbatim official files) | Spacetrack Report #3 / [CSSI official verification cases](https://celestrak.org/NORAD/documentation/) | Official test data, kept verbatim in the repo (`data/cssi/`); test-only, never shipped to the page |
 | Font | Audiowide (embedded base64) | Google Fonts / Astigmatic | SIL [OFL 1.1](https://openfontlicense.org/) |
 | Orbit-raising methodology | findrassvet.ru | same | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/deed.en), credit `findrassvet.ru, V. Bulybenko` |
 | Engineering approaches | Kayhan Space open source | same | [MIT](https://github.com/Kayhan-Space/sgp4gl) |

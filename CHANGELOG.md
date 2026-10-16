@@ -11,6 +11,24 @@
 
 ---
 
+## [未发布] — V1.9.5（进行中）
+
+> 本节随开发进度增补，**发布时定稿**（版本号、日期与完整条目）。
+
+### 引用与致谢（H31）
+
+- **SGP4 数值回归接入了官方验证用例**。此前所有闸门只检查"结构 / 量级 / 坐标合法"，
+  **从不检查数值对不对** —— `satellite-js` 一旦在升级中出现回归，卫星位置整体偏掉也抓不出来。
+  现在新增 `data/cssi/`（两份**原文不改**的官方文件：`SGP4-VER.TLE` 输入 + `tcppver.out` 期望值）
+  与 `data/cssi-testcases.json`（由 `scripts/mk_cssi_vectors.mjs` 确定性派生：33 个场景 / 667 条用例），
+  `smoke` 用页面运行时那份实现逐条对拍（容差取参考实现自己的 `2e-7`）。
+  - 用例来源：[CSSI / Spacetrack Report #3 官方验证用例](https://celestrak.org/NORAD/documentation/)。
+  - 获取渠道：[python-sgp4](https://github.com/brandon-rhodes/python-sgp4)（MIT，分发包内附官方原文）。
+    容差口径同样取自其测试。
+  - 数据仅用于测试，不参与页面运行；原文 sha256 记在派生文件的 `meta` 里，可复核。
+
+---
+
 ## [V1.9.4] — 2026-10-14
 
 > 复审后的一次集中修复：**百科新批次自动进台账**（新录入卫星的批次/组号、制造商、在轨日）、

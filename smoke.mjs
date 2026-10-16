@@ -12,6 +12,9 @@ import { execFileSync } from 'node:child_process';   // V1.9.4：跑 privacy_che
 import { climbPhases as nodeClimbPhases } from './scripts/climb.mjs';
 import { checkFormat } from './scripts/format_guard.mjs';   // ★ V1.9.5（H42）：格式变更探测（行为级断言用）
 import { auditLines } from './scripts/audit_assertions.mjs';   // ★ V1.9.5（H29）：断言普查（与人工普查同一份实现）
+// ★ V1.9.5（H30①）：CSSI 官方验证用例的派生器 —— smoke 直接调它的 **build()** 现场重算，
+//   再与已提交的 `data/cssi-testcases.json` 逐字节对拍（同一份实现，避免"另写一遍解析"）。
+import { build as buildCssi, serialize as serializeCssi } from './scripts/mk_cssi_vectors.mjs';
 const require = createRequire(import.meta.url);
 const { JSDOM, VirtualConsole } = require('jsdom');
 
@@ -5358,6 +5361,119 @@ assert('V1.9.5：仓库卫生扫描通过（根目录无过程类文件、子目
       miss.length === 0 && orphan.length === 0,
       '缺分片: ' + (miss.slice(0, 4).join(' / ') || '无') + '；无主分片: ' + (orphan.slice(0, 4).join(' / ') || '无'));
   }
+}
+
+// ---------------------------------------------------------------- ★ V1.9.5（H30①）：SGP4 数值回归（CSSI 官方验证用例）
+// 来历（2026-10-16）：`data/satellite.min.js`（satellite-js）是本项目**唯一**的轨道推算依赖（页面里 `SGP4 = window.satellite`）。
+//   原有的闸门只查"结构 / 量级 / 坐标合法 / 单调"（tleHealth、画布元素数、要素一致性），
+//   **从不检查数值对不对** —— 换库、升级、或哪天被"优化"了，位置整体偏掉也抓不出来。
+//   这里接上**权威标尺**：CSSI / Spacetrack Report #3 的官方验证用例（33 个场景：近地/深空/共振/
+//   高偏心/衰减/错误码），每个时刻都有官方给定的位置与速度。参考实现是 python-sgp4（MIT）。
+//   数据链路：data/cssi/{SGP4-VER.TLE,tcppver.out}（官方原文，逐字节保留，sha256 记在 meta）
+//             → scripts/mk_cssi_vectors.mjs（纯函数 build()，**smoke 直接 import**）
+//             → data/cssi-testcases.json（33 台星 / 667 条用例）
+//   ⚠️ 判据用**参考实现自己的容差**（python-sgp4 tests.py 的 `error = 2e-7`，单位随列 min/km/(km/s)），
+//      不自造阈值；实测偏差会打印在断言尾巴上（当前是 0，远小于容差）。
+{
+  const cssiRaw = fs.readFileSync(B + '/data/cssi-testcases.json', 'utf8');
+  const CD = JSON.parse(cssiRaw);
+  const SGP4u = w.satellite;
+  assert('H30①：页面里那份 satellite.js 可用（twoline2satrec / sgp4 / propagate 都在）',
+    !!(SGP4u && typeof SGP4u.twoline2satrec === 'function' &&
+       typeof SGP4u.sgp4 === 'function' && typeof SGP4u.propagate === 'function'));
+
+  // ① 溯源：**现场重算**派生器，与已提交的 JSON 逐字节对拍 ——
+  //   保证"测试用的期望值"确实来自那两份官方原始文件（而不是谁手抄/改过的副本）。
+  let rebuildOk = true, rebuildWhy = '';
+  try { rebuildOk = serializeCssi(buildCssi()) === cssiRaw; }
+  catch (e) { rebuildOk = false; rebuildWhy = e.message; }
+  assert('H30①：回归数据与官方原始文件一致（现场重算 build() → 与已提交 JSON 逐字节相符）',
+    rebuildOk, rebuildWhy || ('源 sha256 ' + String(CD.meta.sourceSha256['tcppver.out']).slice(0, 12) + '…'));
+
+  // ② 结构：规模与 TLE 完整性（33 / 667 / 7 是**官方文件的固有属性**，见 H29 口径）
+  const byNorad = {};
+  CD.satellites.forEach(s => { byNorad[s.norad] = s; });
+  // H29-OK: 33 台星 / 667 条用例 / 7 处中止 = 冻结的官方验证文件的固有规模（原文不变则永远不变）
+  assert('H30①：用例集合完整（33 台星 / 667 条用例 / 7 处中止；每条 TLE 都是标准 69 字符两行）',
+    CD.stats.satellites === 33 && CD.stats.cases === 667 && CD.stats.aborted === 7 &&
+    CD.cases.length === CD.stats.cases && CD.satellites.length === CD.stats.satellites &&
+    CD.satellites.every(s => s.l1.length === 69 && s.l2.length === 69 && /^1 \d{5}/.test(s.l1) && /^2 \d{5}/.test(s.l2)) &&
+    CD.cases.every(c => byNorad[c.s] && c.r.length === 3 && c.v.length === 3 && c.r.every(Number.isFinite)),
+    CD.stats.satellites + ' 台星 / ' + CD.stats.cases + ' 条用例 / ' + CD.stats.aborted + ' 处中止');
+
+  // ③ ★ 核心：数值回归 —— 用**页面运行时那份**实现逐条对拍官方期望值
+  //   入口用 `sgp4(rec, tsince)`：官方用例的语义就是"相对历元的分钟数"，与参考实现同源；
+  //   而 `propagate(rec, Date)` 多一层日期换算（见 ⑤ 的端到端校验）。
+  //   ⚠️ 跨 realm 陷阱（本次踩过，记一笔）：`vm` / jsdom 各有自己的 `Date`，
+  //     把 Node realm 的 Date 传给页面 realm 的库，`instanceof Date` 为 false →
+  //     走错分支 → 全 NaN。**不是**产品缺陷；测试里要用同 realm 的 Date（见 ⑤）。
+  let maxDR = 0, maxDV = 0, nCmp = 0, nOver = 0, firstOver = '', worstAt = '';
+  const diverge = [];                                  // satellite.js 报错、而官方文件有数值的用例
+  const recs = {};
+  CD.satellites.forEach(s => { recs[s.norad] = SGP4u.twoline2satrec(s.l1, s.l2); });
+  CD.cases.forEach(c => {
+    const rec = recs[c.s];
+    const pv = SGP4u.sgp4(rec, c.t);
+    const P = pv && pv.position, V = pv && pv.velocity;
+    if (!P || !V || !Number.isFinite(P.x) || !Number.isFinite(V.x)) {
+      diverge.push('#' + c.s + ' t=' + c.t + '（error=' + rec.error + '）');
+      return;
+    }
+    nCmp++;
+    const dr = Math.max(Math.abs(P.x - c.r[0]), Math.abs(P.y - c.r[1]), Math.abs(P.z - c.r[2]));
+    const dv = Math.max(Math.abs(V.x - c.v[0]), Math.abs(V.y - c.v[1]), Math.abs(V.z - c.v[2]));
+    if (dr > maxDR) { maxDR = dr; worstAt = '#' + c.s + ' t=' + c.t; }
+    if (dv > maxDV) maxDV = dv;
+    if (dr > CD.meta.tolerance || dv > CD.meta.tolerance) {
+      nOver++; if (!firstOver) firstOver = '#' + c.s + ' t=' + c.t + ' Δr=' + dr + ' Δv=' + dv;
+    }
+  });
+  assert('H30①：官方案例数值命中（页面同一份 satellite.js；容差 = 参考实现的 2e-7）',
+    nOver === 0 && nCmp >= 660,
+    '对拍 ' + nCmp + ' / ' + CD.cases.length + ' 条；实测最大偏差 Δr=' + maxDR + ' km / Δv=' + maxDV +
+    ' km·s⁻¹（' + (worstAt || '-') + '）｜容差 ' + CD.meta.tolerance + (firstOver ? '｜首个超标 ' + firstOver : ''));
+
+  // ④ 已知分歧**如实记账**（不掩盖、也不允许悄悄扩大）：官方套件里有 1 条用例在 satellite.js 报错、
+  //   而官方文件给了数值 —— `#33334 t=0`（该条目本就是"检验错误码 3"的病态输入：n≈1e-5 rev/day、
+  //    e≈0.56）。这里断言"分歧**只有这一条**、且错误码正好是 3"，将来若多出别的分歧会当场红。
+  assert('H30①：与官方文件的分歧只有 1 条且已记账（#33334 t=0，satellite.js 报错误码 3）',
+    diverge.length === 1 && /^#33334 t=0（error=3）$/.test(diverge[0]),
+    diverge.length ? diverge.join(' / ') : '无分歧');
+
+  // ⑤ 端到端：页面**实际用的**入口是 `propagate(rec, Date)`（多一层日期→儒略日换算）。
+  //   这里在**同一个 realm** 里构造 Date（`new w.Date`）走一遍，确认这条路径与官方值一致。
+  //   容差按物理推导：Date 截断到毫秒 → Δt ≤ 0.5 ms，|Δr| ≤ |v|·Δt ≈ 7.6 km/s × 5e-4 s ≈ 0.004 km。
+  let maxE2E = 0, e2eBad = 0;
+  CD.cases.filter((_, i) => i % 7 === 0).forEach(c => {
+    const rec = SGP4u.twoline2satrec(byNorad[c.s].l1, byNorad[c.s].l2);
+    const ms = (rec.jdsatepoch - 2440587.5) * 86400000 + c.t * 60000;
+    const pv = SGP4u.propagate(rec, new w.Date(ms));
+    const P = pv && pv.position;
+    if (!P || !Number.isFinite(P.x)) { e2eBad++; return; }
+    maxE2E = Math.max(maxE2E, Math.abs(P.x - c.r[0]), Math.abs(P.y - c.r[1]), Math.abs(P.z - c.r[2]));
+  });
+  assert('H30①：页面实际入口 `propagate(rec, Date)` 端到端一致（同 realm 构造 Date；容差 0.01 km = 毫秒截断的物理上限）',
+    e2eBad === 0 && maxE2E <= 0.01,
+    '抽样 ' + CD.cases.filter((_, i) => i % 7 === 0).length + ' 条；实测最大 Δr=' + maxE2E +
+    ' km' + (e2eBad ? '｜无效返回 ' + e2eBad + ' 条' : ''));
+
+  // ⑥ 错误码用例：官方文件在参考实现**报错处截断**（这些条目本身就叫"check error code N"）。
+  //   断言 satellite.js 的错误码**逐条等于参考实现自己的期望序列**（python-sgp4 tests.py 里
+  //   传给 tcppver 对拍的第三个参数写的就是 [1,1,6,6,4,3,6]），且都不给出有效位置。
+  const EXPECT_ERR = [1, 1, 6, 6, 4, 3, 6];
+  const aborts = CD.satellites.filter(s => s.abortAt !== undefined);
+  const errGot = aborts.map(s => {
+    const rec = SGP4u.twoline2satrec(s.l1, s.l2);
+    const pv = SGP4u.sgp4(rec, s.abortAt);
+    const ok = !!(pv && pv.position && Number.isFinite(pv.position.x));
+    return { norad: s.norad, at: s.abortAt, code: rec.error, valid: ok };
+  });
+  assert('H30①：7 处错误码用例与参考实现的期望序列逐条相符 [1,1,6,6,4,3,6]，且均无有效位置',
+    JSON.stringify(errGot.map(x => x.code)) === JSON.stringify(EXPECT_ERR) &&
+    errGot.every(x => !x.valid) &&
+    aborts.every(s => typeof s.abortNote === 'string') &&
+    CD.cases.every(c => byNorad[c.s].abortAt === undefined || c.t < byNorad[c.s].abortAt),
+    errGot.map(x => '#' + x.norad + '@' + x.at + '→' + x.code).join(' '));
 }
 
 // ---------------------------------------------------------------- ★ V1.9.3：数据链路的两个静默失败闸门
