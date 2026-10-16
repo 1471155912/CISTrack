@@ -4537,6 +4537,7 @@ function chartClusterAlpha(spanX, clusterSpanX) {
   return a * a * (3 - 2 * a);
 }
 function drawChart() {
+  chartView = guardView('03-倾角分布', chartView, clampChartView);
   var f = fitCanvas(chartCv), ctx = f.ctx, W = f.w, H = f.h, C = themeColors();
   // V1.5.0：窄屏左侧留白过多 → 绘图区左边界左移；右侧离按钮列太近 → 右边界内收
   var narrow = window.innerWidth < 760;
@@ -5353,6 +5354,30 @@ function projN(px, py, pz, B, cx, cy, R) {
   var dz = px * B.view[0] + py * B.view[1] + pz * B.view[2];
   _PJ.x = cx + dx * R; _PJ.y = cy - dy * R; _PJ.z = dz;
   return _PJ;
+}
+// ★★ 2026-10-17（用户："钉死边界，这个问题复发了多次，一定要加固"）——**绘制前兜底钳制**。
+//   背景：视图（chartView / netView / climbView）有多条写入路径（鼠标拖动、Shift 框选、滚轮、
+//   触摸 pan/pinch、双击复位、切星座恢复……）。2026-10-17 实测发现：03 章的**鼠标拖动平移**
+//   是唯一漏了钳制的一条 —— 能把视图拖到 0–180°/0–2200 之外（实测 x0=−35.85、y1=4212.9）。
+//   逐条去补钳制是"打地鼠"：只要将来再加一条写入路径，同样的病就会**第三次复发**。
+//   所以这里加一道**与路径无关**的兜底：**任何**绘制入口先把视图钳一遍。
+//     · 视觉上：用户**永远看不到越界画面**（不变量由绘制层保证，不再依赖每条路径自觉）；
+//     · 可观测：一旦兜底真的改动了值 → `console.warn` 一次（附带前后值）——
+//       这样"哪条路径忘了钳制"会**主动报出来**，而不是静默被掩盖。
+var _viewWarned = {};
+function guardView(name, v, clampFn) {
+  if (!v) return v;
+  var before = [v.x0, v.x1, v.y0, v.y1];
+  var out = clampFn(v);
+  if (out && (out.x0 !== before[0] || out.x1 !== before[1] || out.y0 !== before[2] || out.y1 !== before[3])) {
+    if (!_viewWarned[name]) {
+      _viewWarned[name] = 1;
+      try { console.warn('[view-guard] ' + name + ' 越界已被绘制前兜底钳制 —— 说明有写入路径漏了钳制：',
+        before.map(function (x) { return Math.round(x * 100) / 100; }),
+        '→', [out.x0, out.x1, out.y0, out.y1].map(function (x) { return Math.round(x * 100) / 100; })); } catch (e) {}
+    }
+  }
+  return out || v;
 }
 function globeTracks(ms) {
   var st = cur(), tmin = Math.round(ms / 60000);
@@ -12414,6 +12439,7 @@ function netPickLabels(marks, X, Y) {
 }
 
 function drawNet() {
+  netView = guardView('04-在轨进度', netView, clampNetView);
   if (!netCv) return;
   var f = fitCanvas(netCv), ctx = f.ctx, W = f.w, H = f.h, C = themeColors();
   var narrow = window.innerWidth < 760;
@@ -13418,6 +13444,7 @@ function climbYLabel(take, v) {
   return fmtNum(v, 0);
 }
 function drawClimb() {
+  climbView = guardView('05-变轨情况', climbView, clampClimbView);
   if (!climbCv) return;
   var f = fitCanvas(climbCv), ctx = f.ctx, W = f.w, H = f.h, C = themeColors();
   var narrow = window.innerWidth < 760;

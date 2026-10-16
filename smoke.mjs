@@ -2813,6 +2813,8 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
     "  clearSelAll: function () { S.sel = []; S.selGroup = null; S.focusIdx = null; infoClearClosed(); afterSelection(); },\n" +
     "  batchFromSel: function () { return climbBatchFromSel(); },\n" +
     "  selGroupOf: function (lk) { selectGroup(lk); return { grp: S.selGroup, n: S.sel.length }; },\n" +
+    // ★ 2026-10-17：绘制前兜底钳制（加固）的行为探针
+    "  guardChart: function (v) { var o = guardView('probe', v, clampChartView); return [o.x0, o.x1, o.y0, o.y1]; },\n" +
     // V1.9.1（A2）：导出底栏六段（真值验证：不进 canvas，直接看数据）
     "  shotLines: function (v) { return shotSatLines(v || 'climb'); },\n" +
     "  pickNode: function (n, ms) { climbPickNode = (n == null) ? null : { norad: n, ms: ms }; },\n" +
@@ -3573,6 +3575,21 @@ assert('V1.9.2：右侧留白按"要标几条"动态加宽（否则名称会被�
     assert('2026-10-17：03 章拖动平移与另两条路径**同一套钳制**（clampChartView），不再能拖出定义域',
       /var pc = clampChartView\(\{ x0: v\.x0 - dx, x1: v\.x1 - dx, y0: v\.y0 \+ dy, y1: v\.y1 \+ dy \}\);/.test(appCode) &&
       !/v\.x0 -= dx; v\.x1 -= dx; v\.y0 \+= dy; v\.y1 \+= dy;/.test(appCode));
+    // ★★ 2026-10-17（用户："钉死边界，这个问题复发了多次，一定要加固"）——**绘制前兜底钳制**
+    //   ① 三个章节的绘制入口都过兜底（与写入路径无关 → 将来再加路径也不会"第三次复发"）；
+    //   ② 行为：把越界视图喂进兜底 → 必须被**纠正到定义域内**。
+    assert('2026-10-17 加固：三个画布绘制入口都有**绘制前兜底钳制**（不依赖各写入路径自觉）',
+      /function guardView\(name, v, clampFn\)/.test(appCode) &&
+      /chartView = guardView\('03-倾角分布', chartView, clampChartView\);/.test(appCode) &&
+      /netView = guardView\('04-在轨进度', netView, clampNetView\);/.test(appCode) &&
+      /climbView = guardView\('05-变轨情况', climbView, clampClimbView\);/.test(appCode) &&
+      /_viewWarned\[name\]/.test(appCode));
+    assert('2026-10-17 加固：越界视图喂进兜底 → 被纠正回定义域（行为级，jsdom 实跑）',
+      (function () {
+        var r = k3.guardChart({ x0: -50, x1: 30, y0: -10, y1: 5000 });
+        var D = k3.chartDomain ? k3.chartDomain() : null;
+        return JSON.stringify(r) === JSON.stringify([0, 80, 0, 2200]) || (r[0] >= 0 && r[2] >= 0 && r[1] <= 180 && r[3] <= 2200 && r[1] > r[0] && r[3] > r[2]);
+      })(), 'guardChart({x0:-50,x1:30,y0:-10,y1:5000}) = ' + JSON.stringify(k3.guardChart({ x0: -50, x1: 30, y0: -10, y1: 5000 })));
     // ★ 2026-10-17（用户报"变轨情况章与其他章节联动不完整"）：双向联动 + 重入保护
     assert('2026-10-17：变轨章与其他章节**双向联动**（本章选批次→全局选中；全局选中批次→本章跟随且不写 climbPick）',
       /function climbBatchFromSel\(\)/.test(appCode) &&
