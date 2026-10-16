@@ -4059,8 +4059,10 @@ assert('A9（V1.9.2 重新划分）：合并判据 = 数据空间可分辨阈值
       /const chk = checkFormat\(txt\);/.test(refreshSrc) &&
       /export function looksLikeTLE\(txt\)/.test(guardSrc) && /export function suspectKind\(txt\)/.test(guardSrc) &&
       !/function looksLikeTLE\(txt\) \{\n  const lines/.test(refreshSrc));
-    assert('H42：**非 200 记账 + 显式失败**（政策：立即停下交人排查；旧写法只 log 一行就继续跑 = 静默降级）',
-      /if \(!r\.ok\) \{ NET_ISSUES\.push\(\{ url: url, status: r\.status \}\);/.test(refreshSrc) &&
+    assert('H42：**非 200 记账 + 显式失败**（政策：立即停下交人排查；旧写法只 log 一行就继续跑 = 静默降级）'
+      + '｜且**按查询类型分类**（NAME=/CATNR= 的 404 = 查无此项，不能当异常 —— 上线当天就被 CI 抓到过误报）',
+      /const probeQuery = \/\[\?&\]\(NAME\|CATNR\)=\/i\.test\(url\);/.test(refreshSrc) &&
+      /if \(!\(r\.status === 404 && probeQuery\)\) NET_ISSUES\.push\(/.test(refreshSrc) &&
       /const NET_ISSUES = \[\];/.test(refreshSrc) && /const FORMAT_ALARM = \[\];/.test(refreshSrc) &&
       /if \(NET_ISSUES\.length\) \{[\s\S]{0,700}?process\.exitCode = 7;/.test(refreshSrc) &&
       /if \(FORMAT_ALARM\.length\) \{[\s\S]{0,800}?process\.exitCode = 6;/.test(refreshSrc));

@@ -142,10 +142,21 @@ async function get(url, tries, timeoutMs) {
         signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout)
           ? AbortSignal.timeout(timeoutMs || FETCH_TIMEOUT_MS) : undefined
       });
-      // ★ V1.9.5（H42）：**非 200 一律记账、不重试、最后统一失败**（CelesTrak 使用政策：
-      //   "收到任何非 200 响应必须立即停止并交人排查"；301/404 = 用了旧 URL，50x = 上游过载/被拦）。
-      //   旧写法只 `console.log` 一行就继续跑 → 任务"成功"但数据是残缺的（静默降级）。
-      if (!r.ok) { NET_ISSUES.push({ url: url, status: r.status }); return { ok: false, status: r.status, text: '' }; }
+      // ★ V1.9.5（H42）：非 200 **记账、不重试、最后统一失败**。但**要按查询类型分类**——
+      //   ⚠️ 第一版判据过宽（"任何非 200 都报警"）在**上线当天的 CI 上就误报**：
+      //     2026-10-16 15:44 UTC 实测 6 次 404 全是 `NAME=GUOWANG / GW- / SPACESAIL / G60` 与
+      //     `CATNR=100975/100976` —— 这些都是**我们主动成批探测的名字/编号**，"查无此项"的 404 是正常回执；
+      //     同一次运行的"数据新鲜度：落后 0.37 天 ✓"证明数据完全正常。误报会让 CI 永远红、数据永不提交。
+      //   现在的口径：
+      //     · `NAME=` / `CATNR=` 的 404 = **查无此项**（合法空结果）→ 只记 info、不进账本；
+      //     · `GROUP=`（分组名写死）/ `pub/satcat.csv`（固定 URL）的 404 = **真异常**（上游改版/分组消失）→ 进账本；
+      //     · 5xx / 其他非 200 → 进账本（上游过载或被防火墙拦）。
+      //   覆盖面没丢：若 gp.php 整个被换掉，GROUP= 那条必然先 404 ✓。
+      if (!r.ok) {
+        const probeQuery = /[?&](NAME|CATNR)=/i.test(url);
+        if (!(r.status === 404 && probeQuery)) NET_ISSUES.push({ url: url, status: r.status });
+        return { ok: false, status: r.status, text: '' };
+      }
       return { ok: true, status: r.status, text: (await r.text()).replace(/\r/g, '') };
     } catch (e) { if (i === (tries || 2) - 1) return { ok: false, status: 0, text: '', err: e.message }; await sleep(800); }
   }
