@@ -12098,6 +12098,46 @@ function drawNet() {
   if (!netView) netAutoView();
   var v = netView;
   var X = function (ms) { return PL + (ms - v.x0) / (v.x1 - v.x0) * pw; };
+  // ═══ ★ V1.9.5（H10 第③步）：**升轨阶段竖虚线**（用户 2026-10-15 第 10 条）═══
+  //   两条线 = climbPhases() 的 startMs / endMs；日期以 XX/XX/XX 写在**虚线下方**，用星座主题色 C.theme
+  //   （与 03 章「180°」那条虚线同一套画法：setLineDash([5,4]) + moveTo/lineTo + fillText）。
+  //   口径：**全局只选中一颗星时以该星为准**；否则取"**本批次多数星**"——各星各自判定后取中位数，
+  //   这样个别星与同组不同步不会把线带偏（用户原话："大部分卫星开始升轨的时间"）。
+  //   视图外的线不画（第④步会让 climbAutoView() 把这两个时刻纳入视野）。
+  if (d.length) {
+    var _selNorad = null;
+    if (S.sel && S.sel.length === 1) { var _s0 = cur().sats[S.sel[0]]; if (_s0) _selNorad = +_s0.norad; }
+    var _pick = null, _k;
+    if (_selNorad !== null) {
+      for (_k = 0; _k < d.length; _k++) if (+d[_k].norad === _selNorad) { _pick = climbPhases(d[_k].pts); break; }
+    } else {
+      var _starts = [], _ends = [];
+      for (_k = 0; _k < d.length; _k++) {
+        var _pp = climbPhases(d[_k].pts);
+        if (_pp.startMs !== null) _starts.push(_pp.startMs);
+        if (_pp.endMs !== null) _ends.push(_pp.endMs);
+      }
+      var _med = function (a) { if (!a.length) return null; a.sort(function (x, y) { return x - y; }); return a[a.length >> 1]; };
+      if (_starts.length) _pick = { startMs: _med(_starts), endMs: _med(_ends) };
+    }
+    if (_pick) {
+      var _z2 = function (n) { return (n < 10 ? '0' : '') + n; };
+      var _fmtD = function (ms) { var t2 = new Date(ms); return _z2(t2.getMonth() + 1) + '/' + _z2(t2.getDate()) + '/' + _z2(t2.getFullYear() % 100); };
+      ctx.save();
+      ctx.setLineDash([5, 4]); ctx.lineWidth = 1; ctx.strokeStyle = C.theme; ctx.fillStyle = C.theme;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+      var _line = function (ms) {
+        if (ms === null || ms === undefined) return;
+        if (ms < v.x0 || ms > v.x1) return;
+        var _mx = X(ms);
+        ctx.beginPath(); ctx.moveTo(_mx, PT); ctx.lineTo(_mx, PT + ph); ctx.stroke();
+        ctx.fillText(_fmtD(ms), _mx, PT + ph + 3);
+      };
+      _line(_pick.startMs);
+      _line(_pick.endMs);
+      ctx.restore();
+    }
+  }
   var Y = function (n) { return PT + ph - (n - v.y0) / (v.y1 - v.y0) * ph; };
   var NC = netColors();
   var wkStep = NET_WK;
@@ -12634,7 +12674,10 @@ function climbPhases(pts, opt) {
   var d = [], i;
   for (i = 1; i < pts.length; i++) {
     var dt = (pts[i].ms - pts[i - 1].ms) / 86400000;
-    if (!(dt > 0) || dt > 2) continue;
+    // ★ V1.9.5（H10）：间隔容差**不能**沿用 scripts/climb.mjs 的 2 天窗口 —— 那个处理的是
+    //   原始日频 TLE；而页面拿到的是**采样后的发布分片**（稳定期点很稀、间隔可达数周）。
+    //   这里是**阶段判定**、速率已按天归一（Δv/Δt），所以允许更长的间隔；只有明显跨空档（>30 天）才断开。
+    if (!(dt > 0) || dt > 30) continue;
     d.push({ ms: pts[i].ms, r: (pts[i].v - pts[i - 1].v) / dt });
   }
   if (d.length < 3) return NONE;
