@@ -4716,6 +4716,112 @@ function drawChart() {
     if (sel) { ctx.lineWidth = 1.4; ctx.strokeStyle = C.fg; ctx.stroke(); }
     ctx.globalAlpha = 1;
   });
+
+  // ★ 2026-10-17（用户要求：「几颗 GEO 卫星也应该使用**主题颜色圆圈勾画并标注**」）：
+  //   三颗 GEO（星网高轨业务星）在等效高度 ~1986 处与 LEO 混画在同一张图里，
+  //   普通 2.7px 的小点在它们那一片（只有 3 个点）几乎没有辨识度。
+  //   这里给它们单独一层：**主题色空心圆圈 + 星名标注**。
+  //   实现口径（与本章既有元素保持一致，避免"再多一套机制"）：
+  //     · 圆圈裁在绘图区内（与簇椭圆同一套裁剪；否则会画到轴外，触发 visual 的
+  //       「绘图区外无高饱和像素」守卫 —— 簇椭圆当年就是这么被抓到的）；
+  //     · 标签走**同一个 `_labelFor()` 避让表**（与簇标签/批次名共表，不会叠字）；
+  //     · 名字用 `nameOf()`（与星名标签同源，中文模式出中文名）；
+  //     · 标签再夹一次绘图区右/左边界（GEO 名字比簇标签长，_labelFor 的 72px 假设不够）。
+  var geoPts = pts.filter(function (p2) { return p2.sat && p2.sat.wk === 'GEO'; });
+  if (geoPts.length) {
+    ctx.save();
+    ctx.beginPath(); ctx.rect(PL, PT, pw, ph); ctx.clip();
+    ctx.lineWidth = 1.6; ctx.strokeStyle = C.theme; ctx.globalAlpha = 0.95;
+    var geoLab = [];
+    geoPts.forEach(function (p2) {
+      var x = X(p2.x), y = Y(p2.y);
+      if (y == null) return;                                   // 落在断轴区 → 不画
+      if (x < PL - 4 || x > PL + pw + 4 || y < PT - 4 || y > PT + ph + 4) return;
+      var R = 8;
+      ctx.beginPath(); ctx.arc(x, y, R, 0, 6.2832); ctx.stroke();
+      geoLab.push({ p: p2, x: x, y: y, R: R });
+    });
+    ctx.restore(); ctx.lineWidth = 1;
+    // 标签：**确定性竖排**（不用 _labelFor 的随机避让）——
+    //   实测三颗 GEO 的等效高度只差约 1 km → 画出来几乎同一像素，随机避让会把三行字叠在一起。
+    //   这里按已放置的**本层**标签做一次局部碰撞检查，撞了就把 slot 往下挪一行（13px），
+    //   再夹进绘图区内；同一行的多个标签也照此排开。
+    ctx.font = '10px ' + MONO; ctx.fillStyle = C.theme;
+    ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+    var geoPlaced = [];
+    geoLab.sort(function (a, b) { return (a.y - b.y) || (a.x - b.x); });
+    geoLab.forEach(function (o) {
+      var txt = nameOf(o.p.sat), w = ctx.measureText(txt).width;
+      var lx = Math.max(PL + 2, Math.min(PL + pw - w - 2, o.x + o.R + 4));
+      var ly = o.y - 3, slot = 0;
+      for (var t = 0; t < 12; t++) {
+        var hit = false;
+        for (var q = 0; q < geoPlaced.length; q++) {
+          var G = geoPlaced[q];
+          if (Math.abs(G[0] - lx) < Math.max(w, G[2]) + 6 && Math.abs(G[1] - ly) < 13) { hit = true; break; }
+        }
+        if (!hit) break;
+        slot++; ly = o.y - 3 + slot * 13;
+      }
+      ly = Math.max(PT + 12, Math.min(PT + ph - 2, ly));
+      geoPlaced.push([lx, ly, w]);
+      ctx.fillText(txt, lx, ly);
+    });
+    ctx.globalAlpha = 1;
+  }
+
+  // ★ 2026-10-17（用户要求：「几颗 GEO 卫星也应该使用**主题颜色圆圈勾画并标注**」）：
+  //   三颗 GEO（星网高轨业务星）在等效高度 ~1986 处与 LEO 混画在同一张图里，
+  //   普通 2.7px 的小点在它们那一片（只有 3 个点）几乎没有辨识度。
+  //   这里给它们单独一层：**主题色空心圆圈 + 星名标注**。
+  //   实现口径（与本章既有元素保持一致，避免"再多一套机制"）：
+  //     · 圆圈裁在绘图区内（与簇椭圆同一套裁剪；否则会画到轴外，触发 visual 的
+  //       「绘图区外无高饱和像素」守卫 —— 簇椭圆当年就是这么被抓到的）；
+  //     · 标签走**同一个 `_labelFor()` 避让表**（与簇标签/批次名共表，不会叠字）；
+  //     · 名字用 `nameOf()`（与星名标签同源，中文模式出中文名）；
+  //     · 标签再夹一次绘图区右/左边界（GEO 名字比簇标签长，_labelFor 的 72px 假设不够）。
+  var geoPts = pts.filter(function (p2) { return p2.sat && p2.sat.wk === 'GEO'; });
+  if (geoPts.length) {
+    ctx.save();
+    ctx.beginPath(); ctx.rect(PL, PT, pw, ph); ctx.clip();
+    ctx.lineWidth = 1.6; ctx.strokeStyle = C.theme; ctx.globalAlpha = 0.95;
+    var geoLab = [];
+    geoPts.forEach(function (p2) {
+      var x = X(p2.x), y = Y(p2.y);
+      if (y == null) return;                                   // 落在断轴区 → 不画
+      if (x < PL - 4 || x > PL + pw + 4 || y < PT - 4 || y > PT + ph + 4) return;
+      var R = 8;
+      ctx.beginPath(); ctx.arc(x, y, R, 0, 6.2832); ctx.stroke();
+      geoLab.push({ p: p2, x: x, y: y, R: R });
+    });
+    ctx.restore(); ctx.lineWidth = 1;
+    // 标签：**确定性竖排**（不用 _labelFor 的随机避让）——
+    //   实测三颗 GEO 的等效高度只差约 1 km → 画出来几乎同一像素，随机避让会把三行字叠在一起。
+    //   这里按已放置的**本层**标签做一次局部碰撞检查，撞了就把 slot 往下挪一行（13px），
+    //   再夹进绘图区内；同一行的多个标签也照此排开。
+    ctx.font = '10px ' + MONO; ctx.fillStyle = C.theme;
+    ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+    var geoPlaced = [];
+    geoLab.sort(function (a, b) { return (a.y - b.y) || (a.x - b.x); });
+    geoLab.forEach(function (o) {
+      var txt = nameOf(o.p.sat), w = ctx.measureText(txt).width;
+      var lx = Math.max(PL + 2, Math.min(PL + pw - w - 2, o.x + o.R + 4));
+      var ly = o.y - 3, slot = 0;
+      for (var t = 0; t < 12; t++) {
+        var hit = false;
+        for (var q = 0; q < geoPlaced.length; q++) {
+          var G = geoPlaced[q];
+          if (Math.abs(G[0] - lx) < Math.max(w, G[2]) + 6 && Math.abs(G[1] - ly) < 13) { hit = true; break; }
+        }
+        if (!hit) break;
+        slot++; ly = o.y - 3 + slot * 13;
+      }
+      ly = Math.max(PT + 12, Math.min(PT + ph - 2, ly));
+      geoPlaced.push([lx, ly, w]);
+      ctx.fillText(txt, lx, ly);
+    });
+    ctx.globalAlpha = 1;
+  }
   // 待编目批次：空心点 + 虚线高度区间（仅有目录摘要，无轨道要素 → 不参与选中/悬停）
   var ghost = pendPts();
   if (ghost.length) {
