@@ -1718,7 +1718,15 @@ var CHART_X_MIN = 0, CHART_X_MAX = 180;       // 倾角（°）—— V1.7.2（�
 //     用户口径"保留 36000−33800 的等效范围"）；断轴符号只画在**竖向刻度**上，图是单一连续坐标系。
 var CHART_GEO_EQUIV = true;                  // H39 总开关：true = 新口径；false = 回退 V1.9.3 断轴体系
 var CHART_GEO_SHIFT = 33800;                 // GEO 等效高度 = 实际高度 − 33800（35786 → 1986）
-var CHART_BRK_AT = 2000;                     // 断轴符号落在等效高度 2000 处（该刻度标签改为 35800km）
+// ★ 断轴符号的位置：**1500**（等效高度）。
+//   用户 2026-10-16 追加口径（原话）："对于有 GEO 卫星……的星网页面，仅竖轴断轴的那个节点应该提前到 1500km 处，
+//   不然被等效高度转化来的 GEO 点会位于断轴点刻度以下，显得在 1900 多 km 左右的高度，就会发生误解。"
+//   —— 这正是上一版（断轴在 2000）的语义漏洞：GEO 等效 1986 **落在断轴之下**，看着像一颗 ~1986km 的低轨星。
+//   移到 1500 后：断轴之上（1500~2200）一律是"非 LEO（实际 35300~36000km）"，GEO 的 1986 落在**断轴之上** ✓
+//   ⚠️ 前提：断轴点必须**高于所有 LEO 星的等效高度**（等效 = 实际高度，因为 LEO 不参与等效位移）。
+//     实测当前最高 LEO 簇 ~1168km（样张里的 1168km/86°）→ 1500 留了 ~330km 余量；
+//     若将来出现更高的 LEO 星（>1500），要同步抬高这个值（smoke 有一条守卫会盯着）。
+var CHART_BRK_AT = 1500;                     // 断轴符号落在等效高度 1500 处（该刻度标签起改标实际高度）
 var CHART_Y_MIN = 0;
 var CHART_Y_MAX = CHART_GEO_EQUIV ? 2200 : 36500;   // 等效高度上界（旧口径 = 实际高度，上界 GEO 36500）
 /** H39：实际高度 → 03 章显示高度（GEO 移进 2000km 附近区域；LEO 原样） */
@@ -1727,6 +1735,16 @@ function chartAlt(h) {
   return h >= CHART_GEO_SHIFT ? h - CHART_GEO_SHIFT : h;
 }
 /** H39：03 章纵轴刻度标签 —— 等效高度 ≥2000 的刻度改标**实际高度**（2000 → "35800km"） */
+/** ★ V1.9.5（H39 补丁）：当前星座是否有 GEO —— 决定竖轴断轴符号画不画。
+ *  为什么需要：断轴符号的语义是"这条轴被等效位移过，之上是非 LEO"；千帆没有 GEO，
+ *  等效轴对它没有意义（放大到 1500 以上时凭空冒出断轴反而误导）。 */
+function chartHasGeo() {
+  try {
+    var st = cur();
+    for (var i = 0; i < st.sats.length; i++) if (st.sats[i].wk === 'GEO') return true;
+    return false;
+  } catch (e) { return false; }
+}
 function chartTickLabel(t) {
   if (CHART_GEO_EQUIV && t >= CHART_BRK_AT) return (t + CHART_GEO_SHIFT) + 'km';
   return t.toFixed(MODE_FMT);
@@ -2156,7 +2174,9 @@ function drawChart() {
   }
   // ★ V1.9.5（H39）：新口径的断轴符号 —— **只画在竖向刻度线上**（国际通用的双斜杠），
   //   图本身是单一连续坐标系（无断轴、无两段）。落在等效高度 2000（= 实际 35800）处。
-  if (CHART_GEO_EQUIV && v.y0 <= CHART_BRK_AT && CHART_BRK_AT <= v.y1) {
+  //   ⚠️ 只有**当前星座真的有 GEO** 时才画（用户口径：这是"有 GEO 的星网页面"才需要的东西）——
+  //   千帆没有 GEO，放大到 1500 以上时若冒出断轴符号，反而会让人以为那里有高轨目标。
+  if (CHART_GEO_EQUIV && chartHasGeo() && v.y0 <= CHART_BRK_AT && CHART_BRK_AT <= v.y1) {
     ctx.strokeStyle = C.dim;
     brkDrawMark(ctx, PL, Y(CHART_BRK_AT), pw);
   }
@@ -5302,6 +5322,9 @@ document.getElementById('themeBtn').addEventListener('click', function () {
   //      全表 DOM 重建（renderTable）挪到动画结束后 —— 它是扩散动画掉帧的主因；
   //   ② 动画期间给 <html> 挂 .vt-running，临时关掉全站 backdrop-filter（毛玻璃逐帧重合成）；
   //   ③ 旧版 120ms 兜底会再跑一遍完整重绘 —— 现在只兜「主题确实切换」，重绘只发生在收尾一次。
+  // ⚠️ 2026-10-16 试过"更新回调返回 Promise、把重绘挪到动画之前"——**不可行，已回退**：
+  //   实测 VT 的抓取阶段会节流 rAF，promise 迟迟不 resolve（帧间隔 3.6–7s、页面像卡死），
+  //   必须保持**同步回调**。真正压卡顿的办法见 repaintMapGlobeNow 的"只重绘可见画布"。
   var apply = function () {
     if (done) return; done = true;
     setTheme(!light);
@@ -5311,15 +5334,21 @@ document.getElementById('themeBtn').addEventListener('click', function () {
     //   旧版只在这里置脏、真正的重绘发生在收尾 finishHeavy（那是"动画结束后"），
     //   于是 VT 的**新快照**里地球还是旧配色：扩散扫过时地球不变，收尾才"啪"地跳一次
     //   —— 用户报的"地球最后跳变一次"就是这么来的。
-    //   现在同步重绘一次（单帧成本，与 drawChart 同量级）：VT 会把新旧两张快照按扩散边界交叉淡入，
-    //   于是地球的颜色**随扫过的边界线连续变化**。收尾仍保留置脏（秒针/自转的后续帧不受影响）。
+    //   ⚠️ 第二版（2026-10-16 用户报"扩散变卡顿"后重写）：只重绘**可见的那一张**（见 repaintMapGlobeNow）。
+    // ⚠️ 注意别用"页面内的圆环元素"来加强边界：VT 期间活 DOM 被两张**静态快照**替代，
+    //   页面内任何 CSS 动画都会被冻在快照里（实测思路已否）。边界高光改用伪元素自身的
+    //   `inset box-shadow`（跟着 clip 边界走，见 template.html 的 ::view-transition-new(root)）。
+    // ★ V1.9.5（H25 第二版）：重绘**只画可见的那一张**（见 repaintMapGlobeNow）。
+    //   A/B 实测（2026-10-16，真浏览器 rAF 采样，地球可见时）：不重绘 = 动画期最大 30ms / 0 帧 >50ms；
+    //   两张都重绘（上一轮）= 最大 279ms / **8 帧 >50ms**（用户报的"扩散卡顿"）；
+    //   **只画可见那一张 = 最大 48–70ms / 0–2 帧 >50ms** —— 视觉收益（地球随边界变色）保住，代价基本抹平。
     repaintMapGlobeNow();
   };
   var finishHeavy = function () {
     document.documentElement.classList.remove('vt-running');
-    // V1.9.0（需求14/A）：主循环在扩散期间被暂停过，恢复时把两张大画布标记为脏 ——
-    //   否则若"秒"没跳变，地图/地球不会重画，主题色就停留在旧值上。
-    mapDirty = globeDirty = true;
+    // ★ V1.9.5（H25 第二版）：这里**不再**重复置脏 —— apply() 已经把可见画布画成新主题色，
+    //   另一张本来就是脏的（repaintMapGlobeNow 没动它）。旧版的"收尾再置脏"会让两张画布
+    //   在动画最后一刻再失效一次（又一轮光栅化）—— 实测那正是长帧最集中的位置。
     try { renderTable(); } catch (e) {}
   };
   if (typeof document.startViewTransition !== 'function') { apply(); finishHeavy(); return; }
@@ -8922,16 +8951,23 @@ document.getElementById('langBtn').addEventListener('click', function () {
  *  所以"置脏"要等收尾才被消费 —— 那正是"地球最后跳变一次"的机制。这里显式画一帧，
  *  让 VT 的**新快照**本身带上新配色，颜色的变化就交给 VT 的扩散交叉淡入（随边界扫过而连续变化）。 */
 function repaintMapGlobeNow() {
+  // ★ V1.9.5（H25 第二版，2026-10-16 实测后重写）：**只重绘"当前可见的那一张"画布**。
+  //   为什么：切换卡顿的量化结果是"帧最大 276–371ms、1.6s 内 8 帧 >50ms"，而纯 JS 重绘只花
+  //   drawMap 3.6–4.5ms + drawGlobe 2.6–7.2ms —— 说明**代价不在 JS，而在两块 2650×1360 大画布
+  //   同时失效后的重新光栅化**。VT 的"新快照"只需要**屏幕上看得见**的那张是新色：
+  //   另一张（在视口外）继续保持脏，等收尾由主循环按需补画 —— 用户看不到，却省掉一半光栅化。
   try {
-    mapDirty = globeDirty = true;
-    // 主循环还没跑过第一帧时 frameStates* 仍是 null（首屏立刻切主题）→ 就地推一次，
-    //   否则"置脏"没人消费，又变回"等收尾才跳"。
-    if (isVisible(mapCv)) { drawMap(frameStatesMap || propagateAll(simMs('map')), simMs('map')); mapDirty = false; }
-    if (isVisible(globeCv)) { drawGlobe(frameStatesGlobe || propagateAll(simMs('globe')), simMs('globe')); globeDirty = false; }
+    var did = '';
+    if (isVisible(mapCv) && !isVisible(globeCv)) { drawMap(frameStatesMap || propagateAll(simMs('map')), simMs('map')); mapDirty = false; did = 'map'; }
+    else if (isVisible(globeCv)) { drawGlobe(frameStatesGlobe || propagateAll(simMs('globe')), simMs('globe')); globeDirty = false; did = 'globe'; }
+    else if (isVisible(mapCv)) { drawMap(frameStatesMap || propagateAll(simMs('map')), simMs('map')); mapDirty = false; did = 'map'; }
+    else { mapDirty = globeDirty = true; did = 'none'; }      // 两张都不可见 → 交给主循环，别白画
+    return did;
   } catch (e) {
     // 重绘失败不能静默：退回"置脏"让主循环在收尾补一次（与 SGP4 失败同样的 warn 口径）。
     console.warn('[H25] 主题切换重绘失败：' + ((e && e.message) || e));
     mapDirty = globeDirty = true;
+    return 'err';
   }
 }
 var frameStatesMap = null, frameStatesGlobe = null, lastSecMap = 0, lastSecGlobe = 0, lastGlobeDraw = 0;

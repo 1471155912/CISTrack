@@ -1279,7 +1279,10 @@ html.loading, html.loading body { overflow:hidden; touch-action:none; }
   --anim-half: 260ms;
   /* V1.6.0：曲线调陡 —— 前 60% 时间只走约 10% 路程，"先慢后快"更明显 */
   --anim-lang: 620ms;
-  --anim-theme: 560ms;                                /* V1.6.1：明暗切换（略短于语言） */                                 /* V1.6.0：语言切换放慢一档（比星座切换更舒缓） */
+  /* ★ V1.9.5（H25 第二版，2026-10-16）：560 → **700ms**。用户口径"恢复并加强这个动效" ——
+     上一版权重全花在让地球在扩散期间变色，结果主线程被拖出 8 帧 >50ms（实测），扩散看着发涩；
+     这一版把代价压回去（只重绘可见画布 + 收尾不再重复失效），并把时长放宽一档，让"先慢后快"看清。 */
+  --anim-theme: 700ms;
   --anim-lang-half: 310ms;
   --ease-slow-fast: cubic-bezier(.92,.02,.98,.46);    /* 先慢后快 */
   --ease-fast-slow: cubic-bezier(.02,.72,.16,1);      /* 先快后慢 */
@@ -1441,6 +1444,11 @@ section.fs-mobile .sec-head {
 ::view-transition-new(root) {
   animation:vtCircle var(--anim-theme) var(--ease-slow-fast) forwards !important;
   mix-blend-mode:normal;
+  /* ★ V1.9.5（H25 第二版）：**边界高光** —— 伪元素自己被 clip 成扩散圆，所以一层 inset 光晕
+     会**贴着圆的边缘**一起走：既让"扫过的那条边界"看得见（用户把它叫"边界线扩散圆圈"），
+     又完全不需要额外的绘制（同一张快照 + 一层阴影），不占主线程。
+     为什么不用页面里的圆环元素：VT 期间活 DOM 被静态快照替代，页面内动画会被冻住（思路已否）。 */
+  box-shadow: inset 0 0 38px 6px var(--vt-glow, rgba(77,171,247,.22));
 }
 @keyframes vtCircle {
   from { clip-path:circle(0% at var(--vt-x, 96%) var(--vt-y, 4%)); }

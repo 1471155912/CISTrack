@@ -1271,17 +1271,39 @@ assert('V1.9.5（H39）：03 章不再画 180\u00b0 / 36500 边界虚线（源�
   !/fillText\('36500 km \(GEO\)'/.test(appSrc) &&
   !/CHART_X_MAX - 1e-6 && CHART_X_MAX >= v\.x0/.test(appSrc));
 // ★ V1.9.5（H39）：断轴符号只画在**竖向刻度**上、图本身是连续坐标系（不再有 YM.on 两段式）
-assert('V1.9.5（H39）：断轴符号画在等效高度 2000 的竖向刻度上（复用 brkDrawMark，无第二段映射）',
-  /if \(CHART_GEO_EQUIV && v\.y0 <= CHART_BRK_AT && CHART_BRK_AT <= v\.y1\)/.test(appSrc) &&
+assert('V1.9.5（H39 + 2026-10-16 补丁）：断轴符号画在等效高度 **1500** 的竖向刻度上（复用 brkDrawMark，无第二段映射）',
+  /if \(CHART_GEO_EQUIV && chartHasGeo\(\) && v\.y0 <= CHART_BRK_AT && CHART_BRK_AT <= v\.y1\)/.test(appSrc) &&
   /brkDrawMark\(ctx, PL, Y\(CHART_BRK_AT\), pw\)/.test(appSrc) &&
   /function chartAlt\(h\)/.test(appSrc) &&
   /return h >= CHART_GEO_SHIFT \? h - CHART_GEO_SHIFT : h;/.test(appSrc));
 // ★ V1.9.5（H39）：刻度标签 —— 等效高度 ≥2000 改标**实际高度**（2000 → "35800km"，用户原话；
 //   纯数字中英同形 → 不需要 i18n 键）
-assert('V1.9.5（H39）：2000 刻度的标签改为 35800km（chartTickLabel）',
+assert('V1.9.5（H39）：等效 ≥1500 的刻度标签改标**实际高度**（1500→35300km、2000→35800km）',
   /function chartTickLabel\(t\)/.test(appSrc) &&
   /if \(CHART_GEO_EQUIV && t >= CHART_BRK_AT\) return \(t \+ CHART_GEO_SHIFT\) \+ 'km';/.test(appSrc) &&
   /ctx\.fillText\(chartTickLabel\(t\), PL - 8, y\);/.test(appSrc));
+// ★ 2026-10-16 用户追加口径：断轴点必须**高于所有 LEO 星的等效高度**（否则 LEO 会跑到"35xxx km"区里）
+assert('H39 补丁：断轴点 1500 高于全部 LEO 等效高度（否则普通星会被标成 35xxx km 而误导）',
+  (function () {
+    const SD3 = JSON.parse(fs.readFileSync(B + '/build/satdata.json', 'utf8'));
+    const sats = [].concat(SD3.gw.sats, SD3.qf.sats);
+    const BRK = +( /var CHART_BRK_AT = (\d+);/.exec(appSrc) || [] )[1];
+    const hi = Math.max.apply(null, sats.filter(s => s.wk !== 'GEO')
+      .map(s => s.orb === 1 ? (s.wk || 0) + 120 : (s.wk || 0)));   // 变轨中的按"工作高度 + 余量"估
+    return BRK >= 1500 && hi < BRK;
+  })(), '断轴点=' + ((/var CHART_BRK_AT = (\d+);/.exec(appSrc) || [])[1]));
+assert('H39 补丁：断轴符号**只在有 GEO 的星座**画（千帆没有 GEO → 放大到 1500 以上也不该冒出断轴）',
+  /function chartHasGeo\(\)/.test(appSrc) &&
+  /if \(CHART_GEO_EQUIV && chartHasGeo\(\) && v\.y0 <= CHART_BRK_AT && CHART_BRK_AT <= v\.y1\)/.test(appSrc) &&
+  /for \(var i = 0; i < st\.sats\.length; i\+\+\) if \(st\.sats\[i\]\.wk === 'GEO'\) return true;/.test(appSrc));
+assert('H39 补丁：GEO 的等效高度（1986）**落在断轴之上**（1500 < 1986）—— 这是这条修正的全部意义',
+  (function () {
+    const SD4 = JSON.parse(fs.readFileSync(B + '/build/satdata.json', 'utf8'));
+    const BRK = +( /var CHART_BRK_AT = (\d+);/.exec(appSrc) || [] )[1];
+    const SHIFT = +( /var CHART_GEO_SHIFT = (\d+);/.exec(appSrc) || [] )[1];
+    const geos = [].concat(SD4.gw.sats, SD4.qf.sats).filter(s => s.wk === 'GEO').map(s => 35786 - SHIFT);
+    return geos.length > 0 && geos.every(y => y > BRK);
+  })(), 'GEO 等效高度=' + (35786 - (+(/var CHART_GEO_SHIFT = (\d+);/.exec(appSrc) || [])[1])));
 // 需求4：未编目行只留黄色边框
 assert('需求4：未编目行不再染黄/弱化文字（COSPAR、待编目数量、日期列全部恢复普通样式），黄框保留',
   !/tr\.pend-part \./.test(tpl) && !/tr\.pend-none \./.test(tpl) && !/\.ltable td\.pend/.test(tpl) &&
@@ -2746,7 +2768,7 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
     "  chartClamp: function (x0, x1, y0, y1) { var v = clampChartView({ x0: x0, x1: x1, y0: y0, y1: y1 });\n" +
     "    return { x0: +v.x0.toFixed(2), x1: +v.x1.toFixed(2), y0: +v.y0.toFixed(2), y1: +v.y1.toFixed(2) }; },\n" +
     // ★ V1.9.5（H39③）：无撕裂的运行时证据 —— 取**真实绘图映射**（drawChart 用的同一个 brkYMap(chartView,...)），
-    //   量"每 100 km 对应多少像素"：跨折点(2000)与 LEO 区必须**完全一致**（旧的折点映射做不到）。
+    //   量"每 100 km 对应多少像素"：跨断轴点(1500)与 LEO 区必须**完全一致**（旧的折点映射做不到）。
     "  chartYmap: function (y0, y1) { if (!chartView) chartAutoView();\n" +
     "    var v = (y0 == null) ? chartView : { x0: 0, x1: 180, y0: y0, y1: y1 };\n" +
     "    var r = chartRect || { PL: 66, PT: 16, pw: 100, ph: 300 };\n" +
@@ -4009,8 +4031,23 @@ assert('A9（V1.9.2 重新划分）：合并判据 = 数据空间可分辨阈值
       /g\.forEach\(function \(o\) \{ ctx\.fillText\(nameOf\(o\.s\), o\.x \+ 9, o\.y\); \}\);/.test(appSrc));
     // ★ V1.9.5（H25）：主题切换时地图/地球**随扫过边界一起变色**（不能等到收尾才跳一次）
     assert('H25：VT 回调里就重绘地图/地球（收尾才置脏 = 用户报的"地球最后跳变一次"）',
-      /var apply = function \(\) \{[\s\S]{0,700}?repaintMapGlobeNow\(\);/.test(appSrc) &&
-      /function repaintMapGlobeNow\(\) \{[\s\S]{0,460}?drawMap\(frameStatesMap \|\| propagateAll\(simMs\('map'\)\), simMs\('map'\)\)[\s\S]{0,240}?drawGlobe\(frameStatesGlobe \|\| propagateAll\(simMs\('globe'\)\), simMs\('globe'\)\)/.test(appSrc));
+      /var apply = function \(\) \{[\s\S]{0,1600}?repaintMapGlobeNow\(\);/.test(appSrc) &&
+      /function repaintMapGlobeNow\(\) \{[\s\S]{0,900}?drawMap\(frameStatesMap \|\| propagateAll\(simMs\('map'\)\), simMs\('map'\)\)[\s\S]{0,400}?drawGlobe\(frameStatesGlobe \|\| propagateAll\(simMs\('globe'\)\), simMs\('globe'\)\)/.test(appSrc));
+    // ★ V1.9.5（H25 第二版）：卡顿根治的三条**硬约束**（都是 2026-10-16 实测定下来的，别再改回去）
+    assert('H25 第二版：重绘**只画可见的那一张**画布（两张都画 = 8 帧 >50ms、最大 279ms，用户当场听得出卡）',
+      /if \(isVisible\(mapCv\) && !isVisible\(globeCv\)\) \{ drawMap/.test(appSrc) &&
+      /else if \(isVisible\(globeCv\)\) \{ drawGlobe/.test(appSrc) &&
+      /else \{ mapDirty = globeDirty = true; did = 'none'; \}/.test(appSrc));
+    assert('H25 第二版：收尾**不再**重复把两张画布置脏（那会在扩散末尾再触发一轮光栅化）',
+      !/document\.documentElement\.classList\.remove\('vt-running'\);\s*\n\s*mapDirty = globeDirty = true;/.test(appSrc) &&
+      /remove\('vt-running'\);[\s\S]{0,300}?try \{ renderTable\(\); \} catch \(e\) \{\}/.test(appSrc));
+    assert('H25 第二版：更新回调**必须同步**（返回 Promise 会让 VT 的抓取阶段等 rAF —— 实测卡死 3.6–7s）',
+      !/var apply = function \(\) \{[\s\S]{0,900}?return new Promise/.test(appSrc) &&
+      /\/\/ ⚠️ 2026-10-16 试过"更新回调返回 Promise/.test(appSrc));
+    assert('H25 第二版（动效加强）：时长 700ms + 伪元素**边界高光**（跟着扩散圆走，零额外绘制）',
+      /--anim-theme: 700ms;/.test(tpl) &&
+      /::view-transition-new\(root\) \{[\s\S]{0,400}?box-shadow: inset 0 0 38px 6px var\(--vt-glow/.test(tpl) &&
+      /animation:vtCircle var\(--anim-theme\) var\(--ease-slow-fast\) forwards !important;/.test(tpl));
     assert('H25：切换期间主循环早退（.vt-running）—— 所以必须显式画一帧，置脏不够',
       /if \(document\.documentElement\.classList\.contains\('vt-running'\)\) return;/.test(appSrc));
     // 降级守卫：重绘失败**不许静默**（warn + 退回置脏，让主循环收尾补一次）
@@ -4019,8 +4056,7 @@ assert('A9（V1.9.2 重新划分）：合并判据 = 数据空间可分辨阈值
     assert('H25：重绘失败不静默 —— warn + 退回置脏（收尾补画一次，不至于停在新色之外）',
       /console\.warn\('\[H25\] 主题切换重绘失败：'/.test(appSrc) &&
       /\} catch \(e\) \{\n    \/\/ 重绘失败不能静默[\s\S]{0,160}?mapDirty = globeDirty = true;/.test(appSrc) &&
-      // finishHeavy 仍保留置脏（秒针/自转的后续帧不受影响）
-      /mapDirty = globeDirty = true;\n    try \{ renderTable\(\); \} catch \(e\) \{\}/.test(appSrc));
+      /return 'err';/.test(appSrc));
     // 不参与命中测试：命中函数只找"最近点"，圆圈不进任何数组
     assert('A9：圆圈与标签**不参与命中测试**（命中走 chartHit 的"最近点"，里面不得出现 clusters）',
       (function () {
@@ -4101,8 +4137,8 @@ assert('A9（V1.9.2 重新划分）：合并判据 = 数据空间可分辨阈值
     // ③ 消除撕裂（用户原话的落脚点）：**单一连续坐标系** —— 同一拖拽量在任意位置换算一致。
     //   怎么测：取 drawChart 用的同一个映射，量"每 100 km 对应多少像素"。
     //   旧的两段式（折点映射 + 固定 BRK_GAP）在两段上比例不同，正是"撕裂"的来源；
-    //   现在跨折点（1900→2000→2100）与 LEO 区（0→100）必须**逐位相同**。
-    assert('V1.9.5（H39③）：纵向映射单一连续 —— 每 100km 像素数跨折点(2000)与 LEO 区完全一致（撕裂根源消失）',
+    //   现在跨断轴点（1400→1500→1600）与 LEO 区（0→100）必须**逐位相同**。
+    assert('V1.9.5（H39③）：纵向映射单一连续 —— 每 100km 像素数跨断轴点(1500)与 LEO 区完全一致（撕裂根源消失）',
       (function () {
         var m = k3.chartYmap();
         var ref = m.leo;
