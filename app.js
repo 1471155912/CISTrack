@@ -10230,6 +10230,52 @@ function climbSlope(pts) {
   return isFinite(k) ? k : null;
 }
 /** ±half 天窗口的逐点升轨速度；点数不足或窗口外无点的返回 null */
+// ★ V1.9.5（H10）：**升轨阶段判定**（纯函数，便于断言、便于缓存）—— H10 的两条星座色竖虚线
+//   就画在它返回的这两个时刻上。
+//   输入：pts = [{ms, v}]（v = 半长轴 km；与 climbSlope 同一形状，须按 ms 升序）
+//   返回：{ kind:'none'|'raising'|'done', startMs, endMs, thr }
+//     · 'none'     全程没"动"过（直送任务 / 尚未升轨 / 数据不足）→ 用户口径：**一条线都不画**
+//     · 'raising'  已开始、未结束 → 只画 start
+//     · 'done'     已结束 → start + end 都画
+//   ★ 阈值必须是**相对量**（该星日变化绝对值上四分位的 1/4，保底 0.2 km/天）——
+//     不同批次的目标轨道与推力差别很大，写死 km/天会把"慢速升轨"漏掉或把噪声当成在动。
+//   ★ 判据（用户 2026-10-15 口径）＝ 开始：连续 ≥2 天"在动"的第一天；
+//     结束：此后连续 ≥3 天回落的起点。已再入的，结束时刻改由调用方传入 decayMs（H10 ④）。
+function climbPhases(pts, opt) {
+  var o = opt || {};
+  var MIN_RUN = o.minRun || 2, END_RUN = o.endRun || 3;
+  var NONE = { kind: 'none', startMs: null, endMs: null, thr: null };
+  if (!pts || pts.length < 3) return NONE;
+  // 日变化：相邻点 km/天；间隔 >2 天的**断开**（与 scripts/climb.mjs 同口径，不做插值）
+  var d = [], i;
+  for (i = 1; i < pts.length; i++) {
+    var dt = (pts[i].ms - pts[i - 1].ms) / 86400000;
+    if (!(dt > 0) || dt > 2) continue;
+    d.push({ ms: pts[i].ms, r: (pts[i].v - pts[i - 1].v) / dt });
+  }
+  if (d.length < 3) return NONE;
+  var abs = [];
+  for (i = 0; i < d.length; i++) abs.push(Math.abs(d[i].r));
+  abs.sort(function (a, b) { return a - b; });
+  var q3 = abs[Math.min(abs.length - 1, Math.floor(abs.length * 0.75))];
+  var thr = Math.max(0.2, q3 * 0.25);
+  var moving = [], run = 0, startMs = null, endMs = null, k;
+  for (i = 0; i < d.length; i++) moving.push(Math.abs(d[i].r) >= thr);
+  for (k = 0; k < moving.length; k++) {
+    run = moving[k] ? run + 1 : 0;
+    if (run >= MIN_RUN) { startMs = d[k - MIN_RUN + 1].ms; break; }
+  }
+  if (startMs === null) return { kind: 'none', startMs: null, endMs: null, thr: thr };
+  var quiet = 0;
+  for (k = k + 1; k < moving.length; k++) {
+    quiet = moving[k] ? 0 : quiet + 1;
+    if (quiet >= END_RUN) { endMs = d[k - END_RUN + 1].ms; break; }
+  }
+  var res = { kind: endMs === null ? 'raising' : 'done', startMs: startMs, endMs: endMs, thr: thr };
+  // 已再入（H10 ④）：结束线改标**再入日期** —— 由调用方给 decayMs，纯函数不自己猜
+  if (o.decayMs && isFinite(o.decayMs)) { res.kind = 'done'; res.endMs = o.decayMs; }
+  return res;
+}
 function climbRates(pts, half, minPts) {
   half = half || 2; minPts = minPts || 2;
   var H = half * 86400000, out = new Array(pts.length);

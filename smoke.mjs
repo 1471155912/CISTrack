@@ -1612,6 +1612,17 @@ assert('V1.9.0（R17）+ V1.9.1（A2）：导出图片支持本章，底栏为**
   !/km\/天/.test((appCode.match(/if \(view === 'climb'\) \{[\s\S]{0,2000}?\n  \}/) || [''])[0]));
 assert('V1.9.0（R17）：最小二乘**必须中心化 x**（毫秒时间戳直接平方会抵消，误差 2.9e-9）',
   /function climbSlope\(pts\)[\s\S]{0,900}?var dx = \(pts\[i\]\.ms - t0\) - xm;/.test(appCode));
+// ★ V1.9.5（H10）第一步：升轨阶段判定 `climbPhases()` —— 两条星座色竖虚线（开始/结束）就是它的两个时刻。
+//   守卫分两层：这里先钉**源码形状**（相对阈值不写死 km/天、连续 N 天判据、再入日期可覆盖）；
+//   合成数据的**运行时**用例（直送=none / 升轨中只有 start / 已结束 start<end / 已再入 end=再入日）
+//   排在下一步（需要 k3 探针暴露该函数），届时替换掉本条的形状守卫。
+assert('V1.9.5（H10）：climbPhases 用「相对阈值 + 连续 N 天」判定（不写死 km/天），并支持再入日期覆盖',
+  /function climbPhases\(pts, opt\)/.test(appCode) &&
+  /var thr = Math\.max\(0\.2, q3 \* 0\.25\);/.test(appCode) &&
+  /if \(run >= MIN_RUN\)/.test(appCode) &&
+  /if \(quiet >= END_RUN\)/.test(appCode) &&
+  /if \(o\.decayMs && isFinite\(o\.decayMs\)\) \{ res\.kind = 'done'; res\.endMs = o\.decayMs; \}/.test(appCode) &&
+  /kind: endMs === null \? 'raising' : 'done'/.test(appCode));
 assert('V1.9.0（R17）：纵轴 0~2000km **顶格限位**（需求 Q47），且离地高度 = 半长轴 − 6378.137',
   /var CLIMB_TOP = 2000;/.test(appCode) && /var CLIMB_RE = 6378\.137;/.test(appCode) &&
   /Y\(c\.pts\[k2\]\.v - CLIMB_RE\)/.test(appCode));
