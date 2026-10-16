@@ -4215,15 +4215,32 @@ var SHOT_HEADS = { sat: [], launch: [] };
 function rowsTextFromHtml(html, vis, which) {
   var box = document.createElement('tbody');
   box.innerHTML = html;
-  var tbl = document.getElementById(which === 'sat' ? 'satTable' : 'launchTable');
-  var cols = [].slice.call(tbl.querySelectorAll('thead th'));
+  // ★ V1.9.5（H14）：**不再只取文字** —— 每个单元格连"页面上的样式语义"一起带出来，
+  //   导出才能与页面一致（旧版整表一种字体、一种灰，用户报"全默认字体"）。
+  //   kind 的判据直接读**页面的类名**（satRowHtml/launchRowHtml 生成的 markup 就在眼前）：
+  //     lname = 名称列（加粗 + --fg + 色块）｜stcell = 在轨状态列（三态色）｜rk = 批次名列（加粗）
+  //     wl = 可跳转项（主题色）｜nodata = 无数据（保持 --dim）
+  //   row: gone = 已再入整行（页面 opacity:.62，状态格除外）
   return [].slice.call(box.children).map(function (tr) {
-    return vis.map(function (i) {
+    var gone = tr.classList.contains('gone');
+    var cells = vis.map(function (i) {
       var td = tr.children[i];
-      if (!td) return '';
-      // 用「取可见列的文字」的简化版：链接只留文字，标签只留文字
-      return String(td.textContent || '').replace(/\s+/g, ' ').trim();
+      if (!td) return { t: '', k: '' };
+      var t = String(td.textContent || '').replace(/\s+/g, ' ').trim();
+      var k = '';
+      if (td.classList.contains('lname')) k = 'lname';
+      else if (td.classList.contains('stcell')) {
+        k = td.classList.contains('st-raising') ? 'st-raising'
+          : (td.classList.contains('st-gone') ? 'st-gone' : 'st-orbit');
+      } else if (td.classList.contains('rk')) k = 'rk';
+      else if (td.querySelector('a.wl')) k = 'wl';
+      else if (td.querySelector('.no-data')) k = 'nodata';
+      var sw = '';
+      var swEl = td.querySelector('.swatch');
+      if (swEl) sw = swEl.style.background || '';     // 名称列的色块（内联 background，页面同一份）
+      return { t: t, k: k, sw: sw };
     });
+    return { gone: gone, cells: cells };
   });
 }
 /**
@@ -4350,7 +4367,7 @@ function exportTable(opts) {
   var widths = heads.map(function (h, c) {
     if (pageW && pageW[c] > 0) return Math.max(44 * dpr, pageW[c] * dpr);   // ★ 与页面同比例
     var w = probe.measureText(h).width;
-    rows.forEach(function (r) { w = Math.max(w, probe.measureText(r[c] || '').width); });
+    rows.forEach(function (r) { var cc = (r.cells && r.cells[c]) || null; w = Math.max(w, probe.measureText(String((cc && cc.t) || '')).width); });   // ★ H14：rows 结构变了
     return Math.min(w + padX * 2, 300 * dpr);
   });
   var W = widths.reduce(function (a, b) { return a + b; }, 0);
@@ -4360,8 +4377,8 @@ function exportTable(opts) {
   //     但 probe 在 ctx 创建**之前**就绪，避免"先算尺寸再建画布"的顺序倒置。
   probe.font = monoFont(fs);
   var cellLines = rows.map(function (r) {
-    return r.map(function (cell, c) {
-      return wrapCell(probe, String(cell == null ? '' : cell), widths[c] - padX * 2);
+    return r.cells.map(function (cell, c) {           // ★ H14：rows 现在是 {gone, cells}
+      return wrapCell(probe, String(cell && cell.t != null ? cell.t : ''), widths[c] - padX * 2);
     });
   });
   // 行高 = 该行最多行数 × 单行高（不再全局固定 26*dpr）
@@ -4428,19 +4445,50 @@ function exportTable(opts) {
   y += headH2;
   // 数据行
   ctx.font = monoFont(fs);
+  // ★ V1.9.5（H14）：颜色/字重/透明度按页面语义逐格施加（与 .ltable 的 CSS 一一对应）
+  var upCol = cssVar('--st-orbit', '#51cf66');
+  var raisingCol = cssVar('--st-raising', '#f59f00');
+  var goneCol = cssVar('--st-gone', '#ff6b6b');
+  var faint = cssVar('--faint', '#5a6470');
   rows.forEach(function (r, ri) {
     var rh = rowHeights[ri];
     if (ri % 2) { ctx.fillStyle = 'rgba(255,255,255,.035)'; ctx.fillRect(0, y, W, rh); }
     ctx.fillStyle = hair; ctx.fillRect(0, y, W, Math.max(1, dpr / 2));
     cellLines[ri].forEach(function (ls, c) {
-      ctx.fillStyle = dim;
+      var cell = r.cells[c] || { k: '' };
+      var k = cell.k || '';
+      // 页面口径：td 默认 --dim；.lname / .rk 加粗且 --fg；状态列三色；已再入整行 opacity .62（状态格除外）
+      var col = dim, bold = false, alpha = 1;
+      if (k === 'lname') { col = fg; bold = true; }
+      else if (k === 'rk') { col = fg; bold = true; }
+      else if (k === 'wl') { col = shotAccent(); }
+      else if (k === 'st-orbit') { col = upCol; }
+      else if (k === 'st-raising') { col = raisingCol; }
+      else if (k === 'st-gone') { col = goneCol; }
+      else if (k === 'nodata') { col = faint; }
+      if (r.gone && k !== 'st-gone' && k !== 'st-raising') alpha = 0.62;   // 与 tr.gone td{opacity:.62} 同款
+      ctx.font = monoFont(fs, bold);
+      ctx.fillStyle = col;
+      ctx.globalAlpha = alpha;
       ctx.textAlign = alignOf(c);
       var cx0 = alignOf(c) === 'left' ? colX[c] + padX : colX[c] + widths[c] / 2;
       var ty = y + (rh - (ls.length * lineH)) / 2 + lineH / 2;
-      ls.forEach(function (ln, k) { ctx.fillText(ln, cx0, ty + k * lineH); });
+      // 名称列的**色块小方**（页面 .swatch 10px）—— 画在文字左边，文字相应右移
+      var tx = cx0;
+      if (k === 'lname' && cell.sw) {
+        var sw2 = Math.round(8 * dpr);
+        ctx.save(); ctx.globalAlpha = alpha; ctx.fillStyle = cell.sw;
+        ctx.fillRect(cx0, ty - sw2 / 2 - Math.round(dpr), sw2, sw2);
+        ctx.restore();
+        ctx.fillStyle = col;
+        tx = cx0 + sw2 + Math.round(5 * dpr);
+      }
+      ls.forEach(function (ln, kk) { ctx.fillText(ln, tx, ty + kk * lineH); });
+      ctx.globalAlpha = 1;
     });
     y += rh;
   });
+  ctx.font = monoFont(fs);
   ctx.textAlign = 'left';
   // 底栏：左=署名与模拟时间，右=免责声明（全白字）
   var footH = Math.round(30 * dpr);

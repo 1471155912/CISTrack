@@ -5422,8 +5422,30 @@ assert('V1.9.3：e2e 的实跑挂在 CI 上（本地 smoke 不跑，避免闸门
 
   assert('V1.9.3②：长文本**按列宽折行**（新 `wrapCell`），不再用 `slice(0,39)+\'…\'` 按字符截断',
     /function wrapCell\(ctx, text, maxW\)/.test(appCode) &&
-    /return wrapCell\(probe, String\(cell == null \? '' : cell\), widths\[c\] - padX \* 2\);/.test(etSrc) &&
+    /return wrapCell\(probe, String\(cell && cell\.t != null \? cell\.t : ''\), widths\[c\] - padX \* 2\);/.test(etSrc) &&
     !/cell\.length > 40 \? cell\.slice\(0, 39\) \+ '…' : cell/.test(etSrc));
+  // ★ V1.9.5（H14）：导出表格与页面**样式语义一致**（旧版整表一种字体、一种灰 = 用户报的"全默认字体"）
+  //   ⚠️ 这段在 `rowsTextFromHtml` 里（exportTable **之前**）→ 不能拿 etSrc（只截 exportTable 函数体）去测，
+  //      必须单独截函数体，否则断言永远失败（2026-10-16 踩过：窗口放宽两次都没用，根因是取错了源）。
+  const rtfSrc = (appCode.match(/function rowsTextFromHtml\(html, vis, which\)[\s\S]*?\n\}\n/) || [''])[0];
+  assert('H14：导出把页面的样式语义带出来（按单元格读类名：lname / stcell 三态 / rk / wl / nodata + 已再入行）',
+    rtfSrc.length > 200 &&
+    /classList\.contains\('lname'\)/.test(rtfSrc) &&
+    /classList\.contains\('stcell'\)/.test(rtfSrc) &&
+    /classList\.contains\('st-raising'\) \? 'st-raising'/.test(rtfSrc) &&
+    /var gone = tr\.classList\.contains\('gone'\);/.test(rtfSrc) &&
+    /var swEl = td\.querySelector\('\.swatch'\);/.test(rtfSrc) &&
+    /return \{ t: t, k: k, sw: sw \};/.test(rtfSrc));
+  assert('H14：导出按 kind 施加**字体/颜色/透明度**（名称列 & 批次名加粗、状态列三色、已再入 0.62、跳转项主题色）',
+    /if \(k === 'lname'\) \{ col = fg; bold = true; \}/.test(etSrc) &&
+    /else if \(k === 'st-raising'\) \{ col = raisingCol; \}/.test(etSrc) &&
+    /if \(r\.gone && k !== 'st-gone' && k !== 'st-raising'\) alpha = 0\.62;/.test(etSrc) &&
+    /ctx\.font = monoFont\(fs, bold\);/.test(etSrc) &&
+    /else if \(k === 'wl'\) \{ col = shotAccent\(\); \}/.test(etSrc));
+  assert('H14：名称列**画出色块小方**（取页面的内联 background，色块颜色与页面同一份）',
+    /if \(k === 'lname' && cell\.sw\) \{/.test(etSrc) &&
+    /ctx\.fillRect\(cx0, ty - sw2 \/ 2 - Math\.round\(dpr\), sw2, sw2\);/.test(etSrc) &&
+    /tx = cx0 \+ sw2 \+ Math\.round\(5 \* dpr\);/.test(etSrc));
   assert('V1.9.3②：表头与数据行**居中**、**首列左对齐**（与页面 `text-align:center` + `td:first-child{left}` 同款）',
     /var alignOf = function \(c\) \{ return c === 0 \? 'left' : 'center'; \};/.test(etSrc) &&
     /ctx\.textAlign = alignOf\(c\);/.test(etSrc));
