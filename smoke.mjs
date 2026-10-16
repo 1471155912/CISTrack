@@ -2434,6 +2434,8 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
     "  launchKeys: function () { return (cur().launches || []).map(function (x) { return x.key; }); },\n" +
     // ★ V1.9.3：科学记数法格式化（用户要求）
     "  fmtSci: function (v, n) { return fmtSci(v, n); },\n" +
+    // ★ V1.9.5（H10）：升轨阶段判定（两条竖虚线的数据基础）—— 暴露给运行时用例
+    "  climbPhases: function (pts, opt) { return climbPhases(pts, opt); },\n" +
     "  constelState: function (v) { return shotConstelState(v); },\n" +
     // V1.9.1（#6）：横轴刻度梯 + 轴起点
     "  netOrigin: function () { var d = netData(); return { x0min: netX0Min(d), weeks0: d.weeks[0], origin: d.originMs }; },\n" +
@@ -2574,6 +2576,26 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
       !/×10/.test(k3.fmtSci(36500, 2)) &&
       k3.fmtSci(0, 2) === '0',
       [k3.fmtSci(0.0000311, 2), k3.fmtSci(0.000371, 2), k3.fmtSci(36500, 2), k3.fmtSci(0, 2)].join(' | '));
+  // ★ V1.9.5（H10）：四态**运行时**用例 —— 用合成数据验"直送 / 升轨中 / 已结束 / 已再入"四种判定的真值。
+  //   ⚠️ 合成数据在纯函数层直接构造（不依赖真实历史点），所以结果与数据演进无关（不会变成快照断言）。
+  {
+    const DAY = 86400000, B0 = Date.UTC(2026, 0, 1);
+    const P = arr => arr.map((v, i) => ({ ms: B0 + i * DAY, v: v }));
+    const flat = [], rise = [];
+    for (let i = 0; i < 12; i++) flat.push(7000);
+    for (let i = 0; i < 10; i++) rise.push(7000 + i * 20);          // 每天 +20 km（相对阈值必然判为"在动"）
+    const tail = []; for (let i = 0; i < 5; i++) tail.push(7000 + 9 * 20);
+    const cNone = k3.climbPhases(P(flat));                          // 直送：全程不动
+    const cRais = k3.climbPhases(P(rise));                          // 升轨中：结尾仍在升
+    const cDone = k3.climbPhases(P(rise.concat(tail)));              // 已结束：升完再平 5 天
+    const cDecay = k3.climbPhases(P(rise.concat(tail)), { decayMs: B0 + 40 * DAY });   // 已再入：结束线改标再入日
+    assert('V1.9.5（H10）：climbPhases 四态运行时判定（直送=none｜升轨中=raising｜已结束=done｜已再入=再入日覆盖）',
+      cNone.kind === 'none' && cNone.startMs === null &&
+      cRais.kind === 'raising' && cRais.startMs !== null && cRais.endMs === null &&
+      cDone.kind === 'done' && cDone.startMs !== null && cDone.endMs !== null && cDone.startMs < cDone.endMs &&
+      cDecay.kind === 'done' && cDecay.endMs === B0 + 40 * DAY,
+      [cNone.kind, cRais.kind, cDone.kind, cDecay.kind].join(' / ') + '  thr=' + cRais.thr);
+  }
 
     const lr = k3.launchRowText('25F05');      // 试验星07组（朱雀二号E Y3 失利，静态 fail）
     assert('V1.9.3：**失败行**的两列都渲染成 `-`（真实渲染输出，不是只看源码）',
