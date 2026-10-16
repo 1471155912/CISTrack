@@ -2462,6 +2462,14 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
     "  climbLiteKeys: function () { var h = RAW[S.key].hist || {}; return Object.keys(h); },\n" +
     "  climbSelClear: function () { S.sel = []; return 1; },\n" +
     "  climbSelByNorad: function (n) { var arr = cur().sats, i; for (i = 0; i < arr.length; i++) if ((arr[i].norad | 0) === (n | 0)) { S.sel = [i]; return i; } return -1; },\n" +
+    "  climbSelAdd: function (n) { var arr = cur().sats, i; for (i = 0; i < arr.length; i++) if ((arr[i].norad | 0) === (n | 0)) { S.sel = S.sel.concat([i]); return S.sel.length; } return -1; },\n" +
+    // ★ V1.9.5（H11）：导出图带虚线的**运行时**验证 —— 在导出倍率（2×）下重绘一次，取画布记录
+    "  climbExportCheck: function () {\n" +
+    "    var c = climbCv.getContext('2d'); c.__styles.textXY.length = 0; c.__styles.text.length = 0;\n" +
+    "    var k = 0; withCanvasScale(climbCv, 2, drawClimb, function (kk) { k = kk; });\n" +
+    "    var A = c.__styles.dash;\n" +
+    "    return { k: k, dash: A[A.length - 1] || null, texts: c.__styles.textXY.slice(), rect: climbRect };\n" +
+    "  },\n" +
     "  constelState: function (v) { return shotConstelState(v); },\n" +
     // V1.9.1（#6）：横轴刻度梯 + 轴起点
     "  netOrigin: function () { var d = netData(); return { x0min: netX0Min(d), weeks0: d.weeks[0], origin: d.originMs }; },\n" +
@@ -4090,8 +4098,11 @@ assert('A9（V1.9.2 重新划分）：合并判据 = 数据空间可分辨阈值
   // ================================================================ V1.9.1（A2）：导出底栏六段结构
   // 「批次/组」之后 = 第4段（点选节点：YYYY-MM-DD/高度km/倾角°）+ 第5段（最新节点，同格式）
   //   + 第6段（最新 vs 次新：±Δ半长轴km/间隔+天词，颜色同页面内规则）。
-  //   Q8：只填被点选的那一行，其余三段一律破折号。Q9/Q16：中文「天」/ 英文 day(1) / days(>1)。
+  //   Q8：4/5/6 段只在**点选了节点**时填，其余一律破折号。Q9/Q16：中文「天」/ 英文 day(1) / days(>1)。
   //   同时 A2 取代了 R17 的「升轨速度列」——那条列不再出现在导出图里。
+  // ★ V1.9.5（H11）：**行规则改口径**（H11 取代 R17 的"画出来的曲线都列"）：
+  //   未选星（批次视图、无节点）→ **0 行**；选定节点 / 选单星 → **只列该星一行**。
+  //   "以哪颗星为准"与相位线同源（climbOneNorad）；下面逐一钉住这些状态。
   {
     assert('A2：第 4/5/6 段就位（+ 新增会话态记录"最后点选的节点"）',
       /var climbPickNode = null;/.test(appSrc) &&
@@ -4105,31 +4116,51 @@ assert('A9（V1.9.2 重新划分）：合并判据 = 数据空间可分辨阈值
     assert('A2：天数词按 Q16（英文 1→day / >1→days；中文恒为「天」）',
       k3.dayWord(0) === '天' && k3.dayWord(1) === '天' && k3.dayWord(9) === '天',
       'zh: ' + [0, 1, 9].map(n => k3.dayWord(n)).join(','));
+    assert('V1.9.5（H11）：行规则与相位线**同源**（climbOneNorad 被定义并被两处调用）',
+      (appSrc.match(/climbOneNorad\(/g) || []).length >= 3);
 
-    // —— 取一条真实曲线，走"未点选 → 点选 → 点选已失效"三个阶段，逐段核对内容 ——
+    // —— ★ V1.9.5（H11）：行规则四态 ——（顺带把六段格式逐段核对） ——
+    k3.setClimbPick(''); k3.climbSelClear(); k3.pickNode(null, 0);
     const rows0 = k3.shotLines('climb');
-    assert('A2：每行都是六段（名称 | NORAD | 批次/组 | 选择节点 | 最新节点 | Δ/间隔）',
-      rows0.length > 0 && rows0.every(r => r.segs && r.segs.length === 6),
-      '行数=' + rows0.length + ' 段数=' + (rows0[0] ? rows0[0].segs.length : '-'));
-    assert('A2（Q8）：未点选任何节点时，第 4/5/6 段全是破折号（不越权替用户选）',
-      rows0.every(r => r.segs[3].t === '—' && r.segs[4].t === '—' && r.segs[5].t === '—'),
-      JSON.stringify(rows0[0].segs.map(x => x.t)));
-    assert('A2：整行不含旧的「升轨速度列」（A2 明确取代 R17 的两段）',
-      rows0.every(r => r.segs.map(x => x.t).join('|').indexOf('km/天') < 0 &&
-        r.segs.map(x => x.t).join('|').indexOf('km/d') < 0));
+    assert('V1.9.5（H11）：未选星（批次视图、无节点）→ **0 行**（下方无数据行）',
+      rows0.length === 0, '行数=' + rows0.length);
 
-    // 点选"该批次里第一颗星"的第 2 个节点（保证它一定有前一个点 → 第 6 段才有值）
-    const first = k3.climbList()[0];
+    // 显式挑一个"成员 ≥2 的内置兜底批次"（后面单星/点选/多选三条都基于它，稳）
+    let mk = null, mem = null;
+    for (const k of k3.climbLiteKeys()) {
+      const L = k3.climbBatchPts(k);
+      if (L.length >= 2) { mk = k; mem = L; break; }
+    }
+    assert('V1.9.5（H11）：找得到成员 ≥2 的兜底批次（后续用例的载体）', !!mk, '批次=' + mk + ' 成员=' + (mem ? mem.length : 0));
+    if (mk) {
+      k3.setClimbPick('b:' + mk);
+      const rowsBatch = k3.shotLines('climb');
+      assert('V1.9.5（H11）：批次视图（N 条曲线、未选星）→ **0 行**（旧口径会列满 N 行）',
+        rowsBatch.length === 0, '批次=' + mk + ' 曲线=' + k3.climbBatchPts(mk).length + ' 行数=' + rowsBatch.length);
+    }
+    const first = (mem && mem[0]) || k3.climbList()[0];
+    k3.climbSelByNorad(first.n);                          // 全局恰好选中一颗（跟随路径）
+    const rowsSel = k3.shotLines('climb');
+    assert('V1.9.5（H11）：选中一颗星（跟随路径）→ **只列该星一行**（仍是六段）',
+      rowsSel.length === 1 && rowsSel[0].segs.length === 6 && rowsSel[0].segs[1].t === String(first.n),
+      '行数=' + rowsSel.length + ' norad=' + (rowsSel[0] ? rowsSel[0].segs[1].t : '-'));
+    assert('A2（Q8）：未点选任何节点时，第 4/5/6 段全是破折号（不越权替用户选）',
+      rowsSel[0].segs[3].t === '—' && rowsSel[0].segs[4].t === '—' && rowsSel[0].segs[5].t === '—',
+      JSON.stringify(rowsSel[0].segs.map(x => x.t)));
+    assert('A2：整行不含旧的「升轨速度列」（A2 明确取代 R17 的两段）',
+      rowsSel[0].segs.map(x => x.t).join('|').indexOf('km/天') < 0 &&
+      rowsSel[0].segs.map(x => x.t).join('|').indexOf('km/d') < 0);
+
+    // 点选"该星"的第 2 个节点（保证它一定有前一个点 → 第 6 段才有值）
     const pts = k3.climbFind(first.n).pts;
     const pickIdx = pts.length >= 2 ? 1 : 0;
     k3.pickNode(first.n, pts[pickIdx].ms);
     const rows1 = k3.shotLines('climb');
-    const mine = rows1.filter(r => r.segs[1].t === String(first.n))[0];
-    const others = rows1.filter(r => r.segs[1].t !== String(first.n));
-    assert('A2（Q8）：只填被点选的那一行，其余行仍全为破折号',
-      mine.segs[3].t !== '—' && mine.segs[4].t !== '—' && mine.segs[5].t !== '—' &&
-      others.every(r => r.segs[3].t === '—' && r.segs[4].t === '—' && r.segs[5].t === '—'),
-      'mine=' + JSON.stringify(mine.segs.map(x => x.t)) + ' 其余行=' + others.length);
+    const mine = rows1[0] || { segs: [{ t: '-' }, { t: '-' }, { t: '-' }, { t: '-' }, { t: '-' }, { t: '-' }] };
+    assert('V1.9.5（H11）+ A2（Q8）：选中节点 → 只列该星一行，且第 4/5/6 段被填',
+      rows1.length === 1 && mine.segs[1].t === String(first.n) &&
+      mine.segs[3].t !== '—' && mine.segs[4].t !== '—' && mine.segs[5].t !== '—',
+      '行数=' + rows1.length + ' mine=' + JSON.stringify(mine.segs.map(x => x.t)));
     assert('A2：第 4 段 = 点选的那个节点（日期/高度km/倾角°，形如 2026-09-10/960.32km/50.9°）',
       /^\d{4}-\d{2}-\d{2}\/\d+(\.\d{1,2})?km\/\d+(\.\d)?°$/.test(mine.segs[3].t) &&
       mine.segs[3].t.slice(0, 10) === k3.nodeDate(pts[pickIdx].ms),
@@ -4166,6 +4197,32 @@ assert('A9（V1.9.2 重新划分）：合并判据 = 数据空间可分辨阈值
     assert('A2：点选的节点已不在数据里 → 退回最新节点（不留空段、不显示空字符串）',
       m2.segs[3].t === m2.segs[4].t && m2.segs[3].t !== '—', m2.segs[3].t);
     k3.pickNode(null, 0);
+
+    // ★ V1.9.5（H11）：全局选中**两颗** → 不算"选定一颗星" → 0 行
+    if (mem && mem[1]) {
+      k3.climbSelAdd(mem[1].n);
+      const rowsTwo = k3.shotLines('climb');
+      assert('V1.9.5（H11）：全局选中两颗 → 0 行（只有"恰好一颗"才算选定）',
+        rowsTwo.length === 0, '行数=' + rowsTwo.length);
+    }
+    // ★ V1.9.5（H11）：导出图**带竖虚线** —— 导出走 `withCanvasScale`（2×）重绘 `drawClimb()`
+    //   （屏幕 / 导出共用同一段画线代码，不是"导出里另写一份"）。这里在导出倍率下重绘一次并查画布记录。
+    {
+      const pubB2 = {};
+      k3.climbLiteKeys().forEach(k => { const v = k3.climbPubB(k); if (v) pubB2[k] = v; });
+      const k2 = k3.climbLiteKeys().find(k => pubB2[k]) || '';
+      k3.setClimbPick(k2 ? ('b:' + k2) : ''); k3.climbSelClear(); k3.pickNode(null, 0);
+      const ex = k3.climbExportCheck();
+      const expDate = k2 ? k3.climbDateFmt(pubB2[k2][0] * 86400000) : '';
+      const yExp = ex.rect ? ex.rect.PT + ex.rect.ph + 3 : -1;
+      assert('V1.9.5（H11）：导出图带竖虚线（导出倍率 2× 重绘后：[5,4] 虚线 + 相位日期都在）',
+        !!k2 && ex.k >= 1 && ex.dash === '[5,4]' &&
+        ex.texts.some(o => o.t === expDate && Math.abs(o.y - yExp) < 0.75),
+        '批次=' + k2 + ' k=' + ex.k + ' dash=' + ex.dash + ' 期望日期=' + expDate + ' 文本条数=' + ex.texts.length);
+      assert('V1.9.5（H11）：导出与屏幕共用同一绘制函数（源码守卫：导出分支调 drawClimb，不另写一套）',
+        /else if \(view === 'climb'\) drawClimb\(\)/.test(appSrc));
+    }
+    k3.setClimbPick(''); k3.climbSelClear(); k3.pickNode(null, 0);
 
     // ---- A4：导出底栏多行卫星数据统一白色 ----
     assert('A4：全部行同一取色（删掉首行特例 i === 0 ? shotInk() : shotInkDim()）',

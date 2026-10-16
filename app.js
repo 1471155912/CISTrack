@@ -3648,58 +3648,58 @@ function shotTimeStr(view) {
 //   所以这里按 view 决定是否拼上历元；前两章与表格仍保留。
 function shotSatLines(view) {
   if (view === 'progress') return [];        // V1.8.0（需求8）：03.5 是星座曲线图，不列选中卫星
-  // V1.9.0（R17）：04 变轨情况 —— 导出图底栏要带**升轨速度列**（需求 R17）。
-  //   列的是「当前这一章画出来的那几条曲线」，而不是全局选中：
-  //   本章默认就跟着全局选中，两者一致；但用户显式选了某个批次时，
-  //   底栏必须如实写这个批次的成员星，否则图与字对不上。
+  // ★★ V1.9.5（H11）：04 变轨情况的导出数据行 —— **行规则改口径**（H11 明确取代 R17 的"画出来的
+  //   曲线都列"）：未选星（批次视图、没点节点、也没选单星）→ **0 行**（下方无数据行）；
+  //   选定节点 / 本章选单星 / 全局恰好选中一颗 → **只列该星一行**。
+  //   · 取"以哪颗星为准"与相位线**同一口径**（climbOneNorad —— 两处必须同源）；
+  //   · 星不在本图里（选着别的批次的星）→ 不算数，退回点选的节点，再没有就不画行（与线同规则）；
+  //   · 六段格式与逐段规则**保持不变**（A2）：4/5/6 段只在**点选了节点**时填（Q8：不越权替用户选）。
   if (view === 'climb') {
     var sc = climbSeries(), cl = sc.list;
     if (!cl.length) return [];
-    var rowsC = cl.slice().sort(function (a, b) { return a.norad - b.norad; });
     var pick = climbPickNode;
-    return rowsC.map(function (c) {
-      var idx = climbSatIdx(c.norad);
-      var sat = idx >= 0 ? cur().sats[idx] : null;
-      var n = c.pts.length;
-      var last = c.pts[n - 1];
-      var prev = n >= 2 ? c.pts[n - 2] : null;
-      // 倾角：历史点位只存半长轴，倾角取**该星台账里的当前值**（与页面信息窗同一来源）
-      var inc = sat ? fmtNum(sat.inc, 1) + '°' : '—';
-      var nodeSeg = function (p) {
-        return shotNodeDate(p.ms) + '/' + fmtNum(p.v - CLIMB_RE, 2) + 'km/' + inc;
-      };
-      // ★ V1.9.1（A2）：三段新段的构成 ——
-      //   第 4 段 = **用户在图上点选的那个节点**（时间/离地高度/倾角）
-      //   第 5 段 = 该星的**最新节点**（同格式；没有点选时也照写，它是"当前状态"）
-      //   第 6 段 = 最新节点 vs 倒数第二个节点的 **Δ半长轴 / 两节点间隔**，颜色同页面内规则
-      //             （正=绿 / 负=黄 / 0=灰，见 climbDeltaColor）
-      //   ⚠️ Q8：**只填被点选的那一行**，其余行三段一律 `—`
-      //      （与前面各章"信息行只列被选中的那颗"同一逻辑）。
-      var isPick = !!(pick && pick.norad === c.norad);
-      var s4 = '—', s5 = '—', s6 = { t: '—', c: null };
-      if (isPick) {
-        var pk = null;
-        for (var q = 0; q < n; q++) { if (c.pts[q].ms === pick.ms) { pk = c.pts[q]; break; } }
-        // 点选的那个节点在数据刷新后可能已不在（历史库重打包 / 容量治理）→ 退回最新节点，
-        //   而不是留一个空段（导出图不该出现空白格）
-        if (!pk) pk = last;
-        s4 = nodeSeg(pk);
-        s5 = nodeSeg(last);
-        if (prev) {
-          var dv = last.v - prev.v;
-          var dd = Math.max(0, Math.round((last.ms - prev.ms) / DAY));
-          s6 = { t: (dv > 0 ? '+' : '') + fmtNum(dv, 2) + 'km/' + dd + shotDayWord(dd), c: climbDeltaColor(dv) };
-        }
+    var c = null, q;
+    var one = climbOneNorad(sc);
+    if (one) for (q = 0; q < cl.length; q++) if (cl[q].norad === one) { c = cl[q]; break; }
+    if (!c && pick) for (q = 0; q < cl.length; q++) if (cl[q].norad === pick.norad) { c = cl[q]; break; }
+    if (!c) return [];                                    // 未选星 → 无数据行
+    var idx = climbSatIdx(c.norad);
+    var sat = idx >= 0 ? cur().sats[idx] : null;
+    var n = c.pts.length;
+    var last = c.pts[n - 1];
+    var prev = n >= 2 ? c.pts[n - 2] : null;
+    // 倾角：历史点位只存半长轴，倾角取**该星台账里的当前值**（与页面信息窗同一来源）
+    var inc = sat ? fmtNum(sat.inc, 1) + '°' : '—';
+    var nodeSeg = function (p) {
+      return shotNodeDate(p.ms) + '/' + fmtNum(p.v - CLIMB_RE, 2) + 'km/' + inc;
+    };
+    // 第 4 段 = 用户在图上点选的那个节点（时间/离地高度/倾角）
+    // 第 5 段 = 该星的最新节点（同格式）
+    // 第 6 段 = 最新节点 vs 倒数第二个节点的 Δ半长轴 / 间隔，颜色同页面内规则（正=绿 / 负=黄 / 0=灰）
+    var isPick = !!(pick && pick.norad === c.norad);
+    var s4 = '—', s5 = '—', s6 = { t: '—', c: null };
+    if (isPick) {
+      var pk = null;
+      for (var q2 = 0; q2 < n; q2++) { if (c.pts[q2].ms === pick.ms) { pk = c.pts[q2]; break; } }
+      // 点选的那个节点在数据刷新后可能已不在（历史库重打包 / 容量治理）→ 退回最新节点，
+      //   而不是留一个空段（导出图不该出现空白格）
+      if (!pk) pk = last;
+      s4 = nodeSeg(pk);
+      s5 = nodeSeg(last);
+      if (prev) {
+        var dv = last.v - prev.v;
+        var dd = Math.max(0, Math.round((last.ms - prev.ms) / DAY));
+        s6 = { t: (dv > 0 ? '+' : '') + fmtNum(dv, 2) + 'km/' + dd + shotDayWord(dd), c: climbDeltaColor(dv) };
       }
-      return { segs: [
-        { t: sat ? cnName(sat) : String(c.norad) },
-        { t: String(c.norad) },
-        { t: sat ? batchName((sat.launch || {}).name) : '' },
-        { t: s4 },
-        { t: s5 },
-        s6
-      ] };
-    });
+    }
+    return [{ segs: [
+      { t: sat ? cnName(sat) : String(c.norad) },
+      { t: String(c.norad) },
+      { t: sat ? batchName((sat.launch || {}).name) : '' },
+      { t: s4 },
+      { t: s5 },
+      s6
+    ] }];
   }
   if (!S.sel.length) return [];
   var withEpoch = (view !== 'chart');       // 仅第三章倾角分布去掉历元
@@ -10535,6 +10535,15 @@ function climbDecayMs(norad) {
   }
   return null;
 }
+/** ★ V1.9.5（H11）：当前视图"以哪颗星为准"（**单星口径**）——本章单星选择（s:<norad>）优先；
+ *   否则看全局选中是否恰好一颗（与旧口径一致："全局只选中一颗星时以该星为准"）。没有则返回 0。
+ *   ⚠️ **两处必须同源**：① 相位线（climbPhaseNow 的"选星后以该星为准"）；
+ *      ② 导出图的数据行规则（未选星 0 行 / 选中 1 行，H11 验收口径）。改这里 = 两处一起改。 */
+function climbOneNorad(s) {
+  var one = s && s.single ? (s.single | 0) : 0;
+  if (!one && S.sel && S.sel.length === 1) { var x = cur().sats[S.sel[0]]; if (x) one = x.norad | 0; }
+  return one | 0;
+}
 /** ★ V1.9.5（H10 ③b/④）：当前视图要画的**升轨阶段**（两条星座色竖虚线的数据）—— 单一取数入口。
  *   口径（用户 2026-10-15 第 10 条）：
  *     · 本章选单星（climbPick = 's:<norad>'）或**全局只选中一颗星** → 以**该星**为准；
@@ -10552,9 +10561,8 @@ function climbPhaseNow(s) {
   var dec = function (a) {
     return a ? { startMs: a[0] == null ? null : a[0] * DAY, endMs: a[1] == null ? null : a[1] * DAY } : null;
   };
-  // ① 单星：本章单星选择优先；否则看全局选中是否恰好一颗（与旧口径一致："全局只选中一颗星时以该星为准"）
-  var one = s && s.single ? (s.single | 0) : 0;
-  if (!one && S.sel && S.sel.length === 1) { var x = cur().sats[S.sel[0]]; if (x) one = x.norad | 0; }
+  // ① 单星：本章单星选择优先；否则看全局选中是否恰好一颗 —— 口径统一在 climbOneNorad（与导出行规则同源）
+  var one = climbOneNorad(s);
   if (one) {
     // ★ 该星必须**确实在本图里**（选中星与当前批次可以不一致：显式选了批次 b、却又在表里选着一颗
     //   别的批次的星）。旧口径就是"在被画的对象上找它，找不到不画"；不做这个校验，
@@ -10721,6 +10729,45 @@ function drawClimb() {
   var v = clampClimbView(climbView);
   var take = S.climbTake || 'sma';
   var X = function (ms) { return PL + (ms - v.x0) / (v.x1 - v.x0) * pw; };
+  // ★ V1.9.5（H10 ③b）：相位在**刻度绘制之前**取好 —— 双重用途：① 画竖虚线；② 让"会与虚线
+  //   （或虚线下方日期）叠字的横轴刻度"**只画网格线、不画日期**。比"在日期下垫色块遮罩"干净：
+  //   遮罩会在相邻刻度上留半截字（实测 F4 导出图右缘出现过孤零零的 `23` 残片）。
+  //   取数与渲染只此一次，不做逐帧计算。两条线**靠得很近**（<48px）时日期向**外**分开写（防互叠）。
+  var climbPhase = climbPhaseNow(s);
+  var climbPhaseXs = [];          // 两条线在视口内的 x（用于刻度让位）
+  var climbPhaseBoxes = [];       // 日期文本的占位盒（精确判据：只让真正叠字的刻度让位）
+  var climbPhaseFlank = false;    // 贴很近 → 日期改成向两侧分开写
+  if (climbPhase) {
+    var _inV = function (ms) { return ms != null && ms >= v.x0 && ms <= v.x1; };
+    var _xS = _inV(climbPhase.startMs) ? X(climbPhase.startMs) : null;
+    var _xE = _inV(climbPhase.endMs) ? X(climbPhase.endMs) : null;
+    if (_xS != null) climbPhaseXs.push(_xS);
+    if (_xE != null) climbPhaseXs.push(_xE);
+    climbPhaseFlank = (_xS != null && _xE != null && Math.abs(_xE - _xS) < 48);
+    ctx.font = '10px ' + MONO;
+    var _labBox = function (mx, ms, mode) {
+      var tw = ctx.measureText(climbDateLabel(ms)).width;
+      var al = mode;
+      if (al === 'center') { if (mx < PL + 28) al = 'left'; else if (mx > PL + pw - 28) al = 'right'; }
+      var x0 = al === 'left' ? mx + 3 : (al === 'right' ? mx - 3 - tw : mx - tw / 2);
+      climbPhaseBoxes.push({ x0: x0 - 2, x1: x0 + tw + 2 });
+    };
+    if (climbPhaseFlank) { _labBox(_xS, climbPhase.startMs, 'right'); _labBox(_xE, climbPhase.endMs, 'left'); }
+    else {
+      if (_xS != null) _labBox(_xS, climbPhase.startMs, 'center');
+      if (_xE != null) _labBox(_xE, climbPhase.endMs, 'center');
+    }
+  }
+  var nearPhaseX = function (x) {
+    // ① 离竖虚线 < 26px：刻度日期会被线穿过、且与线下方日期重复 → 让位
+    for (var i2 = 0; i2 < climbPhaseXs.length; i2++) if (Math.abs(x - climbPhaseXs[i2]) < 26) return true;
+    // ② 刻度文本（约 48px 宽，居中）与某一日期文本框**相交** → 让位（精确判据，不误伤邻近刻度）
+    var t0 = x - 26, t1 = x + 26;
+    for (var j2 = 0; j2 < climbPhaseBoxes.length; j2++) {
+      if (t1 > climbPhaseBoxes[j2].x0 && t0 < climbPhaseBoxes[j2].x1) return true;
+    }
+    return false;
+  };
   // V1.9.1（A18）：与 03 章**共用**断轴映射（Q43：两图共用同一套参数）——
   //   半长轴模式的数据跨到 GEO 时，断轴区 2000~35750 被压掉，LEO 重新拿回 70% 的高度；
   //   落在断轴区里的点（GTO 转移段等）`Y` 返回 null → 上层不画，曲线自然断开（Q47）。
@@ -10765,6 +10812,8 @@ function drawClimb() {
     var x = X(tm);
     if (x < PL - 2 || x > PL + pw + 2) continue;
     ctx.strokeStyle = C.gridX; ctx.beginPath(); ctx.moveTo(x, PT); ctx.lineTo(x, PT + ph); ctx.stroke();
+    // ★ V1.9.5（H10 ③b）：与竖虚线（及其日期）会叠字的刻度**只画网格线、不画日期**
+    if (nearPhaseX(x)) continue;
     ctx.fillStyle = C.tick; ctx.fillText(climbDateLabel(tm), x, PT + ph + 9);
   }
   // 轴
@@ -10781,41 +10830,47 @@ function drawClimb() {
   ctx.fillText(t('d_x_date'), PL + pw / 2, PT + ph + 24);
 
   // ═══ ★ V1.9.5（H10 第③/③b步）：**升轨阶段竖虚线**（用户 2026-10-15 第 10 条）═══
-  //   两条线 = climbPhaseNow() 的 startMs / endMs。数据来自**构建期预计算**（satdata.phases，
+  //   两条线 = 上面取好的 climbPhase 的 startMs / endMs。数据来自**构建期预计算**（satdata.phases，
   //   mkdata 用源库 data/history 的原始日频点算好，主路径 O(1) 查表）；发布层缺失时页面端
-  //   climbPhases() 兜底现算 —— 取数统一走 climbPhaseNow()，屏幕/自动视野/（后续）导出**共用一份**。
+  //   climbPhases() 兜底现算 —— 取数统一走 climbPhaseNow()，屏幕/自动视野/导出**共用一份**。
   //   画法复用 03 章「180°」那条虚线的既有风格（setLineDash([5,4]) + moveTo/lineTo + fillText），
   //   颜色 = 星座主题色 C.theme（星网红 / 千帆蓝）；日期 XX/XX/XX 写在**虚线下方**（纯数字 → 无 i18n 键）。
+  //   与横轴刻度的叠字已在上面按"刻度让位"处理（nearPhaseX）。
   //   用户口径：未开始/直送 = 0 条；已开始未结束 = 1 条；已结束 = 2 条；
   //   已再入 = 结束线改标**再入日**（且可能只有这一条）；选星后以**该星**为准。
   (function () {
-    var phase = climbPhaseNow(s);            // ⚠️ 不能叫 ph —— 会遮蔽外层的绘图区高度 ph（PT + ph = NaN）
-    if (!phase || (phase.startMs == null && phase.endMs == null)) return;
+    var phase = climbPhase;                  // ⚠️ 不叫 ph —— 会遮蔽外层的绘图区高度 ph（PT + ph = NaN）
+    if (!phase || !climbPhaseXs.length) return;
     ctx.save();
     ctx.setLineDash([5, 4]); ctx.lineWidth = 1; ctx.strokeStyle = C.theme; ctx.fillStyle = C.theme;
     ctx.font = '10px ' + MONO;
     ctx.textBaseline = 'top';
-    var edge = 28;                                   // 贴边时日期文字往内收，避免被裁掉
-    var line = function (ms) {
-      if (ms == null) return;
-      if (ms < v.x0 || ms > v.x1) return;            // 视图外的线不画（④ 已把两条尽量纳入视野）
-      var mx = X(ms);
+    var xOf = function (ms) {
+      if (ms == null || ms < v.x0 || ms > v.x1) return null;    // 视图外的线不画（④ 已尽量纳入视野）
+      return X(ms);
+    };
+    var xS = xOf(phase.startMs), xE = xOf(phase.endMs);
+    var drawLine = function (mx) {
       ctx.beginPath(); ctx.moveTo(mx, PT); ctx.lineTo(mx, PT + ph); ctx.stroke();
-      // 日期（XX/XX/XX）写在虚线下方。★ 先垫一层**背景色**再写字：横轴刻度行（PT+ph+9）可能与本行
-      //   叠字（实测 26125：线在 07/04、相邻刻度在 07/02，两个日期糊成一团）→ 用底色把这一段盖掉。
-      //   遮罩取足宽（±50px）：只盖住"与本线可能叠字的那一个刻度"，而不动其它刻度。
+    };
+    var labAt = function (mx, ms, mode) {
       var txt = climbDateLabel(ms);
       var tw = ctx.measureText(txt).width;
-      var al = mx < PL + edge ? 'left' : (mx > PL + pw - edge ? 'right' : 'center');
-      var tx0 = mx + (al === 'left' ? 3 : (al === 'right' ? -3 - tw : -tw / 2));
-      ctx.fillStyle = C.bg;
-      ctx.fillRect(mx - 50, PT + ph + 1, 100, 21);
-      ctx.fillStyle = C.theme;
+      var al = mode;
+      if (al === 'center') { if (mx < PL + 28) al = 'left'; else if (mx > PL + pw - 28) al = 'right'; }
+      var tx0 = al === 'left' ? mx + 3 : (al === 'right' ? mx - 3 - tw : mx - tw / 2);
       ctx.textAlign = 'left';
       ctx.fillText(txt, tx0, PT + ph + 3);
     };
-    line(phase.startMs);
-    line(phase.endMs);
+    if (xS != null) drawLine(xS);
+    if (xE != null) drawLine(xE);
+    if (climbPhaseFlank) {                   // 两条线贴得很近 → 日期向外分开（与上面 _labBox 同一判定）
+      labAt(xS, phase.startMs, 'right');
+      labAt(xE, phase.endMs, 'left');
+    } else {
+      if (xS != null) labAt(xS, phase.startMs, 'center');
+      if (xE != null) labAt(xE, phase.endMs, 'center');
+    }
     ctx.restore();
   })();
 
