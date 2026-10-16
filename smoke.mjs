@@ -4035,6 +4035,13 @@ assert('V1.9.1（#9）：JS 起来后仍然接管（语言切换 / 真实历元�
     /function netSetMode\(m\) \{[\s\S]{0,400}?cvSwap\('netCv', function \(\) \{ netAutoView\(\); drawNet\(\); \}\);/.test(appSrc));
   assert('#7：05 章「星网/千帆」（netShowSeg）走 cvSwap', /cvSwap\('netCv', function \(\) \{ netView = null; netAutoView\(\); drawNet\(\); \}\);/.test(appSrc));
   assert('#7：04 章「半长轴/升轨速度」（climbTakeSeg）走 cvSwap', /cvSwap\('climbCv', function \(\) \{ drawClimb\(\); \}\);/.test(appSrc));
+  // ★ V1.9.5（H12）：切换纵轴量时**必须重置为自动视图**（居中铺满），且仍走通用过场。
+  //   来历：用户 2026-10-15 点名"点『变轨速度』后应渐淡渐现并重置为居中铺满"。
+  //   2026-10-16 核对：V1.9.1（#7）那批**已经实现**（climbView = null + cvSwap）→ 本条断言把它钉住，
+  //   防止将来有人"顺手"改成只换数据不重置视图（症状：从放大态切过去看到另一段空白）。
+  assert('V1.9.5（H12）：切换纵轴量时重置为自动视图（climbView = null）且仍走 cvSwap 过场',
+    /S\.climbTake = v; climbView = null;/.test(appSrc) &&
+    /cvSwap\('climbCv', function \(\) \{ drawClimb\(\); \}\)/.test(appSrc));
   assert('#7：过场只作用于 `.chart-wrap`（画布）—— 不把整章或表格一起淡掉',
     /\.chart-wrap\.chart-out canvas \{ opacity:0; \}/.test(tpl));
 }
