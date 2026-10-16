@@ -4120,13 +4120,17 @@ assert('A9（V1.9.2 重新划分）：合并判据 = 数据空间可分辨阈值
       /if \(old && old\.epoch >= ep\) continue;/.test(refreshSrc) &&
       /if \(String\(norad\)\.length > 5\) OMM_IDS\[ph\] = norad;/.test(refreshSrc) &&
       /GP_EXPECT === 'tle' \? parseTLE\(txt, into\) : parseOMM\(txt, into\)/.test(refreshSrc));
-    assert('H42②：回退安全网**两态都被 CI 真跑过**（离线 e2e 跑 json + tle 两遍；另有真上游两格式对拍）',
+    assert('H42②：回退安全网**两态都被 CI 真跑过**，且对拍脚本带**离线自检**（防止比较器自己误报）',
       /GP_FORMAT=tle node scripts\/e2e_omm_offline\.mjs/.test(ghSrc) &&
-      /node scripts\/ab_gp_format\.mjs/.test(ghSrc) &&
+      /node scripts\/ab_gp_format\.mjs --selftest/.test(ghSrc) &&
+      /node scripts\/ab_gp_format\.mjs\n/.test(ghSrc) &&
       fs.existsSync(B + '/scripts/ab_gp_format.mjs') &&
       /export function ommFromTLE\(l1, l2\)/.test(fs.readFileSync(B + '/scripts/omm.mjs', 'utf8')) &&
-      // A/B 脚本**必须用现成函数**比对（不另写解析）：TLE 侧 ommFromTLE / JSON 侧 fromCelesTrakOmm
-      /import \{ ommFromTLE, fromCelesTrakOmm \} from '\.\/omm\.mjs';/.test(fs.readFileSync(B + '/scripts/ab_gp_format.mjs', 'utf8')));
+      // A/B 脚本**必须用现成函数**比对（不另写解析）：
+      //   TLE 侧 ommFromTLE / JSON 侧 fromCelesTrakOmm / OBJECT_ID 用 cosparField 归一化后再比
+      /import \{ ommFromTLE, fromCelesTrakOmm, cosparField \} from '\.\/omm\.mjs';/
+        .test(fs.readFileSync(B + '/scripts/ab_gp_format.mjs', 'utf8')) &&
+      /\['OBJECT_ID', 'cospar'\]/.test(fs.readFileSync(B + '/scripts/ab_gp_format.mjs', 'utf8')));
     assert('H42：**非 200 记账 + 显式失败**（政策：立即停下交人排查；旧写法只 log 一行就继续跑 = 静默降级）'
       + '｜且**按查询类型分类**（NAME=/CATNR= 的 404 = 查无此项，不能当异常 —— 上线当天就被 CI 抓到过误报）',
       /const probeQuery = \/\[\?&\]\(NAME\|CATNR\)=\/i\.test\(url\);/.test(refreshSrc) &&
