@@ -5387,8 +5387,14 @@ assert('V1.9.5：仓库卫生扫描通过（根目录无过程类文件、子目
   let rebuildOk = true, rebuildWhy = '';
   try { rebuildOk = serializeCssi(buildCssi()) === cssiRaw; }
   catch (e) { rebuildOk = false; rebuildWhy = e.message; }
+  // ⚠️ 行尾陷阱（本次踩过）：官方原文 SGP4-VER.TLE 是 **CRLF**，而仓库 `.gitattributes` 是
+  //   `* text=auto eol=lf` —— 入库时会被悄悄转成 LF → meta 里的 sha256 与磁盘对不上
+  //   （CI 红、本机还绿）。已加 `data/cssi/* -text` 例外；这里把"是否仍为 CRLF"放进失败信息，
+  //   下次若有人动掉那条例外，报错会直接点出来，不必再走一遍今天的排查。
+  const rawTleHasCRLF = fs.readFileSync(B + '/data/cssi/SGP4-VER.TLE', 'utf8').indexOf('\r\n') >= 0;
   assert('H30①：回归数据与官方原始文件一致（现场重算 build() → 与已提交 JSON 逐字节相符）',
-    rebuildOk, rebuildWhy || ('源 sha256 ' + String(CD.meta.sourceSha256['tcppver.out']).slice(0, 12) + '…'));
+    rebuildOk, rebuildWhy || ('源 sha256 ' + String(CD.meta.sourceSha256['tcppver.out']).slice(0, 12) +
+      '…｜原文行尾 CRLF 保留=' + rawTleHasCRLF));
 
   // ② 结构：规模与 TLE 完整性（33 / 667 / 7 是**官方文件的固有属性**，见 H29 口径）
   const byNorad = {};

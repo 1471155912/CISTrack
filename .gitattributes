@@ -8,6 +8,10 @@
 #   ⚠️ 本仓库内**不含 .bat/.cmd**（批处理在工作区根目录、不进版本控制）——
 #     否则必须为它们单独写 `*.bat text eol=crlf`，因为 cmd.exe 只认 CRLF。
 * text=auto eol=lf
+# ★ V1.9.5（H30①）：CSSI 官方验证文件**必须逐字节保留** —— 派生文件 meta 里记了它们的 sha256，
+#   任何行尾规范化（原文是 CRLF）都会让 CI 上的哈希对不上、断言当场红（本机却因工作区未被动过而假绿）。
+#   故显式声明 `-text`（不做文本转换），与下面的图像一样按二进制对待。
+data/cssi/* -text
 *.jpg binary
 *.png binary
 *.ico binary
