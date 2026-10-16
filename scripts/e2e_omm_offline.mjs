@@ -16,7 +16,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 // 复用纯函数模块做"数值列体检"断言（零副作用，不触发任何刷新）
-import { tleHealth } from './omm.mjs';
+import { tleHealth, tleEpochMs } from './omm.mjs';
 // ★ V1.9.1（1.4-C）：临时根走统一解析 —— 原来这里直接用 `os.tmpdir()`（永远 = C 盘），
 //   连 CISTRACK_TMP 都不看。跑一次就在 C 盘留一整套项目副本，删不掉（safe-delete 改成进回收站）。
 import { tmpRoot } from './tmproot.mjs';
@@ -40,6 +40,10 @@ fs.mkdirSync(path.join(TMP, 'data', 'history'), { recursive: true });
  *   本星座真实卫星的 NORAD 都是 5 位数且远大于 1000；占位号 = 6 位真号的后 5 位 → 必 < 1000。
  */
 const badSeed = { gw: 0, qf: 0 };
+// ★ V1.9.5（H42）：记下"起点里有哪些卫星"—— 下面用它合成 S1（GROUP=）的 JSON 返回，
+//   这样**新迁移的 GROUP→OMM 通路**也能在本测试里被真跑一遍（而不是只靠 CI）。
+const seedNorads = { gw: [], qf: [] };
+let seedMaxEp = { gw: 0, qf: 0 };                 // 起点里的最新历元（毫秒）→ 合成数据必须比它新
 for (const [f, key] of [['ct_hulianwang.tle', 'gw'], ['ct_qianfan.tle', 'qf']]) {
   const p = path.join(SRC, 'data', f);
   if (!fs.existsSync(p)) { console.error('缺少 ' + p + '（需要先跑过一次 refresh.mjs）'); process.exit(2); }
@@ -54,6 +58,8 @@ for (const [f, key] of [['ct_hulianwang.tle', 'gw'], ['ct_qianfan.tle', 'qf']]) 
       if (isPh && l2.length >= 25) { badSeed.qf++; keep.push(lines[i], l1, l2.slice(0, 17) + '     NaN' + l2.slice(25)); }
       else keep.push(lines[i], l1, l2);
     }
+    if (!isPh) seedNorads[key].push(parseInt(l1.slice(2, 7), 10));
+    const em = tleEpochMs(l1); if (em > seedMaxEp[key]) seedMaxEp[key] = em;
   }
   fs.writeFileSync(path.join(TMP, 'data', f), keep.join('\n') + '\n');
   console.log('（起点 ' + f + ' = ' + keep.length / 3 + ' 颗' +
@@ -75,12 +81,16 @@ const iNo = ix('NORAD_CAT_ID'), iId = ix('OBJECT_ID'), iNm = ix('OBJECT_NAME'),
   iPer = ix('PERIOD'), iInc = ix('INCLINATION'), iApo = ix('APOGEE'), iPeg = ix('PERIGEE');
 const byNorad = new Map();
 rows.slice(1).forEach(l => { if (!l) return; const c = l.split(','); const n = +c[iNo]; if (n) byNorad.set(n, c); });
+// 合成数据的历元：**确定性地比两个种子的最新历元都新**（+1 天）。
+//   为什么不用 `new Date()`：那会让"S1 有没有贡献"随一天里的运行时刻翻转（早/晚会翻脸）。
+//   取 +1 天既稳定，又不会撞上"未来历元"的异常判据。
+const SYNTH_EP = new Date(Math.max(seedMaxEp.gw, seedMaxEp.qf, Date.now() - 86400000) + 86400000).toISOString();
 function synthOmm(norad) {
   const c = byNorad.get(norad); if (!c) return null;
   const per = +c[iPer], inc = +c[iInc], apo = +c[iApo], peg = +c[iPeg];
   if (!(per > 0)) return null;
   const a = (apo + peg) / 2 + 6378.137;
-  return { OBJECT_NAME: c[iNm], OBJECT_ID: c[iId], EPOCH: new Date().toISOString(),
+  return { OBJECT_NAME: c[iNm], OBJECT_ID: c[iId], EPOCH: SYNTH_EP,
     MEAN_MOTION: 1440 / per, ECCENTRICITY: Math.max(0, (apo - peg) / (2 * a)), INCLINATION: inc,
     RA_OF_ASC_NODE: 10, ARG_OF_PERICENTER: 20, MEAN_ANOMALY: 30,
     EPHEMERIS_TYPE: 0, CLASSIFICATION_TYPE: 'U', NORAD_CAT_ID: norad,
@@ -96,15 +106,27 @@ let log = '';
     const R = (s, t) => ({ ok: s === 200, status: s, text: async () => t });
     if (u.includes('pub/satcat.csv')) return R(200, rows.join('\n'));
     if (u.includes('tle.ivanstanojevic.me')) return R(404, '');
+    const isJson = /FORMAT=json/i.test(u);
     const mCat = u.match(/CATNR=(\d+)/);
     if (mCat) {
       const n = +mCat[1];
       // 真实行为：编目号 >5 位的 FORMAT=tle 一律 "No GP data found"
-      if (/FORMAT=tle/i.test(u)) return R(200, String(n).length > 5 ? 'No GP data found' : '');
+      if (!isJson) return R(200, String(n).length > 5 ? 'No GP data found' : '');
       const o = synthOmm(n);
       return o ? R(200, JSON.stringify([o])) : R(200, 'No GP data found');
     }
-    if (/GROUP=|NAME=/.test(u)) return R(200, '');   // 模拟 S1/S2 也拿不到（最坏情况）
+    // ★ V1.9.5（H42）：S1（GROUP=）走 JSON 时**真的返回一个数组** —— 覆盖"迁移后的主通路"。
+    //   返回集合 = 起点里那些 ≤5 位号的卫星（6 位号对象在真实场景里由 S5 兜底；
+    //   本题的起点已把它们剥掉，故仍由 S5 补齐 → 两条通路都被真跑）。
+    const mGrp = u.match(/GROUP=([a-z]+)/i);
+    if (mGrp) {
+      const key = mGrp[1].toLowerCase() === 'qianfan' ? 'qf' : 'gw';
+      if (!isJson) return R(200, '');                      // legacy 通路（GP_FORMAT=tle 时才会走到）
+      const arr = seedNorads[key].map(n => synthOmm(n)).filter(Boolean);
+      return R(200, JSON.stringify(arr));
+    }
+    // S2（NAME=）在真实环境本轮全是 404「查无此项」；这里按"合法空结果"模拟
+    if (/NAME=/.test(u)) return R(200, isJson ? '[]' : '');
     return R(404, '');
   };
   try {
@@ -131,6 +153,24 @@ const PH = (n) => String(n).slice(-5).padStart(5, '0');
 const s5sum = (log.match(/补到 (\d+) 颗/g) || []).reduce((a, s) => a + parseInt(/(\d+)/.exec(s)[1], 10), 0);
 ok('① S5 有产出：两星座合计补到 ≥50 颗（本次 ' + s5sum + ' 颗）', s5sum >= 50,
   (log.match(/S5 OMM[^\n]*/g) || []).join(' / '));
+// ★ V1.9.5（H42）：本测试**两种格式都要能跑**（CI 里 `GP_FORMAT=tle` 也会跑一遍，
+//   验证回退安全网没坏）。所以下面按"运行时是哪一态"分支断言，而不是假定 json。
+const IS_JSON = /取数格式 GP_FORMAT=json/.test(log);
+const g1 = (log.match(/S1 GROUP {2}→ (\d+) 份/g) || []).map(s => parseInt(/(\d+) 份/.exec(s)[1], 10));
+ok('①c 取数格式横幅正确（本次 ' + (IS_JSON ? 'json / OMM' : 'tle / legacy 回退态') + '）',
+  /取数格式 GP_FORMAT=(json|tle)（期望 (omm|tle)）/.test(log),
+  (log.match(/取数格式[^\n]*/) || ['(未找到)'])[0]);
+if (IS_JSON) {
+  // 迁移后的主通路：S1（GROUP= → OMM JSON）必须真的供数。
+  // 若 JSON 数组没被解析（或 checkFormat 判错），这里会看到 0 份而当场红。
+  ok('①b S1 走 OMM JSON 通了：两星座 GROUP 查询合计供数 ≥100 份（本次 ' + g1.join(' + ') + ' = ' + ((g1[0] || 0) + (g1[1] || 0)) + '）',
+    g1.length === 2 && g1[0] >= 50 && g1[1] >= 50, JSON.stringify(g1));
+} else {
+  // 回退态：TLE 通路要能用（本桩对 GROUP=tle 返回空串 = 合法空结果 → 0 份，属**预期**）。
+  ok('①b 回退态可用：S1 走 legacy TLE 通路且不误判为格式异常（本桩返空 → 0 份，预期）',
+    g1.length === 2 && g1.every(x => x === 0) && !/FORMAT_ALARM|疑似上游格式/.test(log),
+    JSON.stringify(g1));
+}
 ok('② 报告口径正确：两个星座都"仍缺轨道要素 0 颗"',
   (log.match(/仍缺轨道要素 0 颗/g) || []).length === 2,
   (log.match(/最终[^\n]*/g) || []).join(' / '));

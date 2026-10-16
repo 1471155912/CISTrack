@@ -116,6 +116,7 @@ const appSrc = lf(fs.readFileSync(B + '/app.js', 'utf8'));
 const smokeSrc = lf(fs.readFileSync(B + '/smoke.mjs', 'utf8'));
 const refreshSrc = lf(fs.readFileSync(B + '/refresh.mjs', 'utf8'));       // ★ H42：抓取脚本源码
 const guardSrc = lf(fs.readFileSync(B + '/scripts/format_guard.mjs', 'utf8'));   // ★ H42：探测模块源码   // ★ V1.9.5（H29 前哨）：自身源码（用于 meta 守卫）
+const ghSrc = lf(fs.readFileSync(B + '/.github/workflows/update-tle.yml', 'utf8'));  // ★ H42②：CI 步骤清单（"回退态也被真跑过"要在这里核）
 const rawSrc = fs.readFileSync(B + '/build/satdata.json', 'utf8');
 
 // ★ V1.9.1：**产物新鲜度闸门** —— 这是我自己反复踩的坑：smoke 读的是**产物 HTML**（不是源码），
@@ -2095,8 +2096,17 @@ assert('V1.9.0（R17）：升轨速率算法在页面端与构建期**同一口�
     !/'2\d{4}': null/.test(rf) && !/'1\d{4}': null/.test(rf));
   assert('V1.9.1（1.4）：白名单搭车星已排除（2024-226A=62185 / 2026-128B=69473 不在名册里）',
     !/\b62185\b/.test(rf) && !/\b69473\b/.test(rf) && /\b62186\b/.test(rf) && /\b69472\b/.test(rf));
-  assert('V1.9.1（1.4）：S3 的 TLE 判据带 m 标志（不带 m 时 ^ 只匹配串首 → 因返回值以卫星名开头而恒假）',
-    /\/\^\\s\*1 \\d\/m\.test\(r\.text\)/.test(rf) && !/if \(r\.ok && \/\^1 \/\.test\(r\.text\)\)/.test(rf));
+  // ★ V1.9.5（H42 迁移）：S3 的判据**换成了 `parseGPGuarded`**（内部走 checkFormat，按本次格式判定）。
+  //   这条历史守卫因此要改口径 —— 但**它守的教训不能丢**：
+  //   旧写法 `/^1 /.test(r.text)` 少了 `m` 标志（`^` 只匹配串首，而返回值以卫星名开头）→
+  //   判据**恒为 false** → 整条 S3 通路从来没成功过一次。现在由 `checkFormat` 统一兜住，
+  //   所以断言改成"**不得再出现手写的、按行首锚定的 TLE 判据**"（那正是当年那个坑的形态）。
+  assert('V1.9.1（1.4）→ V1.9.5（H42）：S3 不再手写 `/^1 /` 式判据（历史上少写 `m` → 恒假 → 通路从未生效）；改由 checkFormat 统一判定',
+    /from\.catnr \+= parseGPGuarded\(r\.text, merged, 'S3 CATNR=' \+ o\.norad\)/.test(rf) &&
+    // ⚠️ 只在**去注释后的代码**里找旧判据 —— refresh.mjs 的注释里正引用着那段旧代码当教训
+    //   （"这里原本是 /^1 /.test(r.text)"），一刀切会误报（第一版就踩了）。
+    !/\/\^\\s\*1 \\d\/m?\.test\(r\.text\)/.test(rf.replace(/^\s*(\/\/|\*).*$/gm, '')) &&
+    !/\/\^1 \/\.test\(r\.text\)/.test(rf.replace(/^\s*(\/\/|\*).*$/gm, '')));
   assert('V1.9.1（1.4）：S5 存进 merged 的 cospar 用 cosparField 归一化（原始 9 字符会让 slice(0,5) 得 "2026-"）',
     /cospar: cosparField\(om\.OBJECT_ID \|\| o\.cospar\)\.trim\(\)/.test(rf));
   assert('V1.9.1（1.4）：批次 key 提取兼容两种 COSPAR 写法（归一化 6 列 与 原始 9 字符）',
@@ -4060,24 +4070,63 @@ assert('A9（V1.9.2 重新划分）：合并判据 = 数据空间可分辨阈值
     // H19：单星名标签走 nameOf（中文模式出中文名，不出现拼音）
     // ★ V1.9.5（H42）：上游**格式变更探测** + 非 200 显式失败
     //   （CelesTrak 政策：旧格式含 legacy TLE 将随 5 位号用尽停用；收到任何非 200 必须立即停下交人排查）
+    //   ★ 迁移后（同批后半）：**期望格式变成 OMM JSON** —— 所以判据必须"按期望格式"成立，
+    //     而不是写死"JSON = 异常"（那正是迁移前的语义）。
     (function () {
       const TLE_OK = 'X\n1 57337U 23095A   26289.50000000  .00000000  00000-0  00000-0 0  9999\n2 57337  86.5000  10.0000 0001000  90.0000 270.0000 13.50000000 10000';
-      const cases = [
-        ['正常 TLE', TLE_OK, true], ['前置空行的 TLE', '\n\n' + TLE_OK, true],
-        ['「No GP data found」= 合法空结果', 'No GP data found', true],
-        ['CSV 新格式', 'OBJECT_NAME,NORAD_CAT_ID,EPOCH\nISS,25544,2026-10-16T00:00:00', false],
-        ['JSON（OMM）', '[{"OBJECT_NAME":"ISS","NORAD_CAT_ID":25544}]', false],
-        ['HTML 错误页', '<!DOCTYPE html><html>403 Forbidden</html>', false]
+      const OMM_OK = '[{"OBJECT_NAME":"X","NORAD_CAT_ID":57337,"MEAN_MOTION":13.5}]';
+      const cases = [   // [说明, 正文, 期望格式, 期望 ok]
+        ['正常 TLE（expect=tle）', TLE_OK, 'tle', true],
+        ['前置空行的 TLE', '\n\n' + TLE_OK, 'tle', true],
+        ['「No GP data found」= 合法空结果', 'No GP data found', 'omm', true],
+        ['OMM 数组（expect=omm）', OMM_OK, 'omm', true],
+        ['OMM 空数组 = 合法空结果', '[]', 'omm', true],
+        ['CSV 新格式（expect=omm）', 'OBJECT_NAME,NORAD_CAT_ID,EPOCH\nISS,25544,2026-10-16T00:00:00', 'omm', false],
+        ['HTML 错误页', '<!DOCTYPE html><html>403 Forbidden</html>', 'omm', false],
+        // ★ 迁移期最关键的两条"反向"用例：**另一种格式要被判成异常并点名**
+        ['收到旧 TLE（expect=omm → 上游回退/灰度，必须告警）', TLE_OK, 'omm', false],
+        ['收到 OMM（expect=tle → 回退态下上游已切新格式，必须告警）', OMM_OK, 'tle', false],
+        // 负例：长得像 JSON 但不是 OMM（错误对象）不能被放过 —— 否则 0 条与"上游没更新"无法区分
+        ['JSON 错误对象（expect=omm）', '{"detail":"Forbidden"}', 'omm', false],
       ];
-      const bad = cases.filter(c => checkFormat(c[1]).ok !== c[2]);
-      assert('H42：GP 响应**格式探测**（TLE 认得出；CSV/JSON/HTML 判为格式异常；「No GP data found」是合法空结果）',
+      const bad = cases.filter(c => checkFormat(c[1], c[2]).ok !== c[3]);
+      assert('H42①：GP 响应**按期望格式探测**（omm 认 OMM 数组/空数组、TLE 认 TLE；另一种格式与 HTML/CSV/错误 JSON 一律告警；「No GP data found」是合法空结果）',
         bad.length === 0, bad.length ? ('不符 ' + bad.length + ' 例：' + bad.map(b => b[0]).join(' / ')) : (cases.length + ' 例样本全部符合预期'));
     })();
-    assert('H42：判据在**可测模块**里（scripts/format_guard.mjs），refresh 只 import 使用、不重复实现',
+    assert('H42①：判据在**可测模块**里（scripts/format_guard.mjs），refresh 只 import 使用、不重复实现',
       /import \{ checkFormat \} from '\.\/scripts\/format_guard\.mjs';/.test(refreshSrc) &&
-      /const chk = checkFormat\(txt\);/.test(refreshSrc) &&
-      /export function looksLikeTLE\(txt\)/.test(guardSrc) && /export function suspectKind\(txt\)/.test(guardSrc) &&
+      /const chk = checkFormat\(txt, 'tle'\);/.test(refreshSrc) &&
+      /const chk = checkFormat\(txt, GP_EXPECT\);/.test(refreshSrc) &&
+      /export function looksLikeTLE\(txt\)/.test(guardSrc) && /export function looksLikeOMM\(txt\)/.test(guardSrc) &&
+      /export function looksLikeOmmRecord\(o\)/.test(guardSrc) && /export function suspectKind\(txt\)/.test(guardSrc) &&
       !/function looksLikeTLE\(txt\) \{\n  const lines/.test(refreshSrc));
+    // ★ V1.9.5（H42）：**取数格式迁移**（legacy TLE → OMM JSON）—— 这是 H42 的主体动作
+    assert('H42②：取数格式迁移到位（S1/S2/S3 三处 gp.php 都走 `FORMAT=${GP_FORMAT}`，不再写死 tle；默认 json，可 env 回退）',
+      // ⚠️ 判据要**只盯 URL**：日志/注释里合法地出现 `GP_FORMAT=tle`（回退提示语），
+      //   一刀切地找 "FORMAT=tle" 会误报（第一版就踩了）。
+      !/gp\.php\?[^`'\n]*FORMAT=tle/.test(refreshSrc) &&
+      (refreshSrc.match(/FORMAT=\$\{GP_FORMAT\}/g) || []).length === 3 &&
+      /const GP_FORMAT = process\.env\.GP_FORMAT === 'tle' \? 'tle' : 'json';/.test(refreshSrc) &&
+      /const GP_EXPECT = GP_FORMAT === 'tle' \? 'tle' : 'omm';/.test(refreshSrc) &&
+      /parseGPGuarded\(r\.text, merged, 'S1 GROUP'\)/.test(refreshSrc) &&
+      /parseGPGuarded\(r\.text, merged, 'S2 NAME=' \+ nm\)/.test(refreshSrc) &&
+      /parseGPGuarded\(r\.text, merged, 'S3 CATNR=' \+ o\.norad\)/.test(refreshSrc),
+      'FORMAT=${GP_FORMAT} × ' + (refreshSrc.match(/FORMAT=\$\{GP_FORMAT\}/g) || []).length);
+    assert('H42②：OMM 解析与 **S5 用同一套转换**（fromCelesTrakOmm + tleFromOmm + PH），且 epoch 口径与 parseTLE 一致（YYDDD.DD）',
+      /function parseOMM\(txt, into\)/.test(refreshSrc) &&
+      /const t = fromCelesTrakOmm\(om\);/.test(refreshSrc) &&
+      /const \[l1, l2\] = tleFromOmm\(t, ph\);/.test(refreshSrc) &&
+      /const ep = t\.EPOCH_Y2 \* 1000 \+ t\.EPOCH_DOY;/.test(refreshSrc) &&
+      /if \(old && old\.epoch >= ep\) continue;/.test(refreshSrc) &&
+      /if \(String\(norad\)\.length > 5\) OMM_IDS\[ph\] = norad;/.test(refreshSrc) &&
+      /GP_EXPECT === 'tle' \? parseTLE\(txt, into\) : parseOMM\(txt, into\)/.test(refreshSrc));
+    assert('H42②：回退安全网**两态都被 CI 真跑过**（离线 e2e 跑 json + tle 两遍；另有真上游两格式对拍）',
+      /GP_FORMAT=tle node scripts\/e2e_omm_offline\.mjs/.test(ghSrc) &&
+      /node scripts\/ab_gp_format\.mjs/.test(ghSrc) &&
+      fs.existsSync(B + '/scripts/ab_gp_format.mjs') &&
+      /export function ommFromTLE\(l1, l2\)/.test(fs.readFileSync(B + '/scripts/omm.mjs', 'utf8')) &&
+      // A/B 脚本**必须用现成函数**比对（不另写解析）：TLE 侧 ommFromTLE / JSON 侧 fromCelesTrakOmm
+      /import \{ ommFromTLE, fromCelesTrakOmm \} from '\.\/omm\.mjs';/.test(fs.readFileSync(B + '/scripts/ab_gp_format.mjs', 'utf8')));
     assert('H42：**非 200 记账 + 显式失败**（政策：立即停下交人排查；旧写法只 log 一行就继续跑 = 静默降级）'
       + '｜且**按查询类型分类**（NAME=/CATNR= 的 404 = 查无此项，不能当异常 —— 上线当天就被 CI 抓到过误报）',
       /const probeQuery = \/\[\?&\]\(NAME\|CATNR\)=\/i\.test\(url\);/.test(refreshSrc) &&

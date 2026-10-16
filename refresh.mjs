@@ -5,15 +5,22 @@
  *     S1 GROUP=          星座分组（主源）
  *     S2 NAME=           CelesTrak 的 NAME 是前缀模糊匹配，能捞回 S1 漏掉的星
  *     S3 CATNR=          用 satcat 按 COSPAR 前缀反查出编号后逐颗补（**只处理 ≤5 位编目号**：
- *                        6 位号的编目字段装不下，FORMAT=tle 一律空 → 交给 S5）
+ *                        6 位号的编目字段装不下，TLE 格式一律空 → 交给 S5）
  *     S4 tle.ivanstanojevic.me   上面都拿不到时的备源（同样只管 ≤5 位）
  *     S5 CATNR= + FORMAT=json（OMM）  **兜底通路**：凡 S1–S4 仍未取到的对象都在这里试。
  *                        6 位及以上编目号（CelesTrak 自 2026-07-11 起的新规则）只能走这条，
  *                        取回后用 scripts/omm.mjs 转成"TLE 形状"（编目号填占位 = 真号后 5 位），
  *                        真号记进 data/omm_norad.json 由 mkdata.mjs 写回前端 id。
  *   同一颗卫星多源都有时，取历元（epoch）最新的那份。
+ *
+ * ★ V1.9.5（H42）：**取数格式已从 legacy TLE 迁移到 OMM JSON**（政策要求，见维护文档 §17.3）。
+ *   S1/S2/S3 的 `FORMAT=` 由 `GP_FORMAT` 控制（默认 `json`；`GP_FORMAT=tle` 可回退对照）。
+ *   注意：改的只是**取数格式**——数据在 merged 里**仍然是两行 TLE 形状**（OMM 经 scripts/omm.mjs 转换），
+ *   所以 mkdata / 页面 / 历史库一行都不用改。
+ *
  * 用法：node refresh.mjs [--force-cat]      --force-cat 强制重下 6.7MB 的 satcat.csv
  *      node refresh.mjs --selftest-omm     离线自检 S5 的 OMM 解析/占位/映射链路（不联网）
+ *      GP_FORMAT=tle node refresh.mjs      回退到旧格式抓取（对照/应急）
  */
 import { checkFormat } from './scripts/format_guard.mjs';   // ★ V1.9.5（H42）：格式变更探测（纯函数，smoke 也 import 它）
 import fs from 'node:fs';
@@ -56,6 +63,16 @@ const NAMES = {
   qf: ['QIANFAN', 'SPACESAIL', 'G60']
 };
 const MATCH = { gw: /HULIANWAN|GUOWANG|^GW-/i, qf: /QIANFAN|SPACESAIL|G60/i };
+
+// ---------------------------------------------------------------- ★ V1.9.5（H42）：抓取格式 = OMM JSON
+// 政策要求（见维护文档 §17.3）：**legacy TLE 文本随 5 位目录号用尽停用**，官方要求迁移到 CSV/JSON。
+// 迁移范围 = 本文件的四处 gp.php 查询（S1 GROUP / S2 NAME / S3 CATNR）。
+//   · 默认 `json`（OMM）—— 与 S5 早就走通的那条通路**同一套解析**（scripts/omm.mjs）。
+//   · 回退/对照：`GP_FORMAT=tle node refresh.mjs`（无需改代码即可切回旧格式）。
+// ⚠️ 注意 `FORMAT=json` 时**仍然**用 `tleFromOmm()` 转成"TLE 形状"文本再进 merged ——
+//   因为下游（mkdata / 页面 / 历史库）全部按两行 TLE 的样子读；改的只是**取数格式**，不是数据形态。
+const GP_FORMAT = process.env.GP_FORMAT === 'tle' ? 'tle' : 'json';
+const GP_EXPECT = GP_FORMAT === 'tle' ? 'tle' : 'omm';
 
 // ---------------------------------------------------------------- 按批次的显式纳入通道（V1.9.1 / 1.4）
 // 为什么需要它：有一批**确认属于本星座**的卫星，在 satcat 里的名字**完全不含星座关键字**，
@@ -176,12 +193,59 @@ const FORMAT_ALARM = [];
 /** 包一层 parseTLE：200 但内容不像 TLE → 记一笔格式告警（返回 0 条，不抛）
  *  判据在 `scripts/format_guard.mjs`（纯函数 → smoke 可直接 import 测，含 8 例样本自测） */
 function parseTLEGuarded(txt, into, srcTag) {
-  const chk = checkFormat(txt);
+  const chk = checkFormat(txt, 'tle');
   if (!chk.ok) {
     if (FORMAT_ALARM.length < 6) FORMAT_ALARM.push({ src: srcTag, kind: chk.kind, sample: String(txt).slice(0, 100).replace(/\n/g, '⏎') });
     return 0;
   }
   return parseTLE(txt, into);
+}
+
+/**
+ * ★ V1.9.5（H42）：OMM JSON（CelesTrak `FORMAT=json`）→ 与 parseTLE **完全同构**的 merged 条目。
+ *   与 S5 用的是同一套转换（`fromCelesTrakOmm` + `tleFromOmm`，见 scripts/omm.mjs），
+ *   只是这里要处理**一整个数组**（GROUP 查询会返回几十~几百条）。
+ *   条目字段与 parseTLE 对齐：{ name, l1, l2, epoch(=YYDDD.DD), epochMs, cospar }。
+ * ⚠️ 编目号 **>5 位**的对象在 TLE 里只能用占位号（真号后 5 位），映射记进 sidecar `omm_norad.json`
+ *   —— 与 S5 同一条铁律（≤5 位号**不得**记自映射，否则统计失真）。
+ */
+function parseOMM(txt, into) {
+  let arr;
+  try { arr = JSON.parse(txt); } catch (e) { return 0; }
+  const list = Array.isArray(arr) ? arr : (arr && Array.isArray(arr.data) ? arr.data : [arr]);
+  let n = 0;
+  for (const om of list) {
+    if (!om || typeof om !== 'object' || om.MEAN_MOTION === undefined || om.NORAD_CAT_ID === undefined) continue;
+    const norad = Number(om.NORAD_CAT_ID);
+    if (!norad) continue;
+    const ph = PH(norad);
+    const t = fromCelesTrakOmm(om);
+    const [l1, l2] = tleFromOmm(t, ph);
+    const ep = t.EPOCH_Y2 * 1000 + t.EPOCH_DOY;            // 与 parseTLE 的 `epoch` 同一口径（YYDDD.DD）
+    const key = Number(ph);
+    const old = into.get(key);
+    if (old && old.epoch >= ep) continue;                  // 同一颗保留历元最新的一份
+    into.set(key, {
+      name: om.OBJECT_NAME || ('NORAD ' + norad), l1: l1, l2: l2,
+      epoch: ep, epochMs: tleEpochMs(l1), cospar: cosparField(om.OBJECT_ID || '').trim()
+    });
+    if (String(norad).length > 5) OMM_IDS[ph] = norad;      // 只有"真号 >5 位"才需要占位号映射
+    n++;
+  }
+  return n;
+}
+
+/**
+ * ★ V1.9.5（H42）：按**本次抓取格式**分派解析 —— 迁移期两种格式都必须认得，
+ * 且"收到了另一种格式"要**记账告警**（那说明上游灰度/回退，属于必须知道的状态变化）。
+ */
+function parseGPGuarded(txt, into, srcTag) {
+  const chk = checkFormat(txt, GP_EXPECT);
+  if (!chk.ok) {
+    if (FORMAT_ALARM.length < 6) FORMAT_ALARM.push({ src: srcTag, kind: chk.kind, sample: String(txt).slice(0, 100).replace(/\n/g, '⏎') });
+    return 0;
+  }
+  return GP_EXPECT === 'tle' ? parseTLE(txt, into) : parseOMM(txt, into);
 }
 // TLE 文本 → Map(norad -> {name,l1,l2,epoch})
 function parseTLE(txt, into) {
@@ -236,6 +300,8 @@ if (process.argv.includes('--selftest-omm')) {
 }
 
 // ---- SATCAT：每周拉一次就够了（6.7MB，约 70s）----
+console.log('取数格式 GP_FORMAT=' + GP_FORMAT + '（期望 ' + GP_EXPECT + '）' +
+  (GP_FORMAT === 'tle' ? '  ⚠️ 已回退到 legacy TLE —— 仅用于对照/应急' : ''));
 const catPath = path.join(D, 'satcat.csv');
 const age = fs.existsSync(catPath) ? (Date.now() - fs.statSync(catPath).mtimeMs) / 86400000 : 999;
 if (forceCat || age > 7) {
@@ -327,15 +393,15 @@ for (const key of ['gw', 'qf']) {
   report[key] = { prevN: prevN, before: before, droppedBad: droppedBad };
   const from = { group: 0, name: 0, catnr: 0, alt: 0 };
 
-  // S1 分组
-  let r = await get(`https://celestrak.org/NORAD/elements/gp.php?GROUP=${GROUPS[key]}&FORMAT=tle`);
-  if (r.ok) from.group = parseTLEGuarded(r.text, merged, 'S1 GROUP'); else console.log('  S1 GROUP 失败', r.status);
+  // S1 分组（V1.9.5·H42：格式走 GP_FORMAT，默认 OMM JSON）
+  let r = await get(`https://celestrak.org/NORAD/elements/gp.php?GROUP=${GROUPS[key]}&FORMAT=${GP_FORMAT}`);
+  if (r.ok) from.group = parseGPGuarded(r.text, merged, 'S1 GROUP'); else console.log('  S1 GROUP 失败', r.status);
   console.log(key, 'S1 GROUP  →', from.group, '份');
 
   // S2 名称模糊
   for (const nm of NAMES[key]) {
-    r = await get(`https://celestrak.org/NORAD/elements/gp.php?NAME=${encodeURIComponent(nm)}&FORMAT=tle`);
-    if (r.ok) from.name += parseTLEGuarded(r.text, merged, 'S2 NAME=' + nm); else console.log('  S2 NAME=' + nm, r.status);
+    r = await get(`https://celestrak.org/NORAD/elements/gp.php?NAME=${encodeURIComponent(nm)}&FORMAT=${GP_FORMAT}`);
+    if (r.ok) from.name += parseGPGuarded(r.text, merged, 'S2 NAME=' + nm); else console.log('  S2 NAME=' + nm, r.status);
   }
   console.log(key, 'S2 NAME   → 新增', merged.size - before - from.group, '颗（累计', merged.size, '）');
 
@@ -371,7 +437,7 @@ for (const key of ['gw', 'qf']) {
     return ia - ib;
   });
   for (const o of todo.slice(0, 60)) {
-    r = await get(`https://celestrak.org/NORAD/elements/gp.php?CATNR=${o.norad}&FORMAT=tle`);
+    r = await get(`https://celestrak.org/NORAD/elements/gp.php?CATNR=${o.norad}&FORMAT=${GP_FORMAT}`);
     // ★ V1.9.1（1.4）修的真 bug：这里原本是 `/^1 /.test(r.text)` —— **没有 `m` 标志**。
     //   CelesTrak 的 FORMAT=tle 返回是「卫星名行 + 1 行 + 2 行」三行，文本**以名字开头**，
     //   而无 `m` 标志时 `^` 只匹配**字符串开头** → 判断**恒为 false** → parseTLE 从不执行
@@ -379,7 +445,10 @@ for (const key of ['gw', 'qf']) {
     //   它和 1.8 是同一类：判据写错 → 静默失效 → 测试又恰好没覆盖。
     //   症状一直没暴露，是因为 S1（GROUP=hulianwang）/S2（NAME=HULIANWAN）覆盖了绝大多数卫星，
     //   而**名字不含关键字的那些**（CX / KL / DTC / OBJECT B）恰好只有这条通路能救。
-    if (r.ok && /^\s*1 \d/m.test(r.text) && /^\s*2 \d/m.test(r.text)) from.catnr += parseTLEGuarded(r.text, merged, 'S3/S5');
+    // ★ V1.9.5（H42）：判据不再写死 TLE 形状 —— 改成**按本次格式**判定（parseGPGuarded 内部就带
+    //   `checkFormat`，收到的既不是期望格式也不是合法空结果时会记 FORMAT_ALARM）。
+    //   旧写法若保留，切到 FORMAT=json 后会**恒为 false** —— 与上面那次的病一模一样。
+    if (r.ok) from.catnr += parseGPGuarded(r.text, merged, 'S3 CATNR=' + o.norad);
     await sleep(120);
   }
   // V1.9.1（1.4-D）：把"其中已再入几颗"打出来 —— 这类对象的采集效果必须看得见，
@@ -692,10 +761,11 @@ console.log('\n报告已写入 data/refresh_report.json（OMM 映射 ' + Object.
 //    但那属于"碰巧没事"，不能依赖）。所以显式认一个环境变量关掉它。
 // ★ V1.9.5（H42）：两个"上游变了"的账本 → 显式非零退出（各自独立码，便于 CI/任务日志一眼区分）
 if (FORMAT_ALARM.length) {
-  console.error('❌ GP 返回的**不是经典 TLE 文本**（' + FORMAT_ALARM.length + ' 处）—— 疑似上游格式迁移（政策预告过：旧格式随 5 位号用尽停用）：');
+  console.error('❌ GP 返回的**不是本次期望的格式**（' + FORMAT_ALARM.length + ' 处）—— 疑似上游格式变更/回退：');
+  console.error('   本次期望格式 = ' + GP_EXPECT + '（GP_FORMAT=' + GP_FORMAT + '；回退旧格式：`GP_FORMAT=tle node refresh.mjs`）');
   FORMAT_ALARM.forEach(a => console.error('   · ' + a.src + ' → ' + a.kind + '｜' + a.sample));
   console.error('   处置：1) 人工确认 https://celestrak.org/NORAD/documentation/gp-data-formats.php 的当前口径；');
-  console.error('         2) 迁移到 CSV/JSON（refresh.mjs 里的 FORMAT=tle 三处 + S5 的 FORMAT=json）。');
+  console.error('         2) 若上游回退到 TLE → 用 `GP_FORMAT=tle` 跑一轮并在此登记；若切到别的格式 → 同步改 scripts/format_guard.mjs 与 scripts/omm.mjs。');
   console.error('   已以非零码（6）结束 —— 不允许"0 条数据但任务成功"。');
   process.exitCode = 6;
 }

@@ -109,6 +109,14 @@ jobs:
           node scripts/omm.mjs --selftest
           # V1.9.1：端到端（离线桩重跑一遍 refresh，断言 55 颗被补齐 + 坏行能自愈）—— 需要 satcat.csv
           node scripts/e2e_omm_offline.mjs
+          # ★ V1.9.5（H42）：**回退开关也必须两态可用** —— 用同一套离线桩把 legacy TLE 态跑一遍。
+          #   为什么值得多跑一次（约 2 秒）：`GP_FORMAT=tle` 是迁移的**安全网**，
+          #   安全网没人试过就等于没有（本项目"开关两态都要可用"的既有标准）。
+          GP_FORMAT=tle node scripts/e2e_omm_offline.mjs
+          # ★ V1.9.5（H42）：**两格式对拍（真上游）** —— 迁移唯一真实风险是"上游两个端点给的
+          #   不是同一份数据"；离线桩证明不了这件事，只能对真上游逐字段比一次。
+          #   legacy 端点真停用时本脚本会自己 SKIP（exit 0），不会拦住 CI。
+          node scripts/ab_gp_format.mjs
           # V1.9.1（1.4）：端到端（离线桩断言"按批次点名纳入"的 14 颗补齐、搭车星与 R/B 零泄漏）
           node scripts/e2e_include_offline.mjs
           node mkdata.mjs
