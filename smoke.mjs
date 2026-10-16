@@ -7,6 +7,9 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';   // V1.9.4：跑 privacy_check 等外部体检脚本
+// ★ V1.9.5（H10 ③b）：构建端（scripts/climb.mjs）的升轨阶段判定 —— 与页面端 climbPhases
+//   做**跨端对拍**（两处实现必须逐字段一致；改一处忘另一处在这里就会被抓住）。
+import { climbPhases as nodeClimbPhases } from './scripts/climb.mjs';
 const require = createRequire(import.meta.url);
 const { JSDOM, VirtualConsole } = require('jsdom');
 
@@ -2436,6 +2439,29 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
     "  fmtSci: function (v, n) { return fmtSci(v, n); },\n" +
     // ★ V1.9.5（H10）：升轨阶段判定（两条竖虚线的数据基础）—— 暴露给运行时用例
     "  climbPhases: function (pts, opt) { return climbPhases(pts, opt); },\n" +
+    // ★ V1.9.5（H10 ③b/④）：取数入口 + 视野。phaseOf 用**真实函数**跑当前视图；pubOf 读发布层；
+    //   setDel 用于"注入/删除/还原"发布层的 batch phase（测"发布优先"与"缺失回退"两条路径）。
+    "  climbPhase: function () { var p = climbPhaseNow(climbSeries()); return p ? { s: p.startMs, e: p.endMs } : null; },\n" +
+    "  climbPub: function () { var P = RAW[S.key].phases || null; return P ? { nb: Object.keys(P.b).length, ns: Object.keys(P.s).length } : null; },\n" +
+    "  climbPubB: function (lk) { var P = RAW[S.key].phases; return (P && P.b && P.b[lk]) || null; },\n" +
+    "  climbPubS: function (n) { var P = RAW[S.key].phases; return (P && P.s && P.s[n]) || null; },\n" +
+    "  climbSetB: function (lk, s2, e2) { var P = RAW[S.key].phases; var old = P.b[lk] || null; P.b[lk] = [s2, e2]; return old; },\n" +
+    "  climbDelB: function (lk) { var P = RAW[S.key].phases; var old = P.b[lk] || null; delete P.b[lk]; return old; },\n" +
+    "  climbViewNow: function () { if (!climbView) climbAutoView(); return { x0: climbView.x0, x1: climbView.x1 }; },\n" +
+    "  climbAutoReset: function () { climbView = null; climbAutoView(); return { x0: climbView.x0, x1: climbView.x1 }; },\n" +
+    "  climbRectNow: function () { return climbRect; },\n" +
+    "  climbDateFmt: function (ms) { return climbDateLabel(ms); },\n" +
+    "  climbDashNow: function () { var A = climbCv.getContext('2d').__styles.dash; return A[A.length - 1] || null; },\n" +
+    "  climbTextsNow: function () { var c = climbCv.getContext('2d'); c.__styles.textXY.length = 0; c.__styles.text.length = 0;\n" +
+    "    drawClimb(); return c.__styles.textXY.slice(); },\n" +
+    "  climbBatchPts: function (lk) { var C = climbCurve(), L = C[lk] || [], o = [];\n" +
+    "    L.forEach(function (c) { var mn = Infinity, mx = -Infinity;\n" +
+    "      c.pts.forEach(function (p) { if (p.v < mn) mn = p.v; if (p.v > mx) mx = p.v; });\n" +
+    "      o.push({ n: c.norad, k: c.pts.length, span: +(mx - mn).toFixed(3) }); });\n" +
+    "    return o; },\n" +
+    "  climbLiteKeys: function () { var h = RAW[S.key].hist || {}; return Object.keys(h); },\n" +
+    "  climbSelClear: function () { S.sel = []; return 1; },\n" +
+    "  climbSelByNorad: function (n) { var arr = cur().sats, i; for (i = 0; i < arr.length; i++) if ((arr[i].norad | 0) === (n | 0)) { S.sel = [i]; return i; } return -1; },\n" +
     "  constelState: function (v) { return shotConstelState(v); },\n" +
     // V1.9.1（#6）：横轴刻度梯 + 轴起点
     "  netOrigin: function () { var d = netData(); return { x0min: netX0Min(d), weeks0: d.weeks[0], origin: d.originMs }; },\n" +
@@ -2595,6 +2621,205 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
       cDone.kind === 'done' && cDone.startMs !== null && cDone.endMs !== null && cDone.startMs < cDone.endMs &&
       cDecay.kind === 'done' && cDecay.endMs === B0 + 40 * DAY,
       [cNone.kind, cRais.kind, cDone.kind, cDecay.kind].join(' / ') + '  thr=' + cRais.thr);
+  }
+  // ★ V1.9.5（H10 ③b）：**跨端对拍** + 新增两态。③b 把"在动"从 |r| ≥ thr 收紧为 **r ≥ +thr** ——
+  //   |r| 会把"降轨/衰减"也算成在动：实测 25067 的 63428（入轨即衰减、后已再入）因此被判出
+  //   04-07 的"升轨开始"，而它从未升过轨 —— 那是衰减不是升轨。
+  //   对拍的意义：构建端（scripts/climb.mjs）与页面端（app.js）是**两份实现**，
+  //   发布层用前者算、回退用后者算，一旦漂移，"同一颗星在两处得到不同结论"且极难发现。
+  {
+    const DAY = 86400000, B0 = Date.UTC(2026, 0, 1);
+    const P = arr => arr.map((v, i) => ({ ms: B0 + i * DAY, v: v }));
+    const flat2 = [], rise2 = [], fall2 = [];
+    for (let i = 0; i < 12; i++) flat2.push(7000);
+    for (let i = 0; i < 10; i++) { rise2.push(7000 + i * 20); fall2.push(7000 - i * 5); }
+    const tail2 = []; for (let i = 0; i < 5; i++) tail2.push(7000 + 9 * 20);
+    const cases = [
+      ['直送', P(flat2), null],
+      ['升轨中', P(rise2), null],
+      ['已结束', P(rise2.concat(tail2)), null],
+      ['已再入覆盖', P(rise2.concat(tail2)), { decayMs: B0 + 40 * DAY }],
+      ['纯衰减', P(fall2), null],
+      ['纯衰减+已再入', P(fall2), { decayMs: B0 + 40 * DAY }],
+    ];
+    const mism = [];
+    for (const [nm, pts, opt] of cases) {
+      const a = nodeClimbPhases(pts, opt), b = k3.climbPhases(pts, opt);
+      const same = a.kind === b.kind && a.startMs === b.startMs && a.endMs === b.endMs &&
+        Math.abs((a.thr == null ? 0 : a.thr) - (b.thr == null ? 0 : b.thr)) < 1e-9;
+      if (!same) mism.push(nm + '(node:' + a.kind + ' vs page:' + b.kind + ')');
+    }
+    assert('V1.9.5（H10 ③b）：Node 端与页面端 climbPhases **跨端对拍一致**（六态）',
+      !mism.length, mism.join(' | ') || '六态全一致');
+    const cFallPage = k3.climbPhases(P(fall2));
+    const cFallDecayPage = k3.climbPhases(P(fall2), { decayMs: B0 + 40 * DAY });
+    assert('V1.9.5（H10 ③b）：纯衰减 → none；纯衰减+已再入 → 只留再入结束线（startMs = null）',
+      cFallPage.kind === 'none' &&
+      cFallDecayPage.kind === 'done' && cFallDecayPage.startMs === null && cFallDecayPage.endMs === B0 + 40 * DAY,
+      cFallPage.kind + ' / ' + cFallDecayPage.kind);
+    // 真实序列对拍：源库 26137 的一颗星（含升轨段），两端逐字段一致
+    let realOk = false, realInfo = '（源库读取失败）';
+    try {
+      const arr = JSON.parse(fs.readFileSync(B + '/data/history/26137.json', 'utf8'));
+      const byN = {};
+      arr.forEach(r => { (byN[r[0]] = byN[r[0]] || []).push(r); });
+      const n0 = Object.keys(byN)[0];
+      const pts = byN[n0].sort((x, y) => x[1] - y[1]).map(r => ({ ms: r[1], v: r[2] }));
+      const a = nodeClimbPhases(pts), b = k3.climbPhases(pts);
+      realOk = a.kind === b.kind && a.startMs === b.startMs && a.endMs === b.endMs;
+      realInfo = 'norad=' + n0 + ' pts=' + pts.length + ' kind=' + b.kind +
+        ' start=' + (b.startMs ? new Date(b.startMs).toISOString().slice(0, 10) : '—');
+    } catch (e) { realInfo = '读取失败：' + e.message; }
+    assert('V1.9.5（H10 ③b）：真实序列（源库 26137 一颗星）两端对拍一致', realOk, realInfo);
+  }
+  // ★ V1.9.5（H10 ③b）：发布层 `phases` 的结构 / 覆盖度 / 口径 ④ 的数据面。
+  //   （这正是"多数批次看不到线"的复发闸门 —— 上一轮的样张里一条线都没有。）
+  {
+    const SD = JSON.parse(rawSrc);
+    const shapeOK = P => !!P && !!P.b && !!P.s &&
+      Object.keys(P.b).every(k => Array.isArray(P.b[k]) && P.b[k].length === 2 &&
+        Number.isInteger(P.b[k][0]) && (P.b[k][1] === null || (Number.isInteger(P.b[k][1]) && P.b[k][1] >= P.b[k][0]))) &&
+      Object.keys(P.s).every(k => Array.isArray(P.s[k]) && P.s[k].length === 2 &&
+        !(P.s[k][0] === null && P.s[k][1] === null) &&
+        (P.s[k][0] === null || Number.isInteger(P.s[k][0])) &&
+        (P.s[k][1] === null || Number.isInteger(P.s[k][1])) &&
+        (P.s[k][0] === null || P.s[k][1] === null || P.s[k][1] >= P.s[k][0]));
+    assert('V1.9.5（H10 ③b）：satdata 携带 phases（结构合法：天数为整数 / end≥start / 无全空条目）',
+      shapeOK(SD.gw.phases) && shapeOK(SD.qf.phases),
+      'gw b/s = ' + Object.keys(SD.gw.phases.b).length + '/' + Object.keys(SD.gw.phases.s).length +
+      '，qf b/s = ' + Object.keys(SD.qf.phases.b).length + '/' + Object.keys(SD.qf.phases.s).length);
+    const nB = Object.keys(SD.gw.phases.b).length + Object.keys(SD.qf.phases.b).length;
+    assert('V1.9.5（H10 ③b）：有升轨段可画的批次 ≥ 30（"多数批次看不到线"的复发闸门）', nB >= 30, nB + ' 批');
+    const dec = [];
+    [['gw', SD.gw], ['qf', SD.qf]].forEach(([bk, C]) => {
+      C.sats.forEach(r => {
+        if (r.st !== 'r' || !r.dt) return;
+        const e = C.phases.s[r.id];
+        if (e) dec.push({ n: r.id, ok: e[1] === Math.floor(Date.parse(r.dt + 'T12:00:00Z') / 86400000) });
+      });
+    });
+    assert('V1.9.5（H10 ③b）：已再入星的 phase 结束日 = satcat 再入日（口径 ④ 的数据面）',
+      dec.length > 0 && dec.every(x => x.ok),
+      dec.map(x => x.n + (x.ok ? '✓' : '✗')).join(',') || '（没有已再入星）');
+  }
+  // ★ V1.9.5（H10 ③b/④）：**取数入口** climbPhaseNow 的运行时行为（发布层优先 / 缺失回退 /
+  //   直送不出线 / 单星以该星为准），以及 drawClimb 真的把日期画在虚线下方（坐标与内容都在画面层验证）。
+  {
+    k3.climbSelClear(); k3.setClimbPick(''); k3.climbAutoReset();
+    const DAY3 = 86400000;
+    const liteKeys = k3.climbLiteKeys();
+    const pubOf = {}; liteKeys.forEach(k => { const v = k3.climbPubB(k); if (v) pubOf[k] = v; });
+    const doneK = liteKeys.find(k => pubOf[k] && pubOf[k][1] !== null);
+    const raisK = liteKeys.find(k => pubOf[k] && pubOf[k][1] === null);
+    assert('V1.9.5（H10 ③b）：内置兜底数据里找得到可画的"已结束 / 升轨中"批次',
+      !!doneK && !!raisK, 'done=' + doneK + ' raising=' + raisK);
+    if (doneK && raisK) {
+      // ① 发布层优先：注入假值 → 画出的日期必须跟着假值（证明用的是 satdata 而不是现算）
+      k3.setClimbPick('b:' + doneK);
+      const view0 = k3.climbAutoReset();
+      const span0 = view0.x1 - view0.x0;
+      const fake0 = Math.floor((view0.x0 + span0 * 0.35) / DAY3);
+      const fake1 = Math.floor((view0.x0 + span0 * 0.55) / DAY3);
+      const keepD = k3.climbPubB(doneK);
+      k3.climbSetB(doneK, fake0, fake1);
+      let tx = k3.climbTextsNow();
+      const rect = k3.climbRectNow();
+      const yPh = rect.PT + rect.ph + 3;
+      const datesAt = arr => arr.filter(o => Math.abs(o.y - yPh) < 0.75).map(o => o.t).sort();
+      const expFake = [k3.climbDateFmt(fake0 * DAY3), k3.climbDateFmt(fake1 * DAY3)].sort();
+      assert('V1.9.5（H10 ③b）：画线日期取自**发布层**（注入假值后文本随之改变）',
+        JSON.stringify(datesAt(tx)) === JSON.stringify(expFake), datesAt(tx).join(',') + ' vs ' + expFake.join(','));
+      k3.climbSetB(doneK, keepD[0], keepD[1]);           // 还原
+      tx = k3.climbTextsNow();
+      const expReal = [k3.climbDateFmt(keepD[0] * DAY3), k3.climbDateFmt(keepD[1] * DAY3)].sort();
+      assert('V1.9.5（H10 ③b）：还原后画线日期 = satdata 的真实 phase（两天组、各一条）',
+        JSON.stringify(datesAt(tx)) === JSON.stringify(expReal), datesAt(tx).join(','));
+      // ② 画线风格：虚线 [5,4]（与 03 章 180° 边界线同一套画法）
+      assert('V1.9.5（H10 ③b）：竖虚线用 setLineDash([5,4])（与 03 章边界线同一套画法）',
+        k3.climbDashNow() === '[5,4]', String(k3.climbDashNow()));
+      // ③ 升轨中 = 只画一条（"只开始未结束 = 只画一条"）
+      k3.setClimbPick('b:' + raisK);
+      tx = k3.climbTextsNow();
+      const gotRais = datesAt(tx);
+      assert('V1.9.5（H10 ③b）：升轨中 → **只有开始线**一条',
+        gotRais.length === 1 && gotRais[0] === k3.climbDateFmt(pubOf[raisK][0] * DAY3), gotRais.join(','));
+      // ④ 直送 / 数据不足 → 一条都没有（动态找真实批次：发布层无条目 + 现算也判不出）
+      let noneK = null;
+      for (const k of liteKeys) {
+        if (pubOf[k]) continue;
+        k3.setClimbPick('b:' + k);
+        if (k3.climbPhase() === null) { noneK = k; break; }
+      }
+      let noneDates = null;
+      if (noneK) { k3.setClimbPick('b:' + noneK); noneDates = datesAt(k3.climbTextsNow()); }
+      assert('V1.9.5（H10 ③b）：直送/未升轨的真实批次 → 0 条线（不画）',
+        !!noneK && noneDates.length === 0, '批次=' + noneK + ' 日期数=' + (noneDates ? noneDates.length : '—'));
+      // ⑤ 单星：以**该星**为准（找一颗"自己的时间与批次中位数不同"的星）
+      let sK = null, sN = null;
+      for (const k of liteKeys) {
+        if (!pubOf[k]) continue;
+        const L = k3.climbBatchPts(k);
+        for (const s of L) {
+          const ps = k3.climbPubS(s.n);
+          if (ps && ps[0] !== null && (ps[0] !== pubOf[k][0] || ps[1] !== pubOf[k][1])) { sK = k; sN = s.n; break; }
+        }
+        if (sK) break;
+      }
+      let sOK = false, sInfo = '（没找到时间与批次不同的星）';
+      if (sK) {
+        k3.setClimbPick('s:' + sN);
+        const p = k3.climbPhase();
+        const ps = k3.climbPubS(sN);
+        sOK = !!p && p.s === ps[0] * DAY3 && (ps[1] === null ? p.e === null : p.e === ps[1] * DAY3);
+        sInfo = 'norad=' + sN + ' phase=' + JSON.stringify(ps) + ' → ' + JSON.stringify(p);
+      }
+      assert('V1.9.5（H10 ③b）：选星后以**该星**为准（与批次中位数不同的相位）', sOK, sInfo);
+      // ⑨ 边界：选中的星**不在本图**里时不得把它的线画过来（探针实测抓到过：
+      //    23095 的图上冒出另一批次 63428 的再入线）。阳性对照：回到该星所在批次，相位恢复。
+      let memOK = false, memInfo = '（没找到对照星）';
+      if (sK && sN && noneK) {
+        k3.setClimbPick('b:' + noneK);                 // 换成一张不含该星的图
+        const idx = k3.climbSelByNorad(sN);            // 全局仍选着那顆星
+        const pOut = k3.climbPhase();
+        k3.setClimbPick('b:' + sK);                    // 阳性对照：回到该星所在批次
+        const pIn = k3.climbPhase();
+        const ps = k3.climbPubS(sN);
+        memOK = idx >= 0 && pOut === null && !!pIn && pIn.s === ps[0] * DAY3;
+        memInfo = '不在本图=' + JSON.stringify(pOut) + '，回到本批=' + JSON.stringify(pIn && pIn.s);
+        k3.climbSelClear();
+      }
+      assert('V1.9.5（H10 ③b）：选中星不在本图 → 不画（相位只取自"被画的对象"；在 → 恢复）', memOK, memInfo);
+      // ⑥ 缺失回退：删掉发布层条目 → 页面端 climbPhases 兜底仍要给出非空结论
+      const keepR = k3.climbPubB(raisK);
+      k3.climbDelB(raisK);
+      k3.setClimbPick('b:' + raisK);
+      const pFb = k3.climbPhase();
+      k3.climbSetB(raisK, keepR[0], keepR[1]); k3.climbAutoReset();
+      assert('V1.9.5（H10 ③b）：发布层缺失 → 回退现算仍能给出升轨中结论（离线/旧产物兜底）',
+        !!pFb && pFb.s !== null, JSON.stringify(pFb));
+      // ⑦ ④：视野包含"结束线"（注入一个 45 天后的结束日 → autoView 与 clamp 都必须够到）
+      k3.setClimbPick('b:' + doneK);
+      const keepD2 = k3.climbPubB(doneK);
+      const farDay = Math.floor(Date.now() / DAY3) + 45;
+      k3.climbSetB(doneK, keepD2[0], farDay);
+      const vA = k3.climbAutoReset();
+      k3.drawClimb();                                    // 走一遍 clamp（它会把 climbView 钳到合法范围）
+      const vB = k3.climbViewNow();
+      k3.climbSetB(doneK, keepD2[0], keepD2[1]); k3.climbAutoReset();
+      assert('V1.9.5（H10 ④）：autoview 把结束线纳入视野（autoView 与 clamp 同一口径、不被拉回）',
+        vA.x1 >= farDay * DAY3 - 1 && vB.x1 >= farDay * DAY3 - 1,
+        'auto x1=' + new Date(vA.x1).toISOString().slice(0, 10) +
+        ' clamp 后 x1=' + new Date(vB.x1).toISOString().slice(0, 10) +
+        ' 期望 ≥' + new Date(farDay * DAY3).toISOString().slice(0, 10));
+    }
+    k3.setClimbPick(''); k3.climbSelClear();
+    // ⑧ 形状守卫：画线代码在 drawClimb 内、**不得回到 drawNet**（那里 d=netData() 是对象、恒为死代码）；
+    //   且画线块内**不得用 ph 作变量名** —— 会遮蔽 drawClimb 的绘图区高度 ph（PT + ph = NaN，
+    //   测试期实测：竖线在真实浏览器里会画废，而"dash 已记录"的断言仍然通过 —— 必须钉住）。
+    assert('V1.9.5（H10 ③b）：竖虚线的画线代码在 drawClimb 内（不得回到 drawNet 变死代码、不得遮蔽 ph）',
+      /function drawClimb\(\) \{[\s\S]{0,9000}?climbPhaseNow\(s\)/.test(appSrc) &&
+      !/function drawNet\(\) \{[\s\S]{0,4000}?climbPhaseNow/.test(appSrc) &&
+      !/function drawClimb\(\) \{[\s\S]{0,9000}?var ph = climbPhaseNow/.test(appSrc));
   }
 
     const lr = k3.launchRowText('25F05');      // 试验星07组（朱雀二号E Y3 失利，静态 fail）

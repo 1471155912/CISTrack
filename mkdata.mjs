@@ -6,6 +6,8 @@ import { pruneRecords, CAP } from './scripts/histstore.mjs';
 import { packAll } from './scripts/histpack.mjs';
 // V1.9.1（A19）：搜索补池（dead / pend）
 import { searchPools } from './scripts/search_pools.mjs';
+// V1.9.5（H10 ③b）：升轨阶段判定（两条竖虚线的数据）—— 与 app.js 同名函数同口径（smoke 有跨端对拍）
+import { climbPhases } from './scripts/climb.mjs';
 const ROOT = path.dirname(fileURLToPath(import.meta.url));   // 脚本所在目录（发布包内任意位置可用）
 const D = path.join(ROOT, 'data');
 
@@ -984,6 +986,59 @@ const ORBIT_ST = (() => {
   console.log('在轨状态（A7）：在轨 ' + nOrb + ' / 变轨中 ' + nRaising + '（其中 GEO ' + nGeo +
     (nFallback ? '，其中 ' + nFallback + ' 颗因无历史点走兜底' : '') + '）');
 }
+
+// ---------------------------------------------------------------- V1.9.5（H10 ③b）：**升轨阶段**（构建期预计算）
+// 为什么放构建期、而不在页面端现算（2026-10-16 样张复盘的结论）：
+//   · 页面端只能拿**发布分片**（抽样后）或 60 天精简兜底 —— 升轨期的点在抽样后可能残缺，
+//     "开始/结束"判定会飘；构建期直接用**源库 data/history/<批>.json** 的原始日频点，
+//     与用户在别处看到的"爬坡"完全同源（用户口径："用源库预计算并随 satdata 发布"）。
+//   · 顺带满足性能口径：phase 不再逐帧现算，页面 O(1) 查表；导出图与屏幕共用同一份数据。
+// 结构（随 satdata 发布）：
+//   phases: { b: { 批次key: [startDay, endDay|null] }, s: { norad: [startDay, endDay|null] } }
+//   · 天 = 距 1970 的天数（与 history 分片同口径，省体积）；endDay=null → 只画"开始"一条线；
+//   · 未收录（key 不在表里）= 没有可画的线（直送/未升轨/数据不足）；
+//   · 已再入的结束时刻 = satcat 的 DECAY 日期（用户口径 ④）；若它从未升轨 → [null, 再入日]。
+// 批次级 = "多数星"口径（用户原话："大部分卫星开始升轨的时间"）：
+//   · 开始 = 有升轨的各星 start 的**中位数**；结束 = **过半**星已结束才画（取中位数）——
+//     个别星与同组不同步（甚至从未升轨/已再入）不会把整批的线带偏。
+const CLIMB_PH = (() => {
+  const DAY = 86400000;
+  const out = { gw: { b: {}, s: {} }, qf: { b: {}, s: {} } };
+  const stat = { sats: 0, endOnly: 0, batches: 0 };
+  for (const bk of ['gw', 'qf']) {
+    for (const key in HIST.out[bk]) {
+      const bySat = new Map();
+      for (const r of HIST.out[bk][key]) {
+        if (!bySat.has(r[0])) bySat.set(r[0], []);
+        bySat.get(r[0]).push({ ms: r[1], v: r[2] });
+      }
+      const starts = [], ends = [];
+      for (const [norad, pts] of bySat) {
+        pts.sort((a, b) => a.ms - b.ms);
+        const dec = REENTRY.get(norad);
+        const ph = climbPhases(pts, dec ? { decayMs: Date.parse(dec + 'T12:00:00Z') } : null);
+        if (ph.startMs === null && ph.endMs === null) continue;
+        out[bk].s[norad] = [ph.startMs === null ? null : Math.floor(ph.startMs / DAY),
+                            ph.endMs === null ? null : Math.floor(ph.endMs / DAY)];
+        stat.sats++;
+        if (ph.startMs === null) stat.endOnly++;              // 已再入、但从未升轨（只画再入线）
+        else { starts.push(ph.startMs); if (ph.endMs !== null) ends.push(ph.endMs); }
+      }
+      if (starts.length) {
+        const med = a => a.slice().sort((x, y) => x - y)[a.length >> 1];
+        const done = ends.length * 2 > starts.length;         // 过半已结束 → 画结束线
+        out[bk].b[key] = [Math.floor(med(starts) / DAY), done ? Math.floor(med(ends) / DAY) : null];
+        stat.batches++;
+      }
+    }
+  }
+  console.log('升轨阶段（H10 ③b）：批次 ' + stat.batches + ' 条 / 单星 ' + stat.sats +
+    ' 条（其中仅再入线 ' + stat.endOnly + '）');
+  return out;
+})();
+// 挂到产物上（与 A7 的 rec.orb 同一套路：DATA 的引用在这里赋值，JSON 序列化时自然带上）
+DATA.gw.phases = CLIMB_PH.gw;
+DATA.qf.phases = CLIMB_PH.qf;
 
 // ---------------------------------------------------------------- V1.9.0（R17）：历史库**外挂**
 // 历史数据会随天数线性增长（见 scripts/histstore.mjs 的容量治理），塞进单文件 HTML

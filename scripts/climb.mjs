@@ -62,6 +62,65 @@ export function riseRateSeries(pts, half, minPts) {
 }
 
 /**
+ * ★ V1.9.5（H10）：**升轨阶段判定**（两条星座色竖虚线的数据基础）—— 与 `app.js` 的
+ *   `climbPhases()` **同口径**（构建端用它预计算发布层 `phases`；页面端保留同名函数做回退，
+ *   smoke 有**跨端对拍**断言：同一组合成数据 + 真实序列，逐字段比对 —— 改一处必须同时改另一处）。
+ *
+ * 输入：pts = [{ms, v}]（按 ms 升序；v = 半长轴 km。⚠️ 本文件其余函数用 `.sma`，此函数刻意
+ *   用 `.v` —— 与 app.js 同形，方便对拍。）
+ * 返回：{ kind:'none'|'raising'|'done', startMs, endMs, thr }
+ *   · 'none'     没有可辨认的上升段（直送 / 尚未升轨 / 数据不足）→ 一条线都不画
+ *   · 'raising'  已开始、未结束 → 只画 start 一条
+ *   · 'done'     已结束 → start + end 各一条
+ *     ★ 已再入且**从未升轨**的（如入轨后一路衰减到再入）→ startMs = null、endMs = 再入日：
+ *       "仍画结束线，但标注的是再入日期"（用户口径 ④）；渲染层对 startMs=null 直接跳过。
+ *
+ * 判据（用户 2026-10-15 口径）：
+ *   · 阈值 = 该星日变化 |Δ| 上四分位 × 1/4，保底 0.2 km/天（**相对量**，不写死 km/天）；
+ *   · 开始 = **上升方向**连续 ≥2 天的第一天；结束 = 此后连续 ≥3 天回落的起点；
+ *   · 相邻点间隔 > 30 天的断开（速率本就按天归一，不做插值）。
+ *   ★ V1.9.5（H10 ③b 定稿，与 ①② 批次的差异）："在动"从 `|r| ≥ thr` 收紧为 **`r ≥ +thr`** ——
+ *     |r| 会把"降轨/衰减"也算成在动：实测 25067 的 63428（入轨即衰减、后已再入）被判出
+ *     04-07 的"升轨开始"，而它从未升过轨 —— 那条线是衰减不是升轨。收紧后它只留"再入"结束线。
+ */
+export function climbPhases(pts, opt) {
+  const o = opt || {};
+  const DAY = 86400000;
+  const MIN_RUN = o.minRun || 2, END_RUN = o.endRun || 3;
+  const decay = (o.decayMs && isFinite(o.decayMs)) ? o.decayMs : null;
+  const NONE = { kind: 'none', startMs: null, endMs: null, thr: null };
+  const endOnly = (thr) => ({ kind: 'done', startMs: null, endMs: decay, thr: thr === undefined ? null : thr });
+  if (!pts || pts.length < 3) return decay ? endOnly() : NONE;
+  const d = [];
+  for (let i = 1; i < pts.length; i++) {
+    const dt = (pts[i].ms - pts[i - 1].ms) / DAY;
+    // 间隔容差 30 天：页面拿到的是**采样后的发布分片**（稳定期点很稀），2 天窗口会把日变化误当空档丢掉
+    if (!(dt > 0) || dt > 30) continue;
+    d.push({ ms: pts[i].ms, r: (pts[i].v - pts[i - 1].v) / dt });
+  }
+  if (d.length < 3) return decay ? endOnly() : NONE;
+  const abs = d.map(x => Math.abs(x.r)).sort((a, b) => a - b);
+  const q3 = abs[Math.min(abs.length - 1, Math.floor(abs.length * 0.75))];
+  const thr = Math.max(0.2, q3 * 0.25);
+  const moving = d.map(x => x.r >= thr);            // ★ 上升方向（③b：|r| 会把衰减误判成升轨）
+  let run = 0, k, startMs = null, endMs = null;
+  for (k = 0; k < moving.length; k++) {
+    run = moving[k] ? run + 1 : 0;
+    if (run >= MIN_RUN) { startMs = d[k - MIN_RUN + 1].ms; break; }
+  }
+  if (startMs === null) return decay ? endOnly(thr) : { kind: 'none', startMs: null, endMs: null, thr: thr };
+  let quiet = 0;
+  for (k = k + 1; k < moving.length; k++) {
+    quiet = moving[k] ? 0 : quiet + 1;
+    if (quiet >= END_RUN) { endMs = d[k - END_RUN + 1].ms; break; }
+  }
+  const res = { kind: endMs === null ? 'raising' : 'done', startMs: startMs, endMs: endMs, thr: thr };
+  // 已再入（用户口径 ④）：结束线改标**再入日期**
+  if (o.decayMs && isFinite(o.decayMs)) { res.kind = 'done'; res.endMs = o.decayMs; }
+  return res;
+}
+
+/**
  * 按"间隔超过 maxGapDays 就断开"的规则，把序列切成若干段（不插值）。
  * @returns [[点, …], [点, …]]  —— 每段内部连续
  */
@@ -162,6 +221,29 @@ if (isMain && process.argv.includes('--selftest')) {
       m.size === 2 && c1.pts.length === 6 && c2.pts.length === 6, '曲线数=' + m.size);
     const r1 = c1.rates[0][1].rate;
     ok('⑤ 第一条曲线首日速度 ≈ 0.3 km/天', Math.abs(r1 - 0.3) < 1e-9, 'rate=' + r1.toFixed(6));
+  }
+  // ⑥ ★ V1.9.5（H10）：升轨阶段判定 —— 与 app.js 同名函数同口径（smoke 里还有跨端对拍）
+  {
+    const B0 = Date.UTC(2026, 0, 1);
+    const P = arr => arr.map((v, i) => ({ ms: B0 + i * DAY, v: v }));
+    const flat = [], rise = [];
+    for (let i = 0; i < 12; i++) flat.push(7000);
+    for (let i = 0; i < 10; i++) rise.push(7000 + i * 20);                 // 每天 +20 km
+    const tail = []; for (let i = 0; i < 5; i++) tail.push(7000 + 9 * 20); // 升完平 5 天
+    const fall = []; for (let i = 0; i < 10; i++) fall.push(7000 - i * 5); // 每天 −5 km（纯衰减）
+    const cNone = climbPhases(P(flat));
+    const cRais = climbPhases(P(rise));
+    const cDone = climbPhases(P(rise.concat(tail)));
+    const cDecay = climbPhases(P(rise.concat(tail)), { decayMs: B0 + 40 * DAY });
+    const cFall = climbPhases(P(fall));
+    const cFallDecay = climbPhases(P(fall), { decayMs: B0 + 40 * DAY });
+    ok('⑥ 直送（全程不动）→ none', cNone.kind === 'none' && cNone.startMs === null);
+    ok('⑥ 升轨中 → raising（只有 start）', cRais.kind === 'raising' && cRais.startMs !== null && cRais.endMs === null);
+    ok('⑥ 已结束 → done 且 start < end', cDone.kind === 'done' && cDone.startMs < cDone.endMs);
+    ok('⑥ 已再入 → done，end = 再入日（覆盖探测到的结束日）', cDecay.kind === 'done' && cDecay.endMs === B0 + 40 * DAY);
+    ok('⑥ 纯衰减（降轨）→ none（"在动"必须是**上升方向**，③b 收紧）', cFall.kind === 'none');
+    ok('⑥ 纯衰减 + 已再入 → 只留结束线（startMs=null、end=再入日）',
+      cFallDecay.kind === 'done' && cFallDecay.startMs === null && cFallDecay.endMs === B0 + 40 * DAY);
   }
 
   console.log('\n自检结论：' + (fails.length ? '失败 ' + fails.length + ' 项' : '全部通过'));

@@ -9714,46 +9714,11 @@ function drawNet() {
   if (!netView) netAutoView();
   var v = netView;
   var X = function (ms) { return PL + (ms - v.x0) / (v.x1 - v.x0) * pw; };
-  // ═══ ★ V1.9.5（H10 第③步）：**升轨阶段竖虚线**（用户 2026-10-15 第 10 条）═══
-  //   两条线 = climbPhases() 的 startMs / endMs；日期以 XX/XX/XX 写在**虚线下方**，用星座主题色 C.theme
-  //   （与 03 章「180°」那条虚线同一套画法：setLineDash([5,4]) + moveTo/lineTo + fillText）。
-  //   口径：**全局只选中一颗星时以该星为准**；否则取"**本批次多数星**"——各星各自判定后取中位数，
-  //   这样个别星与同组不同步不会把线带偏（用户原话："大部分卫星开始升轨的时间"）。
-  //   视图外的线不画（第④步会让 climbAutoView() 把这两个时刻纳入视野）。
-  if (d.length) {
-    var _selNorad = null;
-    if (S.sel && S.sel.length === 1) { var _s0 = cur().sats[S.sel[0]]; if (_s0) _selNorad = +_s0.norad; }
-    var _pick = null, _k;
-    if (_selNorad !== null) {
-      for (_k = 0; _k < d.length; _k++) if (+d[_k].norad === _selNorad) { _pick = climbPhases(d[_k].pts); break; }
-    } else {
-      var _starts = [], _ends = [];
-      for (_k = 0; _k < d.length; _k++) {
-        var _pp = climbPhases(d[_k].pts);
-        if (_pp.startMs !== null) _starts.push(_pp.startMs);
-        if (_pp.endMs !== null) _ends.push(_pp.endMs);
-      }
-      var _med = function (a) { if (!a.length) return null; a.sort(function (x, y) { return x - y; }); return a[a.length >> 1]; };
-      if (_starts.length) _pick = { startMs: _med(_starts), endMs: _med(_ends) };
-    }
-    if (_pick) {
-      var _z2 = function (n) { return (n < 10 ? '0' : '') + n; };
-      var _fmtD = function (ms) { var t2 = new Date(ms); return _z2(t2.getMonth() + 1) + '/' + _z2(t2.getDate()) + '/' + _z2(t2.getFullYear() % 100); };
-      ctx.save();
-      ctx.setLineDash([5, 4]); ctx.lineWidth = 1; ctx.strokeStyle = C.theme; ctx.fillStyle = C.theme;
-      ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-      var _line = function (ms) {
-        if (ms === null || ms === undefined) return;
-        if (ms < v.x0 || ms > v.x1) return;
-        var _mx = X(ms);
-        ctx.beginPath(); ctx.moveTo(_mx, PT); ctx.lineTo(_mx, PT + ph); ctx.stroke();
-        ctx.fillText(_fmtD(ms), _mx, PT + ph + 3);
-      };
-      _line(_pick.startMs);
-      _line(_pick.endMs);
-      ctx.restore();
-    }
-  }
+  // ★ V1.9.5（H10）：升轨阶段竖虚线**不属于本章** —— 它在 04 章「变轨情况」（drawClimb）。
+  //   历史（如实记录，防再犯）：③ 那批曾把画线代码误插入本函数，且条件写的是 `if (d.length)` ——
+  //   而这里 `d = netData()` 是**对象**（没有 length）→ 整段恒不执行，是**死代码**：
+  //   三张样张上一条线都没有，一度被误判为"数据供给不足"。③b 已把数据改为构建期预计算、
+  //   画线落到 drawClimb，并加了"虚线必须在 drawClimb、不得回到 drawNet"的守卫断言。
   var Y = function (n) { return PT + ph - (n - v.y0) / (v.y1 - v.y0) * ph; };
   var NC = netColors();
   var wkStep = NET_WK;
@@ -10271,21 +10236,29 @@ function climbSlope(pts) {
 }
 /** ±half 天窗口的逐点升轨速度；点数不足或窗口外无点的返回 null */
 // ★ V1.9.5（H10）：**升轨阶段判定**（纯函数，便于断言、便于缓存）—— H10 的两条星座色竖虚线
-//   就画在它返回的这两个时刻上。
+//   就画在它返回的两个时刻上。本函数是**页面端回退**：主数据走构建期预计算的 `satdata.phases`
+//   （③b，见 mkdata 的同名说明），只有发布层缺失时才现算 —— 两处口径必须一致，
+//   smoke 有跨端对拍断言（同一组合成数据 + 真实序列逐字段比对）。
 //   输入：pts = [{ms, v}]（v = 半长轴 km；与 climbSlope 同一形状，须按 ms 升序）
 //   返回：{ kind:'none'|'raising'|'done', startMs, endMs, thr }
-//     · 'none'     全程没"动"过（直送任务 / 尚未升轨 / 数据不足）→ 用户口径：**一条线都不画**
+//     · 'none'     没有可辨认的上升段（直送 / 尚未升轨 / 数据不足）→ 用户口径：**一条线都不画**
 //     · 'raising'  已开始、未结束 → 只画 start
 //     · 'done'     已结束 → start + end 都画
+//       ★ 已再入且**从未升轨**的（入轨即衰减到再入）→ startMs = null、endMs = 再入日：
+//         "仍画结束线，但标注的是再入日期"（用户口径 ④）；渲染层对 null 直接跳过。
 //   ★ 阈值必须是**相对量**（该星日变化绝对值上四分位的 1/4，保底 0.2 km/天）——
 //     不同批次的目标轨道与推力差别很大，写死 km/天会把"慢速升轨"漏掉或把噪声当成在动。
-//   ★ 判据（用户 2026-10-15 口径）＝ 开始：连续 ≥2 天"在动"的第一天；
+//   ★ 判据（用户 2026-10-15 口径）＝ 开始：连续 ≥2 天**上升**的第一天；
 //     结束：此后连续 ≥3 天回落的起点。已再入的，结束时刻改由调用方传入 decayMs（H10 ④）。
+//   ★ V1.9.5（H10 ③b 定稿）："在动"从 |r| ≥ thr 收紧为 **r ≥ +thr** —— |r| 会把"降轨/衰减"
+//     也算成在动：实测 25067 的 63428（入轨即衰减、后已再入）被判出"升轨开始"，而它从未升过轨。
 function climbPhases(pts, opt) {
   var o = opt || {};
   var MIN_RUN = o.minRun || 2, END_RUN = o.endRun || 3;
+  var decay = (o.decayMs && isFinite(o.decayMs)) ? o.decayMs : null;
   var NONE = { kind: 'none', startMs: null, endMs: null, thr: null };
-  if (!pts || pts.length < 3) return NONE;
+  var endOnly = function (thr) { return { kind: 'done', startMs: null, endMs: decay, thr: thr === undefined ? null : thr }; };
+  if (!pts || pts.length < 3) return decay ? endOnly() : NONE;
   // 日变化：相邻点 km/天；间隔 >2 天的**断开**（与 scripts/climb.mjs 同口径，不做插值）
   var d = [], i;
   for (i = 1; i < pts.length; i++) {
@@ -10296,19 +10269,19 @@ function climbPhases(pts, opt) {
     if (!(dt > 0) || dt > 30) continue;
     d.push({ ms: pts[i].ms, r: (pts[i].v - pts[i - 1].v) / dt });
   }
-  if (d.length < 3) return NONE;
+  if (d.length < 3) return decay ? endOnly() : NONE;
   var abs = [];
   for (i = 0; i < d.length; i++) abs.push(Math.abs(d[i].r));
   abs.sort(function (a, b) { return a - b; });
   var q3 = abs[Math.min(abs.length - 1, Math.floor(abs.length * 0.75))];
   var thr = Math.max(0.2, q3 * 0.25);
   var moving = [], run = 0, startMs = null, endMs = null, k;
-  for (i = 0; i < d.length; i++) moving.push(Math.abs(d[i].r) >= thr);
+  for (i = 0; i < d.length; i++) moving.push(d[i].r >= thr);        // ★ 上升方向（③b 定稿口径）
   for (k = 0; k < moving.length; k++) {
     run = moving[k] ? run + 1 : 0;
     if (run >= MIN_RUN) { startMs = d[k - MIN_RUN + 1].ms; break; }
   }
-  if (startMs === null) return { kind: 'none', startMs: null, endMs: null, thr: thr };
+  if (startMs === null) return decay ? endOnly(thr) : { kind: 'none', startMs: null, endMs: null, thr: thr };
   var quiet = 0;
   for (k = k + 1; k < moving.length; k++) {
     quiet = moving[k] ? 0 : quiet + 1;
@@ -10551,6 +10524,73 @@ function climbStartMs(lk, list) {
   }
   return t0;
 }
+/** 已再入卫星的再入日（ms）—— 供回退路径的 climbPhases 用（发布层自带这条信息） */
+function climbDecayMs(norad) {
+  var arr = cur().sats || [];
+  for (var i = 0; i < arr.length; i++) {
+    if ((arr[i].norad | 0) === (norad | 0) && arr[i].st === 'r' && arr[i].dt) {
+      var t = Date.parse(arr[i].dt + 'T12:00:00Z');
+      return isFinite(t) ? t : null;
+    }
+  }
+  return null;
+}
+/** ★ V1.9.5（H10 ③b/④）：当前视图要画的**升轨阶段**（两条星座色竖虚线的数据）—— 单一取数入口。
+ *   口径（用户 2026-10-15 第 10 条）：
+ *     · 本章选单星（climbPick = 's:<norad>'）或**全局只选中一颗星** → 以**该星**为准；
+ *     · 否则 → 以**当前批次**为准（"大部分卫星"口径 —— 构建期已取好中位数）。
+ *   取数顺序：
+ *     ① **构建期预计算**（satdata 的 `phases`，mkdata 用源库原始日频点算好 —— 主路径，O(1) 查表）；
+ *     ② 回退：页面端 `climbPhases()` 现算（发布层缺失时兜底：离线旧产物 / 比构建更新的数据）。
+ *   返回 { startMs, endMs } 或 null；endMs 可能为 null（只有"开始"一条线）。
+ *   ⚠️ 必须与 drawClimb / climbAutoView / clampClimbView /（后续）导出图**共用本函数** ——
+ *      本项目曾因"两处各写一套"踩过坑（H11 执行方案点名要求）。 */
+function climbPhaseNow(s) {
+  var d = (s && s.list) || [];
+  var pub = (RAW[S.key] && RAW[S.key].phases) || null;
+  var DAY = 86400000;
+  var dec = function (a) {
+    return a ? { startMs: a[0] == null ? null : a[0] * DAY, endMs: a[1] == null ? null : a[1] * DAY } : null;
+  };
+  // ① 单星：本章单星选择优先；否则看全局选中是否恰好一颗（与旧口径一致："全局只选中一颗星时以该星为准"）
+  var one = s && s.single ? (s.single | 0) : 0;
+  if (!one && S.sel && S.sel.length === 1) { var x = cur().sats[S.sel[0]]; if (x) one = x.norad | 0; }
+  if (one) {
+    // ★ 该星必须**确实在本图里**（选中星与当前批次可以不一致：显式选了批次 b、却又在表里选着一颗
+    //   别的批次的星）。旧口径就是"在被画的对象上找它，找不到不画"；不做这个校验，
+    //   别的批次的星会把它的相位线画到当前图上（实测：23095 的图上冒出 63428 的再入线）。
+    var inList = false;
+    for (var j = 0; j < d.length; j++) if ((d[j].norad | 0) === one) { inList = true; break; }
+    if (!inList) return null;
+    if (pub && pub.s && pub.s[one]) return dec(pub.s[one]);
+    for (var i = 0; i < d.length; i++) {
+      if ((d[i].norad | 0) === one) {
+        var p1 = climbPhases(d[i].pts, { decayMs: climbDecayMs(one) });
+        return (p1.startMs === null && p1.endMs === null) ? null : { startMs: p1.startMs, endMs: p1.endMs };
+      }
+    }
+    return null;
+  }
+  // ② 批次：lk 来自 climbSeries；跟随模式（lk 为空）时取列表中出现最多的那个批次
+  var lk = (s && s.lk) || '';
+  if (!lk && d.length) {
+    var cnt = {};
+    d.forEach(function (c) { if (c.lk) cnt[c.lk] = (cnt[c.lk] || 0) + 1; });
+    Object.keys(cnt).forEach(function (k2) { if (!lk || cnt[k2] > cnt[lk]) lk = k2; });
+  }
+  if (!lk) return null;
+  if (pub && pub.b && pub.b[lk]) return dec(pub.b[lk]);
+  // 回退：按"多数星"口径现算（中位数/过半规则与构建期一致）
+  var starts = [], ends = [];
+  d.forEach(function (c) {
+    if (c.lk !== lk) return;
+    var p2 = climbPhases(c.pts, { decayMs: climbDecayMs(c.norad) });
+    if (p2.startMs !== null) { starts.push(p2.startMs); if (p2.endMs !== null) ends.push(p2.endMs); }
+  });
+  if (!starts.length) return null;
+  var med = function (a) { a.sort(function (x2, y2) { return x2 - y2; }); return a[a.length >> 1]; };
+  return { startMs: med(starts), endMs: (ends.length * 2 > starts.length) ? med(ends) : null };
+}
 function climbAutoView() {
   var s = climbSeries(), d = s.list;
   if (!d.length) { climbView = null; return; }
@@ -10569,6 +10609,19 @@ function climbAutoView() {
   if (now - last <= 3 * 86400000) t1 = now;
   if (t1 <= t0) t1 = t0 + 86400000 * 7;
   if (now - t0 < 3 * 86400000) t0 = t1 - 3 * 86400000;
+  // ★ V1.9.5（H10 ④）：两条竖虚线**必须在视野内** —— 已再入的"结束线"标的是再入日，
+  //   它可以晚于数据末点（实测：末次 TLE 之后过几天才登记再入）→ 贴合数据跨度时会把它挤出视野。
+  //   ★ 另有"贴边"变体：结束线与右端**几乎重合**（已再入：末次 TLE ≈ 再入日）→ 线贴着绘图区边缘、
+  //     日期会被右下角的缩放按钮压住（样张 D 实测）→ 留 5% 右留白把它让进来。
+  //   与 clampClimbView **同一口径**（那里的右端钳位必须认同一个 t1，否则 autoView 定的视图会被拉回）。
+  var _ph = climbPhaseNow(s);
+  if (_ph) {
+    if (_ph.startMs != null && _ph.startMs < t0) t0 = _ph.startMs;
+    if (_ph.endMs != null) {
+      if (_ph.endMs > t1) t1 = _ph.endMs;
+      if (t1 - _ph.endMs < 2 * 86400000) t1 = _ph.endMs + (t1 - t0) * 0.05;
+    }
+  }
   climbView = { x0: t0 - (t1 - t0) * 0.02, x1: t1 + (t1 - t0) * 0.02, y0: b.y0, y1: b.y1, nobrk: !!b.nobrk };
 }
 function clampClimbView(v) {
@@ -10584,6 +10637,16 @@ function clampClimbView(v) {
   // ★ V1.9.3：右端口径与 climbAutoView **必须一致**（否则 autoView 定的视图会被 clamp 再拉长）。
   //   规则：数据末点距今天 ≤3 天 → 给到今天（"现在在哪"有意义）；更早的批次给到数据末点。
   if (Date.now() - t1 <= 3 * 86400000 && t1 < Date.now()) t1 = Date.now();
+  // ★ V1.9.5（H10 ④）：与 climbAutoView **同一口径** —— 两条竖虚线（含已再入的再入日）纳入可钳范围；
+  //   结束线贴右端时同留 5% 留白（否则会被钳回边缘 → 日期压到缩放按钮上，样张 D 实测）。
+  var _ph = climbPhaseNow(s);
+  if (_ph) {
+    if (_ph.startMs != null && _ph.startMs < t0) t0 = _ph.startMs;
+    if (_ph.endMs != null) {
+      if (_ph.endMs > t1) t1 = _ph.endMs;
+      if (t1 - _ph.endMs < 2 * 86400000) t1 = _ph.endMs + (t1 - t0) * 0.05;
+    }
+  }
   if (v.x1 <= v.x0) v.x1 = v.x0 + 86400000;
   var minSpan = 86400000 * 2, maxSpan = Math.max((t1 - t0) * 1.6, minSpan * 4);
   if (v.x1 - v.x0 < minSpan) { var c0 = (v.x0 + v.x1) / 2; v.x0 = c0 - minSpan / 2; v.x1 = c0 + minSpan / 2; }
@@ -10716,6 +10779,45 @@ function drawClimb() {
   ctx.font = '10px ' + MONO; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
   ctx.fillStyle = C.dim;
   ctx.fillText(t('d_x_date'), PL + pw / 2, PT + ph + 24);
+
+  // ═══ ★ V1.9.5（H10 第③/③b步）：**升轨阶段竖虚线**（用户 2026-10-15 第 10 条）═══
+  //   两条线 = climbPhaseNow() 的 startMs / endMs。数据来自**构建期预计算**（satdata.phases，
+  //   mkdata 用源库 data/history 的原始日频点算好，主路径 O(1) 查表）；发布层缺失时页面端
+  //   climbPhases() 兜底现算 —— 取数统一走 climbPhaseNow()，屏幕/自动视野/（后续）导出**共用一份**。
+  //   画法复用 03 章「180°」那条虚线的既有风格（setLineDash([5,4]) + moveTo/lineTo + fillText），
+  //   颜色 = 星座主题色 C.theme（星网红 / 千帆蓝）；日期 XX/XX/XX 写在**虚线下方**（纯数字 → 无 i18n 键）。
+  //   用户口径：未开始/直送 = 0 条；已开始未结束 = 1 条；已结束 = 2 条；
+  //   已再入 = 结束线改标**再入日**（且可能只有这一条）；选星后以**该星**为准。
+  (function () {
+    var phase = climbPhaseNow(s);            // ⚠️ 不能叫 ph —— 会遮蔽外层的绘图区高度 ph（PT + ph = NaN）
+    if (!phase || (phase.startMs == null && phase.endMs == null)) return;
+    ctx.save();
+    ctx.setLineDash([5, 4]); ctx.lineWidth = 1; ctx.strokeStyle = C.theme; ctx.fillStyle = C.theme;
+    ctx.font = '10px ' + MONO;
+    ctx.textBaseline = 'top';
+    var edge = 28;                                   // 贴边时日期文字往内收，避免被裁掉
+    var line = function (ms) {
+      if (ms == null) return;
+      if (ms < v.x0 || ms > v.x1) return;            // 视图外的线不画（④ 已把两条尽量纳入视野）
+      var mx = X(ms);
+      ctx.beginPath(); ctx.moveTo(mx, PT); ctx.lineTo(mx, PT + ph); ctx.stroke();
+      // 日期（XX/XX/XX）写在虚线下方。★ 先垫一层**背景色**再写字：横轴刻度行（PT+ph+9）可能与本行
+      //   叠字（实测 26125：线在 07/04、相邻刻度在 07/02，两个日期糊成一团）→ 用底色把这一段盖掉。
+      //   遮罩取足宽（±50px）：只盖住"与本线可能叠字的那一个刻度"，而不动其它刻度。
+      var txt = climbDateLabel(ms);
+      var tw = ctx.measureText(txt).width;
+      var al = mx < PL + edge ? 'left' : (mx > PL + pw - edge ? 'right' : 'center');
+      var tx0 = mx + (al === 'left' ? 3 : (al === 'right' ? -3 - tw : -tw / 2));
+      ctx.fillStyle = C.bg;
+      ctx.fillRect(mx - 50, PT + ph + 1, 100, 21);
+      ctx.fillStyle = C.theme;
+      ctx.textAlign = 'left';
+      ctx.fillText(txt, tx0, PT + ph + 3);
+    };
+    line(phase.startMs);
+    line(phase.endMs);
+    ctx.restore();
+  })();
 
   // ---- 曲线
   ctx.save();
