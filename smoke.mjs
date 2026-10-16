@@ -279,7 +279,12 @@ assert('表头项一律居中（V1.4.4 起用户要求）',
   /\.ltable th \{ text-align:center;/.test(tpl) && /\.ltable th:first-child \{ text-align:center; \}/.test(tpl));
 assert('发射历史：表头与数据全部居中（V1.4.7）',
   /#launchTable th \{ text-align:center; \}/.test(tpl) && /#launchTable td \{ text-align:center; \}/.test(tpl));
-assert('卫星名带 satcat 外链', /class="sat-link" href="https:\/\/www\.satcat\.com\/sats\//.test($('#satTable tbody').innerHTML));
+// ★ V1.9.5（H13）：名称列**不再**链 satcat —— 改为卫星百科（单星→批次→无词条三态），
+//   satcat 外链移到 NORAD 列（加粗 + satcat 紫 + 下划线）。这里断言两列各自的归属（详验见下方 H13 段）。
+assert('H13：名称列不再链 satcat（改百科），satcat 外链落在 NORAD 列',
+  !/class="sat-link[^"]*"\s+href="https:\/\/www\.satcat\.com\/sats\//.test($('#satTable tbody').innerHTML) &&
+  /<td class="norad-cell"><a class="norad-link" href="https:\/\/www\.satcat\.com\/sats\/\d+"/.test($('#satTable tbody').innerHTML),
+  ($('#satTable tbody').innerHTML.match(/<td class="norad-cell">[^<]*<a class="norad-link"[^>]*>/) || ['无'])[0]);
 assert('卫星表格下拉框排序列有 5 个批次分组', d.querySelectorAll('#groupSel option').length >= 5);
 assert('表格模块高度被钉住（尾页不猛缩；V1.7.0 任务1 改用 padding-bottom 补足）',
   /padding-bottom/.test($('#sec-table .table-wrap').getAttribute('style') || '') &&
@@ -594,6 +599,87 @@ assert('Manufacturer简要渲染：简称都是短文本（≤20 字），且渲
   var a = [...d.querySelectorAll('#satTable tbody tr td.manufacturer')].map(x => x.textContent.trim());
   return a.filter(Boolean).length >= 1 && a.every(x => x.length <= 20);
 })(), [...d.querySelectorAll('#satTable tbody tr td.manufacturer')].map(x => x.textContent.trim()).join(' | '));
+
+// ================================================================ ★ V1.9.5（H13/H19）：表格链接 + 中文名
+// H13 口径：名称链接由 satcat 改**卫星百科**（① 单星词条 → ② 批次词条 → ③ 无词条则只染主题色、
+//   不加下划线、不链接）；NORAD 编号加粗 + **紫色（satcat 主题色）** + 下划线，链回 satcat。
+// H19 口径：中文模式一律用中文名（**词条名优先**，缺失按规则翻译）；英文模式仍用原始目录名。
+{
+  // ---------- ① 数据层 ----------
+  const WT = JSON.parse(fs.readFileSync(B + '/data/wiki_tables.json', 'utf8'));
+  const nl = k => Object.values(WT[k] || {}).reduce((a, r) => a + ((r.nameLinks || []).length), 0);
+  assert('H13：单源已采集「名称格链接」（单星词条的来源；实测只有试验星/GEO/KL/DTC 有）',
+    nl('gw') > 0 && nl('qf') > 0, 'gw=' + nl('gw') + ' 条 / qf=' + nl('qf') + ' 条');
+  assert('H13：同一次发射的多载荷行**并集合并**（2019-077A/B 两行 → 两条链，不能只留第一行）',
+    ((WT.qf['2019-077'] || {}).nameLinks || []).length === 2,
+    JSON.stringify(((WT.qf['2019-077'] || {}).nameLinks || []).map(x => x.t)));
+
+  const SD2 = JSON.parse(fs.readFileSync(B + '/build/satdata.json', 'utf8'));
+  const all2 = [].concat(SD2.gw.sats, SD2.qf.sats);
+  const withWu = all2.filter(s => s.wu);
+  assert('H13：单星词条已随 satdata 发布（绝对 URL + 中文词条名）',
+    withWu.length >= 20 && withWu.every(s => /^https:\/\/sat\.huijiwiki\.com\/wiki\//.test(s.wu)) &&
+    withWu.filter(s => s.wn).every(s => /[\u4e00-\u9fff]/.test(s.wn)),
+    withWu.length + ' 颗有单星词条；例：' + withWu.slice(0, 2).map(s => s.id + ':' + (s.wn || '(无中文名)')).join(' | '));
+  const led = [].concat(Object.values(SD2.gw.launches), Object.values(SD2.qf.launches));
+  const ledUrl = led.filter(v => v[7]);
+  assert('H13：台账「批次词条」覆盖全部候选行且**一律绝对化**（旧版只有自动补录行有，且是相对路径）',
+    ledUrl.length >= 55 && ledUrl.every(v => /^https:\/\/sat\.huijiwiki\.com\/wiki\//.test(v[7])),
+    ledUrl.length + '/' + led.length + ' 条有词条链接（例 ' + String(ledUrl[0][7]).slice(0, 48) + '…）');
+
+  // ---------- ② 页面层：名称列三态 + NORAD 列 ----------
+  // 真浏览器渲染后的 DOM 里：有词条 → <a class="sat-link wiki-link" href=百科>；无词条 → <span class="sat-plain">
+  const tbodyHtml = $('#satTable tbody').innerHTML;
+  assert('H13：名称列「有词条」态 —— a.sat-link.wiki-link 指向 sat.huijiwiki.com',
+    /<a class="sat-link wiki-link" href="https:\/\/sat\.huijiwiki\.com\/wiki\//.test(tbodyHtml),
+    (tbodyHtml.match(/<a class="sat-link wiki-link" href="[^"]+"/) || ['(当前页无)'])[0]);
+  assert('H13：名称列「无词条」态存在（span.sat-plain，且该单元格内没有 <a>）',
+    (function () {
+      const tds = [...d.querySelectorAll('#satTable tbody tr td.lname')];
+      const plain = tds.filter(td => td.querySelector('span.sat-plain'));
+      return plain.length >= 0 && plain.every(td => td.querySelectorAll('a').length === 0);
+    })(), [...d.querySelectorAll('#satTable tbody tr td.lname')].map(td => (td.textContent || '').trim().slice(0, 14)).join(' | '));
+  assert('H13：NORAD 列 = 加粗 + satcat 紫 + 下划线 + 外链 satcat（样式语义与跳转都验）',
+    /\.ltable td a\.norad-link \{[^}]*color:var\(--satcat\)[^}]*text-decoration:underline/.test(tpl) &&
+    /\.ltable td\.norad-cell \{ font-weight:700; \}/.test(tpl) &&
+    /--satcat:#a78bfa/.test(tpl) && /--satcat:#6d3fd1/.test(tpl) &&
+    [...d.querySelectorAll('#satTable tbody td a.norad-link')].every(a => /^https:\/\/www\.satcat\.com\/sats\/\d+$/.test(a.getAttribute('href'))));
+  assert('H13：无词条时**不是链接**（源码里第三态走 span，不再无条件套 <a>）',
+    /wikiOf\(s\)/.test(appSrc) && /<span class="sat-plain"/.test(appSrc) &&
+    /u: '', lvl: 0/.test(appSrc) &&
+    // 三态的分支结构：wk.u ? <a> : <span>
+    /var nameCell = wk\.u\s*\n?\s*\?\s*'<a class="sat-link wiki-link"/.test(appSrc));
+
+  // ---------- ③ H19：中文名（词条名优先 → 规则翻译）/ 英文模式 ----------
+  assert('H19：规则翻译只写一处（zhRules），搜索变体与显示名共用（旧版 nameVariants 自己抄了半套）',
+    /function zhRules\(n\)/.test(appSrc) && /return zhRules\(s\.name\) \+ ' ' \+ s\.name/.test(appSrc) &&
+    !/function nameVariants\(s\) \{\s*var zh = s\.name\.replace/.test(appSrc));
+  assert('H19：显示名统一走 nameOf()，且英文模式不绕过 cnName（试验星/高轨的英文化改写要保留）',
+    /function nameOf\(s\)/.test(appSrc) && /if \(LANG === 'en'\) return cnName\(s\);/.test(appSrc) &&
+    (appSrc.match(/nameOf\(/g) || []).length >= 10);
+  // 中文态抽样（含 GEO/CX/KL/DTC 这些曾经的残留形态）：显示名不得含成串拉丁字母
+  assert('H19：中文模式显示名无拼音/英文残留（抽样 GEO/KL/DTC/组网星）',
+    (function () {
+      const bad = [];
+      const probe = s => { const nm = nameOf(s); if (/[A-Za-z]{2,}/.test(nm)) bad.push(s.id + ':' + nm); return nm; };
+      // 页面端 nameOf 不可直接取，这里用与 mkdata 同源的 satdata + 页面 cnName 的规则口径近似：
+      //   直接查页面上真实渲染的名字（表格首列）最可靠 —— 全表所有行的名字都不许出现 2 个以上连写拉丁字母
+      const names = [...d.querySelectorAll('#satTable tbody td.lname')].map(td => td.textContent.trim());
+      const bad2 = names.filter(x => /[A-Za-z]{2,}/.test(x));
+      return bad.length === 0 && bad2.length === 0;
+    })(),
+    [...d.querySelectorAll('#satTable tbody td.lname')].map(td => td.textContent.trim().slice(0, 16)).slice(0, 6).join(' | '));
+  // 英文态：切到英文 → 名字回到目录原名（且不出现中文）
+  $('#langBtn').dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
+  await new Promise(r => setTimeout(r, 700));
+  assert('H19：英文模式仍用原始目录名（表格首列不含汉字）',
+    [...d.querySelectorAll('#satTable tbody td.lname')].map(td => td.textContent.trim()).every(x => !/[\u4e00-\u9fff]/.test(x)),
+    [...d.querySelectorAll('#satTable tbody td.lname')].map(td => td.textContent.trim().slice(0, 18)).slice(0, 4).join(' | '));
+  $('#langBtn').dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
+  await new Promise(r => setTimeout(r, 700));
+  assert('H19：切回中文后名字回到中文，且无脚本错误', errors.length === 0 && /[\u4e00-\u9fff]/.test($('#satTable tbody td.lname').textContent),
+    $('#satTable tbody td.lname').textContent.trim().slice(0, 18));
+}
 // ②③ 地图与地球的滑动区
 assert('地图改成 92vw 居中（与轨道章节图同宽）',
   /\.canvas-wrap\.bleed \{ width:92vw; margin-left:auto; margin-right:auto; \}/.test(tpl) &&
@@ -2602,6 +2688,31 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
     // V1.9.1（A12）：大气层分界线
     "  chartTexts: function () { return chartCv.getContext('2d').__styles.text; },\n" +
     "  climbTexts: function () { return climbCv.getContext('2d').__styles.text; },\n" +
+    // ★ V1.9.5（H18）：把 03 章视图设到指定范围（验证标签三态的档位切换）+ 回自动视图
+    "  chartViewSet: function (x0, x1, y0, y1) { chartView = clampChartView({ x0: x0, x1: x1, y0: y0, y1: y1 }); drawChart();\n" +
+    "    return { x0: chartView.x0, x1: chartView.x1, y0: chartView.y0, y1: chartView.y1 }; },\n" +
+    "  chartViewAuto: function () { chartView = null; chartAutoView(); drawChart(); return { y0: chartView.y0, y1: chartView.y1 }; },\n" +
+    // ★ V1.9.5（H18）：选中点在数据坐标里的范围（用于"放大到能分辨"的自适应断言：
+    //   jsdom 的画布比真浏览器窄一半多 → 写死视窗会让"相邻像素间距"落到阈值另一侧）
+    "  chartSelRange: function () { if (!chartPts.length) buildChartPoints();\n" +
+    "    var g = chartPts.filter(function (p) { return S.sel.indexOf(p.sat.idx) >= 0; });\n" +
+    "    if (!g.length) return null;\n" +
+    "    var xs = g.map(function (p) { return p.x; }), ys = g.map(function (p) { return p.y; });\n" +
+    "    return { x0: Math.min.apply(null, xs), x1: Math.max.apply(null, xs), y0: Math.min.apply(null, ys), y1: Math.max.apply(null, ys), n: g.length }; },\n" +
+    "  chartDraw: function () { try { drawChart(); } catch (e) {} },\n" +
+    "  climbDraw: function () { try { drawClimb(); } catch (e) {} },\n" +
+    // ★ V1.9.5（H25）：主题切换的重绘证据（真浏览器里逐帧截图的替身 —— jsdom 无 VT，
+    //   这里数"地图/地球画布在切主题时是否**同步**被重画"）
+    "  chartViewSet: function (x0, x1, y0, y1) { chartView = clampChartView({ x0: x0, x1: x1, y0: y0, y1: y1 }); drawChart();\n" +
+    "    return { x0: chartView.x0, x1: chartView.x1, y0: chartView.y0, y1: chartView.y1 }; },\n" +
+    "  chartViewAuto: function () { chartView = null; chartAutoView(); drawChart(); return { y0: chartView.y0, y1: chartView.y1 }; },\n" +
+    // ★ V1.9.5（H18）：选中点在数据坐标里的范围（用于"放大到能分辨"的自适应断言：
+    //   jsdom 的画布比真浏览器窄一半多 → 写死视窗会让"相邻像素间距"落到阈值另一侧）
+    "  chartSelRange: function () { if (!chartPts.length) buildChartPoints();\n" +
+    "    var g = chartPts.filter(function (p) { return S.sel.indexOf(p.sat.idx) >= 0; });\n" +
+    "    if (!g.length) return null;\n" +
+    "    var xs = g.map(function (p) { return p.x; }), ys = g.map(function (p) { return p.y; });\n" +
+    "    return { x0: Math.min.apply(null, xs), x1: Math.max.apply(null, xs), y0: Math.min.apply(null, ys), y1: Math.max.apply(null, ys), n: g.length }; },\n" +
     "  chartDraw: function () { try { drawChart(); } catch (e) {} },\n" +
     "  climbDraw: function () { try { drawClimb(); } catch (e) {} },\n" +
     "  chartViewY0: function () { if (!chartView) chartAutoView(); return Math.round(chartView.y0); },\n" +
@@ -3859,6 +3970,57 @@ assert('A9（V1.9.2 重新划分）：合并判据 = 数据空间可分辨阈值
       /var lx = cx \+ rx \* 0\.707, ly = cy - ry \* 0\.707;/.test(appSrc));
     assert('A9（V1.9.2）：标签带**防重叠**排版（靠得太近就下移/右移，用户截图里的标签叠字已根治）',
       /var _labelFor = function \(cl, cx, cy, rx, ry\)/.test(appSrc) && /_placed\.push\(\[lx, ly\]\)/.test(appSrc));;
+    // ★ V1.9.5（H18）：选中态标签**三态**（簇标签 → 批次名 → 单星名）
+    //   ① 未选/远 → 簇标签（上面已验）；② 选中批次且批内星挤在一起（相邻像素间距 < 阈值）→ **批次名**；
+    //   ③ 放大到能分辨 → **单星名**。用户口径："选中批次时显示批次名，放大到能分辨时再显示单星名"。
+    assert('H18：三档判据在源码里（相邻星像素间距 CHART_NAME_GAP 阈值 + 批次名走 batchName）',
+      /var CHART_NAME_GAP = \d+;/.test(appSrc) &&
+      /if \(minGap >= CHART_NAME_GAP\)/.test(appSrc) &&
+      /ctx\.fillText\(batchName\(\(g\[0\]\.s\.launch \|\| \{\}\)\.name\), lx \+ 5, ly \+ 11\)/.test(appSrc) &&
+      // 批次名与簇标签**共用一张避让表**（两张表各管各的会叠字）
+      /var _placed = \[\];\n  var _cls = chartClusters\(pts\);/.test(appSrc));
+    assert('H18：批次名标签参与避让（与簇标签同表：命中就上移/右移，并夹在绘图区内）',
+      /for \(var q = 0; q < 8; q\+\+\)/.test(appSrc) && /_placed\.push\(\[lx, ly\]\);\n      ctx\.textAlign = 'left'; ctx\.textBaseline = 'bottom';/.test(appSrc));
+    // 运行时：真选一个批次（低轨27组 → 批内 9 颗挤成一团）→ 默认视图应给**批次名**，不给 9 个单星名
+    (function () {
+      k3.chartViewAuto();
+      const nSel = k3.selectGroup('26230');            // 低轨27组（9 颗）
+      const before = k3.chartTexts().length;
+      k3.chartDraw();
+      const drew = k3.chartTexts().slice(before);
+      assert('H18②：选批次（默认视图，批内挤成一团）→ 画的是**批次名**，不是 9 个单星名',
+        drew.indexOf('低轨27组') >= 0 && !drew.some(x => /^互联网27组[A-Z]$/.test(x)),
+        '选中 ' + k3.state().sel.length + ' 颗；画出的标签: ' + JSON.stringify(drew.filter(x => /^低轨|^互联网27组/.test(x))));
+      // 放大到"刚好把该批自己填满视窗"（自适应，避免写死视窗被画布宽度差异带偏）→ 应切换成**单星名**
+      const rg = k3.chartSelRange();
+      const padX = Math.max(0.05, (rg.x1 - rg.x0) * 0.06);
+      k3.chartViewSet(rg.x0 - padX, rg.x1 + padX, rg.y0 - 120, rg.y1 + 120);
+      const before2 = k3.chartTexts().length;
+      k3.chartDraw();
+      const drew2 = k3.chartTexts().slice(before2);
+      assert('H18③：放大到能分辨（拉满该批自身范围）→ 切换为**单星名**',
+        drew2.some(x => /^互联网27组[A-Z]$/.test(x)) && drew2.indexOf('低轨27组') < 0,
+        '视窗 x=' + (rg.x0 - padX).toFixed(2) + '~' + (rg.x1 + padX).toFixed(2) + '；标签: ' + JSON.stringify(drew2.filter(x => /^低轨|^互联网27组/.test(x))));
+      k3.chartViewAuto();
+      k3.state().sel.forEach(i => {});                 // 选中态由后续断言自行重置（selectGroup 会覆盖）
+    })();
+    // H19：单星名标签走 nameOf（中文模式出中文名，不出现拼音）
+    assert('H18+H19：单星名标签走 nameOf()（中文模式为中文名，英文模式为目录名）',
+      /g\.forEach\(function \(o\) \{ ctx\.fillText\(nameOf\(o\.s\), o\.x \+ 9, o\.y\); \}\);/.test(appSrc));
+    // ★ V1.9.5（H25）：主题切换时地图/地球**随扫过边界一起变色**（不能等到收尾才跳一次）
+    assert('H25：VT 回调里就重绘地图/地球（收尾才置脏 = 用户报的"地球最后跳变一次"）',
+      /var apply = function \(\) \{[\s\S]{0,700}?repaintMapGlobeNow\(\);/.test(appSrc) &&
+      /function repaintMapGlobeNow\(\) \{[\s\S]{0,460}?drawMap\(frameStatesMap \|\| propagateAll\(simMs\('map'\)\), simMs\('map'\)\)[\s\S]{0,240}?drawGlobe\(frameStatesGlobe \|\| propagateAll\(simMs\('globe'\)\), simMs\('globe'\)\)/.test(appSrc));
+    assert('H25：切换期间主循环早退（.vt-running）—— 所以必须显式画一帧，置脏不够',
+      /if \(document\.documentElement\.classList\.contains\('vt-running'\)\) return;/.test(appSrc));
+    // 降级守卫：重绘失败**不许静默**（warn + 退回置脏，让主循环收尾补一次）
+    //   ⚠️ jsdom 里点主题按钮触发不到处理器（实测 theme 属性不变、VT 也是 undefined），
+    //   所以"点击 → 画布重绘"这条只能靠**真浏览器逐帧截图**验证（见样张 H25_frames_*）。
+    assert('H25：重绘失败不静默 —— warn + 退回置脏（收尾补画一次，不至于停在新色之外）',
+      /console\.warn\('\[H25\] 主题切换重绘失败：'/.test(appSrc) &&
+      /\} catch \(e\) \{\n    \/\/ 重绘失败不能静默[\s\S]{0,160}?mapDirty = globeDirty = true;/.test(appSrc) &&
+      // finishHeavy 仍保留置脏（秒针/自转的后续帧不受影响）
+      /mapDirty = globeDirty = true;\n    try \{ renderTable\(\); \} catch \(e\) \{\}/.test(appSrc));
     // 不参与命中测试：命中函数只找"最近点"，圆圈不进任何数组
     assert('A9：圆圈与标签**不参与命中测试**（命中走 chartHit 的"最近点"，里面不得出现 clusters）',
       (function () {

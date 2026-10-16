@@ -547,6 +547,95 @@ function applyWikiTables(ledger, bk, tag) {
 const H9_GW = applyWikiTables(GW_LEDGER, 'gw', '星网');
 const H9_QF = applyWikiTables(QF_LEDGER, 'qf', '千帆');
 
+// ================================================================ ★ V1.9.5（H13）：表格链接改「卫星百科」
+// 用户口径：名称链接由 satcat 改卫星百科（**单星词条 → 批次词条 → 无词条则只染主题色不加下划线不链接**）；
+//   NORAD 编号加粗 + 紫色（satcat 主题色）+ 下划线，链回 satcat；wiki 每次更新要扫新词条并动态更新表格。
+//
+// 数据从哪来（2026-10-16 实测，见合订清单 §23.1）：
+//   · **单星词条** = 词条表「名称」格里的 <a>（每颗星一条；`wiki_tables[*].nameLinks`）。
+//     实测：试验星 / GEO / KL / DTC **有**；**低轨组网星（26 组）没有**（组名也没有词条 —— 用
+//     MediaWiki 的 `wgArticleId` 实测为 0，即页面不存在）。
+//   · **批次词条** = `wiki_launches.json` 的 `u`（引导页:发射记录 的整行拆列，60/60 全覆盖）。
+//     实测：低轨组网星 → `/wiki/星网`；千帆极轨组 → `/wiki/G60`；试验星 → 该星的单星词条。
+//     ⚠️ 以前 v[7] **只在 autoFillLedger（自动补录行）里写** → 手工台账里的行（绝大多数）没有词条链接。
+//   · 两者都没有 → 页面不链接（第三态）。
+const WIKI_HOST = 'https://sat.huijiwiki.com';
+/** 词条链接统一成**绝对 URL**：数据里存的是 `/wiki/xxx`，页面/导出都可能跑在 file:// 下，
+ *  相对链接在 file:// 里会解析成"本地文件路径"（旧版 v[7] 就是这么坏的，且只在自动补录行上暴露）。 */
+function wikiAbs(u) {
+  if (!u) return '';
+  return /^https?:/i.test(u) ? u : (WIKI_HOST + (u.charAt(0) === '/' ? u : '/' + u));
+}
+/** 台账 key（'26230'）→ wiki_launches 的 key（'2026-230'） */
+function launchFull(k) { return /^\d{5}$/.test(k) ? ('20' + k.slice(0, 2) + '-' + k.slice(2)) : ''; }
+
+function fillLedgerWikiUrls(ledger, tag) {
+  let n = 0, have = 0, nAbs = 0;
+  for (const k in ledger) {
+    const v = ledger[k];
+    if (!Array.isArray(v)) continue;
+    const w = WIKI_LAUNCHES[launchFull(k)];
+    if (w && w.u) {
+      if (v[7]) {
+        have++;
+        const abs = wikiAbs(v[7]);          // 已有的可能是相对路径（autoFillLedger 直接存了 u）→ 一并归一
+        if (abs !== v[7]) { v[7] = abs; nAbs++; }
+      } else { v[7] = wikiAbs(w.u); n++; }
+    }
+  }
+  console.log(tag + ' H13 批次词条：本次补 ' + n + ' 条（原有 ' + have + ' 条，其中归一为绝对 ' + nAbs + ' 条）');
+  return n;
+}
+fillLedgerWikiUrls(GW_LEDGER, '星网');
+fillLedgerWikiUrls(QF_LEDGER, '千帆');
+
+/** 单星词条 → **{norad: {wu, wn}}**（绝对链接 + 词条名）。
+ *  ⚠️ 返回映射而不是就地改 `sats` —— `pack()` 会**重建**卫星记录（只留 id/c/d），
+ *     就地写的字段会被丢掉（实测：日志说"映射 15 颗"，satdata 里一颗都没有）。
+ *     真正的落地在 ORBIT_ST 回填那段（按 id 写进打包后的 rec）。
+ *  映射策略（**保守，宁缺毋滥** —— 宁可回落到批次词条，也不给错链接）：
+ *    · 链接数 == 该批颗数 → 按 NORAD 升序 ↔ DOM 顺序一一对应；
+ *    · 该批只有 1 颗 → 直接用唯一链接；
+ *    · 其余（首尾两条链接的"range"形态、混编发射）→ **按 COSPAR 后缀字母唯一匹配**
+ *      （标题以「X星」结尾且 X = 该星后缀字母）→ 只认能唯一匹配的星。
+ */
+function satWikiMap(sats, bk, tag) {
+  const T = (WIKI_TABLES && WIKI_TABLES[bk]) || {};
+  const byC = {};
+  sats.forEach(s => { const p = String(s.c || '').slice(0, 5); (byC[p] || (byC[p] = [])).push(s); });
+  const map = {};
+  let nEq = 0, nOne = 0, nLet = 0;
+  Object.keys(byC).forEach(p => {
+    const g = byC[p];
+    const row = T[launchFull(p)];
+    const links = (row && Array.isArray(row.nameLinks)) ? row.nameLinks.filter(x => x && x.u) : [];
+    if (!links.length) return;
+    const put = (s, ln) => {
+      const title = ln.t || ln.n || '';
+      const o = {};
+      if (/[\u4e00-\u9fff]/.test(title)) o.wn = title;     // 纯拉丁词条名（如 "CX-26卫星"）不留作中文名
+      o.wu = wikiAbs(ln.u);
+      map[s.id] = o;
+    };
+    if (links.length === g.length) {
+      g.slice().sort((a, b) => a.id - b.id).forEach((s, i) => { put(s, links[i]); nEq++; });
+      return;
+    }
+    if (g.length === 1) { put(g[0], links[0]); nOne++; return; }
+    g.forEach(s => {
+      const L = (String(s.c || '').match(/([A-Z])$/) || [])[1];
+      if (!L) return;
+      const hit = links.filter(x => new RegExp('(^|[^A-Za-z])' + L + '星?$').test(x.t || ''));
+      if (hit.length === 1) { put(s, hit[0]); nLet++; }
+    });
+  });
+  console.log(tag + ' H13 单星词条：颗数一致 ' + nEq + ' 颗｜单颗 ' + nOne + ' 颗｜字母匹配 ' + nLet + ' 颗' +
+    '（其余走批次词条 / 无词条）');
+  return map;
+}
+const H13_GW = satWikiMap(gw, 'gw', '星网');
+const H13_QF = satWikiMap(qf, 'qf', '千帆');
+
 // V1.9.1（A19）：搜索补池 —— 「已再入」与「尚未编目」这两类库内没有 TLE 的对象，
 //   页面搜索也要能搜到（现池只有 `cur().sats`）。
 const GW_POOLS = gwSearchPools(Object.keys(GW_LAUNCH), new Set(gw.map(s => s.id)));
@@ -999,9 +1088,12 @@ const ORBIT_ST = (() => {
 
 // 把三态字段挂到 sats 记录上（DATA 里的 sats 与 gwPack.sats 是同一个数组引用，改元素即生效）
 {
-  let nOrb = 0, nRaising = 0, nGeo = 0, nFallback = 0;
+  let nOrb = 0, nRaising = 0, nGeo = 0, nFallback = 0, nWiki = 0;
   for (const bk of ['gw', 'qf']) {
     for (const rec of (bk === 'gw' ? gwPack : qfPack).sats) {
+      // ★ V1.9.5（H13）：单星词条（在包里重建的记录上按 id 回填 —— 就地写在 pack() 里会丢）
+      const w = (bk === 'gw' ? H13_GW : H13_QF)[rec.id];
+      if (w) { rec.wu = w.wu; if (w.wn) rec.wn = w.wn; nWiki++; }
       const st = ORBIT_ST.get(rec.id);
       if (!st) {
         // ★ V1.9.3（CI 报错根因修复）：历史库里**没有这颗星**时的兜底。
@@ -1041,7 +1133,8 @@ const ORBIT_ST = (() => {
     }
   }
   console.log('在轨状态（A7）：在轨 ' + nOrb + ' / 变轨中 ' + nRaising + '（其中 GEO ' + nGeo +
-    (nFallback ? '，其中 ' + nFallback + ' 颗因无历史点走兜底' : '') + '）');
+    (nFallback ? '，其中 ' + nFallback + ' 颗因无历史点走兜底' : '') + '）' +
+    '｜H13 单星词条已挂 ' + nWiki + ' 颗');
 }
 
 // ---------------------------------------------------------------- V1.9.5（H10 ③b）：**升轨阶段**（构建期预计算）

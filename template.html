@@ -44,6 +44,9 @@
  --coast:rgba(139,151,166,0.45); --coast-globe:rgba(139,151,166,0.5);
  --globe-fill:#090b0e; --globe-edge:rgba(255,255,255,0.14);
  --c-gw:#ff6b6b; --c-qf:#4dabf7; --row-sel:#ff6b6b;
+ /* ★ V1.9.5（H13）：NORAD 列链回 satcat.com —— 用对方的**品牌紫**把"这一列是另一个站点"表达出来，
+    与星座主题色（红/蓝）区分开；深浅两套各一档，保证各自底上的对比度。 */
+ --satcat:#a78bfa;
  /* V1.7.0 第三轮末修正②：顶栏星座切换滑块的"淡底"—— 与 --c-gw/--c-qf 同色、低透明度，
     让主题色文字压在淡底上仍然清晰（原本滑块是纯 --fg 白块，主题色文字上去几乎看不见）。 */
  --c-gw-tint:rgba(255,107,107,0.20); --c-qf-tint:rgba(77,171,247,0.20);
@@ -90,6 +93,7 @@
  --coast:rgba(70,82,95,0.62); --coast-globe:rgba(70,82,95,0.68);
  --globe-fill:#e3e8ee; --globe-edge:rgba(0,0,0,0.16);
  --c-gw:#c92a2a; --c-qf:#1864ab;
+ --satcat:#6d3fd1;                          /* V1.9.5（H13）：浅色主题下的 satcat 紫（深一档，白底可读） */
  --c-gw-tint:rgba(201,42,42,0.14); --c-qf-tint:rgba(24,100,171,0.14);
 }
 * { margin:0; padding:0; box-sizing:border-box; }
@@ -882,6 +886,16 @@ tbody tr:hover td { background:var(--row-hover); }
   color:var(--row-sel); text-decoration:underline; text-underline-offset:2px; border-bottom:0;
 }
 .ltable td a.wl:hover, .ltable td a.sat-link:hover { color:var(--row-sel); opacity:.72; }
+/* ★ V1.9.5（H13）：名称列三态的第二、三态；NORAD 列（satcat 外链）。
+   · `.wiki-link` = 有词条（单星或批次）→ 沿用上面的主题色 + 下划线；
+   · `.sat-plain` = **百科无词条** → 只染主题色、**不加下划线、不是链接**（用户口径第三态）；
+   · `.norad-link` = 加粗 + satcat 紫 + 下划线 → satcat.com（名称列不再承担这个跳转）。 */
+.ltable td .sat-plain { color:var(--row-sel); }
+.ltable td.norad-cell { font-weight:700; }
+.ltable td a.norad-link {
+  color:var(--satcat); font-weight:700; text-decoration:underline; text-underline-offset:2px; border-bottom:0;
+}
+.ltable td a.norad-link:hover { opacity:.72; }
 .ltable td.rk { color:var(--fg); font-weight:700; }
 .ltable td.rk a.wl { color:var(--row-sel); font-weight:700; }
 .ltable td.site a.wl { color:var(--row-sel); }

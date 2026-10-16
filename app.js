@@ -36,7 +36,7 @@ function unpackSat(s, tpls) {
   //     ② V1.9.2（A7）的三态字段 `orb`/`wk`/`od`/`rr` → 「在轨状态」列退化成
   //        「在轨（~—，undefinedkm）」（smoke 的渲染层断言当场抓到）。
   //   ⚠️ 以后往 satdata 的卫星记录里加字段时，**必须同步写进下面这张 EXTRA 表**。
-  var EXTRA = ['st', 'dt', 'orb', 'wk', 'od', 'rr'];
+  var EXTRA = ['st', 'dt', 'orb', 'wk', 'od', 'rr', 'wu', 'wn'];
   for (var ei = 0; ei < EXTRA.length; ei++) {
     var ek = EXTRA[ei];
     // 用 `!== undefined` 而不是真值判断 —— `orb` 的 0（在轨）是**合法且最常见**的取值，
@@ -434,14 +434,55 @@ function cnName(s) {
     return n.replace(/^试验星(\d+)组?$/, 'Test Satellite $1')
       .replace(/^高轨(\d+)星?$/, 'High-Orbit Sat $1');
   }
-  return n.replace(/^HULIANWANG DIGUI-(\d+)$/, '互联网低轨-$1')
+  return zhRules(n);
+}
+/** ★ V1.9.5（H19）：**按中文规则翻译**（与界面语言无关）—— cnName() 与搜索变体共用同一份规则。
+ *  为什么抽出来：`nameVariants()` 原先自己抄了一半规则（缺 GEO/KL/DTC/CX…），两处会越走越偏；
+ *  搜索索引必须认**全部**中文写法（含词条名），否则"搜得到名字却搜不到卫星"。 */
+function zhRules(n) {
+  return String(n).replace(/^HULIANWANG DIGUI-(\d+)$/, '互联网低轨-$1')
     .replace(/^HULIANWANG JISHU SHIYAN.*$/, '互联网技术试验')
     .replace(/^HJS.*$/, '互联网技术试验')
+    .replace(/^HULIANWAN GAOGUI-(\d+).*$/, '互联网高轨-$1')
     .replace(/^GUOWANG TEST OBJECT ([A-Z])$/, '互联网试验-$1')
     .replace(/^GUOWANG (\d+) OBJECT ([A-Z])$/, '互联网$1组$2')
     .replace(/^QIANFAN (\d+) OBJECT ([A-Z])$/, '千帆$1组$2')
     .replace(/^QIANFAN-(\d+)$/, '千帆-$1')
+    // ★ V1.9.5（H19）：补齐普查出来的最后几种残留形态（实测 30 颗，见 §23.2）
+    .replace(/^CHUANG ?XIN (\d+)([A-Z]?)(?: \([^)]*\))?$/, '创新$1$2')
+    .replace(/^KL-ALPHA ([A-Z])$/, '千帆-α-$1')
+    .replace(/^KL-BETA ([A-Z])$/, '千帆-β-$1')
+    .replace(/^DTC TEST OBJECT ([A-Z])$/, '千帆DTC-$1')
     .replace(/^试验星(\d+)$/, '试验星$1');
+}
+
+// ---------------------------------------------------------------- ★ V1.9.5（H13/H19）：百科词条链接与中文名
+// H13 三态（用户口径）：名称 → ① 单星词条 → ② 批次词条 → ③ 无词条（只染主题色、不加下划线、不链接）。
+//   · ① 单星词条 = satdata 的 `s.wu/wn`（mkdata 由词条表「名称」格的 <a> 映射而来；
+//     实测只有试验星/GEO/KL/DTC 有，低轨/极轨组网星没有 —— 组名也没有词条，wgArticleId=0 实测）。
+//   · ② 批次词条 = 台账 v[7]（发布层 `L.url`；mkdata 从 wiki_launches.u 补齐，60/60 全覆盖）。
+//   · ③ 皆无 → 不链接。
+// ⚠️ URL 必须**绝对化**：数据里存的是 `/wiki/xxx`，而页面可能跑在 file:// 下 ——
+//   相对链接会被解析成"本地文件路径"（旧版批次链接就只在自动补录行上暴露过这个问题）。
+var WIKI_ORIGIN = 'https://sat.huijiwiki.com';
+function wikiAbs(u) {
+  if (!u) return '';
+  return /^https?:/i.test(u) ? u : (WIKI_ORIGIN + (u.charAt(0) === '/' ? u : '/' + u));
+}
+/** 该星的百科链接（单星优先 → 批次兜底 → ''）＋"是哪一级"（供样式/断言区分） */
+function wikiOf(s) {
+  if (!s) return { u: '', lvl: 0 };
+  if (s.wu) return { u: wikiAbs(s.wu), lvl: 1 };
+  var lu = s.launch && s.launch.url;
+  if (lu) return { u: wikiAbs(lu), lvl: 2 };
+  return { u: '', lvl: 0 };
+}
+/** 显示用名字（**所有名字渲染点都走这里**）：中文模式优先**词条名**（H19"词条名优先"），
+ *  缺失按规则翻译（cnName）；英文模式交给 cnName（它含"试验星/高轨"的英文化改写，不能绕过）。 */
+function nameOf(s) {
+  if (!s) return '';
+  if (LANG === 'en') return cnName(s);
+  return s.wn || cnName(s);
 }
 
 // ---------------------------------------------------------------- 预计算（性能）
@@ -660,7 +701,10 @@ function build(key) {
       //   orb=0 在轨 / 1 变轨中（已再入走上面的 st='r'）、wk=该批工作轨道高度档位或 'GEO'、
       //   od=进入工作轨道日期（在轨态才有）、rr=升轨速度 km/天（变轨中态才有）。
       //   ⚠️ 与 unpackSat() 的 EXTRA 表是**同一份字段清单的两处**，加字段时两处都要改。
-      orb: s.orb, wk: s.wk, od: s.od, rr: s.rr
+      orb: s.orb, wk: s.wk, od: s.od, rr: s.rr,
+      // ★ V1.9.5（H13/H19）：百科词条链接（单星词条，只有试验星/GEO/KL/DTC 这类有）
+      //   与词条名（中文名优先来源）。没有单星词条时页面回落到**批次词条**（见 wikiUrlOf）。
+      wu: s.wu, wn: s.wn
     };
     sats.push(o); L.sats.push(o);
   });
@@ -2159,6 +2203,9 @@ function drawChart() {
   // ---- V1.9.1（A9）：**聚集区虚线圆圈** + 「高度/倾角」标签 ----
   //   画在**光点之前**（不填充 → 不遮挡；顺序上也点在上层）。
   //   放大到一定程度**自然消失**（`chartClusterAlpha`），圆圈与标签都**不参与命中测试**。
+  // ★ V1.9.5（H18）：标签避让表**提升到簇标签之外** —— 簇标签（① 态）与批次名（② 态）共用一张表，
+  //   否则选中批次时批次名可能正好压在某个簇标签上（两张表各管各的）。
+  var _placed = [];
   var _cls = chartClusters(pts);
   if (_cls.length) {
     var _spanX = v.x1 - v.x0;
@@ -2167,7 +2214,6 @@ function drawChart() {
     ctx.setLineDash([4, 4]); ctx.lineWidth = 1.7;
     // 标签防重叠：先算出每个圈标签的落点，若与已放置的标签靠得太近就**下移一行**
     //   （实测 50° 上两个簇的标签会叠在一起，正是用户截图里看到的"重合"）。
-    var _placed = [];
     var _labelFor = function (cl, cx, cy, rx, ry) {
       var lx = cx + rx * 0.707, ly = cy - ry * 0.707;
       // V1.9.2：标签必须**留在绘图区内**（否则会画到坐标轴外 —— visual 的
@@ -2263,18 +2309,62 @@ function drawChart() {
     ctx.restore();
     ctx.globalAlpha = 1;
   }
-  // 选中卫星的标注
-  if (S.sel.length && S.sel.length <= 12) {
-    ctx.font = '10px ' + MONO; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  // ---- ★ V1.9.5（H18）：选中态的标签**三态** ----
+  // 用户口径：① 未选/远 → 簇标签（上面已画）；② **选中批次** → 居中于该批点云上方的**批次名**
+  //   （动态避让，复用簇标签那张避让表）；③ 放大到**能分辨**（同批相邻星的像素间距 ≥ 阈值）→ **单星名**。
+  // 为什么要有 ②：点选一个批次时，批内十几颗星挤成一小团 —— 逐个标名字只会糊成一片
+  //   （旧版就是无条件逐个画，选"低轨27组"时那 9 个名字彼此重叠）；标批次名才是那一档该看的信息。
+  if (S.sel.length) {
+    var CHART_NAME_GAP = 26;                       // 相邻星像素间距 ≥ 此值才算"能分辨"
+    var selPts = [];
     S.sel.forEach(function (i) {
-      var s = cur().sats[i]; if (!s) return;
-      var p = null;
-      for (var k = 0; k < pts.length; k++) if (pts[k].sat === s) { p = pts[k]; break; }
-      if (!p) return;
-      var x = X(p.x), y = Y(p.y);
-      if (y == null) return;                                  // V1.9.1（A18）：落在断轴区 → 不标注
-      if (x < PL || x > PL + pw) return;
-      ctx.fillStyle = C.fg; ctx.fillText(s.name.replace(/^HULIANWANG /, '').replace(/^QIANFAN/, 'QF'), x + 9, y);
+      var s2 = cur().sats[i]; if (!s2) return;
+      for (var k = 0; k < pts.length; k++) {
+        if (pts[k].sat !== s2) continue;
+        var px = X(pts[k].x), py = Y(pts[k].y);
+        if (py == null) return;                    // 落在断轴区 → 不标注
+        if (px < PL - 40 || px > PL + pw + 40) return;
+        selPts.push({ s: s2, x: px, y: py });
+        return;
+      }
+    });
+    var byLk = {};
+    selPts.forEach(function (o) { (byLk[o.s.lk] || (byLk[o.s.lk] = [])).push(o); });
+    ctx.font = '10px ' + MONO;
+    Object.keys(byLk).forEach(function (lk) {
+      var g = byLk[lk].slice().sort(function (a, b) { return a.x - b.x; });
+      var minGap = Infinity;
+      for (var i = 1; i < g.length; i++) minGap = Math.min(minGap, g[i].x - g[i - 1].x);
+      if (g.length === 1) minGap = Infinity;
+      if (minGap >= CHART_NAME_GAP) {
+        // ③ 单星名（放大到能分辨；沿用 x+9 右侧标注，与旧观感一致）
+        ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+        ctx.fillStyle = C.fg;
+        g.forEach(function (o) { ctx.fillText(nameOf(o.s), o.x + 9, o.y); });
+        return;
+      }
+      // ② 批次名：居中于该批点云**上方**，并按已放置的标签做避让（与簇标签共表）
+      var LBLW = Math.max(56, ctx.measureText(batchName((g[0].s.launch || {}).name)).width + 10);
+      var LBLH = 13;
+      var lx = (g[0].x + g[g.length - 1].x) / 2 - LBLW / 2;
+      var ly = Math.min.apply(null, g.map(function (o) { return o.y; })) - 12;
+      lx = Math.max(PL + 2, Math.min(PL + pw - LBLW, lx));
+      ly = Math.max(PT + LBLH, Math.min(PT + ph - 2, ly));
+      for (var q = 0; q < 8; q++) {
+        var hit = false;
+        for (var m = 0; m < _placed.length; m++) {
+          if (Math.abs(_placed[m][0] - lx) < LBLW + 6 && Math.abs(_placed[m][1] - ly) < 14) { hit = true; break; }
+        }
+        if (!hit) break;
+        ly -= 14;                                   // 往上让一行
+        if (ly < PT + LBLH) { ly = Math.min(PT + ph - 2, Math.min.apply(null, g.map(function (o) { return o.y; })) + 20); lx = Math.min(PL + pw - LBLW, lx + LBLW + 8); }
+      }
+      lx = Math.max(PL + 2, Math.min(PL + pw - LBLW, lx));
+      ly = Math.max(PT + LBLH, Math.min(PT + ph - 2, ly));
+      _placed.push([lx, ly]);
+      ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+      ctx.fillStyle = C.theme;
+      ctx.fillText(batchName((g[0].s.launch || {}).name), lx + 5, ly + 11);
     });
   }
   ctx.restore();      // V1.8.0（需求17 / ⑱）：结束绘图区裁剪
@@ -2306,7 +2396,8 @@ function satBlock(s, scope, extra) {
   // V1.6.3：信息窗统一版式（各章节 / 全屏 / 中英文共用）——
   // 顺序：NORAD → 批次/组 → 近地点×远地点 → 倾角 → 周期 → 发射日期 → 更新历元；
   // 已按要求去掉「半长轴」与「目录名」两项。
-  return '<div class="si-block"><div class="si-name">' + s.name +
+  // ★ V1.9.5（H19）：中文模式用词条名/规则译名（信息窗顶行也不能露英文名）
+  return '<div class="si-block"><div class="si-name">' + nameOf(s) +
     '<span class="swatch" style="background:' + colOf(s, scope) + '"></span></div>' +
     '<div class="si-row"><span>NORAD</span><span>' + s.norad + '</span></div>' +
     '<div class="si-row"><span>' + t('d_row_batch') + '</span><span>' + batchName(L.name) + '</span></div>' +
@@ -2662,7 +2753,7 @@ function drawMap(states, ms) {
     //   （选中星、悬停星、观测点可见星；无选中时显示全部）。
     var showLabel = (S.names.map || TOG.nameMap > 0.01) && (sel2 || mapHover === m || visHi || (!pickOn && !hasSel));
     if (showLabel) {
-      var lb = cnName(sv);
+      var lb = nameOf(sv);
       ctx.font = '10px ' + MONO;
       var tw = ctx.measureText(lb).width;
       // V1.3.4：八个候选位（右→左→上→下→四个斜角）依次试，取第一个完全不重叠的；
@@ -2921,7 +3012,7 @@ function drawGlobe(states, ms) {
     ctx.globalAlpha = 1;
     // V1.7.2 第七轮（需求8b）：同地图 —— 开关提到最外层，选中态也受它管辖
     if (!hidden && (S.names.globe || TOG.nameGlobe > 0.01) && (sel4 || G.hover === m || !hasSelG)) {
-      var lb = cnName(sv);
+      var lb = nameOf(sv);
       ctx.font = '10px ' + MONO;
       var tw = ctx.measureText(lb).width;
       var box = [pr2.x + 6, pr2.y - 6, tw, 12], hit = false;
@@ -3014,7 +3105,8 @@ function tableVals(s) {
   var L = s.launch;
   var mkRow = manufacturerOf(s);
   return {
-    name: cnName(s), norad: s.norad, launch: L.name,
+    // ★ V1.9.5（H19）：显示名统一走 nameOf()（中文模式**词条名优先**，缺失按规则翻译）
+    name: nameOf(s), norad: s.norad, launch: L.name,
     // V1.9.1（1.4-D）：「在轨状态」列 —— 0=在轨 / 1=已再入（排序用数值：在轨排前面）。
     //   已再入的卫星在 mkdata 里带了 `st:'r'` 与 `dt`（再入日期，来自 satcat 的 DECAY_DATE）。
     // V1.9.2（A7）：三态化 —— 0=在轨 / 1=变轨中 / 2=已再入（升序排 → 在轨在前、已再入最后）。
@@ -3140,11 +3232,21 @@ function satRowHtml(r) {
   //   高度/倾角/周期是"再入那一刻"的过期值，显示出来会误导（用户口径：不用 0、不用上一帧值）。
   var DASH = '<span class="no-data">-</span>';
   var V = function (x) { return r.gone ? DASH : x; };
+  // ★ V1.9.5（H13）：名称列三态 —— ① 单星词条 / ② 批次词条 → 链接卫星百科；③ 无词条 → 只染主题色、
+  //   不加下划线、不链接（用户口径）。旧版这里**一律**链到 satcat.com；satcat 改由 NORAD 列承担
+  //   （加粗 + 紫色 + 下划线），于是两列各司其职：名称 → 百科，编号 → 目录。
+  var wk = wikiOf(s);
+  var wTitle = wk.lvl === 1
+    ? (LANG === 'en' ? 'Open the satellite wiki article' : '打开卫星百科词条')
+    : (LANG === 'en' ? 'Open the constellation wiki article (this batch)' : '打开卫星百科词条（该批次所在的星座词条）');
+  var nameCell = wk.u
+    ? '<a class="sat-link wiki-link" href="' + wk.u + '" target="_blank" rel="noopener" title="' + wTitle + '">' + r.name + '</a>'
+    : '<span class="sat-plain" title="' + (LANG === 'en' ? 'No wiki article for this satellite or batch' : '卫星百科暂无该星/该批次的词条') + '">' + r.name + '</span>';
   return '<tr data-idx="' + s.idx + '" class="' + (sel && !r.gone ? 'focused' : '') +
     (r.gone ? ' gone' : '') + (goneFocus ? ' gone-focus' : '') + '">' +
     '<td class="lname"><span class="swatch" style="background:' + colOf(s, 'chart') + ';margin-right:6px"></span>' +
-    '<a class="sat-link" href="' + SATCAT(r.norad) + '" target="_blank" rel="noopener" title="Satcat · ' + r.norad + '">' + r.name + '</a></td>' +
-    '<td>' + r.norad + '</td>' +
+    nameCell + '</td>' +
+    '<td class="norad-cell"><a class="norad-link" href="' + SATCAT(r.norad) + '" target="_blank" rel="noopener" title="Satcat · ' + r.norad + '">' + r.norad + '</a></td>' +
     // V1.9.1（1.4-D）：「在轨状态」列 —— 在轨绿 / 已再入红。
     // V1.9.1（A10）：已再入的写**完整**文案「已再入（~YYYY-MM-DD，XXX 天）」（XXX = 冻结的在轨日）。
     // V1.9.2（A7）：三态 —— 在轨绿 / **变轨中黄** / 已再入红，内容见 orbitStatusHtml()。
@@ -3717,7 +3819,7 @@ function shotSatLines(view) {
       }
     }
     return [{ segs: [
-      { t: sat ? cnName(sat) : String(c.norad) },
+      { t: sat ? nameOf(sat) : String(c.norad) },
       { t: String(c.norad) },
       { t: sat ? batchName((sat.launch || {}).name) : '' },
       { t: s4 },
@@ -3734,7 +3836,7 @@ function shotSatLines(view) {
     var d = (L.dateStr || '').slice(0, 10) || '—';
     var days = isFinite(L.dateMs) ? Math.max(0, Math.floor((Date.now() - L.dateMs) / DAY)) : null;
     var parts = [
-      cnName(s),
+      nameOf(s),
       String(s.norad),
       batchName(L.name),
       fmtNum(s.hpK, 2) + 'km×' + fmtNum(s.haK, 2) + 'km',
@@ -5205,6 +5307,13 @@ document.getElementById('themeBtn').addEventListener('click', function () {
     setTheme(!light);
     drawChart(); renderLegend();
     try { drawNet(); } catch (e) {}      // V1.8.0（需求8）：03.5 的曲线/网格随主题重画
+    // ★ V1.9.5（H25）：**地图/地球也要在这一帧就换成新主题色** ——
+    //   旧版只在这里置脏、真正的重绘发生在收尾 finishHeavy（那是"动画结束后"），
+    //   于是 VT 的**新快照**里地球还是旧配色：扩散扫过时地球不变，收尾才"啪"地跳一次
+    //   —— 用户报的"地球最后跳变一次"就是这么来的。
+    //   现在同步重绘一次（单帧成本，与 drawChart 同量级）：VT 会把新旧两张快照按扩散边界交叉淡入，
+    //   于是地球的颜色**随扫过的边界线连续变化**。收尾仍保留置脏（秒针/自转的后续帧不受影响）。
+    repaintMapGlobeNow();
   };
   var finishHeavy = function () {
     document.documentElement.classList.remove('vt-running');
@@ -7637,14 +7746,9 @@ function afterSelection() {
 // ---- 搜索（两个输入框同步联想，候选项竖向列出）
 // 中英文双向可搜：把两种语言的名字/批次名都放进匹配串
 function nameVariants(s) {
-  var zh = s.name.replace(/^HULIANWANG DIGUI-(\d+)$/, '互联网低轨-$1')
-    .replace(/^HULIANWANG JISHU SHIYAN.*$/, '互联网技术试验')
-    .replace(/^HJS.*$/, '互联网技术试验')
-    .replace(/^GUOWANG TEST OBJECT ([A-Z])$/, '互联网试验-$1')
-    .replace(/^GUOWANG (\d+) OBJECT ([A-Z])$/, '互联网$1组$2');
-  // V1.7.0 第三轮修正：英文一律用**目录原名**，不再改写成星座品牌名
-  var en = s.name;
-  return zh + ' ' + en;
+  // ★ V1.9.5（H19）：规则只写一处 —— 直接复用 zhRules()（旧版这里自己抄了半套规则，缺 GEO/KL/DTC/CX），
+  //   并把**词条名**（H13 的 s.wn）也算进搜索变体：用户看到的是词条名，就得能搜到它。
+  return zhRules(s.name) + ' ' + s.name + (s.wn ? ' ' + s.wn : '');
 }
 function batchVariants(name) {
   var zh = name, en = name.replace(/^低轨(\d+)组$/, 'LEO Group $1')
@@ -8039,7 +8143,7 @@ function sugItemHtml(o, mark) {
   var name, right, tail, attrs, cls = '';
   if (o.kind === 'sat') {
     var s = o.sat;
-    name = cnName(s);
+    name = nameOf(s);
     right = o.note || clip(String(s.norad), 10);
     tail = String(s.norad);
     // V1.6.3：批次项的 data-lk 必须是 launch.key（裸号，如 23095）—— 此前误用 cospar（2023-095），
@@ -8813,7 +8917,25 @@ document.getElementById('langBtn').addEventListener('click', function () {
     mapDirty = globeDirty = true;
   });
 });
+/** ★ V1.9.5（H25）：**立刻**用当前主题重绘地图/地球（不等主循环）。
+ *  为什么需要它：主题切换期间 <html> 挂着 `.vt-running`，主循环在那一刻**整体早退**（V1.8.0 的掉帧治理），
+ *  所以"置脏"要等收尾才被消费 —— 那正是"地球最后跳变一次"的机制。这里显式画一帧，
+ *  让 VT 的**新快照**本身带上新配色，颜色的变化就交给 VT 的扩散交叉淡入（随边界扫过而连续变化）。 */
+function repaintMapGlobeNow() {
+  try {
+    mapDirty = globeDirty = true;
+    // 主循环还没跑过第一帧时 frameStates* 仍是 null（首屏立刻切主题）→ 就地推一次，
+    //   否则"置脏"没人消费，又变回"等收尾才跳"。
+    if (isVisible(mapCv)) { drawMap(frameStatesMap || propagateAll(simMs('map')), simMs('map')); mapDirty = false; }
+    if (isVisible(globeCv)) { drawGlobe(frameStatesGlobe || propagateAll(simMs('globe')), simMs('globe')); globeDirty = false; }
+  } catch (e) {
+    // 重绘失败不能静默：退回"置脏"让主循环在收尾补一次（与 SGP4 失败同样的 warn 口径）。
+    console.warn('[H25] 主题切换重绘失败：' + ((e && e.message) || e));
+    mapDirty = globeDirty = true;
+  }
+}
 var frameStatesMap = null, frameStatesGlobe = null, lastSecMap = 0, lastSecGlobe = 0, lastGlobeDraw = 0;
+
 function loop() {
   requestAnimationFrame(loop);
   // V1.9.0（需求14，A 方案的性能部分）：主题切换（View Transition 圆形扩散）期间**暂停主循环**。
@@ -10423,7 +10545,7 @@ function climbSatIdx(norad) {
 function climbSatName(norad) {
   var i = climbSatIdx(norad);
   if (i >= 0) {
-    try { return cnName(cur().sats[i]); } catch (e) {}
+    try { return nameOf(cur().sats[i]); } catch (e) {}
   }
   return String(norad);
 }
@@ -11128,7 +11250,7 @@ function climbShowInfoAt(h) {
   // ⚠️ 键名与 01/02 章信息窗**保持一致**（d_row_batch / d_row_epoch_sat …），
   //   且值一律用 <span>（旧版信息窗的第二格就是 span，用 <b> 会与相邻行粗细不一致）。
   var rows = [];
-  rows.push('<div class="si-row"><span>' + t('t_name') + '</span><span>' + (sat ? cnName(sat) : h.norad) + '</span></div>');
+  rows.push('<div class="si-row"><span>' + t('t_name') + '</span><span>' + (sat ? nameOf(sat) : h.norad) + '</span></div>');
   rows.push('<div class="si-row"><span>NORAD</span><span>' + h.norad + '</span></div>');
   if (sat) {
     var L = sat.launch || {};
@@ -11176,7 +11298,7 @@ function climbLoneOptions(C, seen) {
     if (seen[k]) return;                       // 已在批次列表里
     (C[k] || []).forEach(function (c) {
       var idx = climbSatIdx(c.norad);
-      var nm = idx >= 0 ? cnName(cur().sats[idx]) : String(c.norad);
+      var nm = idx >= 0 ? nameOf(cur().sats[idx]) : String(c.norad);
       out.push({ v: 's:' + c.norad, label: nm + paren(1), lone: true });
     });
   });

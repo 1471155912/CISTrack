@@ -107,6 +107,7 @@ const EXTRACT = `(function(){
     var iName = head.findIndex(function (h) { return /中文名|名称/.test(h); });
     var iSite = head.findIndex(function (h) { return /发射基地|发射地点|发射场/.test(h); });
     var iMk = head.findIndex(function (h) { return /研发机构|研制单位/.test(h); });
+    var iEn = head.findIndex(function (h) { return /^英文名$/.test(h); });
     if (iCos < 0 || iDate < 0) return;                       // 单源表必须有 COSPAR + 日期
     trs.slice(1).forEach(function (tr) {
       var cs = [...tr.children];
@@ -117,10 +118,22 @@ const EXTRACT = `(function(){
       var aList = cell ? [].slice.call(cell.querySelectorAll('a')).map(function (x) {
         return { n: (x.innerText || '').trim(), u: x.getAttribute('href') || '' };
       }).filter(function (x) { return x.n && x.u; }) : [];
+      // ★ V1.9.5（H13/H19）：**名称格里每颗星都有自己的词条链接**（如「…一号 → /wiki/…一号」）。
+      //   这是"单星词条"的唯一来源 —— 实测：试验星/GEO/KL 有，**低轨/极轨组网星没有**
+      //   （组名没有词条，已用 wgArticleId=0 实测确认）。href 解码后即词条全名（锚文本可能是简称「二号」）。
+      var nameCell = iName >= 0 ? cs[iName] : null;
+      var nList = nameCell ? [].slice.call(nameCell.querySelectorAll('a')).map(function (x) {
+        var u = x.getAttribute('href') || '';
+        var full = u;
+        try { full = decodeURIComponent(u.replace(/^\\/wiki\\//, '')); } catch (e) { full = u.replace(/^\\/wiki\\//, ''); }
+        return { n: (x.innerText || '').trim(), u: u, t: full };
+      }).filter(function (x) { return x.u; }) : [];
       out.push({
         cospar: cos,
         date: iDate >= 0 && cs[iDate] ? (cs[iDate].innerText || '').trim().replace(/\\s+/g, ' ') : '',
         name: iName >= 0 && cs[iName] ? (cs[iName].innerText || '').trim().replace(/\\s+/g, ' ').slice(0, 80) : '',
+        nameLinks: nList,
+        en: (iEn >= 0 && cs[iEn]) ? (cs[iEn].innerText || '').trim().replace(/\\s+/g, ' ').slice(0, 50) : '',
         site: iSite >= 0 && cs[iSite] ? (cs[iSite].innerText || '').trim().replace(/\\s+/g, ' ') : '',
         siteUrl: (iSite >= 0 && cs[iSite] && cs[iSite].querySelector('a')) ? cs[iSite].querySelector('a').getAttribute('href') : '',
         mk: cell ? (cell.innerText || '').trim().replace(/\\s+/g, '') : '',
@@ -194,17 +207,29 @@ for (const [key, url] of PAGES) {
     const dt = parseDate8(r.date);
     const row = {
       name: r.name || '',
+      names: r.name ? [r.name] : [],
+      nameLinks: Array.isArray(r.nameLinks) ? r.nameLinks.slice() : [],
+      en: r.en || '',
       d8: dt ? dt.d8 : '', t8: dt ? dt.t8 : '', ms8: dt ? dt.ms8 : 0,
       site: r.site || '', siteUrl: r.siteUrl || '',
       mk: r.mk ? { m: r.mk, url: r.mkUrl || '', links: r.mkLinks || [] } : null
     };
     // ⚠️ 同一次发射在表里可能有多行（A/B/K 多载荷，COSPAR 只差后缀字母）→ **合并**而不是覆盖：
     //    已存在的非空字段保留，空字段由后行补齐（防止"无研发机构"的行把有机构的行覆盖成 null）。
+    // ★ V1.9.5（H13/H19）：`names` / `nameLinks` 必须**并集** —— 多载荷行各带自己的载荷名与词条，
+    //    "留第一个非空"会把后一行的星整批丢掉（2019-077A/B、2026-128A/B、2026-211K 实测存在）。
+    //    `en`（千帆表的英文名）同理，两行都有值时用 ' / ' 连接。
     const old = map[cos];
     if (old) {
       for (const f of ['name', 'site', 'siteUrl']) if (!old[f] && row[f]) old[f] = row[f];
       if (!old.mk && row.mk) old.mk = row.mk;
       if (!old.d8 && row.d8) { old.d8 = row.d8; old.t8 = row.t8; old.ms8 = row.ms8; }
+      if (!Array.isArray(old.names)) old.names = old.name ? [old.name] : [];
+      row.names.forEach(nm => { if (nm && old.names.indexOf(nm) < 0) old.names.push(nm); });
+      if (!Array.isArray(old.nameLinks)) old.nameLinks = [];
+      const have = new Set(old.nameLinks.map(x => x && x.u));
+      row.nameLinks.forEach(x => { if (x && x.u && !have.has(x.u)) { old.nameLinks.push(x); have.add(x.u); } });
+      if (row.en && old.en !== row.en) old.en = old.en ? (old.en + ' / ' + row.en) : row.en;
       n++;
       continue;
     }
