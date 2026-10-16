@@ -10,9 +10,28 @@ The version is written in the footer (`CISTrack · Vx.y.z`), and the bottom bar 
 
 ---
 
-## [Unreleased] — V1.9.5 (in progress)
+## [V1.9.5] — 2026-10-17
 
-> This section grows as development proceeds and is **finalised at release** (version number, date, full entries).
+> Highlights: the **globe keeps spinning during a theme switch** ("hole wipe", revertible in one step),
+> **hover hit-testing consolidated** (once per frame, one gate for all four chapters),
+> **runtime data fetching migrated to OMM/JSON** (H42 wrap-up), themed circles + name labels for the
+> three GEO satellites in chapter 03, hardened drag bounds plus a pre-draw safety clamp, two-way
+> linkage for the Orbits-Change chapter, README adjustments (zh + en), and a full English review.
+>
+> Gates added / hardened in this release: smoke **880 PASS / 0 FAIL**, the full-viewport visual matrix
+> **132 PASS / 0 FAIL**, privacy and repository-hygiene scans with 0 hits, both offline e2e suites green.
+
+### ⓪ Post-delivery gap found while verifying the release (2026-10-17)
+
+- **The H12 terminology unification had missed the in-app "About / Help" prose**: the three UI spots
+  (legend / y-axis selector / export footer) had long used 「**变轨速度**」 / `Maneuver rate`, but the
+  help text still carried **one leftover in each language** (Chinese 「升轨速度」, English `climb rate`).
+  A stale term that survives *only inside the help prose* is invisible to both UI screenshots and the
+  i18n key-table check, because it is not an i18n key but embedded Markdown. Fixed, plus a new smoke
+  guard that tests against the **comment-stripped source** so it cannot come back.
+  ⚠️ The guard must strip comments: H12's own history note necessarily keeps the old wording
+  ("「升轨速度」→「变轨速度」"), so testing the raw source would produce a **false red**. This bit us
+  twice during this verification; it is recorded in the development doc.
 
 ### Attribution (H31)
 
@@ -525,6 +544,141 @@ which looks broken, but that is by design — 6-digit objects are explicitly han
 "missing" ones are mostly absent upstream. Measured: `S3 missing 208→filled 60; S4 missing 148→filled 0;
 S5 missing 193→filled 193, 0 failures` (the main path covers everything). This is now documented in a code
 comment so it will not be mistaken for a regression again.
+
+### ⑫ ★ Two real bugs in table export (user re-review)
+
+> The user's words: "① when printing the last two tables the chosen page range is not honoured (e.g. on
+> page 3, choosing 'this page' actually prints pages 1–3); check and fix every print mode thoroughly;
+> ② the printed table does not follow the label/centring rules, nor the font and form of the in-page
+> table — the final printout should look close to the table as seen on the page."
+
+**① The page range is ignored — three independent defects stacked**
+
+| # | Defect | Code | What the user saw |
+|---|---|---|---|
+| a | **"Export this page" was really "accumulate from page 1 to the current page"** | `var from = 0, to = curPage;` | on page 3, "this page" gave **pages 1–3** |
+| b | **"Export N pages" was really "pages 1–N"** | `var from = 0, to = min(mode, total) - 1;` | disconnected from "this page" |
+| c | **Two different pagination schemes** | the screen used `SAT_PAGE + pageBounds()` (dynamic, from measured row heights); export used a fixed `PAGE_SIZE = 10` hard cut | screen page 3 ≠ export page 3 |
+
+**Fix**:
+- single page → `from = to = current page`; multiple pages → `from = current page, to = current page + N - 1` (**counted from the current page**);
+- added `satPageBounds()` / `launchPageBounds()` (**reusing the screen's `pageBounds` verbatim**) → export "page N" is **row-for-row identical** to the screen;
+- `shotTotalPages()` now returns `SAT_PAGES / LAUNCH_PAGES` (the real screen page count) instead of its own calculation;
+- `shotMulti`'s legal upper bound became `total pages − current page + 1`;
+- wording clarified in step: `Export this page` / **`Export next N pages`** / `Export all pages`.
+
+**Verified** (Edge headless, injected into the real build):
+`page 3 + export this page` → page text **`page 3`** (before the fix: `pages 1–3`);
+`page 3 + export next 3 pages` → **`pages 3–5`**.
+
+**★ This also uncovered a "silent data loss"**: `pageCount()` used `ceil(total cells / per)` (ideal
+packing) while `pageBounds()` uses **greedy packing** (move to the next page when the row does not fit,
+no backtracking) — the two diverge exactly when "the remaining space cannot fit the next row".
+Measured: the satellite table has **251 rows**; the old `pageCount` gave 26 pages, but greedy packing
+left **row 251 (idx 250) unable to fit on any page** → **it could never be seen on screen, and "export
+all pages" missed it too**. `pageCount` now uses **the same greedy loop as `pageBounds`** (with a
+fallback for "a single row exceeds `per`"); measured `missing: 0`, pages 26 → **27** (the extra page is
+exactly the row that previously had nowhere to go).
+
+**② The table form did not match the page — three places**
+
+| # | Defect | Code |
+|---|---|---|
+| a | long text was **truncated by character count** (`cell.slice(0,39)+'…'`) instead of wrapped → looked like it overflowed the paper | old draw block |
+| b | everything was **left-aligned** (`textAlign='left'`), while the page is `text-align:center` (first column left) | old draw block |
+| c | column widths came from **text measurement + a 300 px hard cap**, unrelated to the page; row height fixed at `26*dpr` | old width/height block |
+
+**Fix**:
+- added **`wrapCell(ctx, text, maxW)`**: wraps by **available pixel width** (break on spaces first, hard-break over-long words, at most 4 lines, `…` only in extreme cases) — **almost every character is kept** instead of dropping by character count;
+- **alignment now follows the page**: `th/td` centred, **first column left-aligned** (matching `tbody td:first-child{text-align:left}`); done via `ctx.textAlign` rather than manual offsets — manual offsets accumulate baseline/kerning errors until it "looks unaligned";
+- **column widths prefer the page's real widths** (`getBoundingClientRect()` on `thead th`) → the exported proportions match the page;
+- **row height is computed from the actual number of wrapped lines** (header included, and ready **before** the canvas height is computed, otherwise a wrapped header gets clipped).
+
+**Verified** (Edge headless):
+`wrapCell("在轨（~2024-03-14，GEO）")` wraps correctly into multiple lines;
+exported `fillText` alignment tally = `center: 332 / left: 26` (first column + top bar, matching the page rules).
+
+### ⑬ Chapter 3D orbits: visibility of GEO (user re-review; option "B" chosen)
+
+> The user's words: "just use light points with different exaggeration factors for the different orbital
+> shells — e.g. GEO satellites only need to read as clearly higher than LEO ones. Also make sure the
+> coverage zones for different elevation angles match the actual situation of satellites at those
+> altitudes, rather than being based on the exaggerated light-point positions."
+
+**Investigation** (Edge headless, injected into the real build; canvas 1444×680, pitch=22°, `baseR=250.9`):
+
+- the **three GEO satellite points are inside the canvas** (211–532 px from the centre) → this was not a
+  "cannot be drawn" problem;
+- but **pixel banding statistics** show the problem is **perceptibility**:
+
+| Distance band (Earth radii) | Share of bright pixels |
+|---|---|
+| 1.00–1.25 (inner LEO) | 76.6% |
+| **1.25–1.50 (main LEO shell)** | **74.5%** |
+| 1.50–1.75 | 4.3% |
+| 1.75–2.00 | 0.7% |
+| **2.00–2.25 (where GEO used to be)** | **0.5%** ← a factor of **150** worse |
+
+- and the **main LEO shell's orbit rings already ran off the canvas** (y = −11 … 687 on a 680 px canvas; 9 of 57 sampled points outside).
+
+**Fix (option B)**: `HI_REF_Y` **2.2 → 1.75**
+- GEO moves from "hugging the canvas edge" to "**1.22× the main LEO shell**" (still visibly higher), and the whole ring fits inside the canvas (using only 61% of the half-width horizontally);
+- **⚠️ it must stay > `HI_KNEE_Y` (1.6103)** — otherwise the high-altitude segment gets a negative slope and GEO falls **inside** the LEO ceiling (worse than before). The 1.45 the user first suggested lands exactly on this constraint; it was explained with data and 1.75 was chosen instead;
+- **`globeBaseR()` is untouched** — the Earth's size and the LEO visuals stay as they were (per the user's instruction not to shrink the Earth for GEO's sake).
+
+**Coverage zones** (the user's specific reminder): verified that `covLambda(h, elDeg)` **has always used the
+true altitude `h`** (from SGP4's `eciToGeodetic().height`), **independent of the exaggerated display
+radius** — matching the user's requirement. A guard was added so it cannot be broken later.
+
+### ⑭ ★ The Orbits-Change y axis left too much empty space at the top (user re-review, round 2)
+
+> The user's words (with screenshot 1): "the default view of the Orbits Change chapter is still not
+> right; there is too much space at the top — shrink the top margin so the lines representing the
+> satellites' orbit raising sit in the middle of the image", together with reference screenshot 2
+> (orbital-raising lines filling the whole chart, clearly layered).
+
+**Root cause**: the previous round (V1.9.3 first pass) only fixed the **bottom** edge (a constant 180 →
+hugging the data's lower bound) and missed the **top** edge:
+
+```js
+var hi = Math.max(mn + CLIMB_MIN_TOP - CLIMB_FLOOR, mx + span * 0.06 + 2);
+```
+
+`CLIMB_MIN_TOP(400) − CLIMB_FLOOR(180) = 220` is an **absolute height measured from the bottom edge**.
+Once the bottom edge started hugging the data, this became "**axis height is always 220 km**".
+
+**Measured** (test satellite group 11, 26120, full real history):
+
+| Scheme | Axis height | Data share | Top margin |
+|---|---|---|---|
+| old | 226 km | **27%** | **158 km (70% of the axis)** |
+| new | 75 km | **76%** | 9.4 km (symmetric with the 8.6 km bottom) |
+
+Data spanning `451.6 … 508.6` (57 km) stretched onto a 226 km axis → all lines squeezed to the bottom,
+which is exactly what the user's screenshot 1 showed.
+
+**Fix: hug the data on both edges, with symmetric padding** (otherwise the data is pushed to one end —
+the same problem seen from the other side):
+
+```js
+var span = Math.max(1, mx - mn);
+var pad = Math.max(3, span * 0.09);          // symmetric padding
+var lo = mn - pad, hi = mx + pad;
+var minH = span * 1.3;                       // floor for the axis height = 1.3 × the span
+if (hi - lo < minH) { var g1 = (minH - (hi - lo)) / 2; lo -= g1; hi += g1; }
+if (hi - lo < 24) { var c0 = (hi + lo) / 2; lo = c0 - 12; hi = c0 + 12; }   // near-single-point fallback
+if (lo < CLIMB_FLOOR) { hi += (CLIMB_FLOOR - lo); lo = CLIMB_FLOOR; }       // bottom still never below 180
+```
+
+**Real-browser pixel measurement** (Edge headless, canvas 1490×480, `getImageData` row statistics):
+- content centre y = **244**, canvas centre = 240 → **centred** ✓
+- top blank 16 px = **3%** (just the title row), bottom 8 px = 2%
+- all ten bands from top to bottom contain content (before the fix the top was one solid empty area)
+
+**Why the "absolute floor" is gone**: the `CLIMB_MIN_TOP − CLIMB_FLOOR = 220` rule was meant to stop the
+axis collapsing to a line when the data span is tiny, but combined with "bottom hugs the data" it
+necessarily created a top margin. It is now a **relative** floor (1.3 × the span), which preserves the
+original intent without the side effect.
 
 ### Tests
 

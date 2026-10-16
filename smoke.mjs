@@ -4966,6 +4966,16 @@ assert('V1.9.1（#9）：JS 起来后仍然接管（语言切换 / 真实历元�
   assert('V1.9.5（H12）：切换纵轴量时重置为自动视图（climbView = null）且仍走 cvSwap 过场',
     /S\.climbTake = v; climbView = null;/.test(appSrc) &&
     /cvSwap\('climbCv', function \(\) \{ drawClimb\(\); \}\)/.test(appSrc));
+  // ★ V1.9.5（H12 补漏）：术语统一必须**穿透到 App 内「关于/帮助」正文** ——
+  //   2026-10-17 交付核对时发现：UI 上的三处都改了，但帮助正文里中英各留了一处旧词
+  //   （中文「升轨速度」、英文 "climb rate"）。这类"只在帮助文档里残活"的旧术语
+  //   不会被界面截图或 i18n 键表检查抓到 —— 只有把判据打在**去注释的整份源码**上才看得见。
+  //   ⚠️ 判据必须用去注释源码：H12 的历史说明注释里必然保留旧词（"「升轨速度」→「变轨速度」"）。
+  assert('V1.9.5（H12 补漏）：术语「变轨速度 / Maneuver rate」已穿透到帮助正文（中英各 0 处旧词）',
+    !/升轨速度/.test(appCode) &&
+    !/climb rate/i.test(appCode) &&
+    /可切换纵轴量为「变轨速度」/.test(appCode) &&
+    /switched to \*maneuver rate\*/.test(appCode));
   assert('#7：过场只作用于 `.chart-wrap`（画布）—— 不把整章或表格一起淡掉',
     /\.chart-wrap\.chart-out canvas \{ opacity:0; \}/.test(tpl));
 }

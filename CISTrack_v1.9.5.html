@@ -3268,7 +3268,7 @@ var S = {
   // V1.9.0（R17）：04 变轨情况的两项。**进 STATE_FIELDS** —— 与 04 的显隐同理按星座各存一份
   //   （切到千帆时看到的是千帆的批次，不是星网的）。
   climbPick: '',              // '' = 跟随全局选中；'b:<批次key>' = 指定批次；'s:<norad>' = 指定单星
-  climbTake: 'sma',           // 'sma' = 半长轴（离地高度）；'rate' = 升轨速度 km/天
+  climbTake: 'sma',           // 'sma' = 半长轴（离地高度）；'rate' = 变轨速度 km/天
   // V1.7.0（任务3）：两个星座各自记住自己的滚动位置，切页互不影响（默认都在页首）
   scrollY: { gw: 0, qf: 0 }
 };
@@ -9337,7 +9337,7 @@ var README_ZH = [
   '- 🌍 **3D 地球（02）**：自转 + 拖拽 + 缩放，轨道圈分正/背面，显示可视区域，**轨道高度按 2.4× 夸张显示**以便区分高度壳层；',
   // V1.9.1（A15）：章节号 04/05 互换后，帮助里的特性列表也要**按新编号补齐** ——
   //   原文缺了「变轨情况」与「组网进度」两条，且把卫星表格写成（04）、发射历史写成（05）。
-  '- 🛰️ **变轨情况（04）**：选定一颗卫星或一个批次/组，画出它的**轨道半长轴随时间的变化** —— 刚入轨时低、随后被发动机一点点抬到工作高度的那段"爬坡"；可切换纵轴量为「升轨速度」；已再入的卫星标红并有独立标记；',
+  '- 🛰️ **变轨情况（04）**：选定一颗卫星或一个批次/组，画出它的**轨道半长轴随时间的变化** —— 刚入轨时低、随后被发动机一点点抬到工作高度的那段"爬坡"；可切换纵轴量为「变轨速度」；已再入的卫星标红并有独立标记；',
   '- 📶 **组网进度（05）**：两条曲线分别是星网与千帆的组网推进速度，横轴按周、纵轴可切「发射量（累计）」或「在轨数量」；',
   '- 📋 **卫星表格（06）**：13 列轨道要素（含「在轨日, 天」与**「在轨状态」**）、混合搜索与联想、排序、每页 10 条，卫星名点击直达 satcat.com 对应条目；',
   '- 🚀 **发射历史（07）**：列序为「批次/组 · 运载火箭（后跟 COSPAR 编号）· 发射时间 · 发射地点 · 设计倾角 · 轨道要素」，火箭与发射地点染主题色带下划线可点跳转；按页浏览（每页 10 条），**整行点一下**就选中整批 —— 图表 / 地图 / 地球只高亮这一批，卫星表自动翻到当前排序下该批第一颗所在的页，批次表这一行用一条星网红 / 千帆蓝的长边框整行框住；待编目批次只标一个「待编目 ×N」标签，完整目录摘要悬停标签即可看到，不再铺开拉长表格；',
@@ -9538,7 +9538,7 @@ var README_EN = [
   '- 📍 **Ground site picker**: hover to preview the visibility region and satellite count in real time; click to fix a site and highlight what it can see;',
   '- 🌍 **3D globe (02)**: spin + drag + zoom, orbit rings split into front/back halves, coverage zones, with **altitudes exaggerated 2.4×** so the shells are easy to tell apart;',
   // V1.9.1（A15）：按新编号补齐（原文缺「变轨情况」「组网进度」，且表格/发射历史编号是旧的 04/05）
-  '- 🛰️ **Orbits Change Status (04)**: pick one satellite or one batch/group and see how its orbital **semi-major axis changes over time** — the climb from a low initial altitude up to the working altitude. The Y axis can be switched to *climb rate*; re-entered satellites are flagged in red.',
+  '- 🛰️ **Orbits Change Status (04)**: pick one satellite or one batch/group and see how its orbital **semi-major axis changes over time** — the climb from a low initial altitude up to the working altitude. The Y axis can be switched to *maneuver rate*; re-entered satellites are flagged in red.',
   '- 📶 **Network progress (05)**: two curves track how fast CSCN and Qianfan build their constellations; the X axis is weekly, the Y axis switches between cumulative launches and satellites in orbit.',
   '- 📋 **Satellite table (06)**: 13 element columns (including days in orbit and **orbit status**), autocomplete search, sorting, 10 rows per page — satellite names link straight to their satcat.com entries;',
   '- 🚀 **Launch history (07)**: column order is group · vehicle (followed by the COSPAR id) · launch time · launch site · design inclination · elements; rockets and sites are rendered in the constellation colour, underlined and clickable; 10 rows per page with wiki links; **click anywhere on a row** to select that group — the chart, map and globe highlight it, the satellite table auto-pages to the first satellite of that group under the current sort, and the row is boxed with one long red (CSCN) / blue (Qianfan) border; pending groups only carry a "pending ×N" tag — the full catalog summary sits in its tooltip instead of stretching the table;',
