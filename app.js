@@ -390,6 +390,10 @@ function applyStaticLang() {
   document.querySelectorAll('[data-i18n-ph]').forEach(function (el) { el.placeholder = t(el.getAttribute('data-i18n-ph')); });
   // V1.7.0 第三轮（需求11）：title 提示气泡也要跟着语言切换（此前是硬编码中文，英文界面会漏中文）
   document.querySelectorAll('[data-i18n-title]').forEach(function (el) { el.title = t(el.getAttribute('data-i18n-title')); });
+  // V1.9.5（H20）：data-i18n-title 只改 title、不改 aria-label —— 于是按钮上的中文 aria-label
+  //   在英文界面下依旧是中文（屏幕阅读器永远读中文）。这里补同族属性 data-i18n-aria：
+  //   只给「整条 aria-label 就是中文短语」的元素挂（langBtn 那种刻意双语的 aria-label 不挂）。
+  document.querySelectorAll('[data-i18n-aria]').forEach(function (el) { el.setAttribute('aria-label', t(el.getAttribute('data-i18n-aria'))); });
   document.documentElement.setAttribute('lang', LANG === 'en' ? 'en' : 'zh-CN');
   var b = document.getElementById('langBtn');
   if (b) b.textContent = LANG === 'en' ? '中' : 'EN';
@@ -401,6 +405,7 @@ function applyStaticLangIn(root) {
   root.querySelectorAll('[data-i18n-ph]').forEach(function (el) { el.placeholder = t(el.getAttribute('data-i18n-ph')); });
   // V1.7.0 第三轮（需求11）：title 提示气泡也要跟着语言切换
   root.querySelectorAll('[data-i18n-title]').forEach(function (el) { el.title = t(el.getAttribute('data-i18n-title')); });
+  root.querySelectorAll('[data-i18n-aria]').forEach(function (el) { el.setAttribute('aria-label', t(el.getAttribute('data-i18n-aria'))); });
 }
 // 批次名的英文写法（低轨01组 → LEO Group 01 等）
 function batchName(name) {
