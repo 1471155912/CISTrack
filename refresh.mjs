@@ -15,6 +15,7 @@
  * 用法：node refresh.mjs [--force-cat]      --force-cat 强制重下 6.7MB 的 satcat.csv
  *      node refresh.mjs --selftest-omm     离线自检 S5 的 OMM 解析/占位/映射链路（不联网）
  */
+import { checkFormat } from './scripts/format_guard.mjs';   // ★ V1.9.5（H42）：格式变更探测（纯函数，smoke 也 import 它）
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -141,11 +142,35 @@ async function get(url, tries, timeoutMs) {
         signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout)
           ? AbortSignal.timeout(timeoutMs || FETCH_TIMEOUT_MS) : undefined
       });
-      if (!r.ok) return { ok: false, status: r.status, text: '' };
+      // ★ V1.9.5（H42）：**非 200 一律记账、不重试、最后统一失败**（CelesTrak 使用政策：
+      //   "收到任何非 200 响应必须立即停止并交人排查"；301/404 = 用了旧 URL，50x = 上游过载/被拦）。
+      //   旧写法只 `console.log` 一行就继续跑 → 任务"成功"但数据是残缺的（静默降级）。
+      if (!r.ok) { NET_ISSUES.push({ url: url, status: r.status }); return { ok: false, status: r.status, text: '' }; }
       return { ok: true, status: r.status, text: (await r.text()).replace(/\r/g, '') };
     } catch (e) { if (i === (tries || 2) - 1) return { ok: false, status: 0, text: '', err: e.message }; await sleep(800); }
   }
   return { ok: false, status: 0, text: '' };
+}
+// ============================================================ ★ V1.9.5（H42）：两个"上游变了"的账本
+// 依据（§17.3，CelesTrak 使用政策的原文要点）：
+//   ① 旧格式（含 legacy TLE 文本）将在 5 位目录号**用尽时**停用，官方要求迁移到 CSV/JSON；
+//   ② "收到任何非 200 响应必须立即停止并交人排查"（反复无视会被拉黑名单）。
+// 本条实现的是**探测 + 显式失败**（迁移本身列后续批次）：
+//   · 200 但内容不再是"卫星名 / l1 / l2"三行结构（CSV/JSON/HTML 页）→ FORMAT_ALARM；
+//   · 任何非 200 → NET_ISSUES（在 get() 里记账，不重试）。
+// 为什么必须响亮失败：`parseTLE` 对陌生文本只会返回 0 条，而 0 条在下游与"上游没更新"无法区分
+//   → 任务会"成功"、数据静默停更。这正是 2026-10 那次"最新星网批次无制造商"的同一类病。
+const NET_ISSUES = [];
+const FORMAT_ALARM = [];
+/** 包一层 parseTLE：200 但内容不像 TLE → 记一笔格式告警（返回 0 条，不抛）
+ *  判据在 `scripts/format_guard.mjs`（纯函数 → smoke 可直接 import 测，含 8 例样本自测） */
+function parseTLEGuarded(txt, into, srcTag) {
+  const chk = checkFormat(txt);
+  if (!chk.ok) {
+    if (FORMAT_ALARM.length < 6) FORMAT_ALARM.push({ src: srcTag, kind: chk.kind, sample: String(txt).slice(0, 100).replace(/\n/g, '⏎') });
+    return 0;
+  }
+  return parseTLE(txt, into);
 }
 // TLE 文本 → Map(norad -> {name,l1,l2,epoch})
 function parseTLE(txt, into) {
@@ -293,13 +318,13 @@ for (const key of ['gw', 'qf']) {
 
   // S1 分组
   let r = await get(`https://celestrak.org/NORAD/elements/gp.php?GROUP=${GROUPS[key]}&FORMAT=tle`);
-  if (r.ok) from.group = parseTLE(r.text, merged); else console.log('  S1 GROUP 失败', r.status);
+  if (r.ok) from.group = parseTLEGuarded(r.text, merged, 'S1 GROUP'); else console.log('  S1 GROUP 失败', r.status);
   console.log(key, 'S1 GROUP  →', from.group, '份');
 
   // S2 名称模糊
   for (const nm of NAMES[key]) {
     r = await get(`https://celestrak.org/NORAD/elements/gp.php?NAME=${encodeURIComponent(nm)}&FORMAT=tle`);
-    if (r.ok) from.name += parseTLE(r.text, merged); else console.log('  S2 NAME=' + nm, r.status);
+    if (r.ok) from.name += parseTLEGuarded(r.text, merged, 'S2 NAME=' + nm); else console.log('  S2 NAME=' + nm, r.status);
   }
   console.log(key, 'S2 NAME   → 新增', merged.size - before - from.group, '颗（累计', merged.size, '）');
 
@@ -343,7 +368,7 @@ for (const key of ['gw', 'qf']) {
     //   它和 1.8 是同一类：判据写错 → 静默失效 → 测试又恰好没覆盖。
     //   症状一直没暴露，是因为 S1（GROUP=hulianwang）/S2（NAME=HULIANWAN）覆盖了绝大多数卫星，
     //   而**名字不含关键字的那些**（CX / KL / DTC / OBJECT B）恰好只有这条通路能救。
-    if (r.ok && /^\s*1 \d/m.test(r.text) && /^\s*2 \d/m.test(r.text)) from.catnr += parseTLE(r.text, merged);
+    if (r.ok && /^\s*1 \d/m.test(r.text) && /^\s*2 \d/m.test(r.text)) from.catnr += parseTLEGuarded(r.text, merged, 'S3/S5');
     await sleep(120);
   }
   // V1.9.1（1.4-D）：把"其中已再入几颗"打出来 —— 这类对象的采集效果必须看得见，
@@ -654,6 +679,22 @@ console.log('\n报告已写入 data/refresh_report.json（OMM 映射 ' + Object.
 //   同进程 import 本脚本 → 残缺的历元必然触发这条闸门 → exitCode 会污染测试进程的退出码
 //   （实测：e2e 打印了 "落后 20739.2 天" 却仍 exit 0，因为测试脚本自己在末尾把码覆盖了 ——
 //    但那属于"碰巧没事"，不能依赖）。所以显式认一个环境变量关掉它。
+// ★ V1.9.5（H42）：两个"上游变了"的账本 → 显式非零退出（各自独立码，便于 CI/任务日志一眼区分）
+if (FORMAT_ALARM.length) {
+  console.error('❌ GP 返回的**不是经典 TLE 文本**（' + FORMAT_ALARM.length + ' 处）—— 疑似上游格式迁移（政策预告过：旧格式随 5 位号用尽停用）：');
+  FORMAT_ALARM.forEach(a => console.error('   · ' + a.src + ' → ' + a.kind + '｜' + a.sample));
+  console.error('   处置：1) 人工确认 https://celestrak.org/NORAD/documentation/gp-data-formats.php 的当前口径；');
+  console.error('         2) 迁移到 CSV/JSON（refresh.mjs 里的 FORMAT=tle 三处 + S5 的 FORMAT=json）。');
+  console.error('   已以非零码（6）结束 —— 不允许"0 条数据但任务成功"。');
+  process.exitCode = 6;
+}
+if (NET_ISSUES.length) {
+  console.error('❌ CelesTrak 返回**非 200**（' + NET_ISSUES.length + ' 次）—— 按使用政策必须立即停下交人排查：');
+  NET_ISSUES.slice(0, 8).forEach(it => console.error('   · ' + it.status + ' ← ' + it.url));
+  console.error('   解读：301/404 = 用了旧 URL（上游改版）；50x = 上游过载/被防火墙拦（反复无视会被拉黑）。');
+  console.error('   已以非零码（7）结束。排查：`curl -sSI "<上面的 URL>"`。');
+  if (process.exitCode !== 6) process.exitCode = 7;
+}
 const STALE_DAYS = 3;
 if (!process.env.CISTRACK_SKIP_STALE_CHECK) {
   const staleInfo = [];

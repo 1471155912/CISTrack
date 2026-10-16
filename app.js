@@ -2624,6 +2624,51 @@ function circlePath(ctx, PX, PY, lat, lon, lam, n) {
     prevLon = w;
   }
 }
+// ============================================================ ★ V1.9.5（H32-A）：标签避让的**空间网格**
+// 背景（§14.2-②）：01/02 章的卫星标注是"逐个与已放置标签做矩形相交"（地图还 ×8 个候选位）——
+//   复杂度 O(卫星数 × 已放置标签数)。桌面画布越大 → 通过尺寸判据的标签越多 → 二次项越明显，
+//   251–513 颗时最坏约 12 万次/帧；手机画布小，多数标签被 `x+6+tw < W` 直接拒掉，所以"手机不卡电脑卡"。
+// 做法：已放置标签按 32×32 px 分桶，新标签只与**它自己覆盖到的桶**里的标签比。
+// **视觉零差异的保证**：只改"和谁比"，不改"比的顺序与判据" ——
+//   · 桶内保持插入顺序；
+//   · 重叠面积仍是把所有真正重叠的标签逐个相加（`__seen` 按查询打标记去重，
+//     避免同一个标签被它跨越的多个桶重复计数）；
+//   · 布尔型判据（地图/地球）只看"有没有重叠"，遍历顺序不影响结果。
+// 可撤回：`LABEL_GRID = false` → 回到原来的线性扫描（两条路径都在；smoke 有"两路径结果一致"的守卫）。
+var LABEL_GRID = true;          // ★ H32-A 开关（false = 旧线性扫描）
+var LABEL_CELL = 32;            // 桶边长（CSS px；标签高 12、宽 ~60 → 32 足够小、桶数可控）
+
+function labelStore() { return { cell: LABEL_CELL, buckets: new Map(), boxes: [], stamp: 0 }; }
+function labelPush(S_, b) {
+  var id = S_.boxes.push(b) - 1;
+  b.__id = id;
+  var c = S_.cell;
+  var x0 = Math.floor(b[0] / c), x1 = Math.floor((b[0] + b[2]) / c);
+  var y0 = Math.floor(b[1] / c), y1 = Math.floor((b[1] + b[3]) / c);
+  for (var x = x0; x <= x1; x++) for (var y = y0; y <= y1; y++) {
+    var k = x + ',' + y, arr = S_.buckets.get(k);
+    if (!arr) { arr = []; S_.buckets.set(k, arr); }
+    arr.push(b);
+  }
+}
+/** 遍历"可能与 bx 重叠"的已放置标签（网格开启；去重）—— 关掉开关时退化为线性全遍历 */
+function labelEach(S_, bx, fn) {
+  if (!LABEL_GRID) { for (var i = 0; i < S_.boxes.length; i++) fn(S_.boxes[i]); return; }
+  S_.stamp++;
+  var c = S_.cell;
+  var x0 = Math.floor(bx[0] / c), x1 = Math.floor((bx[0] + bx[2]) / c);
+  var y0 = Math.floor(bx[1] / c), y1 = Math.floor((bx[1] + bx[3]) / c);
+  for (var x = x0; x <= x1; x++) for (var y = y0; y <= y1; y++) {
+    var arr = S_.buckets.get(x + ',' + y);
+    if (!arr) continue;
+    for (var j = 0; j < arr.length; j++) {
+      var b = arr[j];
+      if (b.__seen === S_.stamp) continue;
+      b.__seen = S_.stamp;
+      fn(b);
+    }
+  }
+}
 function drawMap(states, ms) {
   var f = fitCanvas(mapCv), ctx = f.ctx, W = f.w, H = f.h, C = themeColors();
   ctx.clearRect(0, 0, W, H);
@@ -2721,7 +2766,7 @@ function drawMap(states, ms) {
     if (mapHover !== null && S.sel.indexOf(mapHover) < 0 && (pickOn || hasSel)) strokeTrack(mapHover, 0.75);
   }
   // 卫星
-  var labels = [];
+  var LG = labelStore();          // ★ H32-A：标签空间网格（替代原来的 labels 线性数组）
   // V1.3.4：先给观测点那三行文字量好位置并占位，卫星标注会主动绕开它
   var siteLabel = null;
   if (pickOn || (PICK_FADE && TOG.pickOn > 0.01)) {
@@ -2747,7 +2792,7 @@ function drawMap(states, ms) {
       if (dy0 - 12 < 0) dy0 = 16;
       var tx0 = flip0 ? ox0 - 10 : ox0 + 10;
       siteLabel = { lines: lines0, flip: flip0, tx: tx0, dy: dy0 };
-      labels.push([flip0 ? tx0 - mw0 : tx0, dy0 - 8, mw0, 44]);
+      labelPush(LG, [flip0 ? tx0 - mw0 : tx0, dy0 - 8, mw0, 44]);
     }
   }
   for (var m = 0; m < st.sats.length; m++) {
@@ -2787,17 +2832,17 @@ function drawMap(states, ms) {
         var bx = [cands[c][0], cands[c][1], tw, 12];
         if (bx[0] < 2 || bx[0] + tw > W - 2 || bx[1] < 2 || bx[1] + 12 > H - 2) continue;
         var ov = 0;
-        for (var q = 0; q < labels.length; q++) {
-          var b2 = labels[q];
+        // ★ H32-A：只与"覆盖到的桶"里的标签比（关开关则线性全遍历，结果一致）
+        labelEach(LG, bx, function (b2) {
           var ox2 = Math.min(bx[0] + bx[2], b2[0] + b2[2]) - Math.max(bx[0], b2[0]);
           var oy2 = Math.min(bx[1] + bx[3], b2[1] + b2[3]) - Math.max(bx[1], b2[1]);
           if (ox2 > 0 && oy2 > 0) ov += ox2 * oy2;
-        }
+        });
         if (ov === 0) { best2 = bx; bestOv = 0; break; }
         if (ov < bestOv) { bestOv = ov; best2 = bx; }
       }
       if (best2) {
-        labels.push(best2);
+        labelPush(LG, best2);
         ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
         ctx.globalAlpha = TOG.nameMap;          // V1.8.0（需求4①）：标注随开关淡入/淡出
         ctx.fillStyle = C.fg; ctx.fillText(lb, best2[0], best2[1] + 6);
@@ -3011,7 +3056,7 @@ function drawGlobe(states, ms) {
     ctx.globalAlpha = 1;
   }
   // 卫星（半径按夸张系数显示，轨道壳层一眼分得开）
-  var st = cur(), labels = [];
+  var st = cur(), LG = labelStore();     // ★ H32-A：标签空间网格
   for (var m = 0; m < st.sats.length; m++) {
     var g = states[m]; if (!g) continue;
     var rr2 = Math.sqrt(g.ux * g.ux + g.uy * g.uy + g.uz * g.uz);
@@ -3036,12 +3081,12 @@ function drawGlobe(states, ms) {
       ctx.font = '10px ' + MONO;
       var tw = ctx.measureText(lb).width;
       var box = [pr2.x + 6, pr2.y - 6, tw, 12], hit = false;
-      for (var q = 0; q < labels.length; q++) {
-        var bb = labels[q];
-        if (box[0] < bb[0] + bb[2] && box[0] + box[2] > bb[0] && box[1] < bb[1] + bb[3] && box[1] + box[3] > bb[1]) { hit = true; break; }
-      }
+      // ★ H32-A：布尔判据只看"有没有重叠"，遍历顺序不影响结果
+      labelEach(LG, box, function (bb) {
+        if (!hit && box[0] < bb[0] + bb[2] && box[0] + box[2] > bb[0] && box[1] < bb[1] + bb[3] && box[1] + box[3] > bb[1]) hit = true;
+      });
       if (!hit && pr2.x + 6 + tw < W) {
-        labels.push(box);
+        labelPush(LG, box);
         ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
         ctx.globalAlpha = TOG.nameGlobe;        // V1.8.0（需求4①）：标注随开关淡入/淡出
         ctx.fillStyle = C.fg; ctx.fillText(lb, pr2.x + 6, pr2.y);

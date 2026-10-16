@@ -10,6 +10,7 @@ import { execFileSync } from 'node:child_process';   // V1.9.4：跑 privacy_che
 // ★ V1.9.5（H10 ③b）：构建端（scripts/climb.mjs）的升轨阶段判定 —— 与页面端 climbPhases
 //   做**跨端对拍**（两处实现必须逐字段一致；改一处忘另一处在这里就会被抓住）。
 import { climbPhases as nodeClimbPhases } from './scripts/climb.mjs';
+import { checkFormat } from './scripts/format_guard.mjs';   // ★ V1.9.5（H42）：格式变更探测（行为级断言用）
 const require = createRequire(import.meta.url);
 const { JSDOM, VirtualConsole } = require('jsdom');
 
@@ -108,6 +109,9 @@ await new Promise(r => setTimeout(r, 2500));
 const lf = s => s.replace(/\r\n/g, '\n');
 const tpl = lf(fs.readFileSync(B + '/template.html', 'utf8'));
 const appSrc = lf(fs.readFileSync(B + '/app.js', 'utf8'));
+const smokeSrc = lf(fs.readFileSync(B + '/smoke.mjs', 'utf8'));
+const refreshSrc = lf(fs.readFileSync(B + '/refresh.mjs', 'utf8'));       // ★ H42：抓取脚本源码
+const guardSrc = lf(fs.readFileSync(B + '/scripts/format_guard.mjs', 'utf8'));   // ★ H42：探测模块源码   // ★ V1.9.5（H29 前哨）：自身源码（用于 meta 守卫）
 const rawSrc = fs.readFileSync(B + '/build/satdata.json', 'utf8');
 
 // ★ V1.9.1：**产物新鲜度闸门** —— 这是我自己反复踩的坑：smoke 读的是**产物 HTML**（不是源码），
@@ -2550,6 +2554,29 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
     "})();\n" +
     "window.__CISTRACK__ = {\n" +
     "  selectGroup: function (lk) { return selectGroup(lk); },\n" +
+    // ★ V1.9.5（H32-A）：网格 vs 线性扫描的一致性（性质判据；随机用例，不写死结果）
+    "  gridParity: function () {\n" +
+    "    function rnd(seed) { var x = seed; return function () { x = (x * 1103515245 + 12345) & 0x7fffffff; return x / 0x7fffffff; }; }\n" +
+    "    var R = rnd(20261016), boxes = [], i;\n" +
+    "    for (i = 0; i < 300; i++) boxes.push([R() * 900, R() * 700, 20 + R() * 80, 12]);\n" +
+    "    var bad = [];\n" +
+    "    for (var q2 = 0; q2 < 200; q2++) {\n" +
+    "      var q = [R() * 900, R() * 700, 20 + R() * 80, 12];\n" +
+    "      var ovL = 0;\n" +
+    "      for (i = 0; i < boxes.length; i++) { var b = boxes[i];\n" +
+    "        var ox = Math.min(q[0] + q[2], b[0] + b[2]) - Math.max(q[0], b[0]);\n" +
+    "        var oy = Math.min(q[1] + q[3], b[1] + b[3]) - Math.max(q[1], b[1]);\n" +
+    "        if (ox > 0 && oy > 0) ovL += ox * oy; }\n" +
+    "      var G = labelStore();\n" +
+    "      for (i = 0; i < boxes.length; i++) labelPush(G, boxes[i].slice());\n" +
+    "      var ovG = 0;\n" +
+    "      labelEach(G, q, function (b2) {\n" +
+    "        var ox = Math.min(q[0] + q[2], b2[0] + b2[2]) - Math.max(q[0], b2[0]);\n" +
+    "        var oy = Math.min(q[1] + q[3], b2[1] + b2[3]) - Math.max(q[1], b2[1]);\n" +
+    "        if (ox > 0 && oy > 0) ovG += ox * oy; });\n" +
+    "      if (Math.abs(ovL - ovG) > 1e-6) bad.push(q2 + ':' + ovL.toFixed(2) + 'vs' + ovG.toFixed(2));\n" +
+    "    }\n" +
+    "    return { ok: bad.length === 0, detail: bad.length ? ('不一致 ' + bad.length + '/200：' + bad.slice(0, 3).join(' | ')) : '200 组随机用例逐位一致' }; },\n" +
     "  state: function () { return { sel: S.sel.slice(), selGroup: S.selGroup, selGone: S.selGone, climbPick: S.climbPick }; },\n" +
     "  tt: function (k) { return t(k); },\n" +
     // V1.9.1（#4）：彩色多线 —— 需要能切换本章选中的批次并强制重绘
@@ -2721,21 +2748,6 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
     "    if (!g.length) return null;\n" +
     "    var xs = g.map(function (p) { return p.x; }), ys = g.map(function (p) { return p.y; });\n" +
     "    return { x0: Math.min.apply(null, xs), x1: Math.max.apply(null, xs), y0: Math.min.apply(null, ys), y1: Math.max.apply(null, ys), n: g.length }; },\n" +
-    "  chartDraw: function () { try { drawChart(); } catch (e) {} },\n" +
-    "  climbDraw: function () { try { drawClimb(); } catch (e) {} },\n" +
-    // ★ V1.9.5（H25）：主题切换的重绘证据（真浏览器里逐帧截图的替身 —— jsdom 无 VT，
-    //   这里数"地图/地球画布在切主题时是否**同步**被重画"）
-    "  chartViewSet: function (x0, x1, y0, y1) { chartView = clampChartView({ x0: x0, x1: x1, y0: y0, y1: y1 }); drawChart();\n" +
-    "    return { x0: chartView.x0, x1: chartView.x1, y0: chartView.y0, y1: chartView.y1 }; },\n" +
-    "  chartViewAuto: function () { chartView = null; chartAutoView(); drawChart(); return { y0: chartView.y0, y1: chartView.y1 }; },\n" +
-    // ★ V1.9.5（H18）：选中点在数据坐标里的范围（用于"放大到能分辨"的自适应断言：
-    //   jsdom 的画布比真浏览器窄一半多 → 写死视窗会让"相邻像素间距"落到阈值另一侧）
-    "  chartSelRange: function () { if (!chartPts.length) buildChartPoints();\n" +
-    "    var g = chartPts.filter(function (p) { return S.sel.indexOf(p.sat.idx) >= 0; });\n" +
-    "    if (!g.length) return null;\n" +
-    "    var xs = g.map(function (p) { return p.x; }), ys = g.map(function (p) { return p.y; });\n" +
-    "    return { x0: Math.min.apply(null, xs), x1: Math.max.apply(null, xs), y0: Math.min.apply(null, ys), y1: Math.max.apply(null, ys), n: g.length }; },\n" +
-    "  chartDraw: function () { try { drawChart(); } catch (e) {} },\n" +
     "  climbDraw: function () { try { drawClimb(); } catch (e) {} },\n" +
     "  chartViewY0: function () { if (!chartView) chartAutoView(); return Math.round(chartView.y0); },\n" +
     "  chartMode: function (m) { if (m) S.mode = m; return S.mode; },\n" +
@@ -4027,6 +4039,59 @@ assert('A9（V1.9.2 重新划分）：合并判据 = 数据空间可分辨阈值
       k3.state().sel.forEach(i => {});                 // 选中态由后续断言自行重置（selectGroup 会覆盖）
     })();
     // H19：单星名标签走 nameOf（中文模式出中文名，不出现拼音）
+    // ★ V1.9.5（H42）：上游**格式变更探测** + 非 200 显式失败
+    //   （CelesTrak 政策：旧格式含 legacy TLE 将随 5 位号用尽停用；收到任何非 200 必须立即停下交人排查）
+    (function () {
+      const TLE_OK = 'X\n1 57337U 23095A   26289.50000000  .00000000  00000-0  00000-0 0  9999\n2 57337  86.5000  10.0000 0001000  90.0000 270.0000 13.50000000 10000';
+      const cases = [
+        ['正常 TLE', TLE_OK, true], ['前置空行的 TLE', '\n\n' + TLE_OK, true],
+        ['「No GP data found」= 合法空结果', 'No GP data found', true],
+        ['CSV 新格式', 'OBJECT_NAME,NORAD_CAT_ID,EPOCH\nISS,25544,2026-10-16T00:00:00', false],
+        ['JSON（OMM）', '[{"OBJECT_NAME":"ISS","NORAD_CAT_ID":25544}]', false],
+        ['HTML 错误页', '<!DOCTYPE html><html>403 Forbidden</html>', false]
+      ];
+      const bad = cases.filter(c => checkFormat(c[1]).ok !== c[2]);
+      assert('H42：GP 响应**格式探测**（TLE 认得出；CSV/JSON/HTML 判为格式异常；「No GP data found」是合法空结果）',
+        bad.length === 0, bad.length ? ('不符 ' + bad.length + ' 例：' + bad.map(b => b[0]).join(' / ')) : (cases.length + ' 例样本全部符合预期'));
+    })();
+    assert('H42：判据在**可测模块**里（scripts/format_guard.mjs），refresh 只 import 使用、不重复实现',
+      /import \{ checkFormat \} from '\.\/scripts\/format_guard\.mjs';/.test(refreshSrc) &&
+      /const chk = checkFormat\(txt\);/.test(refreshSrc) &&
+      /export function looksLikeTLE\(txt\)/.test(guardSrc) && /export function suspectKind\(txt\)/.test(guardSrc) &&
+      !/function looksLikeTLE\(txt\) \{\n  const lines/.test(refreshSrc));
+    assert('H42：**非 200 记账 + 显式失败**（政策：立即停下交人排查；旧写法只 log 一行就继续跑 = 静默降级）',
+      /if \(!r\.ok\) \{ NET_ISSUES\.push\(\{ url: url, status: r\.status \}\);/.test(refreshSrc) &&
+      /const NET_ISSUES = \[\];/.test(refreshSrc) && /const FORMAT_ALARM = \[\];/.test(refreshSrc) &&
+      /if \(NET_ISSUES\.length\) \{[\s\S]{0,700}?process\.exitCode = 7;/.test(refreshSrc) &&
+      /if \(FORMAT_ALARM\.length\) \{[\s\S]{0,800}?process\.exitCode = 6;/.test(refreshSrc));
+    // ★ V1.9.5（H29 前哨）：**探针键不得重复** —— 字符串手术留下过 `chartDraw`×3 / `climbDraw`×2，
+    //   重复键在对象字面量里会被后者静默覆盖（同名探针行为悄悄变了，很难查）。这里设成硬守卫。
+    assert('探针键唯一（重复键会被静默覆盖，属"改坏了也看不出来"的那类）',
+      (function () {
+        const keys = (smokeSrc.match(/^\s+"  ([A-Za-z_][A-Za-z0-9_]*): function/gm) || [])
+          .map(x => x.replace(/^\s+"  /, '').replace(/: function$/, ''));
+        const dup = {}; keys.forEach(k => { dup[k] = (dup[k] || 0) + 1; });
+        const bad = Object.keys(dup).filter(k => dup[k] > 1);
+        return bad.length === 0;
+      })(), '共 ' + ((smokeSrc.match(/^\s+"  [A-Za-z_][A-Za-z0-9_]*: function/gm) || []).length) + ' 个探针键');
+    // ★ V1.9.5（H32-A）：01/02 章标签避让换成**空间网格**（O(卫星×标签) → O(卫星×桶内标签)）
+    assert('H32-A：网格结构齐备（labelStore/labelPush/labelEach + 32px 桶 + 开关可回退）',
+      /var LABEL_GRID = true;/.test(appSrc) && /var LABEL_CELL = 32;/.test(appSrc) &&
+      /function labelStore\(\)/.test(appSrc) && /function labelPush\(S_, b\)/.test(appSrc) &&
+      /function labelEach\(S_, bx, fn\)/.test(appSrc) &&
+      /if \(!LABEL_GRID\) \{ for \(var i = 0; i < S_\.boxes\.length; i\+\+\) fn\(S_\.boxes\[i\]\); return; \}/.test(appSrc));
+    assert('H32-A：跨桶标签**不重复计数**（stamp 去重）—— 否则重叠面积会被多算、标签选取会变',
+      /S_\.stamp\+\+;/.test(appSrc) && /if \(b\.__seen === S_\.stamp\) continue;/.test(appSrc) &&
+      /b\.__seen = S_\.stamp;/.test(appSrc));
+    assert('H32-A：地图与地球**两章都**走网格（旧的 labels 线性数组已退役）',
+      (appSrc.match(/LG = labelStore\(\)/g) || []).length === 2 &&   // 地图 var LG = … ｜ 地球 var st = cur(), LG = …
+      /labelPush\(LG, best2\)/.test(appSrc) && /labelPush\(LG, box\)/.test(appSrc) &&
+      !/labels\.push\(/.test(appSrc));
+    // 运行时（性质判据）：网格算出的重叠面积与线性扫描**逐位一致**（含跨桶标签的重复计数风险）
+    (function () {
+      const gp = k3.gridParity();
+      assert('H32-A：网格与线性扫描结果逐位一致（200 组随机用例；跨桶标签不重复计数）', gp && gp.ok, gp && gp.detail);
+    })();
     assert('H18+H19：单星名标签走 nameOf()（中文模式为中文名，英文模式为目录名）',
       /g\.forEach\(function \(o\) \{ ctx\.fillText\(nameOf\(o\.s\), o\.x \+ 9, o\.y\); \}\);/.test(appSrc));
     // ★ V1.9.5（H25）：主题切换时地图/地球**随扫过边界一起变色**（不能等到收尾才跳一次）
