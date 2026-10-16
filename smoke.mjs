@@ -502,6 +502,48 @@ assert('V1.9.1（1.4-D）：「已再入」纳入搜索词（用户口径：不�
 assert('Manufacturer数据已注入（星网 ≥38 批 / 千帆 ≥18 批）',
   Object.keys(RAW.gw.manufacturers || {}).length >= 38 && Object.keys(RAW.qf.manufacturers || {}).length >= 18,
   Object.keys(RAW.gw.manufacturers || {}).length + ' / ' + Object.keys(RAW.qf.manufacturers || {}).length);
+// ★ V1.9.5（H9）：**百科单源** data/wiki_tables.json —— 日期权威（GMT+8）+ 全量覆盖自检。
+//   验收原话：① 2026-230 的日期 = 2026-10-10、制造商非空；② 任何 launches 键都能在
+//   wiki_tables 找到对应行（否则报缺）。豁免口径与 mkdata 的 applyWikiTables 一致：
+//   失利发射（res=fail，词条不收）+ 自动补录的新批次（窗口期，等本地任务刷新）。
+{
+  const WT = JSON.parse(fs.readFileSync(B + '/data/wiki_tables.json', 'utf8'));
+  assert('V1.9.5（H9）：单源 wiki_tables.json 结构合法（gw/qf 映射、条目带 GMT+8 日期）',
+    !!WT && !!WT.gw && !!WT.qf &&
+    Object.keys(WT.gw).length >= 38 && Object.keys(WT.qf).length >= 15 &&
+    Object.keys(WT.gw).every(k => /^\d{4}-\d{1,4}$/.test(k) && /^\d{4}-\d{2}-\d{2}$/.test(WT.gw[k].d8 || '')) &&
+    Object.keys(WT.qf).every(k => /^\d{4}-\d{1,4}$/.test(k) && /^\d{4}-\d{2}-\d{2}$/.test(WT.qf[k].d8 || '')),
+    'gw ' + Object.keys(WT.gw).length + ' / qf ' + Object.keys(WT.qf).length + ' 项');
+  const r230 = WT.gw['2026-230'];
+  assert('V1.9.5（H9）：2026-230 日期 = 2026-10-10 03:27（GMT+8）、制造商非空',
+    !!r230 && r230.d8 === '2026-10-10' && r230.t8 === '03:27' &&
+    !!r230.mk && !!r230.mk.m && !!r230.ms8 && r230.ms8 === Date.UTC(2026, 9, 10, 3 - 8, 27),
+    JSON.stringify(r230 && { d8: r230.d8, t8: r230.t8, mk: r230.mk && r230.mk.m }));
+  // ② 覆盖自检：satdata 的每个 launches 键 → 单源有行 / 失利豁免 / 自动补录窗口期
+  const miss = [], nAuto = [], nFail = [], nOk = [];
+  [['gw', WT.gw], ['qf', WT.qf]].forEach(([bk, T]) => {
+    Object.keys((RAW[bk] || {}).launches || {}).forEach(k => {
+      const v = RAW[bk].launches[k];
+      const full = /^\d{5}$/.test(k) ? ('20' + k.slice(0, 2) + '-' + k.slice(2)) : '';
+      if (full && T[full]) { nOk.push(bk + ':' + k); return; }
+      const flags = String(v[8] || '');
+      if (flags.indexOf('auto') >= 0) { nAuto.push(bk + ':' + k); return; }
+      if (String(v[5] || '') === 'fail') { nFail.push(bk + ':' + k); return; }
+      miss.push(bk + ':' + k + '(' + (v[0] || '?') + ')');
+    });
+  });
+  assert('V1.9.5（H9）：launches 全量覆盖（单源有行 / 失利豁免 / 新批次窗口期；**不得有第四类**）',
+    miss.length === 0 && nOk.length >= 55,
+    '命中 ' + nOk.length + (nAuto.length ? '｜窗口期 ' + nAuto.join(',') : '') +
+    (nFail.length ? '｜失利豁免 ' + nFail.join(',') : '') + (miss.length ? '｜⚠️ 缺失 ' + miss.join(',') : ''));
+  // 日期真的以单源为准（镜像断言：satdata 里 26230 的日期 = 单源的 d8+T t8）
+  assert('V1.9.5（H9）：satdata 的 26230 发射日期 = 单源 2026-10-10T03:27（GMT+8 链路闭环）',
+    (function () {
+      const L = RAW.gw.launches && RAW.gw.launches['26230'];
+      return !!L && !!r230 && L[1] === (r230.t8 ? r230.d8 + 'T' + r230.t8 : r230.d8) &&
+        String(L[8] || '').indexOf('day') < 0;      // 有时刻 → 不再打 dayOnly 标
+    })(), JSON.stringify(RAW.gw.launches && RAW.gw.launches['26230']));
+}
 assert('Manufacturer走简称映射 + 词条外链',
   /function manufacturerShortList\(/.test(appSrc) && /function manufacturerCell\(/.test(appSrc) && /manufacturer-link/.test(tpl) &&
   /https:\/\/sat\.huijiwiki\.com/.test(appSrc));

@@ -112,6 +112,21 @@ try {
   console.warn('wiki_launches.json 读不到（' + (e.code || e.message) + '）：任务结果列只会有静态标注，' +
     '跑一次 node scripts/fetch_launch_results.mjs 即可补上。');
 }
+// ★ V1.9.5（H9）：**百科单源** data/wiki_tables.json —— 由 scripts/fetch_wiki_tables.mjs 抓
+//   「星网 / 千帆星座」词条表生成（**进 git**，CI 也读它，与 wiki.json / wiki_launches.json 同地位）。
+//   · 日期时间一律是词条原口径 **GMT+8**（`2026年10月10日03:27`）—— 与页面端 build() 的
+//     `Date.parse(v[1] + ':00+08:00')` 同口径，全链路一个时区。
+//   · ⚠️ 为什么必须单源：wiki_launches.json（引导页:发射记录）记的是 **UTC** 日期 ——
+//     同一次发射两边能差一天（2026-230：词条 10-10 03:27 vs 发射记录 10-09）。
+//     自动补录一旦取了后者，**日期就错**（H9 报的重大问题即此）。
+let WIKI_TABLES = { gw: {}, qf: {} };
+try {
+  const j = JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'wiki_tables.json'), 'utf8'));
+  if (j && typeof j === 'object') WIKI_TABLES = j;
+} catch (e) {
+  console.warn('⚠️ data/wiki_tables.json 读不到（' + (e.code || e.message) + '）：日期回退到台账/发射记录口径。' +
+    '根治：跑 node scripts/fetch_wiki_tables.mjs（H9 单源）。');
+}
 function mergeResults(meta) {
   const out = {};
   Object.keys(meta).forEach(function (k) {
@@ -489,6 +504,48 @@ autoFillLedger(GW_LAUNCH, 'gw', gw);
 autoFillLedger(QF_LAUNCH, 'qf', qf);
 // 补录后**重新合并**（mergeResults 只跑一次的话，新补条目拿不到 res/n 的百科覆盖）
 const GW_LEDGER = mergeResults(GW_LAUNCH), QF_LEDGER = mergeResults(QF_LAUNCH);
+
+// ---------------------------------------------------------------- V1.9.5（H9）：日期权威 = 词条单源 + 全量差异自检
+// 口径（用户 2026-10-15 第 12 条"根治"）：
+//   ① 发射历史的**日期一律以词条表为准**（GMT+8，带时刻）——"发现即跟随更新"；
+//      与台账/发射记录不一致的直接改写并打印（自检留痕）；
+//   ② 单源里没有的键分三类处理：
+//      · 自动补录的新批次（v[8] 含 auto）→ 词条还没收录 = 正常窗口期，提示等本地任务刷新；
+//      · 任务失败（res=fail）→ 词条不收失利发射，**豁免**（25F05 即此）；
+//      · 其余（老台账键）→ **真缺口**，大声告警（该进词条表却没有）。
+function applyWikiTables(ledger, bk, tag) {
+  const T = (WIKI_TABLES && WIKI_TABLES[bk]) || {};
+  let nFix = 0, nAuto = 0, nFail = 0;
+  const miss = [];
+  for (const k in ledger) {
+    const v = ledger[k];
+    const row = /^\d{5}$/.test(k) ? T['20' + k.slice(0, 2) + '-' + k.slice(2)] : null;
+    if (!row || !row.d8) {
+      const flags = String(v[8] || '');
+      if (flags.indexOf('auto') >= 0) nAuto++;                    // 新批次：词条未收录（窗口期）
+      else if (String(v[5] || '') === 'fail') nFail++;            // 失利发射：词条不收（豁免）
+      else miss.push(k + '(' + (v[0] || '?') + ')');              // 真缺口
+      continue;
+    }
+    // 词条有时刻才带时刻；只到日的行 → 打 day 标（页面隐藏时刻，不写假的 00:00）
+    const isAuto = String(v[8] || '').indexOf('auto') >= 0;
+    const wantFlags = (isAuto ? 'auto' : '') + (row.t8 ? '' : ',day');
+    const want = row.t8 ? (row.d8 + 'T' + row.t8) : row.d8;
+    if (String(v[1] || '') !== want) {
+      console.log('  H9 日期以词条为准：' + k + ' ' + (v[1] || '(空)') + ' → ' + want + (isAuto ? '（自动补录行）' : ''));
+      v[1] = want;
+      nFix++;
+    }
+    if (String(v[8] || '') !== wantFlags) v[8] = wantFlags;
+  }
+  console.log(tag + ' H9 单源：日期修正 ' + nFix + ' 条' +
+    (nAuto ? '｜新批次未入词条 ' + nAuto + ' 条（窗口期，等本地任务刷新）' : '') +
+    (nFail ? '｜失利发射豁免 ' + nFail + ' 条' : '') +
+    (miss.length ? '｜⚠️⚠️ 词条缺失 ' + miss.length + ' 条：' + miss.join(', ') : '｜无缺失'));
+  return { nFix: nFix, nAuto: nAuto, nFail: nFail, miss: miss };
+}
+const H9_GW = applyWikiTables(GW_LEDGER, 'gw', '星网');
+const H9_QF = applyWikiTables(QF_LEDGER, 'qf', '千帆');
 
 // V1.9.1（A19）：搜索补池 —— 「已再入」与「尚未编目」这两类库内没有 TLE 的对象，
 //   页面搜索也要能搜到（现池只有 `cur().sats`）。
