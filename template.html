@@ -1301,7 +1301,7 @@ html.loading, html.loading body { overflow:hidden; touch-action:none; }
   /* ★ V1.9.5（H25 第二版，2026-10-16）：560 → **700ms**。用户口径"恢复并加强这个动效" ——
      上一版权重全花在让地球在扩散期间变色，结果主线程被拖出 8 帧 >50ms（实测），扩散看着发涩；
      这一版把代价压回去（只重绘可见画布 + 收尾不再重复失效），并把时长放宽一档，让"先慢后快"看清。 */
-  --anim-theme: 700ms;
+  --anim-theme: 560ms;
   --anim-lang-half: 310ms;
   --ease-slow-fast: cubic-bezier(.92,.02,.98,.46);    /* 先慢后快 */
   --ease-fast-slow: cubic-bezier(.02,.72,.16,1);      /* 先快后慢 */
@@ -1480,42 +1480,9 @@ section.fs-mobile .sec-head {
   from { clip-path:circle(0% at var(--vt-x, 96%) var(--vt-y, 4%)); }
   to   { clip-path:circle(var(--vt-r, 150%) at var(--vt-x, 96%) var(--vt-y, 4%)); }
 }
-/* ---- V1.9.5：hole 模式的两条覆盖规则（同特异性 + 源序在后 → 生效；<html> 没挂 .vt-hole 时全部不匹配）----
-   洞口为什么要用 mask：clip-path 只能裁出**一个形状**，挖不出洞；mask 的径向渐变天然能"中间透明"。
-   洞口半径为什么能平滑长大：--vt-hole-r 经 @property 注册成 <length> 才是**可插值**的（未注册的自定义
-   属性只能离散跳变，动画会变成 0→满 的两段跳）。老浏览器没有 @property → app.js 直接把模式退回 classic。 */
-html.vt-hole::view-transition-new(root) { display:none !important; animation:none !important; }
-html.vt-hole::view-transition-old(root) {
-  /* 旧快照自己就是那条时间轴：洞口 0 → --vt-r（= 到最远一角的距离，整屏刚好被挖穿） */
-  animation:vtHole var(--anim-theme) var(--ease-slow-fast) forwards !important;
-  /* ★★★ V1.9.6 修的真 bug：mask 的"显示"端**必须是白色**，不能是黑色 ★★★
-     2026-10-17 实测（_diag4.mjs 逐帧采样）：洞半径 0→22→107→323→1601 明明在正常长大，
-     可旧快照**一帧都没出现过** —— 页面从头到尾都是新主题，用户看到的就是
-     "没有圆形边界线扫过、一块区域直接覆盖"（功能退化）。
-     根因：CSS mask 的血统来自 SVG，**默认按亮度判**（白=显示、黑=隐藏）。我原来把"显示"端
-     写成 rgb(0,0,0)（不透明黑），在亮度语义下等于"整帧全隐藏"→ 洞里直接透出活页面。
-     改成 rgb(255,255,255)（不透明白）后，**亮度语义与 Alpha 语义下都正确**：
-       洞内 rgba(0,0,0,0)  →  Alpha 0 / 亮度 0  →  两种语义都隐藏 ✓
-       洞外 rgb(255,255,255) →  Alpha 1 / 亮度 1  →  两种语义都显示 ✓
-     （这也解释了为什么"边界高光"那条 inset 阴影看着没生效 —— 同一类"想当然"的坑。） */
-  /* ★ 边界羽化：用户要的是"一条**看不见**的线推过去、沿途逐渐变色"，不是"一个圆把内容盖住"。
-     默认 **1px = 硬边**（与 V1.9.4 观感一致）；需要"看不见的线"时把 --vt-feather 调大（如 60~120）——
-     带内旧快照按比例淡出、活页面按比例露出，视觉上是**一道柔波**，看不到圆的轮廓。
-     运行期调：?vtfeather=1（默认，硬边）/ 60 / 120；或控制台 CISTrack.vtFeather(px)。 */
-  -webkit-mask-image: radial-gradient(circle at var(--vt-x, 96%) var(--vt-y, 4%),
-      rgba(0,0,0,0) 0,
-      rgba(0,0,0,0) max(0px, calc(var(--vt-hole-r, 0px) - var(--vt-feather, 1px))),
-      rgba(255,255,255,1) var(--vt-hole-r, 0px));
-  mask-image: radial-gradient(circle at var(--vt-x, 96%) var(--vt-y, 4%),
-      rgba(0,0,0,0) 0,
-      rgba(0,0,0,0) max(0px, calc(var(--vt-hole-r, 0px) - var(--vt-feather, 1px))),
-      rgba(255,255,255,1) var(--vt-hole-r, 0px));
-}
-@keyframes vtHole {
-  from { --vt-hole-r: 0px; }
-  to   { --vt-hole-r: var(--vt-r, 3000px); }
-}
-@property --vt-hole-r { syntax: "<length>"; inherits: false; initial-value: 0px; }
+/* ★ V1.9.6（用户裁决）：hole / 羽化 / @property 那一整套已**删除**，只保留 V1.9.4 及以前的
+   classic：新快照裁成扩散圆盖在旧快照上（见上面的 ::view-transition-new + @keyframes vtCircle）。
+   扩散期间主循环整体暂停（V1.8.0 掉帧治理），与 V1.9.4 行为一致。 */
 /* ★ 2026-10-17 复核结论（过程归档 _v196_glow.py / _v196_edge.py，像素级）：
      上面 ::view-transition-new(root) 那条 `box-shadow: inset …` **自 V1.9.5 起就从未渲染过** ——
      VT 快照是**替换内容**，而 inset 阴影按绘制顺序被画在"背景之上、内容之下"，被快照整块盖住。

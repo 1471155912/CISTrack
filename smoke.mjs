@@ -1305,7 +1305,9 @@ assert('V1.9.5（H39 + 2026-10-16 补丁）：断轴符号画在等效高度 **1
 //   纯数字中英同形 → 不需要 i18n 键）
 assert('V1.9.5（H39）：等效 ≥1500 的刻度标签改标**实际高度**（1500→35300km、2000→35800km）',
   /function chartTickLabel\(t\)/.test(appSrc) &&
-  /if \(CHART_GEO_EQUIV && t >= CHART_BRK_AT\) return \(t \+ CHART_GEO_SHIFT\) \+ 'km';/.test(appSrc) &&
+  // ★ V1.9.6（用户要求）：刻度**只出纯数字**，不加 km 后缀；GEO 等效高度的数值换算保持不变
+  /if \(CHART_GEO_EQUIV && t >= CHART_BRK_AT\) return '' \+ \(t \+ CHART_GEO_SHIFT\);/.test(appSrc) &&
+  !/CHART_GEO_SHIFT\) \+ 'km'/.test(appSrc) &&
   /ctx\.fillText\(chartTickLabel\(t\), PL - 8, y\);/.test(appSrc));
 // ★ 2026-10-16 用户追加口径：断轴点必须**高于所有 LEO 星的等效高度**（否则 LEO 会跑到"35xxx km"区里）
 assert('H39 补丁：断轴点 1500 高于全部 LEO 等效高度（否则普通星会被标成 35xxx km 而误导）',
@@ -4253,60 +4255,22 @@ assert('A9（V1.9.2 重新划分）：合并判据 = 数据空间可分辨阈值
     assert('H25 第二版：更新回调**必须同步**（返回 Promise 会让 VT 的抓取阶段等 rAF —— 实测卡死 3.6–7s）',
       !/var apply = function \(\) \{[\s\S]{0,900}?return new Promise/.test(appSrc) &&
       /\/\/ ⚠️ 2026-10-16 试过"更新回调返回 Promise/.test(appSrc));
-    assert('H25 第二版（动效加强）：时长 700ms + 伪元素**边界高光**（跟着扩散圆走，零额外绘制）',
-      /--anim-theme: 700ms;/.test(tpl) &&
+    assert('H25 第二版（动效加强）：时长 560ms（= V1.9.4）+ 伪元素**边界高光**（跟着扩散圆走，零额外绘制）',
+      /--anim-theme: 560ms;/.test(tpl) &&
       /::view-transition-new\(root\) \{[\s\S]{0,400}?box-shadow: inset 0 0 38px 6px var\(--vt-glow/.test(tpl) &&
       /animation:vtCircle var\(--anim-theme\) var\(--ease-slow-fast\) forwards !important;/.test(tpl));
     assert('H25：切换期间主循环早退（.vt-running）—— 所以必须显式画一帧，置脏不够',
       /if \(document\.documentElement\.classList\.contains\('vt-running'\)\) return;/.test(appSrc) ||
       /if \(document\.documentElement\.classList\.contains\('vt-running'\)\) \{[\s\S]{0,2400}?\n    return;\n  \}/.test(appSrc));
-    // ★ V1.9.5（洞式扫描）：早退必须**分模式** —— classic 整体早退；hole 只做"推进自转 + 重画地球"的最小动作。
-    //   守两条：① 早退块仍在（不许顺手删掉，那会让扩散期间跑满整条主循环）；
-    //          ② 角度推进与重画限流**分开写**（第一版把它们写在同一个 if 里 → 自转只有正常速度的 30%）。
-    assert('V1.9.5（洞式）：.vt-running 早退块按 `THEME_VT` 分模式 —— hole 只做最小动作（复用缓存推算、不跑 SGP4）',
-      /if \(document\.documentElement\.classList\.contains\('vt-running'\)\) \{[\s\S]{0,200}?if \(THEME_VT === 'hole'\) \{/.test(appSrc) &&
-      /THEME_VT === 'hole'\) \{[\s\S]{0,700}?drawGlobe\(frameStatesGlobe, simMs\('globe'\)\);/.test(appSrc) &&
-      !/THEME_VT === 'hole'\) \{[\s\S]{0,700}?propagateAll\(/.test(appSrc));
-    assert('V1.9.5（洞式）：扩散期间**角度每帧推进、只有重画限流**（写进同一个 if 会让自转掉到 30%）',
-      /G\.yaw \+= SPIN_RATE \* dtv \/ 1000;[\s\S]{0,600}?\n\s{4,12}if \(frameStatesGlobe && \(nv - lastGlobeDraw > 50\)\)/.test(appSrc));
-    assert('V1.9.5（洞式）：模式开关齐备 + **不落盘**（只认网址参数与控制台，刷新回出厂态）',
-      /var THEME_VT = \(function \(\) \{/.test(appSrc) &&
-      /new URLSearchParams\(location\.search\)\.get\('vt'\)/.test(appSrc) &&
-      /window\.CISTrack\.vtMode = function \(m\) \{/.test(appSrc) &&
-      /document\.documentElement\.classList\.toggle\('vt-hole', THEME_VT === 'hole'\)/.test(appSrc) &&
-      (function () {                          // vtMode 的实现体里不许出现任何落盘调用
-        // ⚠️ 用**去注释**的 appCode：紧随其后的 setTheme 注释里刚好提到过 localStorage（历史说明），
-        //   拿带注释的 appSrc 切片会把它算进来 → 假 FAIL。
-        const i = appCode.indexOf('window.CISTrack.vtMode = function');
-        const blk = i < 0 ? '' : appCode.slice(i, i + 900);
-        return blk.length > 100 && !/localStorage|sessionStorage|document\.cookie/.test(blk);
-      })());
-    // ★★★ 主题切换的**默认 = hole**（用户 2026-10-17 最终裁决：要"非线性扩散 + 地球继续自转"同时成立）。
-  //   为什么只有 hole 能做到（实测，不是推测）：
-  //     · classic 的圆内是 VT 拍下的**静态位图** —— 手动摘掉 `vt-running` 让 yaw 推进 0.018 rad 后，
-  //       两帧仍**最大像素差 = 0**（照片不会自己更新）⇒ 停在 classic 机制里永远看不到地球转。
-  //     · hole 的洞内是**活页面**：扩散段 Δyaw 达名义速率 101%，边界仍是同一条硬边
-  //       （过渡 3px vs classic 2px），缓动与时长与 classic 完全共用。
-  //   ⚠️ hole 的**机制**本身一行未改，本次只改默认值；classic 仍可 `?vt=classic` 回退。
-  assert('默认 = hole（非线性扩散 + 地球继续自转）；classic 仍可回退；hole 机制未被改写',
-    /if \(m !== 'classic' && m !== 'hole'\) m = 'hole';/.test(appCode) &&
-    !/if \(m !== 'classic' && m !== 'hole'\) m = 'classic';/.test(appCode) &&
-    /window\.CISTrack\.vtMode = function \(m\)/.test(appCode) &&
-    /classList\.toggle\('vt-hole', THEME_VT === 'hole'\)/.test(appCode) &&
-    // hole 机制的关键件必须原样在（改了就等于"动了机制"）
-    /html\.vt-hole::view-transition-new\(root\) \{ display:none/.test(tpl) &&
-    // mask 跨行书写，中间允许任意空白（第一版写死 `, ` 因此假红）
-    // V1.9.6：边界改成可调羽化后，白色端直接落在 --vt-hole-r 上（带 max() 夹住羽化起点）
-    /radial-gradient\(circle at var\(--vt-x[\s\S]{0,400}?rgba\(255,255,255,1\) var\(--vt-hole-r/.test(tpl) &&
-    /--vt-feather/.test(tpl) &&
-    /@keyframes vtHole/.test(tpl) && /@property --vt-hole-r/.test(tpl));
-  assert('V1.9.5（洞式）：没有 `@property` 的浏览器自动退回 classic（未注册的自定义属性不能插值 → 洞会两段跳）',
-      /typeof CSS\.registerProperty !== 'function'\) m = 'classic'/.test(appSrc));
-    assert('V1.9.5（洞式）：CSS 三件套齐备 —— 新快照不画 / 旧快照挖洞（mask + 注册属性动画）/ hole 只在挂类时生效',
-      /html\.vt-hole::view-transition-new\(root\) \{ display:none !important; animation:none !important; \}/.test(tpl) &&
-      /@property --vt-hole-r \{ syntax: "<length>"; inherits: false; initial-value: 0px; \}/.test(tpl) &&
-      /html\.vt-hole::view-transition-old\(root\) \{[\s\S]{0,1800}?mask-image: radial-gradient\(circle at var\(--vt-x, 96%\) var\(--vt-y, 4%\),/.test(tpl) &&
-      /@keyframes vtHole \{[\s\S]{0,200}?to   \{ --vt-hole-r: var\(--vt-r, 3000px\); \}/.test(tpl));
+  // ★ V1.9.6（用户裁决）：只保留 V1.9.4 及以前的 **classic** 切换 —— hole / 羽化 / 一键切模式那套代码已**全部删除**。
+  //   这条守卫钉死"删干净了"，防止以后有人又把 hole 加回来；同时保住 classic 的三件套。
+  assert('V1.9.6：主题切换只保留 classic（hole/羽化/切模式代码已删净），classic 三件套在位',
+    !/THEME_VT|vtMode|vtFeather|vt-hole|vtHole|--vt-feather/.test(appCode) &&
+    !/vt-hole|vtHole|vt-hole-r/.test(tpl) &&
+    /animation:vtCircle var\(--anim-theme\) var\(--ease-slow-fast\) forwards !important;/.test(tpl) &&
+    /@keyframes vtCircle/.test(tpl) &&
+    /if \(document\.documentElement\.classList\.contains\('vt-running'\)\) return;/.test(appCode) &&
+    /--anim-theme: 560ms/.test(tpl));
     // ---- ★ V1.9.5（§14.3-D）：hover 命中测试收口（用户批准 + 要求可撤回）----
     assert('V1.9.5（§14.3-D）：hover 闸门默认改成**每帧一次**，且旧 32ms 时间节流**仍在代码里**（可一键回退）',
       /var HOVER_COALESCE = \(function \(\) \{/.test(appSrc) &&

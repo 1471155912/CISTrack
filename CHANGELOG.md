@@ -138,6 +138,52 @@ App 内「关于/帮助」正文、右下角药丸跳转标题 `sec-climb`。
 
 **回退**：`?vt=classic` 或控制台 `CISTrack.vtMode('classic')`（不落盘，刷新即回默认）。
 
+### ⑫ ★ 删除 hole / 羽化那一整套，**主题切换回到 V1.9.4 及以前**（最终裁决）
+
+> 用户原话：「你使用老的1.9.4及以前版本用的切换效果，删除后面什么hole之类的不符合要求的代码部分。」
+
+**删掉的东西**（一行不留）：
+- `app.js`：`THEME_VT` 三选一、`vtApplyMode()`、`CISTrack.vtMode()`、`CISTrack.vtFeather()`、
+  `?vt=` / `?vtfeather=` 解析、`loop()` 里按 `THEME_VT` 分模式的 hole 分支
+- `template.html`：`html.vt-hole::view-transition-new(root){display:none}`、
+  `html.vt-hole::view-transition-old(root)` 的 mask、`@keyframes vtHole`、`@property --vt-hole-r`、`--vt-feather`
+- `smoke.mjs`：6 条 hole 专项守卫 → 换成**1 条"只保留 classic"**的守卫（双向钉死：源码/产物里都不许再出现
+  `THEME_VT|vtMode|vtFeather|vt-hole|vtHole`，且 classic 三件套必须在位）
+
+**恢复成 V1.9.4 的口径**：
+- 机制：`::view-transition-new(root)` + `clip-path: circle(0% → 150%)`，新快照裁圆盖在旧快照上
+- 时长：**560ms**（原来当前版是 700ms，V1.9.4 是 560ms）
+- 扩散期间：`if (html.classList.contains('vt-running')) return;`（整体暂停，与 V1.9.4 一致）
+
+**同时修（用户同时提出的两项）**：
+- 纵轴刻度**只出纯数字**，去掉 `km` 后缀；GEO 等效高度的数值换算（`t + CHART_GEO_SHIFT`）**一个字未动**
+- GEO 三星与「在轨状态」列的恢复见 ⑬
+
+**代价（如实说明）**：扩散的 560ms 内地球**不再自转** —— 这是 V1.9.4 及以前的行为，也是用户明确选择的效果。
+
+### ⑫ ★ 删除 hole / 羽化那一整套，**主题切换回到 V1.9.4 及以前**（最终裁决）
+
+> 用户原话：「你使用老的1.9.4及以前版本用的切换效果，删除后面什么hole之类的不符合要求的代码部分。」
+
+**删掉的东西**（一行不留）：
+- `app.js`：`THEME_VT` 三选一、`vtApplyMode()`、`CISTrack.vtMode()`、`CISTrack.vtFeather()`、
+  `?vt=` / `?vtfeather=` 解析、`loop()` 里按 `THEME_VT` 分模式的 hole 分支
+- `template.html`：`html.vt-hole::view-transition-new(root){display:none}`、
+  `html.vt-hole::view-transition-old(root)` 的 mask、`@keyframes vtHole`、`@property --vt-hole-r`、`--vt-feather`
+- `smoke.mjs`：6 条 hole 专项守卫 → 换成**1 条"只保留 classic"**的守卫（双向钉死：源码/产物里都不许再出现
+  `THEME_VT|vtMode|vtFeather|vt-hole|vtHole`，且 classic 三件套必须在位）
+
+**恢复成 V1.9.4 的口径**：
+- 机制：`::view-transition-new(root)` + `clip-path: circle(0% → 150%)`，新快照裁圆盖在旧快照上
+- 时长：**560ms**（原来当前版是 700ms，V1.9.4 是 560ms）
+- 扩散期间：`if (html.classList.contains('vt-running')) return;`（整体暂停，与 V1.9.4 一致）
+
+**同时修（用户同时提出的两项）**：
+- 纵轴刻度**只出纯数字**，去掉 `km` 后缀；GEO 等效高度的数值换算（`t + CHART_GEO_SHIFT`）**一个字未动**
+- GEO 三星与「在轨状态」列的恢复见 ⑬
+
+**代价（如实说明）**：扩散的 560ms 内地球**不再自转** —— 这是 V1.9.4 及以前的行为，也是用户明确选择的效果。
+
 ## [V1.9.5] — 2026-10-17
 
 > 本版重点：**主题切换时地球继续自转**（"洞式扫描"，可一键回退）、**hover 命中收口**（每帧一次 + 四章统一）、

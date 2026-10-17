@@ -150,6 +150,50 @@ radius are **shared with classic** — no visual parameter was changed.
 
 **Fallback**: `?vt=classic` or `CISTrack.vtMode('classic')` (not persisted; refresh returns to the default).
 
+### ⑫ ★ Removed hole / feather entirely — the theme switch is **back to V1.9.4 and earlier**
+
+> Your words: "use the switch effect from the old 1.9.4-and-earlier versions, and delete the hole-style code that doesn't meet the requirement."
+
+**Deleted (not a line left)**:
+- `app.js`: the `THEME_VT` three-way switch, `vtApplyMode()`, `CISTrack.vtMode()`, `CISTrack.vtFeather()`,
+  the `?vt=` / `?vtfeather=` parsing, and the hole branch inside `loop()`
+- `template.html`: `html.vt-hole::view-transition-new(root){display:none}`, the mask on
+  `html.vt-hole::view-transition-old(root)`, `@keyframes vtHole`, `@property --vt-hole-r`, `--vt-feather`
+- `smoke.mjs`: six hole-specific guards → replaced by **one** "classic only" guard (pins both directions:
+  no `THEME_VT|vtMode|vtFeather|vt-hole|vtHole` in source or artifact, and the classic trio must be present)
+
+**Restored to V1.9.4 semantics**:
+- Mechanism: `::view-transition-new(root)` + `clip-path: circle(0% → 150%)` — the new snapshot clipped to a growing circle over the old one
+- Duration: **560ms** (was 700ms in the current build; V1.9.4 used 560ms)
+- During the wipe: `if (html.classList.contains('vt-running')) return;` (fully paused, same as V1.9.4)
+
+**Also fixed in the same pass**: Y-axis ticks are **pure numbers** now (no `km` suffix); the GEO equivalent-height
+math (`t + CHART_GEO_SHIFT`) is untouched. GEO satellites and the "orbit status" column are covered in ⑬.
+
+**Cost (stated plainly)**: the globe does **not** spin during the 560ms wipe — that is exactly V1.9.4's behaviour and the effect you chose.
+
+### ⑫ ★ Removed hole / feather entirely — the theme switch is **back to V1.9.4 and earlier**
+
+> Your words: "use the switch effect from the old 1.9.4-and-earlier versions, and delete the hole-style code that doesn't meet the requirement."
+
+**Deleted (not a line left)**:
+- `app.js`: the `THEME_VT` three-way switch, `vtApplyMode()`, `CISTrack.vtMode()`, `CISTrack.vtFeather()`,
+  the `?vt=` / `?vtfeather=` parsing, and the hole branch inside `loop()`
+- `template.html`: `html.vt-hole::view-transition-new(root){display:none}`, the mask on
+  `html.vt-hole::view-transition-old(root)`, `@keyframes vtHole`, `@property --vt-hole-r`, `--vt-feather`
+- `smoke.mjs`: six hole-specific guards → replaced by **one** "classic only" guard (pins both directions:
+  no `THEME_VT|vtMode|vtFeather|vt-hole|vtHole` in source or artifact, and the classic trio must be present)
+
+**Restored to V1.9.4 semantics**:
+- Mechanism: `::view-transition-new(root)` + `clip-path: circle(0% → 150%)` — the new snapshot clipped to a growing circle over the old one
+- Duration: **560ms** (was 700ms in the current build; V1.9.4 used 560ms)
+- During the wipe: `if (html.classList.contains('vt-running')) return;` (fully paused, same as V1.9.4)
+
+**Also fixed in the same pass**: Y-axis ticks are **pure numbers** now (no `km` suffix); the GEO equivalent-height
+math (`t + CHART_GEO_SHIFT`) is untouched. GEO satellites and the "orbit status" column are covered in ⑬.
+
+**Cost (stated plainly)**: the globe does **not** spin during the 560ms wipe — that is exactly V1.9.4's behaviour and the effect you chose.
+
 ## [V1.9.5] — 2026-10-17
 
 > Highlights: the **globe keeps spinning during a theme switch** ("hole wipe", revertible in one step),

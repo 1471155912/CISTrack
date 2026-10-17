@@ -1757,7 +1757,10 @@ function chartHasGeo() {
   } catch (e) { return false; }
 }
 function chartTickLabel(t) {
-  if (CHART_GEO_EQUIV && t >= CHART_BRK_AT) return (t + CHART_GEO_SHIFT) + 'km';
+  // ★ V1.9.6（用户要求）：纵轴刻度**只写纯数字**，不再带 km 后缀。
+  //   ⚠️ 只改标签文本；GEO 等效高度的**数值换算（t + CHART_GEO_SHIFT）一个字没动** ——
+  //   「GEO 三星按等效高度画在原图内」这个功能完整保留（见 CHART_GEO_SHIFT / CHART_BRK_AT）。
+  if (CHART_GEO_EQUIV && t >= CHART_BRK_AT) return '' + (t + CHART_GEO_SHIFT);
   return t.toFixed(MODE_FMT);
 }
 
@@ -5558,83 +5561,12 @@ document.addEventListener('touchmove', function (e) {
   document.addEventListener(ev, function () { swipe = null; }, { passive: true });
 });
 // 主题
-// ★ V1.9.5：主题切换"圆形扩散"的**两条实现**，可一键回退，且**不需要重新构建**（用户 2026-10-17 需求）。
-//   'hole'（默认）= 洞式扫描：新快照整个不画，旧快照挖一个随动画长大的洞；洞里露出的是**活页面**，
-//       所以扩散的这 700ms 里地球继续自转、时间秒针继续走。圆外仍是旧快照、边界仍有主题色高光，
-//       时长/曲线/起点/半径与旧版**逐项相同**（见 template.html 的 html.vt-hole 那两条规则）。
-//       边界外观也**完全一致**：像素级复核已证明 classic 的 inset 边界高光是空操作（不渲染），
-//       所以 hole 刻意不加任何额外光层 —— 两者的边界都只是那条 1px 硬边，位置逐像素对齐。
-//   'classic' = V1.6.0–V1.9.5 的旧版：新快照裁圆盖在旧快照上；两张都是静态快照，且主循环在扩散期间
-//       整体暂停（V1.8.0 的掉帧治理）→ 地球停转 700ms。
-//   回退方式（任选，改完刷新即可）：
-//     ① 网址后缀加 ?vt=classic（或 ?vt=hole）—— 只影响这一次；
-//     ② 控制台 CISTrack.vtMode('classic') / CISTrack.vtMode('hole') —— **只在本次会话生效**；
-//     ③ 改下面 return 的默认值，再跑一次 build。
-//   ⚠️ 刻意**不落盘**（不写 localStorage / cookie）：本项目有一条硬规则「设置不落盘」——
-//     刷新即回到出厂态（暗色 + 洞式），三条还原路径必须落到同一状态。曾写成"控制台切换即持久"，
-//     被 smoke 的「app.js 里不再有任何 localStorage 写入」断言当场拦下，已改回不落盘。
-var THEME_VT = (function () {
-  var m = null;
-  try { m = new URLSearchParams(location.search).get('vt'); } catch (e) {}   // 只认网址参数
-  // ★★★ 默认 = **hole**（用户 2026-10-17 最终裁决）★★★
-  //   决策依据（实测，不是推测）：
-  //     · 停转有**两层**原因：① `vt-running` 让主循环早退（状态冻结）；② **VT 期间页面是两张静态位图**
-  //       （像素级证据：手动摘掉 vt-running 后 yaw 推进 0.018 rad，但两帧**最大像素差 = 0**）。
-  //       ⇒ 只要还用 classic 的机制，圆内永远是"照片"，地球不可能看起来在转。
-  //     · hole 的洞内是**活页面**：扩散期间 Δyaw 达名义速率的 101%，边界仍是同一条硬边（过渡 3px vs classic 2px），
-  //       非线性缓动与时长**与 classic 完全共用**。
-  //   ⚠️ hole 的机制本身**一行未改** —— 本次只改了这一个默认值。
-  //   回退：?vt=classic / CISTrack.vtMode('classic')（不落盘）。
-  if (m !== 'classic' && m !== 'hole') m = 'hole';
-  // 洞要靠 @property 注册的 --vt-hole-r 做插值；没有 @property 的浏览器（老 Firefox / 老 Safari）
-  //   插不了值 → 那个洞会变成"0 → 满"的两段跳。这类浏览器直接退回旧版，观感与 V1.9.5 之前一致。
-  try { if (typeof CSS === 'undefined' || typeof CSS.registerProperty !== 'function') m = 'classic'; } catch (e) { m = 'classic'; }
-  return m;
-})();
-function vtApplyMode() {
-  try { document.documentElement.classList.toggle('vt-hole', THEME_VT === 'hole'); } catch (e) {}
-}
-vtApplyMode();
+// ★ V1.9.6（用户裁决）：只保留 **V1.9.4 及以前的 classic**（静态快照裁圆），
+//   hole／羽化／一键切模式那套代码已全部删除（它们没能给出用户要的观感）。
+//   扩散期间主循环暂停（V1.8.0 掉帧治理）→ 与 V1.9.4 行为一致。
 window.CISTrack = window.CISTrack || {};
 // 一键回退入口（控制台可用，也供说明文档引用）；不带参数则返回当前模式。**不落盘**。
-// ★ 边界羽化宽度（0~1px ≈ 原来的硬边；默认 110px = "看不见的线"）
-//   只影响那圈渐变带的宽度，不动动画时长/缓动/半径，也不改 hole 的机制。
-window.CISTrack.vtFeather = function (px) {
-  try {
-    var v = parseFloat(px);
-    if (!isFinite(v) || v < 0) return null;
-    document.documentElement.style.setProperty('--vt-feather', v + 'px');
-    return v;
-  } catch (e) { return null; }
-};
-try {
-  var _fq = new URLSearchParams(location.search).get('vtfeather');
-  if (_fq !== null) window.CISTrack.vtFeather(_fq);
-} catch (e) {}
-// ★ 边界羽化宽度（0~1px ≈ 原来的硬边；默认 110px = "看不见的线"）
-//   只影响那圈渐变带的宽度，不动动画时长/缓动/半径，也不改 hole 的机制。
-window.CISTrack.vtFeather = function (px) {
-  try {
-    var v = parseFloat(px);
-    if (!isFinite(v) || v < 0) return null;
-    document.documentElement.style.setProperty('--vt-feather', v + 'px');
-    return v;
-  } catch (e) { return null; }
-};
-try {
-  var _fq = new URLSearchParams(location.search).get('vtfeather');
-  if (_fq !== null) window.CISTrack.vtFeather(_fq);
-} catch (e) {}
-window.CISTrack.vtMode = function (m) {
-  if (m === undefined) return THEME_VT;
-  if (m !== 'classic' && m !== 'hole') { console.warn('[vt] 只认 classic / hole，当前仍是 ' + THEME_VT); return THEME_VT; }
-  THEME_VT = m;
-  vtApplyMode();
-  console.info('[vt] 主题切换方式 → ' + m + (m === 'classic'
-    ? '（旧版：扩散期间画面是静态快照，地球停转）'
-    : '（洞式：扩散期间地球继续自转）'));
-  return THEME_VT;
-};
+
 // V1.7.0 第四轮（需求6）：主题也算「设置」，所以抽调出一个 setTheme ——
 //   三种还原路径（刷新 / 重新进入链接 / 点「还原所有默认设置」）必须落到同一状态。
 //   刷新与重进链接都由 <head> 里的启动脚本强制回暗色，所以「还原所有默认设置」也得把主题拨回暗色，
@@ -9365,29 +9297,7 @@ function loop() {
   //   暂停 520ms 对画面无影响（卫星位置与秒针在半秒内看不出差别），但掉帧会明显减少。
   //   ★ 效果与时长**一律不动**（用户明确要求）：这里只改"谁在什么时候干活"，不碰任何视觉参数。
   //   vt-running 由主题按钮在动画开始时挂上、结束时摘下（见 finishHeavy），摘掉后本循环自然恢复。
-  // ★ V1.9.5（洞式扫描）：上面这条"暂停"的前提是**扩散期间画面是静态快照、看不见活页面** ——
-  //   那只在 classic 模式成立。hole 模式旧快照被挖了洞，洞内就是活页面，整体暂停会变成
-  //   "地球在扩散期间定住"。所以 hole 下改成**最小动作**：复用上一秒的推算结果，只推进自转 +
-  //   重画可见画布（不跑 SGP4 —— 半秒内的轨道位置看不出差别，与旧版口径一致），其余一概不碰。
-  if (document.documentElement.classList.contains('vt-running')) {
-    if (THEME_VT === 'hole') {
-      updateBreath();                                     // 时间秒针的填充呼吸别在扩散期间僵住
-      var nv = performance.now();
-      var dtv = lastSpinMs ? Math.min(200, nv - lastSpinMs) : 0;
-      lastSpinMs = nv;
-      if (S.spin && isVisible(globeCv) && dtv > 0) {
-        // ⚠ 推进与重画必须**分开**：角度每帧都推（与主路径同口径"按经过时间"），只有重画才限流。
-        //   第一版把两者写在同一个 if 里 → 每 50ms 才推一次、每次只推 16ms 的量，
-        //   实测扩散段自转只有正常速度的 30%（0.0084 vs 0.028 rad/s），地球明显变慢。
-        G.yaw += SPIN_RATE * dtv / 1000;
-        if (frameStatesGlobe && (nv - lastGlobeDraw > 50)) {
-          drawGlobe(frameStatesGlobe, simMs('globe'));    // 与主路径同一条重画限流（50ms ≈ 20fps）
-          globeDirty = false; lastGlobeDraw = nv;
-        }
-      }
-    }
-    return;
-  }
+  if (document.documentElement.classList.contains('vt-running')) return;   // 与 V1.9.4 一致：扩散期间整体暂停
   var now = performance.now();
   // V1.7.3（需求9）：两章时间**各自独立** —— 各自的模拟时刻、各自的 SGP4 推算缓存。
   //   实时章跟墙钟每秒一推；冻结章的 simMs 恒定 → sec 不再变化 → 不重复推算（顺带省电）。
