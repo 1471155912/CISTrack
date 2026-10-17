@@ -19,9 +19,9 @@
 
 > 🌐 **中文** | [English](README.en.md)
 
-> **项目主页**：https://github.com/1471155912/CISTrack
-> **固定在线地址**：https://1471155912.github.io/CISTrack/CISTrack.html （不带版本号，更新后不变）
-> 顶栏左上角的 **CISTrack** 标志可直接点击跳转到项目主页。
+> **本项目主页**：https://github.com/1471155912/CISTrack
+> **在线版页面**：https://1471155912.github.io/CISTrack/CISTrack.html
+> 点击网页顶栏左上角的 **CISTrack** 标志可直接跳转到本项目主页。
 
 
 一个**单文件、零后端**的网页，用真实的公开轨道数据（NORAD 目录 / TLE）实时推算并可视化中国两个低轨互联网星座：

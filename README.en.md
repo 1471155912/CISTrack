@@ -20,8 +20,8 @@
 > 🌐 [中文](README.md) | **English**
 
 > **Project home**: https://github.com/1471155912/CISTrack
-> **Stable URL**: https://1471155912.github.io/CISTrack/CISTrack.html (no version in the path — it never changes on update)
-> The **CISTrack** wordmark at the top-left links to the project home.
+> **Online page**: https://1471155912.github.io/CISTrack/CISTrack.html
+> Clicking the **CISTrack** wordmark at the top-left of the page opens the project home.
 
 
 A **single-file, zero-backend** web page that uses real public orbit data (the NORAD catalogue / TLEs) to compute and visualise, in real time, two Chinese low-Earth-orbit internet constellations:
