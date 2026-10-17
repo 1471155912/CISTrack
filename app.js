@@ -9641,25 +9641,43 @@ function endLoad(msg, ok) {
 //   把 wiki.json 和 HTML 一起托管（GitHub Pages / 任意静态站），以后只改 JSON 里的数字，
 //   所有访客刷新就能看到新统计 —— 既不用重新构建，也不依赖任何自动抓取。
 var WIKI_JSON_URL = './wiki.json';
+// ★★ V1.9.7（用户 2026-10-17 提出）：**单独下载的 HTML 拿不到百科更新** ★★
+//   原先只认同目录的 `./wiki.json` —— 用户把单文件下载到本地后，那个 sidecar 根本不存在，
+//   于是「发射 / 在轨 / 发射次数」永远停在**打包那一刻**的值（TLE 却能靠联网自己更新）。
+//   现在改成**三级**：① 同目录 ./wiki.json（官方 Pages / 自建静态站，最快）
+//                   ② 官方 Pages 的 wiki.json（单文件下载后就靠这一级，需联网）
+//                   ③ 内置值（离线兜底，与原来一致）
+//   ⚠️ 第 ② 级只在第 ① 级失败时才请求，所以官方部署不会多打一次请求。
+//   ⚠️ 隐私口径：这是**向本项目自己的托管站**取一个公开 JSON，不携带任何用户信息；
+//      与「第三方 CORS 代理」不是一回事（后者与用户 IP 会经过第三方，已在 README 单列披露）。
+var WIKI_JSON_FALLBACK = 'https://1471155912.github.io/CISTrack/wiki.json';
+function applyWikiJson(j) {
+  if (!j || !j.gw || !j.qf) return false;
+  var hit = false;
+  ['gw', 'qf'].forEach(function (k) {
+    var w = j[k];
+    if (!RAW[k] || !w || !w.launched || !w.inOrbit) return;
+    var old = RAW[k].wiki || {};
+    RAW[k].wiki = {
+      asOf: j.asOf || old.asOf || '',
+      article: old.article || (k === 'gw' ? '星网' : '千帆星座'),
+      launched: w.launched, inOrbit: w.inOrbit, launches: w.launches || old.launches
+    };
+    hit = true;
+  });
+  if (hit) renderHeader();          // 覆盖成功后立刻重画顶部那几项
+  return hit;
+}
 function loadWikiJson() {
-  return fetchText(WIKI_JSON_URL, 6000).then(function (txt) {
-    var j = JSON.parse(txt);
-    if (!j || !j.gw || !j.qf) return false;
-    var hit = false;
-    ['gw', 'qf'].forEach(function (k) {
-      var w = j[k];
-      if (!RAW[k] || !w || !w.launched || !w.inOrbit) return;
-      var old = RAW[k].wiki || {};
-      RAW[k].wiki = {
-        asOf: j.asOf || old.asOf || '',
-        article: old.article || (k === 'gw' ? '星网' : '千帆星座'),
-        launched: w.launched, inOrbit: w.inOrbit, launches: w.launches || old.launches
-      };
-      hit = true;
-    });
-    if (hit) renderHeader();          // 覆盖成功后立刻重画顶部那几项
-    return hit;
-  }).catch(function () { return false; });
+  var tryUrl = function (u) {
+    return fetchText(u, 6000).then(function (txt) { return applyWikiJson(JSON.parse(txt)); })
+      .catch(function () { return false; });
+  };
+  return tryUrl(WIKI_JSON_URL).then(function (ok) {
+    if (ok) return true;
+    if (!WIKI_JSON_FALLBACK) return false;
+    return tryUrl(WIKI_JSON_FALLBACK);      // 单文件下载：本地没有 sidecar → 走官方站
+  });
 }
 // ---------------------------------------------------------------- V1.9.0（R17）：历史轨道要素外挂
 // 与 wiki.json 完全同一套路：同目录 fetch → 成功则覆盖内置 → 失败静默回退。

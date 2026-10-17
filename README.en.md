@@ -69,6 +69,20 @@ GitHub Pages. It updates on every release, nothing to download.
 
 That is all. On first open it tries to fetch the latest TLEs; if that fails it falls back to the bundled snapshot and everything still works.
 
+> **What can actually update (clarified in V1.9.7)**:
+> - **TLE (positions/orbits)**: the single file updates too — it fetches from CelesTrak on open.
+> - **Wiki stats (launched / in orbit / launches)**: previously readable **only** from a sibling `wiki.json`, so a **downloaded single file kept them frozen**;
+>   there is now an **official Pages fallback**: when no local `wiki.json` exists, the page fetches
+>   `https://1471155912.github.io/CISTrack/wiki.json` once (needs network) and falls back to the bundled values otherwise.
+> - Fully offline: both use the snapshot bundled at build time; everything still works.
+
+> **What can actually update (clarified in V1.9.7)**:
+> - **TLE (positions/orbits)**: the single file updates too — it fetches from CelesTrak on open.
+> - **Wiki stats (launched / in orbit / launches)**: previously readable **only** from a sibling `wiki.json`, so a **downloaded single file kept them frozen**;
+>   there is now an **official Pages fallback**: when no local `wiki.json` exists, the page fetches
+>   `https://1471155912.github.io/CISTrack/wiki.json` once (needs network) and falls back to the bundled values otherwise.
+> - Fully offline: both use the snapshot bundled at build time; everything still works.
+
 > Want **scheduled automatic updates on your own machine** (periodically pull fresh orbital elements
 > and repackage the HTML)? See the dedicated **「🖥️ Local deployment (with scheduled updates)」** chapter below.
 

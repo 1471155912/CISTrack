@@ -4916,7 +4916,15 @@ assert('A9（V1.9.2 重新划分）：合并判据 = 数据空间可分辨阈值
     /typeof c\.launched\.n === 'number'/.test(bc) &&
     /typeof c\.inOrbit\.n === 'number'/.test(bc) &&
     /必填字段不全/.test(bc));
-  assert('V1.9.1：wiki.json 与 build/wiki.json 当前同步（若不同步=守卫拦下过，应先跑 mkdata）',
+  // ★ V1.9.7（用户 2026-10-17 提问）：单文件下载后**百科统计也要能更新** ——
+  //   原先只认同目录 ./wiki.json，单文件下载后该文件不存在 → 统计永远停在打包值（TLE 却能更新）。
+  //   现在三级：./wiki.json → 官方 Pages 的 wiki.json → 内置值。这条守卫钉死"兜底不能被删掉"。
+  assert('V1.9.7：百科统计支持**单文件下载**更新（本地 sidecar → 官方 Pages 兜底 → 内置值）',
+    /1471155912\.github\.io\/CISTrack\/wiki\.json/.test(appSrc) &&
+    /function applyWikiJson\(j\)/.test(appSrc) &&
+    /tryUrl\(WIKI_JSON_URL\)\.then\(function \(ok\)/.test(appSrc) &&
+    /return tryUrl\(WIKI_JSON_FALLBACK\)/.test(appSrc));
+assert('V1.9.1：wiki.json 与 build/wiki.json 当前同步（若不同步=守卫拦下过，应先跑 mkdata）',
     (function () {
       try {
         return fs.readFileSync(B + '/wiki.json', 'utf8') === fs.readFileSync(B + '/build/wiki.json', 'utf8');
