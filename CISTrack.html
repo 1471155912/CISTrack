@@ -384,6 +384,12 @@ section.fs-mobile .fs-exit-btn { display:flex; }
 .hero-kv div { display:flex; justify-content:space-between; gap:16px; padding:8px 0; border-bottom:1px solid var(--hair); font-family:var(--mono); font-size:var(--fs-kv); letter-spacing:0.06em; }
 /* V1.3.8：标签列固定宽度、不许换行 —— 否则星网那组很长的数值会把「发射/卫星」挤成每个字一行 */
 .hero-kv .k { color:var(--faint); line-height:1.34; flex:0 0 auto; white-space:nowrap; }
+/* ★ V1.9.7（§5 用户口径）：标签「屏幕宽度足够时一行四字，过窄（如手机）时两行各两个字」。
+   做法：i18n 里把可能的断点包进 `.kbr`，**宽屏时隐藏**（整体一行四字），
+   窄屏（≤620px）时显形（`<br>` 生效 → 2+2）。三个四字标签（发射/在轨/轨道分布）共用同一机制，
+   保证同一张表里的标签形态一致。 */
+.hero-kv .k .kbr { display:none; }
+@media (max-width:620px) { .hero-kv .k .kbr { display:inline; } }
 .hero-kv .v { color:var(--fg); text-align:right; flex:1 1 auto; min-width:0; }
 .hero-kv div { align-items:center; }   /* V1.3.5：行内有换行的长值时，短的项上下居中 */
 /* 第一行末尾的词条口径括号（更小一号，随数字后换行）；第二行是换行的「（另有 N 颗待编目）」 */
@@ -2022,9 +2028,9 @@ html[data-theme="light"] .res-fail { color:#c72929; }
       <div><span class="k" data-i18n="kv_launched">发射卫星</span><span class="v" id="mLaunched">—</span></div>
       <div><span class="k" data-i18n="kv_sats">在轨卫星</span><span class="v" id="mSats">—</span></div>
       <div><span class="k" data-i18n="kv_launchok">发射成功</span><span class="v" id="mLaunchOk">—</span></div>
-      <div><span class="k" data-i18n="kv_groups">发射批次</span><span class="v" id="mGroups">—</span></div>
-      <div><span class="k" data-i18n="kv_alt">平均轨道高度</span><span class="v" id="mAlt">—</span></div>
-      <div><span class="k" data-i18n="kv_inc">轨道倾角</span><span class="v" id="mInc">—</span></div>
+      <!-- ★ V1.9.7（§4/§5）：删「发射批次」一行；「平均轨道高度」+「轨道倾角」合并成「轨道分布」一行
+           （值形如 `1150km, 50° / 1170km, 86.5°`，一行最多两项、多的换行；见 app.js 的 renderOrbDist） -->
+      <div><span class="k" data-i18n="kv_dist">轨道分布</span><span class="v" id="mDist">—</span></div>
       <div><span class="k" data-i18n="kv_first">首发​发射</span><span class="v" id="mFirst">—</span></div>
       <!-- V1.7.0 第四轮（需求2）：数据源说明 —— 页面除 TLE 外还用了卫星百科的口径数据（计数/制造商等），
            这里如实标注"卫星百科数据截至哪天"。取值来自 wiki.json 的 asOf（构建时与运行时都会写入）。 -->
@@ -2227,7 +2233,7 @@ html[data-theme="light"] .res-fail { color:#c72929; }
     </div>
     <span class="sec-num">04</span>
   </div>
-  <p class="sec-lead" data-i18n="lead_climb">选定一颗卫星或一个批次/组，画出它们的轨道半长轴随时间的变化 —— 刚入轨时低、随后被发动机一点点抬到工作高度的那段"爬坡"。</p>
+  <p class="sec-lead" data-i18n="lead_climb">选定一颗卫星或一个批次/组，画出它们的轨道半长轴随时间的变化 —— 刚入轨时低、随后被发动机一点点抬到工作高度的那段"爬坡"。<b>状态判据</b>：2 天最小二乘速率 |Δa| > 0.5 km/天 记作「点火」，不超过 0.5 且仍未进入工作高度带（±30 km）记作「间歇」。</p>
 
   <div class="climb-bar">
     <label class="climb-pick"><span data-i18n="climb_pick">对象</span>
@@ -2544,12 +2550,14 @@ var I18N = {
   // V1.3.6：键名里插一个零宽空格作断行点 —— 窄屏固定断在「发射/卫星」「在轨/卫星」，
   // 不会再断成「发射卫/星」；两个星座共用同一套键，格式自然一致。
   kv_group: ['星座', 'Constellation'],
-  // V1.3.7：这两项在中文页也是两行（在轨 / 卫星），跟英文页的排布保持一致
-  kv_sats: ['在轨<br>卫星', 'Satellites<br>in orbit'],
-  kv_launched: ['发射<br>卫星', 'Satellites<br>launched'],
-  kv_launchok: ['发射​成功', 'Launches succeeded'],
-  kv_groups: ['发射​批次', 'Launch groups'], kv_alt: ['平均轨道​高度', 'Mean orbit altitude'],
-  kv_inc: ['轨道​倾角', 'Inclinations'], kv_first: ['首发​发射', 'First launch'],
+  // ★ V1.9.7（§5 用户口径）：四字标签「屏宽足够时一行四字、过窄（如手机）时两行各两个字」——
+  //   断点包在 `.kbr` 里，由 CSS 按断点显隐（见 template.html 的 `.hero-kv .k .kbr`）。
+  kv_sats: ['在轨<span class="kbr"><br></span>卫星', 'Satellites <span class="kbr"><br></span>in orbit'],
+  kv_launched: ['发射<span class="kbr"><br></span>卫星', 'Satellites <span class="kbr"><br></span>launched'],
+  kv_launchok: ['发射成功', 'Launches succeeded'],
+  // ★ V1.9.7（§5）：原先的「平均轨道高度」+「轨道倾角」两行合并为「轨道分布」一行
+  kv_dist: ['轨道<span class="kbr"><br></span>分布', 'Orbit <span class="kbr"><br></span>distribution'],
+  kv_first: ['首发​发射', 'First launch'],
   // V1.7.0 第四轮（需求2）：页面除 TLE 外还用了卫星百科口径的数据 —— 在「首批发射」下如实标注数据截至日
   kv_wiki: ['卫星百科更新', 'Satwiki info update'],
   // V1.3.6：章节改名与重排 —— 01 地图 / 02 轨道 / 03 轨道分布 / 04 卫星表格 / 05 发射历史
@@ -2670,9 +2678,6 @@ var I18N = {
   // ★ V1.9.7：把「变轨中」拆成两种状态（用户批准）——点火中 / 间歇
   st_raise_hot: ['变轨中·点火（~', 'Raising · burning (~'],
   st_raise_idle: ['变轨中·间歇（~', 'Raising · coasting (~'],
-  // ★ V1.9.7：把「变轨中」拆成两种状态（用户批准）——点火中 / 间歇
-  st_raise_hot: ['变轨中·点火（~', 'Raising · burning (~'],
-  st_raise_idle: ['变轨中·间歇（~', 'Raising · coasting (~'],
   st_kmday: ['km/天', 'km/day'],
   st_close: ['）', ')'],
   st_gone_tip: ['已再入，再入日期：', 'Re-entered on '],
@@ -2711,8 +2716,8 @@ var I18N = {
   //   表格里那个 Orbits Change 是导出图的短标签（底栏宽度有限，见 Q32）—— **两处不是同一个字符串，别顺手统一**。
   //   本次已同步 4 处：h_climb / t_defclimb / 帮助正文 / sec-climb 章节名。
   h_climb: ['变轨情况', 'Orbit Change Status'],
-  lead_climb: ['选定一颗卫星或一个批次/组，画出它们的轨道半长轴随时间的变化 —— 刚入轨时低、随后被发动机一点点抬到工作高度的那段"爬坡"。',
-    'Pick one satellite or one batch/group and see how its orbital semi-major axis changes over time — the climb from a low initial altitude up to the working height.'],
+  lead_climb: ['选定一颗卫星或一个批次/组，画出它们的轨道半长轴随时间的变化 —— 刚入轨时低、随后被发动机一点点抬到工作高度的那段"爬坡"。<b>状态判据</b>：2 天最小二乘速率 |Δa| > 0.5 km/天 记作「点火」，不超过 0.5 且仍未进入工作高度带（±30 km）记作「间歇」。',
+    'Pick one satellite or one batch/group and see how its orbital semi-major axis changes over time — the climb from a low initial altitude up to the working height. <b>Status rule</b>: a 2-day least-squares rate |Δa| > 0.5 km/day counts as <i>burning</i>; at or below 0.5 km/day while still outside the working-altitude band (±30 km) it counts as <i>coasting</i>.'],
   // ★ V1.9.5（H12）：术语统一 —— 「升轨速度」→「**变轨速度**」（用户 2026-10-15 要求）。
   //   理由：同一栏还承载"降轨/再入前"等非升轨场景，叫"升轨"名不副实。
   //   ⚠️ 英文同步改（Climb rate → Maneuver rate），i18n 审计会查漏译。
@@ -2729,6 +2734,8 @@ var I18N = {
   climb_delta: ['轨道高度变更', 'Altitude change'],
   climb_take_sma: ['半长轴（离地高度）', 'Semi-major axis (altitude)'],
   climb_take_rate: ['变轨速度（±2 天最小二乘）', 'Maneuver rate (±2 d least squares)'],
+  // ★ V1.9.7（用户要求：0.5 阈值要标在本章内）：图下说明里的一枚状态判据标签
+  climb_rule_th: ['判据 |速率| > 0.5 km/天 = 点火', 'rule: |rate| > 0.5 km/day = burning'],
   climb_y_alt: ['离地高度, km', 'Altitude, km'],
   climb_y_rate: ['变轨速度, km/天', 'Maneuver rate, km/day'],
   t_defclimb: ['恢复 04 变轨情况的初始设置', 'Restore the default settings of 04 Orbit Change Status'],
@@ -2749,9 +2756,12 @@ var I18N = {
   d_loading3: ['加载中', 'Loading'], d_epoch2: ['更新历元：', 'Epoch: '], d_pending_suffix: ['颗待编目', 'awaiting catalog'],
   d_in_orbit: ['颗', 'in orbit'], d_more_pending: [' · 另有 ', ' · '], d_more_pending2: [' 颗待编目', ' more pending'],
   d_page_track: ['本页实时推算 ', 'This page propagates '], d_page_track2: [' 颗', ' live'],
-  d_groups_stat: [' 批在轨 / 共 ', ' groups with elements / '], d_groups_total: [' 批', ' total'],
-  d_groups_note: ['本页口径：只统计 CelesTrak hulianwang / qianfan 两个低轨互联网分组里的批次，比词条口径窄（不含早期试验星与星网高轨业务星）。',
-    'Counted by this page: only the groups carried in the CelesTrak `hulianwang` / `qianfan` LEO internet feeds — narrower than the wiki, which also counts early test satellites and CSCN GEO service satellites.'],
+  // ★ V1.9.7（§4/§5）：`发射批次` 一行已删 → 原来的 d_groups_stat / d_groups_total / d_groups_note 三个键退役；
+  //   新增「轨道分布」的提示文案（说明这个数是**怎么算出来的**，避免被当成"全体平均高度"误读）。
+  d_dist_note: ['按已进入工作轨道的卫星统计：每层取高度的众数档位（整十公里）与倾角档位（0.5°），按颗数排序，共 ',
+    'Computed from satellites confirmed in their working orbit — each layer is the modal altitude (10 km bins) paired with its inclination (0.5° bins), sorted by population; '],
+  d_dist_note2: [' 层。「变轨中」的卫星不计入。', ' layer(s). Satellites still raising are excluded.'],
+  d_dist_none: ['暂无已确认进入工作轨道的卫星', 'No satellite has been confirmed in its working orbit yet'],
   d_bjtime: ['（北京时间）', ' (GMT+8)'],
   // V1.3.6：图表章节下方不再重复坐标轴与操作说明（只留「待编目」提示），细节移入「说明」
   d_map_note: ['地面轨迹为前后各半圈。可视覆盖区按每颗卫星的瞬时高度估算。', 'Ground tracks cover half an orbit before and after now. Coverage zones are estimated from each satellite\'s current altitude.'],
@@ -4482,15 +4492,85 @@ function chartVisiblePts() {
   if (S.launchFilter === 'all') return chartPts;
   return chartPts.filter(function (p) { return p.sat.lk === S.launchFilter; });
 }
-// ---- V1.9.1（A9）：倾角分布「聚集区」虚线圆圈 ----
-// 口径（实测数据支持）：按 **(倾角取整 1°) × (高度取整 25 km)** 分箱 → 只给**成员 ≥ 8** 的箱画圈
-//   （阈值是为了滤掉噪声小圈，实测这样正好剩下 6 个有意义的簇）。
-//   圆心与标签取**簇内均值**；半轴 = 该簇在 x/y 上的**标准差 × 2.2**，
-//   再夹一个**最小半径**（否则细得像一条线）与**最大半径**（否则会吞并相邻簇）。
-//   ⚠️ 圈与标签**不参与命中测试** —— 命中只走 `chartHoverAt()` 里的"最近点"，这里不往里塞任何东西。
-var CHART_CL_MIN = 8;          // 成簇阈值（成员数）
-var CHART_CL_BIN_INC = 1;      // 倾角分箱宽度（度）
-var CHART_CL_BIN_ALT = 25;     // 高度分箱宽度（km）
+// ---------------------------------------------------------------- V1.9.7（§5/§6）：工作轨道「层」
+// 用户口径（§6 原文）："计算工作轨道只取在变轨情况章节里经确认已处于工作轨道的卫星，
+//   并取这些已达工作轨道的高度相近的卫星轨道高度的（众数的）整十数；倾角分布章节只把
+//   已处于工作轨道的卫星画在虚线椭圆内并打标签"。
+// 落地：
+//   ① 种子 = `orb === 0`（= mkdata 判定的"不在推 且 已到该批工作高度带内"，与 04 变轨情况章同一判据），
+//      高轨（wk === 'GEO'）不参与 —— 它们是业务星，不是低轨组网的工作轨道；
+//   ② **先按倾角分带（0.5° 档）再在带内按高度聚类**：只有同一倾角带上才谈得上"高度相近"，
+//      否则星网 50° 的 1150km 与 86.5° 的 1170km 会被并成一层；
+//   ③ 每层取高度**众数**（10 km 档，用户要的"整十数"）与倾角众数（0.5° 档，86.5° 这种设计值必须能表达）；
+//   ④ 成员少于 LAYER_MIN 的层丢弃（滤掉零散落单的星）。
+// ★ 第 0 章「轨道分布」与 03 章的虚线椭圆**共用本函数**，所以"有新工作高度出现就两处同步"
+//   是结构上保证的，不是两处各算一遍再对齐。
+// ★ 与旧实现（V1.9.1 A9）的差别：旧的是**对所有绘制点**按 (1° × 25 km) 自由分箱 ——
+//   变轨中的星也会进箱，既会把圈撑大、又会让两个真层粘在一起；现在先认层再画圈。
+var LAYER_ALT = 10;    // 高度档位（km）
+var LAYER_INC = 0.5;   // 倾角档位（度）
+var LAYER_GAP = 30;    // 同一倾角带内"高度相近"的断点（km）：相邻两颗差超过它就断成两层
+var LAYER_MIN = 8;     // 一层至少要有这么多颗（与旧的成簇阈值一致）
+/** 取一组数按 step 分档后的**众数**档（平票取离均值更近的一档，再平票取较小档） */
+function modeBin(vals, step) {
+  var cnt = {}, sum = 0;
+  vals.forEach(function (v) { sum += v; var k = Math.round(v / step) * step; cnt[k] = (cnt[k] || 0) + 1; });
+  var mean = sum / Math.max(1, vals.length), best = null, bn = -1;
+  Object.keys(cnt).forEach(function (ks) {
+    var k = Number(ks), n = cnt[ks];
+    if (n > bn || (n === bn && Math.abs(k - mean) < Math.abs(best - mean))) { bn = n; best = k; }
+  });
+  return best;
+}
+/** 工作轨道层：[{ alt, inc, n, members:[sat.idx…] }]，按成员数降序、同数按高度升序 */
+function orbLayerDefs(st) {
+  if (!st || !st.sats) return [];
+  if (st.__layers && st.__layersN === st.sats.length) return st.__layers;
+  var seeds = st.sats.filter(function (s) {
+    return s.orb === 0 && s.wk !== 'GEO' && isFinite(s.smaB) && isFinite(s.inc);
+  });
+  var bands = {}, bkeys = [];
+  seeds.forEach(function (s) {
+    var k = (Math.round(s.inc / LAYER_INC) * LAYER_INC).toFixed(1);
+    if (!bands[k]) { bands[k] = []; bkeys.push(k); }
+    bands[k].push(s);
+  });
+  var out = [];
+  bkeys.forEach(function (bk) {
+    var arr = bands[bk].slice().sort(function (a, b) { return a.smaB - b.smaB; });
+    var groups = [], g = [arr[0]];
+    for (var i = 1; i < arr.length; i++) {
+      if (arr[i].smaB - arr[i - 1].smaB > LAYER_GAP) { groups.push(g); g = []; }
+      g.push(arr[i]);
+    }
+    groups.push(g);
+    groups.forEach(function (grp) {
+      if (grp.length < LAYER_MIN) return;
+      out.push({
+        alt: modeBin(grp.map(function (s) { return s.smaB; }), LAYER_ALT),
+        inc: Number(bk),
+        n: grp.length,
+        members: grp.map(function (s) { return s.idx; })
+      });
+    });
+  });
+  out.sort(function (a, b) { return (b.n - a.n) || (a.alt - b.alt); });
+  st.__layers = out; st.__layersN = st.sats.length;
+  return out;
+}
+/** 层里那个"整十数"倾角的显示写法：整数不带小数点，半度保留一位 */
+function fmtLayerInc(v) { return (Math.abs(v - Math.round(v)) < 1e-9) ? String(Math.round(v)) : v.toFixed(1); }
+
+// ---- V1.9.1（A9）建立 / V1.9.7（§6）改为「工作轨道层」口径：倾角分布「聚集区」虚线椭圆 ----
+// 现在的口径：
+//   · 圈从哪来 —— `orbLayerDefs()`（与第 0 章「轨道分布」同一份结果），即**只取已到位的卫星**
+//     （orb===0），按 0.5° 倾角带 + 30 km 高度聚类分层的产物；成员 < 8 的层不画。
+//   · 圆心/半轴 —— 取该层成员在**当前纵轴量**下的均值与 2.2σ，再夹最小/最大半径（见下）。
+//   · 标签 —— 直接写**层**的整十高度与倾角（与第 0 章同一个数），不再写簇内均值。
+//   · 圈与标签**不参与命中测试** —— 命中只走 `chartHoverAt()` 里的"最近点"，这里不往里塞任何东西。
+//   （旧实现是"对所有绘制点按 1°×25 km 自由分箱、成员 ≥ 8 画圈"——变轨中的星也进箱，
+//     会把圈撑大、也会让两个真层粘在一起；V1.9.7 起改为先认层再画圈。）
+var CHART_CL_MIN = 8;          // 一层在当前视图里至少要画出这么多颗才落圈
 // ★ 最小半径必须按**视觉可见性**定，不能直接用 2.2σ：
 //   真实星群是"站位保持"的，成员极紧（实测 50° 簇的横向标准差只有 ~0.16°、纵向 ~4 km）——
 //   严格按 2.2σ 画出来的"椭圆"只有 8×2 像素，等于没画。用户要的是"**适度**的圆圈"（一个能看见的标记）。
@@ -4498,12 +4578,13 @@ var CHART_CL_BIN_ALT = 25;     // 高度分箱宽度（km）
 var CHART_CL_MIN_RX = 0.9;     // 度（默认视图下约 18px）
 var CHART_CL_MIN_RY = 45;      // km（默认视图下约 12px）
 function chartClusters(pts) {
-  var bins = {};
-  pts.forEach(function (p) {
-    if (!isFinite(p.x) || !isFinite(p.y)) return;
-    var k = Math.round(p.x / CHART_CL_BIN_INC) + '|' + Math.round(p.y / CHART_CL_BIN_ALT);
-    (bins[k] || (bins[k] = [])).push(p);
-  });
+  // ★ V1.9.7（§6）：圈的来源从"对所有点自由分箱"改为"工作轨道层"（`orbLayerDefs`，与第 0 章同源）。
+  var defs = orbLayerDefs(cur());
+  if (!defs.length) return [];
+  // 当前纵轴量（半长轴 / 远地点 / 近地点）下的**实际绘制点**：圆心与半径都按它算，
+  //   否则切到"远地点"模式后圈会留在半长轴的位置上。
+  var byIdx = {};
+  pts.forEach(function (p) { if (p && p.sat) byIdx[p.sat.idx] = p; });
   function mkCluster(g) {
     var n = g.length, mx = 0, my = 0;
     g.forEach(function (p) { mx += p.x; my += p.y; });
@@ -4522,8 +4603,18 @@ function chartClusters(pts) {
     };
   }
   var out = [];
-  Object.keys(bins).forEach(function (k) {
-    if (bins[k].length >= CHART_CL_MIN) out.push(mkCluster(bins[k]));
+  defs.forEach(function (L) {
+    var g = [];
+    L.members.forEach(function (i) {
+      var p = byIdx[i];
+      if (p && isFinite(p.x) && isFinite(p.y)) g.push(p);
+    });
+    // 该层在当前视图里可见的成员不足阈值 → 不画（例如按批次筛选后只剩几颗）
+    if (g.length >= CHART_CL_MIN) {
+      var cl = mkCluster(g);
+      cl.alt = L.alt; cl.inc = L.inc;          // 标签直接取**层**的口径（与第 0 章同一个数）
+      out.push(cl);
+    }
   });
   // ★ 合并判据 —— V1.9.2 按用户反馈**重新划分**（原判据的初衷保留在下方注释里做沿革）。
   //   用户原话：「画红圈区分卫星族簇的圈过细且互相重合了，没有起到区分的效果，请重新划分」。
@@ -4538,25 +4629,11 @@ function chartClusters(pts) {
   //   沿革（旧判据的初衷仍然成立）：分箱按整数边界切，而真实星群会跨边界 ——
   //     实测 86.36° 与 86.65° 属同一片 86.5° 星群，被 1° 边界切成两半各画一个几乎重合的圈
   //     （32+29 = 61，正好等于该簇真实规模）；新判据的横向阈值 0.8° 同样能合掉它。
-  var CL_MERGE_Y = 80, CL_MERGE_X = 0.8;
-  var merged = true, pass = 0;
-  while (merged && pass++ < 8) {
-    merged = false;
-    outer:
-    for (var i = 0; i < out.length; i++) {
-      for (var j = i + 1; j < out.length; j++) {
-        var a = out[i], b = out[j];
-        if (Math.abs(a.x - b.x) < CL_MERGE_X && Math.abs(a.y - b.y) < CL_MERGE_Y) {
-          var g = a.g.concat(b.g);
-          out.splice(j, 1); out.splice(i, 1);
-          out.push(mkCluster(g));
-          merged = true;
-          break outer;
-        }
-      }
-    }
-  }
-  // ★ V1.9.2：**强制两两分离**（兜底）—— 合并后仍可能有画出来会相交的簇。
+  // ★ V1.9.7（§6）：**合并这一步已删除** —— 层本身就是"倾角带 × 高度聚类 + 众数档"的产物，
+  //   两个层如果分不开，说明数据上它们就是两片（例如 1100 与 1150 各有一批星），
+  //   此时**合并会伪造出一个谁都不在的圆心**（并把标签变成 1146 这种非整十数）。改由下面的
+  //   "强制分离"处理：挨太近就缩小的那个，小到看不见就丢弃 —— 大簇（真主体）不受影响。
+  // ★ V1.9.2：**强制两两分离**（兜底）—— 相邻两层的圈可能画出来仍会相交。
   //   做法：逐对检查"画出来的椭圆是否相交"（相交 = 两轴都比半径和更近），
   //   相交就取「沿 x 分离」与「沿 y 分离」中**代价较小**的那个比例，把**成员较少的那个**等比缩小。
   //   ⚠️ 只缩小的、不缩大的：大簇是这片区域的主体，不能因为它挨着一个小簇就被缩掉 ——
@@ -4750,7 +4827,7 @@ function drawChart() {
       var lp = _labelFor(cl, cx, cy, rx, ry);
       ctx.font = '10px ' + MONO; ctx.fillStyle = C.theme;
       ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
-      ctx.fillText(Math.round(cl.y) + 'km/' + Math.round(cl.x) + '°', lp[0], lp[1]);
+      ctx.fillText(cl.alt + 'km/' + fmtLayerInc(cl.inc) + '°', lp[0], lp[1]);
       ctx.globalAlpha = 1;
     });
     ctx.setLineDash([]);
@@ -7491,12 +7568,18 @@ function renderHeader() {
       ? 'Counted as in the Satellite Wiki article "' + wiki.article + '" (' + wiki.asOf + '). This page propagates ' + st.sats.length + ' satellites live; the rest are early test satellites, CSCN GEO service satellites, or groups whose full elements are not public yet.'
       : '按卫星百科「' + wiki.article + '」词条 ' + wiki.asOf + ' 的口径计。本页实时推算其中 ' + st.sats.length + ' 颗；其余为早期试验星、星网高轨业务星，或尚未公开完整轨道要素的新批次。';
   }
+  // ★ V1.9.7（§3）：「发射卫星数 / 在轨卫星数」里的**数字与单位**用本星座的主题色
+  //   （星网 = 红 `--c-gw`、千帆 = 蓝 `--c-qf`），括号里的词条分项与第二行仍用浅色，避免整行花掉。
+  var numCls = (st.key === 'qf') ? 'c-qf' : 'c-gw';
+  function numHtml(n, unit) {
+    return '<span class="kv-num ' + numCls + '">' + n + ' ' + unit + '</span>';
+  }
   function statWiki(el, w, unit, withTrack) {
     if (!wiki || !w) {
-      el.textContent = (withTrack ? st.sats.length : st.launched) + ' ' + unit;
+      el.innerHTML = numHtml(withTrack ? st.sats.length : st.launched, unit);
       return;
     }
-    var html = w.n + ' ' + unit + '<i class="sub2">' + paren(ENSW ? w.en : w.zh) + '</i>';
+    var html = numHtml(w.n, unit) + '<i class="sub2">' + paren(ENSW ? w.en : w.zh) + '</i>';
     if (withTrack) {
       html += '<br><i class="sub">' + t('d_page_track') + st.sats.length + t('d_page_track2') +
         (st.pendingCount ? t('d_more_pending') + st.pendingCount + t('d_more_pending2') : '') + '</i>';
@@ -7515,12 +7598,23 @@ function renderHeader() {
     okEl.innerHTML = ls.success + ' / ' + ls.total + (ENSW ? ' launches' : ' 次');
     okEl.title = '';
   }
-  var mGroups = document.getElementById('mGroups');
-  mGroups.textContent =
-    st.launches.filter(function (L) { return L.sats.length; }).length + t('d_groups_stat') + st.launches.length + t('d_groups_total');
-  mGroups.title = t('d_groups_note');
-  document.getElementById('mAlt').textContent = fmtNum(st.avgAlt, 1) + ' km' + paren(fmtNum(st.minAlt, 0) + '–' + fmtNum(st.maxAlt, 0));
-  document.getElementById('mInc').textContent = st.incList.map(function (v) { return v.toFixed(1) + '°'; }).join(' / ');
+  // ★ V1.9.7（§4/§5）：原来的「发射批次」「平均轨道高度」「轨道倾角」三行 →
+  //   删掉批次；高度与倾角合并成「轨道分布」一行，值为**工作轨道层**（每层一个整十高度 + 倾角档）。
+  //   格式按用户口径：`1150km, 50° / 1170km, 86.5°`，**一行最多两项，多的换行**。
+  var distEl = document.getElementById('mDist');
+  if (distEl) {
+    var lays = orbLayerDefs(st), items = [];
+    lays.forEach(function (L) { items.push(L.alt + 'km, ' + fmtLayerInc(L.inc) + '°'); });
+    if (!items.length) {
+      distEl.textContent = '—';
+      distEl.title = t('d_dist_none');
+    } else {
+      var dl = [];
+      for (var di = 0; di < items.length; di += 2) dl.push(items.slice(di, di + 2).join(' / '));
+      distEl.innerHTML = dl.join('<br>');
+      distEl.title = t('d_dist_note') + lays.length + t('d_dist_note2');
+    }
+  }
   document.getElementById('mFirst').textContent = isFinite(st.firstMs)
     ? new Date(st.firstMs).toISOString().slice(0, 10) + t('d_bjtime') : '—';
   // V1.7.0 第四轮（需求5b）：简介按用户口径重写 ——
@@ -9332,6 +9426,9 @@ var README_ZH = [
   // V1.9.1（A15）：章节号 04/05 互换后，帮助里的特性列表也要**按新编号补齐** ——
   //   原文缺了「变轨情况」与「组网进度」两条，且把卫星表格写成（04）、发射历史写成（05）。
   '- 🛰️ **变轨情况（04）**：选定一颗卫星或一个批次/组，画出它的**轨道半长轴随时间的变化** —— 刚入轨时低、随后被发动机一点点抬到工作高度的那段"爬坡"；可切换纵轴量为「变轨速度」；已再入的卫星标红并有独立标记；',
+  // ★ V1.9.7（用户要求：0.5 阈值要标在页面里）：把「在轨状态」的三条判据就地写清楚 ——
+  //   否则表格里的「变轨中·点火 / 间歇」只是两个词，读者无从知道分界在哪、也看不出为什么某颗星算"到位"。
+  '- 🧭 **「在轨状态」怎么判**（06 卫星表格的这一列、以及 04 章图上的爬坡段用的是同一套）：**①「变轨中·点火」**= 最近 **2 天**的最小二乘速率 **|Δa| > 0.5 km/天**（这个阈值 ≈ 4.5σ，见噪声口径）；**②「变轨中·间歇」**= 速率不超 0.5（电推点火之间的滑行段），但高度还没落进该批的工作高度带；**③「在轨」**= 既不在推、也已在带内；**④** 另有两条兜底：**高度带 = 该批工作高度 ±30 km**（管"慢慢爬、累计离得远了"），**数据不足**（历史点 < 4 个且首次出现不足 30 天）按"变轨中"处理。关于阈值为什么取 0.5、以及慢速累积爬升的兜底，见下方「科学口径 → 在轨状态的判据」；',
   '- 📶 **组网进度（05）**：两条曲线分别是星网与千帆的组网推进速度，横轴按周、纵轴可切「发射量（累计）」或「在轨数量」；',
   '- 📋 **卫星表格（06）**：13 列轨道要素（含「在轨日, 天」与**「在轨状态」**）、混合搜索与联想、排序、每页 10 条，卫星名点击直达 satcat.com 对应条目；',
   '- 🚀 **发射历史（07）**：列序为「批次/组 · 运载火箭（后跟 COSPAR 编号）· 发射时间 · 发射地点 · 设计倾角 · 轨道要素」，火箭与发射地点染主题色带下划线可点跳转；按页浏览（每页 10 条），**整行点一下**就选中整批 —— 图表 / 地图 / 地球只高亮这一批，卫星表自动翻到当前排序下该批第一颗所在的页，批次表这一行用一条星网红 / 千帆蓝的长边框整行框住；待编目批次只标一个「待编目 ×N」标签，完整目录摘要悬停标签即可看到，不再铺开拉长表格；',
@@ -9421,6 +9518,15 @@ var README_ZH = [
   '### 在轨日, 天',
   '',
   '表格中的「在轨日, 天」= 从该批次发射时间到现在的天数，括号内为换算后的年月日（例如 `652d（01y09m15d）`）。它衡量的是整批卫星的在轨时长，可以配合半长轴看出电推进爬升的进度。',
+  '',
+  // ★ V1.9.7（用户要求）：阈值与兜底必须写明来源 —— 否则"0.5"是个无出处的魔数
+  '### 在轨状态的判据：为什么是 0.5 km/天',
+  '',
+  '**点火判据。** 速率取最近 **2 天**历史点的**最小二乘斜率**（不是首末差分）。阈值 **0.5 km/天**：单点高度噪声约 **0.166 km**（[findrassvet.ru](https://findrassvet.ru/) 的 METHODOLOGY §3.2–3.5 实测），2 天拟合后斜率噪声约 **0.11 km/天**，因此 0.5 km/天 ≈ **4.5σ** —— 被动飞行（电推点火之间的滑行）不会被误判成在推。之所以不用首末差分：那是两个单点之差，噪声足以让**静止的星看起来在爬**（本项目 V1.9.2 就踩过：26108 批的星 14 天里高度来回跳 4~5 次、净变化只有 0.04 km，差分斜率却被带偏成 −1.3 km/天）。**2026-10-17 该阈值由 0.8 下调为 0.5**，实测只多判 1 颗（千帆），没有引入误判。',
+  '',
+  '**累计兜底。** 只靠速率会漏掉"每天变化很小、但连着很多天都在涨"的情况，所以还有一条**与速率无关**的判据：**高度偏离该批工作高度超过 ±30 km 就判「变轨中」**。这条兜住了累积漂移，代价是不可见的漂移上限为 30 km（星网 1150 km 上约 2.6%）。**间歇判据**用的就是它：速率不超 0.5、但人还在带外 → 「变轨中·间歇」（电推点火之间的滑行段，票面上"没在推"，但确实还没到位）。',
+  '',
+  '**已知边界（如实写）。** ① 一条批量缓慢抬升的星，其"工作高度"是按**该批历史最高高度簇**推出来的，会跟着一起涨 —— 这类整体漂移不触发 ±30 km 带判据（速率判据仍可能抓到）；② 大气阻尼导致的缓慢降轨只会触发"带判据"，不会被误标成"在推"（判据不区分方向，但降轨会被带判据解释为"未到位"）—— 遇到这类批次时，04 章的曲线比状态列更可信。',
   '',
   '## 🔗 数据来源与引用合规',
   '',
@@ -9533,6 +9639,8 @@ var README_EN = [
   '- 🌍 **3D globe (02)**: spin + drag + zoom, orbit rings split into front/back halves, coverage zones, with **altitudes exaggerated 2.4×** so the shells are easy to tell apart;',
   // V1.9.1（A15）：按新编号补齐（原文缺「变轨情况」「组网进度」，且表格/发射历史编号是旧的 04/05）
   '- 🛰️ **Orbit Change Status (04)**: pick one satellite or one batch/group and see how its orbital **semi-major axis changes over time** — the climb from a low initial altitude up to the working altitude. The Y axis can be switched to *maneuver rate*; re-entered satellites are flagged in red.',
+  // ★ V1.9.7：与中文侧同一套判据（见上方注释）
+  '- 🧭 **How the "orbit status" is decided** (the same rule behind the 06 table column and the climb segments in 04): **① "Raising · burning"** = the **2-day** least-squares rate **|Δa| > 0.5 km/day** (≈ 4.5σ — see the noise note); **② "Raising · coasting"** = rate under 0.5 km/day (the drift between electric-propulsion burns) but not yet inside the batch working-altitude band; **③ "In orbit"** = neither pushing nor climbing; **④** two fallbacks: the **±30 km band** around the batch working altitude (catches slow climbers whose accumulated offset finally grows large) and **sparse data** (fewer than 4 history points and first seen under 30 days ago → treated as raising). For why 0.5 km/day and how slow cumulative climbs are handled, see "Accuracy & data → Orbit status" below.',
   '- 📶 **Network progress (05)**: two curves track how fast CSCN and Qianfan build their constellations; the X axis is weekly, the Y axis switches between cumulative launches and satellites in orbit.',
   '- 📋 **Satellite table (06)**: 13 element columns (including days in orbit and **orbit status**), autocomplete search, sorting, 10 rows per page — satellite names link straight to their satcat.com entries;',
   '- 🚀 **Launch history (07)**: column order is group · vehicle (followed by the COSPAR id) · launch time · launch site · design inclination · elements; rockets and sites are rendered in the constellation colour, underlined and clickable; 10 rows per page with wiki links; **click anywhere on a row** to select that group — the chart, map and globe highlight it, the satellite table auto-pages to the first satellite of that group under the current sort, and the row is boxed with one long red (CSCN) / blue (Qianfan) border; pending groups only carry a "pending ×N" tag — the full catalog summary sits in its tooltip instead of stretching the table;',
@@ -9613,6 +9721,15 @@ var README_EN = [
   '### Days in orbit',
   '',
   'The "Days in orbit" column counts from the group\'s launch date to now, with a years/months/days breakdown in brackets (e.g. `652d (01y09m15d)`).',
+  '',
+  // ★ V1.9.7：与中文侧同一条判据说明
+  '### Orbit status: why 0.5 km/day',
+  '',
+  '**The burning test.** The rate is the **least-squares slope over the last 2 days** of history points (not an end-to-end difference). The threshold of **0.5 km/day**: single-point altitude noise is about **0.166 km** (measured in the METHODOLOGY §3.2–3.5 of [findrassvet.ru](https://findrassvet.ru/)), so a 2-day fit has a slope noise near **0.11 km/day** — 0.5 km/day is roughly **4.5σ**, meaning a coasting satellite will not be mistaken for one under thrust. End-to-end differencing is avoided because it is a difference of two single points: noise alone is enough to make a **stationary satellite look like it is climbing** (seen in V1.9.2: satellites of group 26108 bounced up and down 4–5 times in 14 days with a net change of 0.04 km, while the differenced slope read −1.3 km/day). **The threshold was lowered from 0.8 to 0.5 on 2026-10-17**; measured on the same data it reclassifies exactly one extra satellite (Qianfan) and introduces no false positives.',
+  '',
+  '**The cumulative fallback.** A rate test alone would miss "a tiny change every day that adds up over weeks", so a **rate-independent** rule runs alongside it: **an altitude more than ±30 km away from the group working altitude is also treated as raising**. This catches cumulative drift, at the price of leaving up to 30 km of drift invisible (about 2.6% at CSCN\'s 1,150 km). The **coasting** state is exactly this rule: rate at or below 0.5 km/day but still outside the band — no thrust right now, but not yet on station.',
+  '',
+  '**Known limits (stated plainly).** ① A whole group climbing slowly raises its own reference: the "working altitude" is derived from that group\'s highest historical cluster, so it rises with them and the ±30 km band will not fire (the rate test still may). ② Slow drag-induced decay only ever trips the band rule and is reported as "not yet on station" rather than "under thrust"; for such groups the curve in section 04 is more informative than the status column.',
   '',
   '## 🔗 Sources and attribution',
   '',
@@ -14160,6 +14277,9 @@ function renderClimbNote() {
   bits.push('<span class="net-key">' + t('climb_n_sats') + ' ' + d.length + '</span>');
   bits.push('<span class="net-key">' + climbDateLabel(t0) + ' – ' + climbDateLabel(t1) + '</span>');
   bits.push('<span class="net-key">' + t(S.climbTake === 'rate' ? 'climb_take_rate' : 'climb_take_sma') + '</span>');
+  // ★ V1.9.7（用户要求）：把「变轨中·点火」的阈值**就地**标出来 —— 读者不必去翻说明才知道
+  //   「点火 / 间歇」是按什么分界的（0.5 km/天，2 天最小二乘速率）。
+  bits.push('<span class="net-key">' + t('climb_rule_th') + '</span>');
   note.innerHTML = bits.join('');
 }
 /** 找出离 (mx,my) 最近的历史点 → { norad, ms, rate } */

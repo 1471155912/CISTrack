@@ -399,9 +399,14 @@ assert('字号用 clamp 变量（桌面 > 手机）',
   /--fs-tbl:  clamp\(12\.6px, 12\.05px \+ 0\.10vw,   13\.5px\)/.test(tpl));
 assert('窄屏覆盖放在样式表最后（否则会被 1300px 那条盖掉）',
   /V1\.3\.9：窄屏覆盖一定要放在最后[\s\S]{0,320}\.hero \{ padding-top:10px; \}/.test(tpl));
-assert('顶部「在轨/发射」标签固定两行',
+// ★ V1.9.7（§5）：标签不再"永远两行"—— 断点包在 `.kbr` 里，宽屏隐藏（一行四字）、≤620px 显形（2+2）。
+assert('顶部「在轨/发射/轨道分布」标签：宽屏一行四字、窄屏两行（`.kbr` 断点机制）',
   /\.hero-kv \.k \{[^}]*flex:0 0 auto; white-space:nowrap/.test(tpl) &&
-  /kv_sats: \['在轨<br>卫星'/.test(appSrc));
+  /\.hero-kv \.k \.kbr \{ display:none; \}/.test(tpl) &&
+  /@media \(max-width:620px\) \{ \.hero-kv \.k \.kbr \{ display:inline; \} \}/.test(tpl) &&
+  /kv_sats: \['在轨<span class="kbr"><br><\/span>卫星'/.test(appSrc) &&
+  /kv_launched: \['发射<span class="kbr"><br><\/span>卫星'/.test(appSrc) &&
+  /kv_dist: \['轨道<span class="kbr"><br><\/span>分布'/.test(appSrc));
 
 console.log('--- 历史清理项 ---');
 assert('已删冗余不再出现（mapSec / glSec / S.obs / .br-narrow）',
@@ -2361,8 +2366,8 @@ assert('V1.8.0（需求15）：03.5 章的 n_gw / n_qf 两个键已补进 I18N�
   /n_gw: \['星网', 'CSCN'\], n_qf: \['千帆', 'Qianfan'\],/.test(appCode));
 assert('V1.8.0（需求15）：中英括号分制（paren 助手；英文界面不得漏出全角「（）」）',
   /function paren\(s\) \{ return LANG === 'en' \? ' \(' \+ s \+ '\)' : '（' \+ s \+ '）'; \}/.test(appCode) &&
-  /' km' \+ paren\(fmtNum\(st\.minAlt, 0\)/.test(appCode) &&
-  !/km（' \+ fmtNum\(st\.minAlt/.test(appCode));
+  /'<i class="sub2">' \+ paren\(ENSW \? w\.en : w\.zh\) \+ '<\/i>'/.test(appCode) &&
+  !/<i class="sub2">（/.test(appCode));
 assert('V1.8.0（需求15）：批次名英文侧补「千帆 / 星网」前缀规则（DTC 批次此前漏出中文）',
   /\.replace\(\/\^千帆\\s\+\(\.\+\)\$\/, 'Qianfan \$1'\)/.test(appCode) &&
   /\.replace\(\/\^星网\\s\+\(\.\+\)\$\/, 'CSCN \$1'\)/.test(appCode));
@@ -4007,12 +4012,15 @@ assert('V1.9.2：右侧留白按"要标几条"动态加宽（否则名称会被�
   }
 
   // ================================================================ V1.9.1（A9）：倾角分布「聚集区圆圈」
-  // 口径：按 (倾角取整 1°) × (高度取整 25 km) 分箱 → 只给**成员 ≥ 8** 的箱画圈；圆心/标签取簇内均值；
-  //   半径在真实散布（2.2σ）与**可见性**之间折中并夹上下限；重叠的簇要合并（否则同一片星群画两个几乎重合的圈）；
+  // ★ V1.9.7（§6）：口径已从"对所有点按 1°×25km 自由分箱"改为"工作轨道层"（orbLayerDefs）——
+  //   只取已到位（orb===0）的卫星，按 0.5° 倾角带 + 30 km 高度聚类分层，成员 ≥ 8 的层落圈；
+  //   圆心/半轴取层内成员在**当前纵轴量**下的均值与 2.2σ（夹可见性上下限）；
+  //   相邻两层的圈画出来会相交时，把成员少的那个等比缩小、小到看不见就丢弃（不再"合并"——
+  //   合并会伪造出一个谁都不在的圆心，标签也会变成 1146 这种非整十数）；
   //   放大到 viewSpanX < max(簇跨度×2.5, 12°) 时淡出；**不填充、不参与命中测试**；全屏与导出同样绘制。
   {
     const cls = k3.chartCL();
-    assert('A9：聚出了有意义的簇（星网页实测 5 个，且每个成员 ≥ 8）',
+    assert('A9：聚出了有意义的层（星网页实测 3~4 个，且每个成员 ≥ 8）',
       cls.length >= 3 && cls.every(c => c.n >= 8),
       cls.length + ' 个簇：' + cls.map(c => c.n).sort((a, b) => b - a).join('/'));
     assert('A9：任一簇的成员数不超过其星座总点数（分箱不重复计数）',
@@ -4023,7 +4031,7 @@ assert('V1.9.2：右侧留白按"要标几条"动态加宽（否则名称会被�
         const gwTotal = (RAW.gw.sats || []).length;
         return total <= gwTotal && total > 0;
       })(), cls.reduce((a, c) => a + c.n, 0) + ' / ' + ((RAW.gw.sats || []).length));
-    assert('A9：**重叠的簇已合并**（实测：86.36° 与 86.65° 被 1° 分箱切开的 32+29 已并成 1 个 61 颗的簇）',
+    assert('A9：**半度分带不再把 86.5° 星群切成两半**（旧 1° 分箱会把 86.36/86.65 切成 32+29 两个圈）',
       (function () {
         const at86 = cls.filter(c => c.x >= 86 && c.x < 87);
         return at86.length === 1 && at86[0].n === 61;
@@ -4036,14 +4044,14 @@ assert('V1.9.2：右侧留白按"要标几条"动态加宽（否则名称会被�
     //   CI 定时刷新后（新 TLE）50° 只剩一个簇 → 断言红，且**卡住了"有变化才提交"那一步**，
     //   数据推不上去、还会触发失败告警。改为**性质判据**：同一倾角分箱上的簇必须按高度分离
     //   （分箱宽 25 km）——既覆盖原意（同族微差应合并、不同族不得并簇），又不钉死具体高度。
-    assert('A9（V1.9.2 重新划分·数据自适应）：同一倾角分箱内的簇按高度分离（同族微差合并、异族不并簇）',
+    assert('A9（V1.9.7 层口径）：同一条倾角带上的层按高度分离（层内聚类断点 30 km，异层不得并簇）',
       (function () {
         if (!cls.length) return false;
         const byInc = {};
         cls.forEach(c => { const k = Math.round(c.x); (byInc[k] = byInc[k] || []).push(c.y); });
         return Object.keys(byInc).every(k => {
           const ys = byInc[k].slice().sort((a, b) => a - b);
-          return ys.every((v, i) => i === 0 || v - ys[i - 1] > 25);   // 25 = CHART_CL_BIN_ALT
+          return ys.every((v, i) => i === 0 || v - ys[i - 1] > 25);   // 层间距 ≥ LAYER_GAP(30) − 视觉半径误差
         });
       })(), JSON.stringify(cls.map(c => [Math.round(c.x), Math.round(c.y), c.n])));
     assert('A9（V1.9.2）：圈与圈**互不相交**（用户报的"互相重合"已根治；缩到看不见的簇会被丢弃）',
@@ -4063,10 +4071,13 @@ assert('V1.9.2：右侧留白按"要标几条"动态加宽（否则名称会被�
       JSON.stringify(cls.map(c => [c.rx, c.ry])));
     // ★ V1.9.2（用户报"圈互相重合、没有起到区分效果，请重新划分"）：
 //   合并判据从"真实散布是否重叠"改为"**数据空间里分不出来就合并**"（见 chartClusters 注释）。
-assert('A9（V1.9.2 重新划分）：合并判据 = 数据空间可分辨阈值（CL_MERGE_Y/CL_MERGE_X），旧的 rxRaw 判据已删',
-      /var CL_MERGE_Y = 80, CL_MERGE_X = 0\.8;/.test(appSrc) &&
-      /Math\.abs\(a\.x - b\.x\) < CL_MERGE_X && Math\.abs\(a\.y - b\.y\) < CL_MERGE_Y/.test(appSrc) &&
-      !/\(a\.rxRaw \+ b\.rxRaw\) \* 0\.8/.test(appSrc));
+assert('A9（V1.9.7 §6）：圈的来源 = 工作轨道层（orbLayerDefs），不再对所有点自由分箱、也不再合并',
+      /var defs = orbLayerDefs\(cur\(\)\);/.test(appSrc) &&
+      /L\.members\.forEach\(function \(i\) \{/.test(appSrc) &&
+      !/var CL_MERGE_Y = 80, CL_MERGE_X = 0\.8;/.test(appSrc) &&
+      !/CHART_CL_BIN_ALT/.test(appSrc) &&
+      /function orbLayerDefs\(st\)/.test(appSrc) &&
+      /s\.orb === 0 && s\.wk !== 'GEO'/.test(appSrc));
     // 淡出：默认跨度可见；缩到 3° 全部消失；12° 阈值参与判定
     const span = k3.chartSpan();
     assert('A9：默认视图下圆圈可见（alpha = 1）',
@@ -4087,8 +4098,8 @@ assert('A9（V1.9.2 重新划分）：合并判据 = 数据空间可分辨阈值
       /ctx\.setLineDash\(\[4, 4\]\); ctx\.lineWidth = 1;/.test(appSrc) &&
       /ctx\.beginPath\(\); ctx\.ellipse\(cx, cy, rx, ry, 0, 0, 6\.2832\); ctx\.stroke\(\);/.test(appSrc) &&
       /ctx\.strokeStyle = C\.theme;/.test(appSrc));
-    assert('A9：标签内容 =「高度km/倾角°」、同色小字 10px，且默认落在圆圈**右上沿**（45° 方向）',
-      /Math\.round\(cl\.y\) \+ 'km\/' \+ Math\.round\(cl\.x\) \+ '°'/.test(appSrc) &&
+    assert('A9：标签内容 =「层高度km/层倾角°」、同色小字 10px，且默认落在圆圈**右上沿**（45° 方向）',
+      /cl\.alt \+ 'km\/' \+ fmtLayerInc\(cl\.inc\) \+ '°'/.test(appSrc) &&
       /ctx\.font = '10px ' \+ MONO; ctx\.fillStyle = C\.theme;/.test(appSrc) &&
       /var lx = cx \+ rx \* 0\.707, ly = cy - ry \* 0\.707;/.test(appSrc));
     assert('A9（V1.9.2）：标签带**防重叠**排版（靠得太近就下移/右移，用户截图里的标签叠字已根治）',

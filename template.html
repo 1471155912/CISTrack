@@ -384,6 +384,12 @@ section.fs-mobile .fs-exit-btn { display:flex; }
 .hero-kv div { display:flex; justify-content:space-between; gap:16px; padding:8px 0; border-bottom:1px solid var(--hair); font-family:var(--mono); font-size:var(--fs-kv); letter-spacing:0.06em; }
 /* V1.3.8：标签列固定宽度、不许换行 —— 否则星网那组很长的数值会把「发射/卫星」挤成每个字一行 */
 .hero-kv .k { color:var(--faint); line-height:1.34; flex:0 0 auto; white-space:nowrap; }
+/* ★ V1.9.7（§5 用户口径）：标签「屏幕宽度足够时一行四字，过窄（如手机）时两行各两个字」。
+   做法：i18n 里把可能的断点包进 `.kbr`，**宽屏时隐藏**（整体一行四字），
+   窄屏（≤620px）时显形（`<br>` 生效 → 2+2）。三个四字标签（发射/在轨/轨道分布）共用同一机制，
+   保证同一张表里的标签形态一致。 */
+.hero-kv .k .kbr { display:none; }
+@media (max-width:620px) { .hero-kv .k .kbr { display:inline; } }
 .hero-kv .v { color:var(--fg); text-align:right; flex:1 1 auto; min-width:0; }
 .hero-kv div { align-items:center; }   /* V1.3.5：行内有换行的长值时，短的项上下居中 */
 /* 第一行末尾的词条口径括号（更小一号，随数字后换行）；第二行是换行的「（另有 N 颗待编目）」 */
@@ -2022,9 +2028,9 @@ html[data-theme="light"] .res-fail { color:#c72929; }
       <div><span class="k" data-i18n="kv_launched">发射卫星</span><span class="v" id="mLaunched">—</span></div>
       <div><span class="k" data-i18n="kv_sats">在轨卫星</span><span class="v" id="mSats">—</span></div>
       <div><span class="k" data-i18n="kv_launchok">发射成功</span><span class="v" id="mLaunchOk">—</span></div>
-      <div><span class="k" data-i18n="kv_groups">发射批次</span><span class="v" id="mGroups">—</span></div>
-      <div><span class="k" data-i18n="kv_alt">平均轨道高度</span><span class="v" id="mAlt">—</span></div>
-      <div><span class="k" data-i18n="kv_inc">轨道倾角</span><span class="v" id="mInc">—</span></div>
+      <!-- ★ V1.9.7（§4/§5）：删「发射批次」一行；「平均轨道高度」+「轨道倾角」合并成「轨道分布」一行
+           （值形如 `1150km, 50° / 1170km, 86.5°`，一行最多两项、多的换行；见 app.js 的 renderOrbDist） -->
+      <div><span class="k" data-i18n="kv_dist">轨道分布</span><span class="v" id="mDist">—</span></div>
       <div><span class="k" data-i18n="kv_first">首发​发射</span><span class="v" id="mFirst">—</span></div>
       <!-- V1.7.0 第四轮（需求2）：数据源说明 —— 页面除 TLE 外还用了卫星百科的口径数据（计数/制造商等），
            这里如实标注"卫星百科数据截至哪天"。取值来自 wiki.json 的 asOf（构建时与运行时都会写入）。 -->
@@ -2227,7 +2233,7 @@ html[data-theme="light"] .res-fail { color:#c72929; }
     </div>
     <span class="sec-num">04</span>
   </div>
-  <p class="sec-lead" data-i18n="lead_climb">选定一颗卫星或一个批次/组，画出它们的轨道半长轴随时间的变化 —— 刚入轨时低、随后被发动机一点点抬到工作高度的那段"爬坡"。</p>
+  <p class="sec-lead" data-i18n="lead_climb">选定一颗卫星或一个批次/组，画出它们的轨道半长轴随时间的变化 —— 刚入轨时低、随后被发动机一点点抬到工作高度的那段"爬坡"。<b>状态判据</b>：2 天最小二乘速率 |Δa| > 0.5 km/天 记作「点火」，不超过 0.5 且仍未进入工作高度带（±30 km）记作「间歇」。</p>
 
   <div class="climb-bar">
     <label class="climb-pick"><span data-i18n="climb_pick">对象</span>
