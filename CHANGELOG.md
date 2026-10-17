@@ -71,7 +71,7 @@ App 内「关于/帮助」正文、右下角药丸跳转标题 `sec-climb`。
   - `update.bat` / `update.sh` —— 一键"拉最新轨道要素 → 重建内置数据 → 重新打包单文件 → 同步版本快照"；
   - `schedule-install.bat` / `.sh` —— 注册**每天 06:00** 的自动更新（Windows 任务计划 / crontab）；
   - `schedule-remove.bat` / `.sh` —— 取消该定时任务；日志写 `deploy/update.log`。
-- **Release 新增 `CISTrack_v1.9.6_本地部署.zip`**：解压即用的完整本地部署包（含 `deploy/`）。
+- **Release 新增 `CISTrack_v1.9.6_local-deploy.zip`**：解压即用的完整本地部署包（含 `deploy/`）。
 - README 中英：「快速开始」拆成 **① 在线版 / ② 本地版**，并新增
   **「🖥️ 本地部署（含定时自动更新）」**专章 + 7 条 Q&A（没有 Node 能否用、更新失败怎么办、
   会不会覆盖旧文件、服务器/NAS/Docker 怎么跑、bat 窗口一闪而过等）。
