@@ -1103,8 +1103,11 @@ assert('需求6：状态不再跨会话持久化（storeSave/storeLoad 已废，
   /try \{ initStore\(\); applyConstel\(\); \} catch \(e\) \{\}/.test(appSrc));
 // V1.7.0 第四轮补丁：整份 app.js 不该再有任何 localStorage **写入**（旧版主题按钮会写 'theme'，
 // 但那个键从来没被读过 → 纯冗余，且与"设置不落盘"矛盾）。只允许 removeItem 做残留清理。
-assert('需求6：app.js 里不再有任何 localStorage 写入（只保留 removeItem 清理残留）',
-  !/localStorage\.setItem/.test(appSrc));
+// ★ V1.9.7（§23.3-b）：允许**唯一一处**写入 —— 「新卫星提示」的已读时间（7 天静默）。
+//   这是用户点名要的（提示后不修复、每次进入都弹），没有持久化就做不到；其余设置仍**一律不落盘**。
+assert('需求6：设置不落盘（localStorage 只允许写「新卫星提示」的已读时间）',
+  !/localStorage\.setItem/.test(appSrc.replace(/localStorage\.setItem\(NEW_SAT_KEY[\s\S]{0,80}?\);/, '')) &&
+  /localStorage\.setItem\(NEW_SAT_KEY/.test(appSrc));
 // V1.9.0（需求1）：**修正 V1.7.1 的旧决议** —— 顶栏三项（星座 / 语言 / 亮暗）不参与还原。
 assert('需求1（V1.9.0）：还原所有默认设置**不再**把主题拨回暗色（顶栏三项不参与还原）',
   /function setTheme\(light\)/.test(appSrc) &&
@@ -1853,8 +1856,9 @@ assert('V1.9.5（H10）：climbPhases 用「相对阈值 + 连续 N 天」判定
   /if \(quiet >= END_RUN\)/.test(appCode) &&
   /if \(o\.decayMs && isFinite\(o\.decayMs\)\) \{ res\.kind = 'done'; res\.endMs = o\.decayMs; \}/.test(appCode) &&
   /kind: endMs === null \? 'raising' : 'done'/.test(appCode));
-assert('V1.9.0（R17）：纵轴 0~2000km **顶格限位**（需求 Q47），且离地高度 = 半长轴 − 6378.137',
-  /var CLIMB_TOP = 2000;/.test(appCode) && /var CLIMB_RE = 6378\.137;/.test(appCode) &&
+assert('V1.9.0（R17）：纵轴 0~2000km **顶格限位**（需求 Q47），且离地高度 = 半长轴 − RE',
+  // ★ V1.9.7（o）：减数改成与 build() 同一个 RE（WGS-72 / SGP4 常数），不再各写一份 6378.137
+  /var CLIMB_TOP = 2000;/.test(appCode) && /var CLIMB_RE = RE;/.test(appCode) &&
   /Y\(c\.pts\[k2\]\.v - CLIMB_RE\)/.test(appCode));
 assert('V1.9.0（R17）+ V1.9.3：横轴 = 发射日～今天（右端**在数据贴近今天时**给到今天；更早的批次给到数据末点）',
       // ★ V1.9.3（用户要求"缩小留白扩大视图"）：旧口径无条件把右端拉到今天，
@@ -3399,7 +3403,25 @@ assert('V1.9.2：右侧留白按"要标几条"动态加宽（否则名称会被�
           !/if \(!st\) continue;/.test(mkSrc);
       })());
 
-    // ---------- ② 源码层 ----------
+    // ★ V1.9.7（§23.3-a）：**编目号必须跨源同源**。
+    //   陷阱：6 位编目号对象在经典 TLE 里是用**占位号**（00203 之类）写进去的，真号由
+    //   `data/omm_norad.json` 映射回来。若哪一处忘了走映射，就会出现"satdata 是 100203、
+    //   历史库是 203"这种 100% 不匹配（曾一次性 64 颗）—— 表现是三态字段退化、层归属全丢，
+    //   而且**不报错**。这条把"不匹配颗数"钉在一个很小的上限内（当前 2 颗：刚编目、历史池未覆盖）。
+    {
+      const histIds = new Set();
+      const hd = path.join(B, 'build', 'history');
+      for (const f of fs.readdirSync(hd).filter(x => /^(gw|qf)-/.test(x))) {
+        const j = JSON.parse(fs.readFileSync(path.join(hd, f), 'utf8'));
+        for (const s2 of (j.sats || [])) histIds.add(String(s2.n));
+      }
+      const miss = liveS.map(s2 => String(s2.id)).filter(x => !histIds.has(x));
+      assert('§23.3-a：satdata 编目号与历史库键**同源**（六位号映射漏一处就会成批不匹配）',
+        histIds.size > 100 && miss.length <= 8,
+        '历史库 ' + histIds.size + ' 颗｜未匹配 ' + miss.length + ' 颗' +
+        (miss.length ? '：' + miss.slice(0, 8).join(',') : ''));
+    }
+
     assert('A7：i18n 三态文案齐全（在轨 / 变轨中 + 速率单位）',
       /st_raising: \['变轨中', 'Raising'\]/.test(appSrc) &&
       /st_orbit_a: \['在轨（~', 'In orbit \(~'\]/.test(appSrc) &&
@@ -4112,6 +4134,16 @@ assert('A9（V1.9.7 §6）：圈的来源 = 工作轨道层（orbLayerDefs），
       /var lx = cx \+ rx \* 0\.707, ly = cy - ry \* 0\.707;/.test(appSrc));
     assert('A9（V1.9.2）：标签带**防重叠**排版（靠得太近就下移/右移，用户截图里的标签叠字已根治）',
       /var _labelFor = function \(cl, cx, cy, rx, ry\)/.test(appSrc) && /_placed\.push\(\[lx, ly\]\)/.test(appSrc));;
+    // ★ V1.9.7（§7 / §10）：**跨章同源** —— 03 章信息窗的「变轨情况」行与 06 表格的状态列
+    //   必须走**同一个** orbitStatusHtml，并共用三态染色类。这是"全章节联动"里最容易腐烂的一条：
+    //   ⚠️ 刻意**不用 DOM 比对**（当前选中态取决于前面各块的残留，取到的两颗星未必是同一颗，
+    //      那样会写出一条随执行顺序漂移的假断言）；这里锚"同一函数 + 同一套类"，行为一致性由
+    //      orbitStatusHtml 本身的单点实现保证。
+    assert('§7/§10：03 章「变轨情况」行与 06 表格状态列**同源**（都走 orbitStatusHtml，同三态染色）',
+      /function satStatusRow\(s\)/.test(appSrc) &&
+      /orbitStatusHtml\(r\)/.test(appSrc) &&
+      /var cls = r\.gone \? 'st-gone' : \(r\.orb === 1 \? 'st-raising' : 'st-orbit'\);/.test(appSrc) &&
+      /\.sat-info \.si-row\.st-raising > span:last-child \{ color:var\(--st-raising\); \}/.test(tpl));
     // ★ V1.9.5（H18）：选中态标签**三态**（簇标签 → 批次名 → 单星名）
     //   ① 未选/远 → 簇标签（上面已验）；② 选中批次且批内星挤在一起（相邻像素间距 < 阈值）→ **批次名**；
     //   ③ 放大到能分辨 → **单星名**。用户口径："选中批次时显示批次名，放大到能分辨时再显示单星名"。

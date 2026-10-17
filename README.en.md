@@ -2,7 +2,7 @@
 
 
 <div align="center">
-  <!-- V1.9.6：这里**必须用 Pages 绝对地址**，不能写相对路径 assets/cistrack-logo.gif。
+  <!-- V1.9.7：这里**必须用 Pages 绝对地址**，不能写相对路径 assets/cistrack-logo.gif。
        原因（2026-10-17 实测）：GitHub 渲染 README 时会把相对路径转成
        github.com/.../raw/main/... → 302 → raw.githubusercontent.com，而该 CDN 对这个文件
        持续返回 502（连续 3 次全 502）→ 页面顶部的大 GIF 显示为裂图。
@@ -11,7 +11,7 @@
 </div>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.9.6-ff6b6b?style=flat-square" alt="version">
+  <img src="https://img.shields.io/badge/version-1.9.7-ff6b6b?style=flat-square" alt="version">
   <a href="https://sat.huijiwiki.com/wiki/%E6%98%9F%E7%BD%91"><img src="https://img.shields.io/badge/%E6%98%9F%E7%BD%91-CSCN-ff6b6b?style=flat-square" alt="SatNet"></a>
   <a href="https://sat.huijiwiki.com/wiki/%E5%8D%83%E5%B8%86%E6%98%9F%E5%BA%A7"><img src="https://img.shields.io/badge/%E5%8D%83%E5%B8%86-G60-4dabf7?style=flat-square" alt="Qianfan"></a>
   <img src="https://img.shields.io/badge/license-MIT-4dabf7?style=flat-square" alt="license">
@@ -84,7 +84,7 @@ GitHub Pages. It updates on every release, nothing to download.
 
 ### ② Local (single file, double-click to run)
 
-1. Download `CISTrack_v1.9.6.html` (the [latest Release attachment](https://github.com/1471155912/CISTrack/releases/latest);
+1. Download `CISTrack_v1.9.7.html` (the [latest Release attachment](https://github.com/1471155912/CISTrack/releases/latest);
    the repository's `index.html` also redirects to the latest build)
 2. Double-click to open it in a browser (Chrome / Edge / Firefox / Safari all work)
 
@@ -157,7 +157,7 @@ data always current without manually downloading anything.
 
 Either way works:
 
-- **Download the Release zip** (`CISTrack_v1.9.6_local-deploy.zip` from the [latest Release](https://github.com/1471155912/CISTrack/releases/latest)) — unzip and go; **this is the complete package for local deployment**;
+- **Download the Release zip** (`CISTrack_v1.9.7_local-deploy.zip` from the [latest Release](https://github.com/1471155912/CISTrack/releases/latest)) — unzip and go; **this is the complete package for local deployment**;
 - or `git clone https://github.com/1471155912/CISTrack.git`
 
 ### Step 2: pick the usage that fits
@@ -433,7 +433,7 @@ with 0 requests. Run `--prune` afterwards for capacity governance.
 ```
 CISTrack.html           ★ latest build (no version in the name) — use it for the stable link:
                           https://1471155912.github.io/CISTrack/CISTrack.html
-CISTrack_v1.9.6.html    snapshot of the current version
+CISTrack_v1.9.7.html    snapshot of the current version
 CISTrack_v1.9.4.html    snapshot of the previous version (for rollback / comparison)
                         ↑ older ones are **trimmed automatically** by `release.mjs` (current + previous only)
 index.html              entry page (an 811-byte redirect to CISTrack.html)

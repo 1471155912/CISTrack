@@ -2471,7 +2471,7 @@ var DAY = 86400000;
 var SGP4 = window.satellite;
 var RAW = window.SATDATA;
 var COAST = window.COAST_DATA || [];
-var VERSION = 'V1.9.6';          // 页脚版本号，后续更新在此改动
+var VERSION = 'V1.9.7';          // 页脚版本号，后续更新在此改动
 
 // ---------------------------------------------------------------- V1.3.7：TLE 分组差分解码
 // 构建脚本按发射批次（COSPAR 前缀）把「名称+两行要素」压成公共模板 + 每颗星的差异串，
@@ -9583,7 +9583,7 @@ var README_ZH = [
   '- **数据准确性**：数据来自第三方公开目录与社区词条，可能有错漏与延迟；TLE / SGP4 本身**不适合碰撞规避、飞控或任何业务决策**，本页不构成专业建议；',
   '- **可用性**：按"现状"提供，不保证随时可用或完全无误；上游数据源变更或停用可能造成数据陈旧；',
   '- **AI 参与**：本项目部分代码、文档与数据处理脚本由 **AI 辅助生成**（vibe coding），作者已做测试与人工复核，但**不担保不残留缺陷**；AI 生成的译文可能有误，请以中文原文为准；',
-  '- **隐私**：本页**不收集、不上传**任何用户数据 —— 没有账号、Cookie、统计或广告；仅在本地保存设置（`localStorage`）与 30 分钟内的轨道要素缓存（`sessionStorage`），可随时清除。运行时只请求同源的 `wiki.json` / `history/` 分片，并可能直连 `celestrak.org` 取最新要素（**该站可见你的 IP**；直连失败时退回公共 CORS 代理，同样可见）；托管方 GitHub Pages 会按其隐私声明记录访问日志；',
+  '- **隐私**：本页**不收集、不上传**任何用户数据 —— 没有账号、Cookie、统计或广告；仅在本地保存设置、一条「新卫星提示」的已读时间（`localStorage`，7 天静默）与 30 分钟内的轨道要素缓存（`sessionStorage`），可随时清除。运行时只请求同源的 `wiki.json` / `history/` 分片，并可能直连 `celestrak.org` 取最新要素（**该站可见你的 IP**；直连失败时退回公共 CORS 代理，同样可见）；托管方 GitHub Pages 会按其隐私声明记录访问日志；',
   '- **非官方**：本项目为个人爱好项目，与任何航天机构、星座运营方**无隶属或授权关系**；',
   '- **许可**：代码 MIT；数据与词条内容按各自来源的许可（见上一节）。',
   '',
@@ -9804,7 +9804,7 @@ var README_EN = [
   '- **Accuracy**: the data comes from third-party public catalogues and a community wiki; it may contain errors and may lag. TLE / SGP4 are **not suitable for conjunction assessment, flight operations or any business decision**; nothing here is professional advice;',
   '- **Availability**: provided "as is", with no guarantee of uptime or correctness; upstream changes or shutdowns may leave the data stale;',
   '- **AI involvement**: parts of the code, documentation and data-processing scripts were **AI-assisted** (vibe coding). The author has tested and reviewed them, but **no warranty against residual defects** is given; AI translations may contain mistakes — the Chinese text is authoritative;',
-  '- **Privacy**: this page **collects and uploads nothing** — no accounts, cookies, analytics or ads. It stores settings (`localStorage`) and a 30-minute element cache (`sessionStorage`) locally only, and you can clear them anytime. At runtime it requests the same-origin `wiki.json` / `history/` shards and may contact `celestrak.org` directly for the latest elements (**that site sees your IP**; if the direct request fails it falls back to public CORS proxies, which also see it). GitHub Pages, as the host, logs access under its own privacy statement;',
+  '- **Privacy**: this page **collects and uploads nothing** — no accounts, cookies, analytics or ads. It stores settings, one read-mark for the "new satellites" notice (`localStorage`, 7-day quiet period), a 30-minute element cache (`sessionStorage`) and the language/constellation state — **all locally only**, and you can clear them anytime. At runtime it requests the same-origin `wiki.json` / `history/` shards and may contact `celestrak.org` directly for the latest elements (**that site sees your IP**; if the direct request fails it falls back to public CORS proxies, which also see it). GitHub Pages, as the host, logs access under its own privacy statement;',
   '- **Unofficial**: a personal hobby project — **not affiliated with or authorised by** any space agency or constellation operator;',
   '- **License**: code is MIT; data and wiki content follow their own licenses (see above).',
   '',
@@ -12532,11 +12532,22 @@ function noradSetNow() {
   try { cur().sats.forEach(function (x) { out[x.norad] = 1; }); } catch (e) { }
   return out;
 }
+// ★ V1.9.7（§23.3-b）：同一条提示**7 天内只出现一次**。
+//   旧版：每次进入只要运行时刷新比内置快照多出编号就弹一次，而"提示"本身不修复任何东西
+//   （内置快照只能靠重新构建更新）→ 用户每次打开都被同一句话打扰。
+//   现在记一个**已读时间戳**（localStorage，仅本机、可随时清除，已在「免责声明与隐私」里如实写明）；
+//   7 天内不再重复。真正的修复仍然是重新构建 —— 提示文案里那句就是干这个的。
+var NEW_SAT_KEY = 'cistrack.notice.newSats', NEW_SAT_QUIET = 7 * 86400000;
 function checkNewSats() {
   if (!BUILTIN_NORAD) return;
   var now = noradSetNow(), added = [];
   Object.keys(now).forEach(function (id) { if (!BUILTIN_NORAD[id]) added.push(id); });
   if (!added.length) return;
+  try {
+    var last = +(localStorage.getItem(NEW_SAT_KEY) || 0);
+    if (last && Date.now() - last < NEW_SAT_QUIET) return;
+    localStorage.setItem(NEW_SAT_KEY, String(Date.now()));
+  } catch (e) { /* 隐私模式/禁用存储 → 退化为每次都提示（功能不受影响） */ }
   added.sort(function (a, b) { return (+a || 0) - (+b || 0); });
   showNotice(t('notice_new_t'),
     t('notice_new_m').replace('{n}', added.length).replace('{id}', added[added.length - 1]));
@@ -13487,8 +13498,11 @@ var climbSync = false;
 var climbPickNode = null;
 // 05 章只有两个状态字段，且都按星座各存一份（与 04 章的 netGw/netQf 同理）
 var CLIMB_DEF = { pick: '', take: 'sma' };
-// 半长轴常量：地球赤道半径 6378.137 km，与第三章表格里 hp/ha 的算法一致
-var CLIMB_RE = 6378.137;
+// ★ V1.9.7（o）：半长轴→离地高度的减数**必须与 build()/表格/信息窗同一个**。
+//   旧值是 6378.137（WGS-84 赤道半径），而 build() 里的 RE 是 6378.135（WGS-72，SGP4 自己的常数）——
+//   同一颗星在 04 章与表格里能差 2 米。数字上微不足道，但"两套常数"正是这类项目最容易腐烂的地方，
+//   而且导出图（shotSatLines）也走这个减数，三处同源才谈得上一致。
+var CLIMB_RE = RE;
 
 // ---------------------------------------------------------------- 历史数据 → 曲线
 /** 取本星座的历史点：{ 批次key: [ [norad, ms, sma], … ] }；没有则空对象 */

@@ -10,6 +10,77 @@ The version is written in the footer (`CISTrack · Vx.y.z`), and the bottom bar 
 
 ---
 
+## [V1.9.7] — 2026-10-18
+
+> The core of this release: **orbit status is now derived from the TLEs themselves** instead of being inferred per launch batch.
+> A satellite's "working altitude" is no longer read off "the highest few in its batch"; it comes from a **working-orbit layer measured across the whole constellation**,
+> so every altitude and status shown on the page can be traced back to public element sets.
+> The header table was rebuilt, "raising" was split into *burning / coasting*, section 03 gained dashed layer ellipses,
+> and the full definition of "the three kinds of altitude" was written down.
+
+### 1. Working-orbit detection, fixed at the root (§6)
+
+The old rule took each batch's **highest historical cluster** as its working altitude — a few members reaching higher lifted the whole batch's baseline.
+Two measured failures: Qianfan batch 69863 had a batch altitude of 1,090 km while every satellite sat at 1,071 km (19 km off);
+Qianfan 69800/69807/69811 were at 926–942 km and had risen 33–44 km in 30 days (still climbing) yet were called "in orbit" because they were within 10 km of the batch's 950 km.
+
+The new rule (everything computed from TLE history, no design values):
+
+- **Seeds**: only stable satellites — not thrusting (2-day LSQ rate ≤ 0.5 km/day), 30-day net rise < 10 km, enough history points;
+- **Layers**: cluster altitudes inside an inclination band (0.5°) with a 30 km gap, requiring **≥ 8 members and an altitude σ ≤ 8 km**,
+  with the altitude taken as the **modal 10 km bin**. The σ test rejects "a column of climbing satellites" (31 Qianfan satellites spread over 800–974 km, σ = 57.7);
+- **Assignment**: each satellite joins the nearest layer in its band; `wk` (the altitude shown on the page) becomes that layer's altitude;
+- **Status**: `|2-day rate| > 0.5` → burning ／ more than 30 km off-layer → coasting ／ on-layer but risen ≥ 3 km in 7 days → coasting (slow-climb fallback) ／ otherwise in orbit.
+
+Measured (2026-10-17 data): CSCN `1150/50°×117`, `1170/86.5°×61`, `1100/50°×11`, `510/55°×9`; Qianfan `1070/89°×188`.
+394 in orbit / 121 raising (previously 412/103).
+
+### 2. Header table (§3–§5)
+
+- The **numbers and units** of "satellites launched / in orbit" now use the constellation colour (CSCN red / Qianfan blue); the wiki breakdown in brackets stays dim;
+- the "launch groups" row is gone;
+- "mean orbit altitude" + "inclinations" merged into **"orbit distribution"**, formatted `1150km, 50° / 1170km, 86.5°`,
+  **at most two per line**, more wrapping; the four-character labels are **one line when wide, 2+2 at ≤620px** (same mechanism for launched / in orbit / distribution).
+
+### 3. Section 03: dashed ellipses and GEO (§6 / §8)
+
+- Cluster ellipses are now generated **from the working-orbit layers** (the same data as the header row): a layer contains only arrived satellites;
+  when two layers would overlap, the smaller one shrinks and is dropped if invisible (no more "merging", which faked a centre and produced labels like 1,146);
+- the label prints the layer's rounded altitude and inclination;
+- **GEO is no longer labelled satellite by satellite** — one dashed ellipse plus a small theme-coloured `GEO` (a duplicated drawing block was removed too).
+
+### 4. Info panels (§7 / §8)
+
+- Section 03's panel gains an **"orbit change" row** between *period* and *launch date*, sharing the exact text and colours of the section-06 table
+  (in orbit green / raising amber / re-entered red, with the rate fragment coloured separately);
+- sections 01/02 now **tick the sub-satellite point and instantaneous altitude live** (updated every second, text only, no panel rebuild).
+
+### 5. Documentation
+
+- New "**three kinds of altitude**" section: semi-major-axis altitude (`a_Brouwer − 6378.135`), instantaneous geodetic height above the WGS-84 ellipsoid, and geocentric radius —
+  with formulas, constants and where each is used, plus the explanation that a circular orbit reads 21.4 km lower over the equator than over the poles, on top of ±1.4 km of eccentricity;
+- new "**orbit status: why 0.5 km/day**" section: σ = 0.166 km per point, 0.11 km/day after a 2-day fit, so 0.5 ≈ 4.5σ; why differencing is avoided (with the measured 26108 counter-example), the cumulative fallback and the known limits;
+- section 04 states the threshold in its lead paragraph and under the chart;
+- the README's positioning was rewritten in both languages ("pure front-end + optional data pipeline", no longer "single-file, zero-backend"), with findrassvet methodology credits (CC BY 4.0) and a plain disclosure of the third-party CORS proxies.
+
+### 6. Engineering and data
+
+- Three data-pipeline gates: a minimum satellite count in `mkdata`, field coverage (`wk`/`orb` ≥ 98%), and `build`'s `wiki.json` `asOf` + field validation;
+- new `scripts/e2e_fake_sat.mjs`: one fake satellite walks the whole chain (embedded data → diff unpacking → SGP4 → tri-state → table → search);
+- a standalone single-file download can now update the wiki counters too (three-level `wiki.json` cascade);
+- the "newly catalogued satellites" notice now appears **at most once per 7 days**;
+- terminology: `license`, `Coverage area`;
+- the theme switch respects `prefers-reduced-motion`; the visual-regression script now does a **light per-run profile reset**.
+
+### Known limits (stated plainly)
+
+- A layer needs at least 8 stable members: two or three satellites parked somewhere on their own (e.g. Qianfan 21070's pair at ~940 km) never form a layer and stay "raising · coasting";
+- the 31 Qianfan satellites spread over 800–974 km do **not** form a shell (σ = 57.7) and are likewise "raising · coasting" — they really are not on the 1,070 km layer;
+- slow drag-induced decay only trips the off-layer test and is never reported as "under thrust"; for such batches the section-04 curve is more informative than the status column;
+- the three CSCN GEO service satellites are excluded from LEO layering and keep their own drift thresholds.
+
+---
+
 ## [V1.9.6] — 2026-10-17
 
 > Implements your rulings on the eight English-review decision points: **only two strings actually
