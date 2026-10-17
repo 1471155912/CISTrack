@@ -1264,8 +1264,23 @@ console.log('history: 分片 ' + HIST.stat.shards + '  历史点 ' + HIST.stat.d
   '  丢弃 ' + HIST.stat.dropped + '  (gw ' + Object.keys(HIST.out.gw).length +
   ' 批 / qf ' + Object.keys(HIST.out.qf).length + ' 批)  → 内置精简 ' + liteN + ' 条');
 
-fs.writeFileSync(path.join(ROOT, 'build', 'satdata.json'), JSON.stringify(DATA), 'utf8');
-console.log('satdata.json bytes=', fs.statSync(path.join(ROOT, 'build', 'satdata.json')).size);
+// ★★ V1.9.7（§23.3-c）：**条数下限闸门** —— 输入残缺时宁可失败，也绝不写出可发布的坏数据。
+//   背景（2026-10-17 线上事故）：refresh 当时因网络退化只抓到 0 份数据，mkdata 照样产出一份
+//   "少了 wu/wn 字段"的 satdata 并被发布 → 表格全变「在轨（~-, undefinedkm）」、03 章 GEO 三星消失。
+//   判据只做**数量级**判断（星网/千帆各自的下限），不猜具体内容；命中即**不写文件**并非 0 退出。
+//   ⚠️ 用 exitCode 而不是 process.exit()：端到端测试是**同进程 import** 本脚本的（见 refresh.mjs 同款注释）。
+const MIN_SATS = { gw: 200, qf: 200 };
+const bad = ['gw', 'qf'].filter(k => ((DATA[k] && DATA[k].sats) || []).length < MIN_SATS[k]);
+if (bad.length) {
+  bad.forEach(k => console.error('[mkdata] 拒绝写出：' + k + ' 只有 ' +
+    ((DATA[k] && DATA[k].sats) || []).length + ' 颗（下限 ' + MIN_SATS[k] + '）'));
+  console.error('[mkdata] 输入疑似残缺 —— 先确认 `node refresh.mjs` 是否真的抓到了数据（输出里不应出现大量「0 份」）。');
+  console.error('[mkdata] 已**不写出** build/satdata.json，避免坏数据被打包发布。');
+  process.exitCode = 5;
+} else {
+  fs.writeFileSync(path.join(ROOT, 'build', 'satdata.json'), JSON.stringify(DATA), 'utf8');
+  console.log('satdata.json bytes=', fs.statSync(path.join(ROOT, 'build', 'satdata.json')).size);
+}
 
 // V1.4.0：单独导出一份 wiki.json —— 它跟 HTML 放在同一个目录时，页面打开会自动读它并覆盖内置的词条计数。
 // 用途：把这一小段 JSON 传到 GitHub Pages / 任意静态托管，以后只改这里的数字，

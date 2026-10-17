@@ -9,6 +9,7 @@
     "data": "node mkdata.mjs",
     "build": "node build.mjs",
     "smoke": "node smoke.mjs",
+    "test": "node smoke.mjs",
     "all": "node refresh.mjs && node mkdata.mjs && node build.mjs && node release.mjs"
   },
   "dependencies": {},
