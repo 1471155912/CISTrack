@@ -24,12 +24,33 @@
 > Clicking the **CISTrack** wordmark at the top-left of the page opens the project home.
 
 
-A **single-file, zero-backend** web page that uses real public orbit data (the NORAD catalogue / TLEs) to compute and visualise, in real time, two Chinese low-Earth-orbit internet constellations:
+A **pure front-end, server-less** tracker for China's LEO internet constellations. It uses real public orbit data
+(the NORAD catalogue / TLEs) to compute and visualise, live in your browser:
 
 - **GuoWang / SatNet (CSCN)** — China Satellite Network Group
 - **Qianfan / Thousand Sails (SpaceSail, G60)** — Shanghai Yuanxin Satellite
 
-Just open the HTML file — **no server and no build step**. When online, the page fetches the latest orbital elements itself in the browser, loads the historical-orbit shards on demand and reads `wiki.json` next to it for the headline figures; with **no network at all** it still opens, falling back to the snapshot and condensed history bundled at build time, and every chapter keeps working.
+### What this project actually is (so there is no misunderstanding)
+
+It has **no server-side backend** — no accounts, no database, no API server, and it uploads nothing about you.
+But it is **no longer "one file and nothing else"** either. There are two shapes:
+
+| Shape | What it is | What you need |
+|---|---|---|
+| **① Single file** (minimum) | A ~1.6 MB `CISTrack.html` with satellite data and coastlines embedded — **double-click, works fully offline** | Just a browser |
+| **② Full shape** (data can auto-update) | The whole repo: HTML + `wiki.json` + `history/` shards + the Node build chain + `deploy/` one-click update and scheduling | A browser; add Node 18+ only if you want automatic refresh |
+
+So the accurate description is **"pure front-end plus an optional data pipeline"**:
+
+- **The page does go online by itself**: on open it fetches the latest TLEs and reads the wiki stats from a sibling file
+  (or from the official Pages URL), falling back to the bundled snapshot.
+- **Want it fully offline, or always current?** Use the `deploy/` scripts to refresh and repackage on your own machine
+  (an optional daily scheduled task is included).
+- **On the repo side**: GitHub Actions refreshes TLEs and repackages every 12 hours — that is **CI**, not a runtime backend.
+
+Open one HTML file and everything is there — **no server, and no build step for you as a user**.
+
+When online, the page fetches the latest orbital elements itself in the browser, loads the historical-orbit shards on demand and reads `wiki.json` next to it for the headline figures; with **no network at all** it still opens, falling back to the snapshot and condensed history bundled at build time, and every chapter keeps working.
 
 > Unofficial project. Data comes from the public NORAD space-object catalogue and the satellite wiki; it is intended for outreach and observation reference only and **must not be used for orbit prediction, engineering, or research**.
 
