@@ -115,6 +115,25 @@ has already switched, outside it is still the old theme**).
 gw/qf; ISO date strings compare lexicographically), with both directions verified:
 older `asOf` → refuses to overwrite and the file's md5 is unchanged; normal → copies.
 
+### ⑩ Loading screen, third line "Loading": same font size as the first line + three bouncing dots (new requirement)
+
+**Your words**: "on the loading page (the one with the translucent background and the red/blue spinner), make the
+third line '加载中' the same font size as the first line, and make the three trailing dots bounce in a loop."
+
+- **Font size**: the third line used to be `10.5px` (visibly smaller than the first line's 14px). Both lines now share
+  one variable `--lm-fs:14px`, so a future edit cannot make them drift apart. Measured: first line 14px, third line 14px ✓.
+- **Ellipsis**: replaced the static "…" with **three separate periods that bounce individually** (0.15s apart, forming a
+  wave; 1.05s per cycle; `translateY 0 → -0.32em` with opacity 0.35 ↔ 1). Measured at t=0/160/320ms: each dot has a
+  **different** offset and opacity — confirming a staggered wave rather than all three moving together.
+- **Two implementation details** (both documented in the code):
+  1. `data-i18n` moved to an **inner span**: `applyStaticLang` only rewrites its `textContent`, and the three animated
+     dots live outside that span, so a language switch cannot wipe them;
+  2. `line-height:1` is required: an `inline-block` aligns its **box bottom** to the baseline, and the box height equals
+     the line height → the periods would be pushed below the baseline.
+- **Respects reduced motion**: under `prefers-reduced-motion: reduce` the three dots are static.
+- Two new smoke guards (both lines must share the size variable / all three dots must have their own animation with
+  staggered delays, plus the reduced-motion fallback).
+
 ## [V1.9.5] — 2026-10-17
 
 > Highlights: the **globe keeps spinning during a theme switch** ("hole wipe", revertible in one step),

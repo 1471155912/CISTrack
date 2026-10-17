@@ -1245,7 +1245,8 @@ assert('需求1：TLE 自动更新标志 TLE_LIVE 保留，且界面上已无「
 //   加载蒙层改用「要素历元 / Epoch」，避免同一个说法满屏都是。
 assert('V1.9.5（H4）：加载蒙层的「要素历元」写法已彻底移除（函数/调用/键三处都不留死代码）',
   !/setLoadEpoch/.test(appCode) && !/d_epoch: \[/.test(appCode) &&
-  /d_loading3: \['加载中…', 'Loading…'\]/.test(appCode) &&
+  // ★ V1.9.6：文字里不再带「…」，省略号由 #lmThird 的三个跳动的点承担
+  /d_loading3: \['加载中', 'Loading'\]/.test(appCode) &&
   /d_epoch2: \['更新历元：', 'Epoch: '\]/.test(appCode));
 // V1.7.0 第四轮补丁：TLE_LIVE 必须早于 applyFresh 置位。
 // applyFresh → rebuild() → renderHeader() 会立刻读 TLE_LIVE；
@@ -4953,10 +4954,28 @@ assert('A9（V1.9.2 重新划分）：合并判据 = 数据空间可分辨阈值
 //   要等 JS 解析完（单文件 1.2MB + SGP4 初始化）才出现两行字。现在从首帧起就是"两行字"版本。
 assert('V1.9.1（#9）：加载页两行字写死进 HTML（首帧就有字，不靠 JS 填）',
   /<div class="lm-txt" id="lmTxt" data-i18n="d_loading_tle">正在获取最新轨道要素…<\/div>/.test(tpl) &&
-  /<div class="lm-epoch" id="lmThird" data-i18n="d_loading3">加载中…<\/div>/.test(tpl) &&
+  // ★ V1.9.6：data-i18n 挂到**内层 span**，三个跳动的点放在外面（i18n 刷新不会把它们冲掉）
+  /<div class="lm-epoch" id="lmThird"><span data-i18n="d_loading3">加载中<\/span><span class="lm-dots"[^>]*><i>\.<\/i><i>\.<\/i><i>\.<\/i><\/span><\/div>/.test(tpl) &&
   // 产物里同样在（模板 → 产物的注入过程不能把它冲掉）
   /id="lmTxt"[^>]*>正在获取最新轨道要素…</.test(html) &&
-  /id="lmThird"[^>]*>加载中…</.test(html), '');
+  // ★ V1.9.6：文字已移到内层 span，三个跳动的点跟在后面 —— 判据要跟着改（原来直接要求 id 后就是文字）
+  /id="lmThird"><span data-i18n="d_loading3">加载中<\/span><span class="lm-dots"/.test(html), '');
+// ★ V1.9.6（用户 2026-10-17 要求）：加载页第三行「加载中」**字号与第一行一致**，
+//   且末尾三个省略号**循环跳动**（不是静态 …，也不是整体一起跳）。
+//   判据都打在源码上：字号必须**共用同一个变量**（各写一个 14px 迟早跑偏）；
+//   三个点必须各自有 animation 且 delay 错开；减少动态偏好下要能停。
+assert('V1.9.6：加载页第一行与第三行**共用同一字号变量**（第三行原来 10.5px，明显更小）',
+  /--lm-fs:\s*14px/.test(tpl) &&
+  /\.lm-txt \{[^}]*font-size:var\(--lm-fs\)/.test(tpl) &&
+  /\.lm-epoch \{[^}]*font-size:var\(--lm-fs\)/.test(tpl));
+assert('V1.9.6：省略号是**三个点各自跳动**（错开 delay），且"减少动态"下静止',
+  (tpl.match(/class="lm-dots"/g) || []).length === 1 &&
+  (tpl.match(/<i>\.<\/i>/g) || []).length >= 3 &&
+  /\.lm-dots i \{[^}]*animation:lmDotBounce/.test(tpl) &&
+  /\.lm-dots i:nth-child\(2\) \{ animation-delay:\.15s/.test(tpl) &&
+  /\.lm-dots i:nth-child\(3\) \{ animation-delay:\.3s/.test(tpl) &&
+  /@keyframes lmDotBounce/.test(tpl) &&
+  /prefers-reduced-motion[\s\S]{0,200}\.lm-dots i \{ animation:none/.test(tpl));
 assert('V1.9.1（#9）：JS 起来后仍然接管（语言切换 / 真实历元替换）—— 两条路径都保留',
   /function refreshMaskText\(\)/.test(appSrc) && !/setLoadEpoch/.test(appSrc) &&
   /data-i18n="d_loading3"/.test(tpl) &&

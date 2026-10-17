@@ -294,7 +294,8 @@ var I18N = {
   foot_use: ['本项目为 MIT 开源项目，可自由使用、修改与分发（保留版权与许可声明即可）',
              'MIT-licensed open source: free to use, modify and redistribute (keep the copyright and licence notice)'],
   // 动态文案
-  d_loading3: ['加载中…', 'Loading…'], d_epoch2: ['更新历元：', 'Epoch: '], d_pending_suffix: ['颗待编目', 'awaiting catalog'],
+  // ★ V1.9.6：去掉文字里的「…」—— 省略号改由 #lmThird 里三个**循环跳动**的点承担（见 template.html 的 .lm-dots）
+  d_loading3: ['加载中', 'Loading'], d_epoch2: ['更新历元：', 'Epoch: '], d_pending_suffix: ['颗待编目', 'awaiting catalog'],
   d_in_orbit: ['颗', 'in orbit'], d_more_pending: [' · 另有 ', ' · '], d_more_pending2: [' 颗待编目', ' more pending'],
   d_page_track: ['本页实时推算 ', 'This page propagates '], d_page_track2: [' 颗', ' live'],
   d_groups_stat: [' 批在轨 / 共 ', ' groups with elements / '], d_groups_total: [' 批', ' total'],
