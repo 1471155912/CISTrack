@@ -11,7 +11,7 @@ var DAY = 86400000;
 var SGP4 = window.satellite;
 var RAW = window.SATDATA;
 var COAST = window.COAST_DATA || [];
-var VERSION = 'V1.9.5';          // 页脚版本号，后续更新在此改动
+var VERSION = 'V1.9.6';          // 页脚版本号，后续更新在此改动
 
 // ---------------------------------------------------------------- V1.3.7：TLE 分组差分解码
 // 构建脚本按发射批次（COSPAR 前缀）把「名称+两行要素」压成公共模板 + 每颗星的差异串，
@@ -65,7 +65,9 @@ var I18N = {
   //   英文却写成一个光秃秃的形容词 "Unofficial · …"，读起来像半句话。补回 project。
   brandNote: ['非官方项目 · 数据来自 NORAD 空间目标目录公开轨道要素',
     'Unofficial project · orbit elements from the public NORAD satellite catalog'],
-  pageTitle: ['中国低轨互联网卫星在轨态势', 'China LEO Internet Constellations Live'],
+  // ★ V1.9.6（2026-10-17 用户裁决 C）：英文句式改为 "Live Status of …" —— 原句式三名词并置，
+  //   `Constellations Live` 结尾读不出"在轨态势"这层"实时状态"的意思。
+  pageTitle: ['中国低轨互联网卫星在轨态势', 'Live Status of China\'s LEO Internet Constellations'],
   cn_gw: ['星网', 'CSCN'], cn_qf: ['千帆', 'Qianfan'],
   // V1.8.0（需求15 i18n 审计）：03.5 组网进度章的星座名（图例 / 信息窗 / 星座开关按钮共用）。
   //   此前这三个地方引用了 n_gw / n_qf，但表里**根本没有这两个键** —— t() 找不到键时会原样
@@ -253,9 +255,11 @@ var I18N = {
   l_netspan: ['时间段', 'Time range'],
   shot_netmode: ['选择纵轴量', 'Y axis'], shot_netspan: ['选择时间段', 'Time range'],
   // V1.9.1（A15）04 章「变轨情况」：由「变轨情况」改名 + 与组网进度换位。
-  //   英文按 Q32 定稿用 **Orbits Change Status**（表格里那个 Orbits Change 是导出图的短标签，
-  //   底栏宽度有限，见 Q32 —— 两处不是同一个字符串，别顺手统一）。
-  h_climb: ['变轨情况', 'Orbits Change Status'],
+  //   ⚠️ V1.9.6（2026-10-17 用户裁决 B）：英文由 **Orbits Change Status** → **Orbit Change Status**
+  //   （原 Q32 定稿是三连名词堆叠，英语读起来会卡；只去掉一个冗余复数，风险最小）。
+  //   表格里那个 Orbits Change 是导出图的短标签（底栏宽度有限，见 Q32）—— **两处不是同一个字符串，别顺手统一**。
+  //   本次已同步 4 处：h_climb / t_defclimb / 帮助正文 / sec-climb 章节名。
+  h_climb: ['变轨情况', 'Orbit Change Status'],
   lead_climb: ['选定一颗卫星或一个批次/组，画出它们的轨道半长轴随时间的变化 —— 刚入轨时低、随后被发动机一点点抬到工作高度的那段"爬坡"。',
     'Pick one satellite or one batch/group and see how its orbital semi-major axis changes over time — the climb from a low initial altitude up to the working height.'],
   // ★ V1.9.5（H12）：术语统一 —— 「升轨速度」→「**变轨速度**」（用户 2026-10-15 要求）。
@@ -276,7 +280,7 @@ var I18N = {
   climb_take_rate: ['变轨速度（±2 天最小二乘）', 'Maneuver rate (±2 d least squares)'],
   climb_y_alt: ['离地高度, km', 'Altitude, km'],
   climb_y_rate: ['变轨速度, km/天', 'Maneuver rate, km/day'],
-  t_defclimb: ['恢复 04 变轨情况的初始设置', 'Restore the default settings of 04 Orbits Change Status'],
+  t_defclimb: ['恢复 04 变轨情况的初始设置', 'Restore the default settings of 04 Orbit Change Status'],
   // ↑↑ V1.9.0（R17）：05 章的三段式 i18n（标题/说明/选择器），其中「升轨速度」的算法口径见 climbNote
   t_defprogress: ['恢复 05 组网进度的初始设置', 'Restore the default settings of 05 Network Progress'],
   t_netinfo: ['怎么看这张图', 'How to read this chart'],
@@ -7100,7 +7104,7 @@ var README_EN = [
   '- 📍 **Ground site picker**: hover to preview the visibility region and satellite count in real time; click to fix a site and highlight what it can see;',
   '- 🌍 **3D globe (02)**: spin + drag + zoom, orbit rings split into front/back halves, coverage zones, with **altitudes exaggerated 2.4×** so the shells are easy to tell apart;',
   // V1.9.1（A15）：按新编号补齐（原文缺「变轨情况」「组网进度」，且表格/发射历史编号是旧的 04/05）
-  '- 🛰️ **Orbits Change Status (04)**: pick one satellite or one batch/group and see how its orbital **semi-major axis changes over time** — the climb from a low initial altitude up to the working altitude. The Y axis can be switched to *maneuver rate*; re-entered satellites are flagged in red.',
+  '- 🛰️ **Orbit Change Status (04)**: pick one satellite or one batch/group and see how its orbital **semi-major axis changes over time** — the climb from a low initial altitude up to the working altitude. The Y axis can be switched to *maneuver rate*; re-entered satellites are flagged in red.',
   '- 📶 **Network progress (05)**: two curves track how fast CSCN and Qianfan build their constellations; the X axis is weekly, the Y axis switches between cumulative launches and satellites in orbit.',
   '- 📋 **Satellite table (06)**: 13 element columns (including days in orbit and **orbit status**), autocomplete search, sorting, 10 rows per page — satellite names link straight to their satcat.com entries;',
   '- 🚀 **Launch history (07)**: column order is group · vehicle (followed by the COSPAR id) · launch time · launch site · design inclination · elements; rockets and sites are rendered in the constellation colour, underlined and clickable; 10 rows per page with wiki links; **click anywhere on a row** to select that group — the chart, map and globe highlight it, the satellite table auto-pages to the first satellite of that group under the current sort, and the row is boxed with one long red (CSCN) / blue (Qianfan) border; pending groups only carry a "pending ×N" tag — the full catalog summary sits in its tooltip instead of stretching the table;',
@@ -8773,7 +8777,7 @@ var JUMP_TITLE = {
   // V1.9.1（A15）：04/05 互换 —— 变轨情况前移到 04、组网进度后移到 05。
   //   ⚠️ 顺带修两处**早就存在的编号 bug**：sec-table 原写「04 卫星表格」、sec-launches 原写「05 发射历史」，
   //   而它们实际是 06/07（F24 早就记过，这次一并改对）。
-  'sec-climb': { zh: '04 变轨情况', en: '04 Orbits Change Status' },
+  'sec-climb': { zh: '04 变轨情况', en: '04 Orbit Change Status' },
   'sec-progress': { zh: '05 组网进度', en: '05 Network progress' },
   'sec-table': { zh: '06 卫星表格', en: '06 Satellite table' },
   'sec-launches': { zh: '07 发射历史', en: '07 Launch history' },

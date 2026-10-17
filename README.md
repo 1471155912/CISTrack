@@ -6,7 +6,7 @@
 </div>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.9.5-ff6b6b?style=flat-square" alt="version">
+  <img src="https://img.shields.io/badge/version-1.9.6-ff6b6b?style=flat-square" alt="version">
   <a href="https://sat.huijiwiki.com/wiki/%E6%98%9F%E7%BD%91"><img src="https://img.shields.io/badge/%E6%98%9F%E7%BD%91-CSCN-ff6b6b?style=flat-square" alt="星网"></a>
   <a href="https://sat.huijiwiki.com/wiki/%E5%8D%83%E5%B8%86%E6%98%9F%E5%BA%A7"><img src="https://img.shields.io/badge/%E5%8D%83%E5%B8%86-G60-4dabf7?style=flat-square" alt="千帆"></a>
   <img src="https://img.shields.io/badge/license-MIT-4dabf7?style=flat-square" alt="license">
@@ -42,7 +42,7 @@
 
 ## 🚀 快速开始
 
-1. 下载 `CISTrack_v1.9.5.html`（或 Release 里的同名附件；仓库内的 `index.html` 会自动跳到最新版）
+1. 下载 `CISTrack_v1.9.6.html`（或 Release 里的同名附件；仓库内的 `index.html` 会自动跳到最新版）
 2. 双击用浏览器打开（Chrome / Edge / Firefox / Safari 均可）
 
 就这两步。首次打开会尝试联网拉取最新 TLE，失败则用内置快照，功能完全不受影响。
@@ -296,7 +296,7 @@ build.mjs       # 把上面几块注入 template → 单文件 HTML
 CISTrack.html           ★ 唯一产物名（不带版本号）—— 固定链接就用它：
                           https://1471155912.github.io/CISTrack/CISTrack.html
                           （V1.9.5 起 build.mjs 直接写这个名字；原先那份同内容的中文名产物已取消）
-CISTrack_v1.9.5.html    当前版本快照
+CISTrack_v1.9.6.html    当前版本快照
 CISTrack_v1.9.4.html    上一版快照（回滚 / 对照用）
                         ↑ 更早的版本由 `release.mjs` **自动裁剪**（只留当前版 + 上一版）
 index.html              入口页（811 字节的跳转页，自动跳到 CISTrack.html）

@@ -10,6 +10,63 @@ The version is written in the footer (`CISTrack · Vx.y.z`), and the bottom bar 
 
 ---
 
+## [V1.9.6] — 2026-10-17
+
+> Implements your rulings on the eight English-review decision points: **only two strings actually
+> change**, the other six stay as they are. Also includes the CI auto-refreshed orbital elements and a
+> readiness-polling rewrite of the visual regression script (local dev tool, not committed).
+
+### ① Chapter 04 English name: `Orbits Change Status` → `Orbit Change Status` (your choice B)
+
+The Q32 wording stacked three nouns in a row, which reads awkwardly; only one redundant plural is dropped.
+
+**All four places updated** (missing one would give the same chapter two English names): the section
+title `h_climb`, the per-chapter defaults label `t_defclimb`, the in-app "About / Help" prose, and the
+corner-pill jump title `sec-climb`. The four mentions in `README.en.md` were updated too.
+
+> ⚠️ **The export footer's short label stays `Orbits Change` (without Status)** — that is a **separate
+> string** finalised by Q32 for the narrow footer, and the two must not be "helpfully" unified.
+> A new smoke guard asserts both that all four places changed **and** that the short label was not
+> touched.
+
+### ② Page title English phrasing changed to `Live Status of …` (your choice C)
+
+| | |
+|---|---|
+| before | `China LEO Internet Constellations Live` |
+| after | `Live Status of China's LEO Internet Constellations` |
+
+The old phrasing stacked three nouns, and the trailing `Constellations Live` did not read as the
+"live status" sense of 「在轨态势」.
+
+### ③ The other six decision points: **all kept as-is** (confirmed one by one)
+
+| # | Decision point | Your ruling | Result |
+|---|---|---|---|
+| 1 | Four coexisting English names for Qianfan | keep | unchanged (`Qianfan` / `SpaceSail` / `SpaceSail/Qianfan` / `SS`) |
+| 2 | `ns_qtr` / `ns_qtr2` two Chinese wordings, one English | keep | unchanged |
+| 3 | The "boundary glow" | **A — do nothing** | unchanged. The `box-shadow: inset` was proven by pixel-level review to **never render** (a VT snapshot is replaced content, so the inset shadow is covered entirely); noted in place, no extra glow layer added |
+| 4 | `licence` spelling in `foot_use` | keep | unchanged (British spelling) |
+| 5 | `Coverage` for 可见区域 | keep | unchanged |
+| 6 | `res_fail` = `Failure`, lowercase `climb_n_*` | keep | unchanged |
+
+### ④ Built-in orbital elements refreshed (CI auto-refresh)
+
+Remote `0baa588` (`data: TLE auto refresh, 2026-10-16 22:44 UTC`) refreshed both TLE feeds; this
+release rebuilds the bundled data from it:
+
+- the satellite set is **unchanged**: CSCN **251** / Qianfan **262** (0 added, 0 removed);
+- **440 of 513** satellites moved to a newer element epoch (e.g. `26289.33777` → `26289.56186`,
+  about +5.4 hours), with mean motion and drag terms updated accordingly;
+- `wiki.json` counts synced to the CI version (`asOf 2026-10-17`).
+
+### ⑤ Tooling: the visual regression script now polls for readiness (local, not committed)
+
+`visual.mjs` used fixed `sleep()` calls (59 of them) to wait for the page, which produced a
+**version-independent false red**: running the same command **twice in a row always fails 8–9 assertions
+on the second run** (a single run is 132/0). The four critical waits (load mask hidden + target element
+sized + canvas non-empty) now poll instead of sleeping for a fixed duration.
+
 ## [V1.9.5] — 2026-10-17
 
 > Highlights: the **globe keeps spinning during a theme switch** ("hole wipe", revertible in one step),

@@ -6,7 +6,7 @@
 </div>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.9.5-ff6b6b?style=flat-square" alt="version">
+  <img src="https://img.shields.io/badge/version-1.9.6-ff6b6b?style=flat-square" alt="version">
   <a href="https://sat.huijiwiki.com/wiki/%E6%98%9F%E7%BD%91"><img src="https://img.shields.io/badge/%E6%98%9F%E7%BD%91-CSCN-ff6b6b?style=flat-square" alt="SatNet"></a>
   <a href="https://sat.huijiwiki.com/wiki/%E5%8D%83%E5%B8%86%E6%98%9F%E5%BA%A7"><img src="https://img.shields.io/badge/%E5%8D%83%E5%B8%86-G60-4dabf7?style=flat-square" alt="Qianfan"></a>
   <img src="https://img.shields.io/badge/license-MIT-4dabf7?style=flat-square" alt="license">
@@ -62,7 +62,7 @@ That is all. On first open it tries to fetch the latest TLEs; if that fails it f
 | **01 Map** | Each satellite's current sub-satellite point, ground coverage (adjustable minimum elevation) and half an orbit of ground track before/after; you can pin a ground station and highlight the satellites visible from it |
 | **02 Orbits** | 3D globe: inclinations, coverage cones and the separation between different launch batches at a glance (altitudes are drawn exaggerated 2.4× above 8000 km so the shells are easy to tell apart) |
 | **03 Inclination distribution** | X = orbital inclination, Y = semi-major axis / apogee / perigee; one chart shows which orbital planes the constellation uses. When the data spans LEO and GEO, an **axis break** is applied (the LEO upper bound and the GEO lower bound are aligned on the canvas and the altitudes in between are treated as non-existent) — the two regions form one **continuous** chart, so zooming and panning move as a single rigid body with no jump at the seam |
-| **04 Orbits Change Status** | Each satellite's **semi-major-axis climb** from insertion to its working orbit (driven by a self-built historical orbit database; pick a batch or a single satellite to plot it; re-entered satellites are flagged red). Climb rate = least squares over a ±2 day window; **the Y axis hugs the selected batch's actual altitude range** (magnifying inter-satellite differences) and the X axis runs from launch day to the last data point; two modes (semi-major axis / climb rate), image export with a Δ column, and two-way sync with the global selection |
+| **04 Orbit Change Status** | Each satellite's **semi-major-axis climb** from insertion to its working orbit (driven by a self-built historical orbit database; pick a batch or a single satellite to plot it; re-entered satellites are flagged red). Climb rate = least squares over a ±2 day window; **the Y axis hugs the selected batch's actual altitude range** (magnifying inter-satellite differences) and the X axis runs from launch day to the last data point; two modes (semi-major axis / climb rate), image export with a Δ column, and two-way sync with the global selection |
 | **05 Network progress** | Two cumulative curves over time (X axis by week, labelled with the matching date): **launches** = cumulative satellites launched (stowaways and the upper stage of the same launch are excluded), **in orbit** = satellites with a TLE available; three time-range presets (all / this year / last 3 months) |
 | **06 Satellite table** | Orbital elements for every in-orbit satellite (batch/group, manufacturer, **status**, semi-major axis, apogee/perigee, inclination, period, days in orbit, RAAN, eccentricity, BSTAR, epoch) — sortable, searchable, exportable as an image. Eccentricity and BSTAR use **standard scientific notation** (`1.23×10⁻⁵`). Manufacturers come from the satellite wiki, shortened, and link out |
 | **07 Launch history** | Batch / rocket / launch time / site / **target inclination** / **satellites** / mission result per launch. The satellite count is this constellation's own; when the launch also carried others it reads `M/N` (M = this constellation's, N = the whole launch), and failed launches show `-` in both columns. Rockets and sites link to the satellite wiki, satellite names link to satcat.com |
@@ -137,7 +137,7 @@ node visual.mjs         # optional: real-browser layout and interaction checks (
 | Source | Used for | How to update it | Local task needed? |
 |---|---|---|---|
 | **CelesTrak / NORAD orbital elements (TLE)** | Where satellites are now, ground coverage, orbit shape | **Fetched live in the visitor's browser** on page open (several sources, public-proxy fallback, 30-minute session cache) | **No** (online visitors are always current) |
-| **Space-Track GP history** | The semi-major-axis climb curves of **04 Orbits Change Status** (historical orbit database) | Bulk-fetched at build time (login + `gp_history`, `format=tle`) into `data/history/`; `refresh.mjs` appends each day's elements; `mkdata.mjs` samples and packs them into the published `history/` shards | A local task (quota-limited, not suitable for CI) |
+| **Space-Track GP history** | The semi-major-axis climb curves of **04 Orbit Change Status** (historical orbit database) | Bulk-fetched at build time (login + `gp_history`, `format=tle`) into `data/history/`; `refresh.mjs` appends each day's elements; `mkdata.mjs` samples and packs them into the published `history/` shards | A local task (quota-limited, not suitable for CI) |
 | **Satellite wiki "GuoWang / Qianfan" articles** | The three header statistics (launched / in orbit / launch success) | Scraped once at build time; a scheduled task can also run `scripts/fetch_wiki.mjs` (zero dependencies) and commit the result | Optional (header numbers only) |
 | **Satellite wiki yearly launch-record pages** | The mission-result column of the launch history chapter and the vertical definition of 05 Network progress | Run `scripts/fetch_launch_results.mjs` at build time; the result lands in `wiki_launches.json` and is merged by `mkdata.mjs` | Optional (best run together with the TLE task) |
 | **Natural Earth coastline** | Land outlines on the map | Downloaded and bundled at build time | No |
@@ -213,7 +213,7 @@ A few design notes worth mentioning:
 
 ## 🗄️ Historical orbit database (since V1.9.0)
 
-The curves in the **04 Orbits Change Status** chapter are driven by a self-built historical orbit database. The design goal: keep working as the two constellations grow from a few thousand to **tens or hundreds of thousands** of satellites, and be hostable on GitHub as part of an open-source project.
+The curves in the **04 Orbit Change Status** chapter are driven by a self-built historical orbit database. The design goal: keep working as the two constellations grow from a few thousand to **tens or hundreds of thousands** of satellites, and be hostable on GitHub as part of an open-source project.
 
 **Where the data comes from**: Space-Track.org's **GP history set** (`class/gp_history`) — the many sets of orbital elements 18 SDS republishes for each satellite day by day. The script logs in with an official account and queries in bulk (10 objects per request, windowed by year, `format=tle`), parses each TLE's epoch and mean motion and converts it to a semi-major axis with the **Brouwer model** (the same convention as the page and SGP4), storing each satellite from its first post-launch element onwards. **Only the Brouwer semi-major axis is stored** — one model, one value, no mixed conventions.
 
@@ -293,7 +293,7 @@ with 0 requests. Run `--prune` afterwards for capacity governance.
 ```
 CISTrack.html           ★ latest build (no version in the name) — use it for the stable link:
                           https://1471155912.github.io/CISTrack/CISTrack.html
-CISTrack_v1.9.5.html    snapshot of the current version
+CISTrack_v1.9.6.html    snapshot of the current version
 CISTrack_v1.9.4.html    snapshot of the previous version (for rollback / comparison)
                         ↑ older ones are **trimmed automatically** by `release.mjs` (current + previous only)
 index.html              entry page (an 811-byte redirect to CISTrack.html)
@@ -305,7 +305,7 @@ CHANGELOG.md / CHANGELOG.en.md
 LICENSE                 MIT
 package.json / package-lock.json
                         dependency manifest (jsdom / ws are needed for the tests only; the build itself needs only Node)
-history/                published shards of the historical orbit database (the data behind 04 Orbits Change Status, loaded on demand; see "Historical orbit database")
+history/                published shards of the historical orbit database (the data behind 04 Orbit Change Status, loaded on demand; see "Historical orbit database")
 app.js / template.html  sources (the single-file build = these two + data/, packed by build.mjs)
 data/                   satellite data (manufacturer table, offline TLE fallback snapshot, coastline data, history source store data/history/)
 wiki.json               cached satellite-wiki statistics (the source of the header counters; the page reads it at runtime)

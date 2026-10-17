@@ -1816,8 +1816,11 @@ assert('V1.9.0（R17）：本章**不设任何设置项**（无抽屉、无时�
 assert('V1.9.1（A15）：右下角章节药丸「变 / C」且位次在「进 / P」之前，跳转标题中英同步',
   /\['sec-climb', 'C', '变'\]/.test(appCode) &&
   appCode.indexOf("['sec-climb'") < appCode.indexOf("['sec-progress'") &&
-  /'sec-climb': \{ zh: '04 变轨情况', en: '04 Orbits Change Status' \}/.test(appCode) &&
-  /'sec-progress': \{ zh: '05 组网进度', en: '05 Network progress' \}/.test(appCode));
+  // ★ V1.9.6（2026-10-17 用户裁决 B）：英文名 Orbits Change Status → Orbit Change Status。
+  //   ⚠️ 导出图底栏那个短标签仍是 `Orbits Change`（不带 Status）—— 那是**另一个字符串**（Q32 定稿），别顺手统一。
+  /'sec-climb': \{ zh: '04 变轨情况', en: '04 Orbit Change Status' \}/.test(appCode) &&
+  /'sec-progress': \{ zh: '05 组网进度', en: '05 Network progress' \}/.test(appCode) &&
+  /climb: \{ zh: '变轨情况', en: 'Orbits Change' \}/.test(appCode));
 assert('V1.9.0（R17）：五张图的缩放/复位走同一套通用通路（05 不另写动画旁路）',
   /view === 'climb'\) \{[\s\S]{0,200}?smoothZoom\(function \(f\) \{ zoomClimbBy\(f\); \}, dir, 260\);/.test(appCode) &&
   /view === 'climb'\) \{ climbView = null; climbAutoView\(\); drawClimb\(\); \}/.test(appCode) &&
@@ -5015,6 +5018,18 @@ assert('V1.9.1（#9）：JS 起来后仍然接管（语言切换 / 真实历元�
       if (bad.length) console.log('     ↳ 静态文本落后的键：' + bad.join(', '));
       return n >= 100 && withText >= 80 && bad.length === 0;
     })(), '扫描到的 data-i18n 元素须 ≥100、其中带静态文本 ≥80，且 0 处不一致');
+  // ★ V1.9.6（2026-10-17 用户裁决）：04 章英文名由 `Orbits Change Status` → `Orbit Change Status`。
+  //   这个词散在 **4 处**（章节标题 / 默认设置项说明 / 帮助正文 / 侧边导航章节名），
+  //   而"表格里那个 Orbits Change 是导出图的短标签"**不是同一个字符串**（底栏宽度有限，见 Q32）——
+  //   所以守卫必须同时断言"4 处都改了"与"导出图短标签没被顺手统一"。
+  assert('V1.9.6：04 章英文名 `Orbit Change Status` 已同步到全部 4 处，且导出图短标签 `Orbits Change` 未被顺手统一',
+    /h_climb: \['变轨情况', 'Orbit Change Status'\]/.test(appCode) &&
+    /t_defclimb: \[[^\]]*'Restore the default settings of 04 Orbit Change Status'\]/.test(appCode) &&
+    /\*\*Orbit Change Status \(04\)\*\*: pick one satellite/.test(appCode) &&
+    /'sec-climb': \{ zh: '04 变轨情况', en: '04 Orbit Change Status' \}/.test(appCode) &&
+    // 导出图底栏那个短标签仍应是复数且**不带 Status**（Q32 定稿的两处不是同一个字符串）
+    /climb: \{ zh: '变轨情况', en: 'Orbits Change' \}/.test(appCode) &&
+    !/shotClimb[^\n]*Orbit Change Status/.test(appCode));
   assert('#7：过场只作用于 `.chart-wrap`（画布）—— 不把整章或表格一起淡掉',
     /\.chart-wrap\.chart-out canvas \{ opacity:0; \}/.test(tpl));
 }
