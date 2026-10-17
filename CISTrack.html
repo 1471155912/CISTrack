@@ -1907,6 +1907,15 @@ html[data-theme="light"] .res-fail { color:#c72929; }
 #satTable td.stcell .st-rate.pos { color:var(--st-orbit); }
 #satTable td.stcell .st-rate.neg { color:var(--st-raising); }
 #satTable td.stcell .st-rate.zero { color:var(--dim); }
+/* ★ V1.9.7（§7）：03 章信息窗里的「变轨情况」行与表格**同一套染色**（同一个 orbitStatusHtml 输出）。
+   表格那三色只挂在 td 上，这里补一份 .si-row 版本 —— 值在 span:last-child 上，所以覆盖规则要更具体。 */
+.sat-info .si-row.st-orbit > span:last-child { color:var(--st-orbit); }
+.sat-info .si-row.st-raising > span:last-child { color:var(--st-raising); }
+.sat-info .si-row.st-gone > span:last-child { color:var(--st-gone); }
+.sat-info .si-row .st-rate { font-weight:700; }
+.sat-info .si-row .st-rate.pos { color:var(--st-orbit); }
+.sat-info .si-row .st-rate.neg { color:var(--st-raising); }
+.sat-info .si-row .st-rate.zero { color:var(--dim); }
 /* 已再入的整行：文字淡化一档（它已不在轨，不应与在轨卫星抢注意力），
    但**不隐藏**——用户口径是"已再入的也要能看见、能搜索"。 */
 #satTable tbody tr.gone td { opacity:.62; }
@@ -2580,7 +2589,7 @@ var I18N = {
   d_x_inc: ['轨道倾角', 'Inclination'],   // V1.3.6：分布图横轴标题
   md_bro: ['布劳威尔', 'Brouwer'], md_kep: ['开普勒', 'Kepler'],
   c_sat: ['按卫星', 'By satellite'], c_group: ['按批次', 'By group'],
-  b_reset: ['重置视图', 'Reset view'], b_cov: ['可见区域', 'Coverage'],
+  b_reset: ['重置视图', 'Reset view'], b_cov: ['可见区域', 'Coverage area'],
   b_shot: ['导出图片', 'Save image'],          // V1.3.7
   // V1.4.0：导出弹窗与导出图底栏
   // ★ V1.9.3：三个模式的语义**明确定义**（旧文案含糊，实际行为也错）：
@@ -2640,7 +2649,7 @@ var I18N = {
   b_pick: ['选择地面观测点', 'Pick ground site'], b_names: ['名称', 'Names'],
   b_spin: ['自转', 'Spin'], b_tracks: ['轨道', 'Orbits'],
   // V1.3.6：按钮名精简（"显示可视锥"→"可视区域"，"显示名称"→"名称"）
-  b_cone: ['可见区域', 'Coverage'],
+  b_cone: ['可见区域', 'Coverage area'],
   b_now: ['实时', 'Now'], b_cols: ['全部列', 'All columns'], pg_jump: ['点击页码可输入跳页', 'Click the page number to jump'],
   b_maptracks: ['轨道', 'Orbits'],
   b_default: ['默认设置', 'Defaults'], b_reset_all: ['还原所有默认设置', 'Restore all defaults'],
@@ -2750,7 +2759,7 @@ var I18N = {
   // ★ V1.9.5（H17）：页脚文案改为正式的 MIT 表述（原句"本页素材可自由使用，注明来源即可"偏口语）。
   //   与 README/LICENSE 的口径一致：MIT 允许自由使用/修改/分发，**条件**是保留版权与许可声明。
   foot_use: ['本项目为 MIT 开源项目，可自由使用、修改与分发（保留版权与许可声明即可）',
-             'MIT-licensed open source: free to use, modify and redistribute (keep the copyright and licence notice)'],
+             'MIT-licensed open source: free to use, modify and redistribute (keep the copyright and license notice)'],
   // 动态文案
   // ★ V1.9.6：去掉文字里的「…」—— 省略号改由 #lmThird 里三个**循环跳动**的点承担（见 template.html 的 .lm-dots）
   d_loading3: ['加载中', 'Loading'], d_epoch2: ['更新历元：', 'Epoch: '], d_pending_suffix: ['颗待编目', 'awaiting catalog'],
@@ -2790,6 +2799,10 @@ var I18N = {
     'Instantaneous altitude = height above the WGS-84 ellipsoid (sea level), inverted from the SGP4 position at that instant; the same satellite sits ~21 km lower over the equator than over the poles — ellipsoid geometry, not error.'],
   d_row_el: ['观测点仰角', 'Elevation at site'],
   d_row_inc: ['倾角', 'Inclination'], d_row_period: ['周期', 'Period'],
+  // ★ V1.9.7（§7）：03 章信息窗里那条「变轨情况」的行名（内容取 06 表格的同名字段）
+  d_row_status: ['变轨情况', 'Orbit change'],
+  // ★ V1.9.7（§7）：03 章信息窗里那条「变轨情况」的行名（内容取 06 表格的同名字段）
+  d_row_status: ['变轨情况', 'Orbit change'],
   d_row_epoch: ['更新历元', 'Updated epoch'], d_row_sma: ['半长轴', 'Semi-major axis'],
   d_row_pa: ['近地点×远地点', 'Perigee×Apogee'],
   d_latlon: ['纬度 / 经度', 'Lat / Lon'],   // V1.3.6：观测点信息窗里原先写死成英文
@@ -5039,6 +5052,9 @@ function satBlock(s, scope, extra) {
       fmtNum(b ? s.hpB : s.hpK, 2) + ' km×' + fmtNum(b ? s.haB : s.haK, 2) + ' km</span></div>' +
     '<div class="si-row"><span>' + t('d_row_inc') + '</span><span>' + fmtNum(s.inc, 2) + '°</span></div>' +
     '<div class="si-row"><span>' + t('d_row_period') + '</span><span>' + fmtNum(s.period, 3) + t('u_min') + '</span></div>' +
+    // ★ V1.9.7（§7 用户要求）：03 倾角分布的信息窗加一条「变轨情况」，位置在**周期之下、发射日期之上**，
+    //   内容与 06 表格的「在轨状态」列**完全同源**（同一个 orbitStatusHtml、同一套染色类）。
+    (scope === 'chart' ? satStatusRow(s) : '') +
     '<div class="si-row"><span>' + t('d_row_launch') + '</span><span>' + date +
       (days === null ? '' : paren(days + (LANG === 'en' ? ' d' : ' 天'))) + '</span></div>' +
     // V1.7.2 第七轮（需求6）：**信息窗里只保留「该星历元」这一行**。
@@ -5047,6 +5063,18 @@ function satBlock(s, scope, extra) {
     //   这样也不再出现"同一颗星的窗里两个日期、分不清哪个是最新"的困惑。
     '<div class="si-row"><span>' + t('d_row_epoch_sat') + '</span><span>' + fmtUTC(s.epochMs) + '</span></div>' +
     (extra || '') + '</div>';
+}
+// ★ V1.9.7（§7）：03 章信息窗的「变轨情况」行 —— 与 06 表格同一份文案与染色。
+//   为什么要把表格行对象在这里拼一遍：orbitStatusHtml 吃的是 tableVals 造的行（字段名不同：
+//   `_s` / `epoch`），这里按同样形状包一层，**不另写一套判定**（否则两处迟早不一致）。
+function satStatusRow(s) {
+  var r = {
+    _s: s, orb: s.orb, wk: s.wk, rr: s.rr, smaB: s.smaB, epoch: s.epochMs,
+    gone: s.st === 'r', deadOn: s.dt
+  };
+  var cls = r.gone ? 'st-gone' : (r.orb === 1 ? 'st-raising' : 'st-orbit');
+  return '<div class="si-row ' + cls + '"><span>' + t('d_row_status') + '</span><span>' +
+    orbitStatusHtml(r) + '</span></div>';
 }
 // ★ V1.9.7（§8）：`live` 参数给"会跳动"的那两行（星下点 / 瞬时高度）打标记，
 //   由 tickLiveInfo() 每秒就地改文本 —— 不重建整块 HTML（重建会打断选择、闪烁）。
@@ -9758,7 +9786,7 @@ var README_EN = [
   '## 🔗 Sources and attribution',
   '',
   '- 🌐 [CelesTrak](https://celestrak.org/) — distributor of the public orbital elements (TLEs); the **upstream source** is the public catalogue of the US Space Force **18th Space Defense Squadron (18 SDS)**, distributed via Space-Track. We fetch per CelesTrak\'s [usage policy](https://celestrak.org/usage-policy.php) (on their update cadence, only what we need);',
-  '- 📚 [Satellite Wiki](https://sat.huijiwiki.com/) — batches, dates, launch vehicles, sites, developers and the header counters, all from the SatNet / Qianfan articles. Its content is shared under [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/deed.en) ([copyright page](https://sat.huijiwiki.com/wiki/Project:%E7%89%88%E6%9D%83)): we **credit it and link the licence** and reproduce factual entries only; if you republish from this page, keep the same licence;',
+  '- 📚 [Satellite Wiki](https://sat.huijiwiki.com/) — batches, dates, launch vehicles, sites, developers and the header counters, all from the SatNet / Qianfan articles. Its content is shared under [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/deed.en) ([copyright page](https://sat.huijiwiki.com/wiki/Project:%E7%89%88%E6%9D%83)): we **credit it and link the license** and reproduce factual entries only; if you republish from this page, keep the same license;',
   '- 🗺️ [Natural Earth](https://www.naturalearthdata.com/) — **public-domain** coastlines ([terms](https://www.naturalearthdata.com/about/terms-of-use/): no permission or credit needed);',
   '- 🧮 [satellite-js](https://github.com/shashwatak/satellite-js) (MIT) → the algorithm itself comes from **Spacetrack Report #3 / CSSI**; 🔤 [Audiowide](https://fonts.google.com/specimen/Audiowide) (SIL OFL 1.1); 📐 orbit-raising presentation follows the methodology of [findrassvet.ru](https://findrassvet.ru/) ([CC BY 4.0](https://creativecommons.org/licenses/by/4.0/deed.en), credit `findrassvet.ru, V. Bulybenko`); 🛰️ some engineering approaches follow [Kayhan Space\'s open-source work](https://github.com/Kayhan-Space/sgp4gl) (MIT).',
   '',
@@ -9769,7 +9797,7 @@ var README_EN = [
   '- **AI involvement**: parts of the code, documentation and data-processing scripts were **AI-assisted** (vibe coding). The author has tested and reviewed them, but **no warranty against residual defects** is given; AI translations may contain mistakes — the Chinese text is authoritative;',
   '- **Privacy**: this page **collects and uploads nothing** — no accounts, cookies, analytics or ads. It stores settings (`localStorage`) and a 30-minute element cache (`sessionStorage`) locally only, and you can clear them anytime. At runtime it requests the same-origin `wiki.json` / `history/` shards and may contact `celestrak.org` directly for the latest elements (**that site sees your IP**; if the direct request fails it falls back to public CORS proxies, which also see it). GitHub Pages, as the host, logs access under its own privacy statement;',
   '- **Unofficial**: a personal hobby project — **not affiliated with or authorised by** any space agency or constellation operator;',
-  '- **Licence**: code is MIT; data and wiki content follow their own licences (see above).',
+  '- **License**: code is MIT; data and wiki content follow their own licenses (see above).',
   '',
   '## 🧩 Rebuild (developers)',
   '',

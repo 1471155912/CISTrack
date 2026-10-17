@@ -404,7 +404,7 @@ with 0 requests. Run `--prune` afterwards for capacity governance.
 
 ## 🔗 Sources and attribution
 
-| Item | We take it from | Upstream source | Licence / terms |
+| Item | We take it from | Upstream source | License / terms |
 |---|---|---|---|
 | Orbital elements (TLEs) | CelesTrak | US Space Force **18 SDS** (distributed via Space-Track) | CelesTrak [usage policy](https://celestrak.org/usage-policy.php) |
 | Batches / vehicles / sites / developers / Chinese names / article links | Satellite Wiki (SatNet & Qianfan articles) | Community editors | [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/deed.en) ([copyright page](https://sat.huijiwiki.com/wiki/Project:%E7%89%88%E6%9D%83)) |
@@ -426,7 +426,7 @@ with 0 requests. Run `--prune` afterwards for capacity governance.
 
 ## ⚖️ License
 
-[MIT](LICENSE) — free to use, modify and distribute (commercial use included), as long as the copyright and licence notice are kept.
+[MIT](LICENSE) — free to use, modify and distribute (commercial use included), as long as the copyright and license notice are kept.
 
 ## Repository layout
 

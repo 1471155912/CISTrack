@@ -1907,6 +1907,15 @@ html[data-theme="light"] .res-fail { color:#c72929; }
 #satTable td.stcell .st-rate.pos { color:var(--st-orbit); }
 #satTable td.stcell .st-rate.neg { color:var(--st-raising); }
 #satTable td.stcell .st-rate.zero { color:var(--dim); }
+/* ★ V1.9.7（§7）：03 章信息窗里的「变轨情况」行与表格**同一套染色**（同一个 orbitStatusHtml 输出）。
+   表格那三色只挂在 td 上，这里补一份 .si-row 版本 —— 值在 span:last-child 上，所以覆盖规则要更具体。 */
+.sat-info .si-row.st-orbit > span:last-child { color:var(--st-orbit); }
+.sat-info .si-row.st-raising > span:last-child { color:var(--st-raising); }
+.sat-info .si-row.st-gone > span:last-child { color:var(--st-gone); }
+.sat-info .si-row .st-rate { font-weight:700; }
+.sat-info .si-row .st-rate.pos { color:var(--st-orbit); }
+.sat-info .si-row .st-rate.neg { color:var(--st-raising); }
+.sat-info .si-row .st-rate.zero { color:var(--dim); }
 /* 已再入的整行：文字淡化一档（它已不在轨，不应与在轨卫星抢注意力），
    但**不隐藏**——用户口径是"已再入的也要能看见、能搜索"。 */
 #satTable tbody tr.gone td { opacity:.62; }
