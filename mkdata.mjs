@@ -1096,6 +1096,25 @@ const ORBIT_ST = (() => {
     }
     out.set(n, rec);
   }
+  // ★ V1.9.7（§23.12-p）：**把"因哪条判据判为变轨中"打出来** —— 否则误判永远靠猜。
+  //   alt  = 只因高度差（|sma−RE−wk| > NEAR）：通常是"还在爬、正处于两次点火之间的间歇"
+  //   mov  = 只因速率（|rate| > RATE_TH）：正在点火
+  //   both = 两条都命中
+  //   ⚠️ 必须放在 IIFE **内部**：`why` 是这里声明的，模块层引用会 ReferenceError（上一轮踩过）。
+  (() => {
+    // 不分星座（key 的命名不保证带 gw/qf 前缀，强行分组会串味 —— 上一版就是这么错的）；
+    // 总数可与 satdata 里 orb=1 的条数对照，三个分支的分布才是关键。
+    let n = 0, mov = 0, alt = 0, both = 0;
+    for (const [, x] of rows) {
+      const altHit = (!x.geo && x.wk !== 'GEO' && Math.abs(x.sma - RE - x.wk) > NEAR);
+      if (!(x.moving || altHit)) continue;
+      n++;
+      if (x.moving && altHit) both++;
+      else if (altHit) alt++;
+      else mov++;
+    }
+    console.log('[orb] 变轨中合计 ' + n + ' 颗｜仅速率 ' + mov + '｜仅高度差 ' + alt + '｜两者都中 ' + both);
+  })();
   return out;
 })();
 
