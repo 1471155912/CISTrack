@@ -4280,7 +4280,16 @@ assert('A9（V1.9.2 重新划分）：合并判据 = 数据空间可分辨阈值
         const blk = i < 0 ? '' : appCode.slice(i, i + 900);
         return blk.length > 100 && !/localStorage|sessionStorage|document\.cookie/.test(blk);
       })());
-    assert('V1.9.5（洞式）：没有 `@property` 的浏览器自动退回 classic（未注册的自定义属性不能插值 → 洞会两段跳）',
+    // ★★★ V1.9.6：主题切换的**默认必须是 classic**（用户 2026-10-17：「我要的是原来的效果」）。
+  //   原效果 = 新快照裁成扩散圆盖在旧快照上：**一条圆形边界线非线性扫过，线内已是切换后的页面**。
+  //   V1.9.5 曾把默认换成实验性 hole，观感退化为"一块区域直接覆盖"→ 默认回到 classic。
+  //   hole 仍可作为可选实验存在，但**不得**再当默认（这条守卫就是防它被翻回去）。
+  assert('V1.9.6：主题切换默认 = classic（原来的边界线扫过效果）；hole 仅作可选实验',
+    /if \(m !== 'classic' && m !== 'hole'\) m = 'classic';/.test(appCode) &&
+    !/if \(m !== 'classic' && m !== 'hole'\) m = 'hole';/.test(appCode) &&
+    /window\.CISTrack\.vtMode = function \(m\)/.test(appCode) &&
+    /classList\.toggle\('vt-hole', THEME_VT === 'hole'\)/.test(appCode));
+  assert('V1.9.5（洞式）：没有 `@property` 的浏览器自动退回 classic（未注册的自定义属性不能插值 → 洞会两段跳）',
       /typeof CSS\.registerProperty !== 'function'\) m = 'classic'/.test(appSrc));
     assert('V1.9.5（洞式）：CSS 三件套齐备 —— 新快照不画 / 旧快照挖洞（mask + 注册属性动画）/ hole 只在挂类时生效',
       /html\.vt-hole::view-transition-new\(root\) \{ display:none !important; animation:none !important; \}/.test(tpl) &&
@@ -4918,6 +4927,13 @@ assert('A9（V1.9.2 重新划分）：合并判据 = 数据空间可分辨阈值
   assert('V1.9.1：build.mjs 有 wiki.json "不倒退"守卫（计数变小则拒绝覆盖 + 明确告警）',
     /function wikiCounts/.test(bc) && /na < nb/.test(bc) && /拒绝覆盖/.test(bc) &&
     /CISTRACK_ALLOW_WIKI_REGRESS/.test(bc));
+  // ★ V1.9.6：补 **asOf 也不许倒退**。原守卫只比计数，于是"计数相同、日期更旧"会被静默写回
+  //   （2026-10-17 实测：CI 推了 asOf 10-17，本地重建出 asOf 10-15 的同计数文件，build 照抄 → 冲掉 CI 的更新）。
+  //   已实测双向行为：旧 asOf → 拒绝覆盖且 wiki.json md5 不变；正常 → 放行复制。
+  assert('V1.9.6：build.mjs 的 wiki.json 守卫**同时**拦"计数倒退"与"asOf 倒退"',
+    /function wikiAsOf/.test(bc) && /const sa = wikiAsOf\(a\), sb = wikiAsOf\(b2\);/.test(bc) &&
+    /sa < sb/.test(bc) && /sa && sb/.test(bc) &&
+    /早于/.test(bc) && /拿旧统计覆盖新统计/.test(bc));
   assert('V1.9.1：wiki.json 与 build/wiki.json 当前同步（若不同步=守卫拦下过，应先跑 mkdata）',
     (function () {
       try {
@@ -5385,9 +5401,16 @@ assert('V1.9.1（#9）：JS 起来后仍然接管（语言切换 / 真实历元�
 
   const rdZh = fs.existsSync(B + 'README.md') ? fs.readFileSync(B + 'README.md', 'utf8') : '';
   const rdEn = fs.existsSync(B + 'README.en.md') ? fs.readFileSync(B + 'README.en.md', 'utf8') : '';
-  assert('README（双语）：顶部都插入了这张动图，且路径指向 assets/',
-    /<img src="assets\/cistrack-logo\.gif"[^>]*width="720">/.test(rdZh) &&
-    /<img src="assets\/cistrack-logo\.gif"[^>]*width="720">/.test(rdEn));
+  // ★ V1.9.6（2026-10-17）：路径口径**从相对改成 Pages 绝对地址**。
+  //   实测：GitHub 渲染 README 时把相对路径 assets/cistrack-logo.gif 转成
+  //   github.com/1471155912/CISTrack/raw/main/... → 302 → raw.githubusercontent.com，
+  //   而该 CDN 对此文件**持续 502**（连测 3 次全 502）→ README 顶部的字标动图是裂图。
+  //   Pages 地址与仓库同内容（md5 一致）且稳定 200，故钉死为绝对地址；
+  //   同时反向禁止相对路径回来（那条路现在是坏的）。
+  assert('V1.9.6：README（双语）顶部 GIF 用 Pages 绝对地址，且**不许**退回相对路径',
+    /<img src="https:\/\/1471155912\.github\.io\/CISTrack\/assets\/cistrack-logo\.gif"[^>]*width="720">/.test(rdZh) &&
+    /<img src="https:\/\/1471155912\.github\.io\/CISTrack\/assets\/cistrack-logo\.gif"[^>]*width="720">/.test(rdEn) &&
+    !/<img src="assets\/cistrack-logo\.gif"/.test(rdZh) && !/<img src="assets\/cistrack-logo\.gif"/.test(rdEn));
   assert('README（双语）：都不再引用已废弃的 shots/ 目录（那目录既被 gitignore、又是构建清理区）',
     !/shots\//.test(rdZh) && !/shots\//.test(rdEn));
   assert('README（双语）：仓库结构说明里列出了 assets/',

@@ -90,3 +90,6 @@ data/history/*.bak
 # README 素材（**必须入库**，GitHub 要不就能渲染）
 !assets/
 !assets/**
+
+# 本地部署：定时任务产生的日志（deploy/ 脚本生成，不进仓库）
+deploy/*.log

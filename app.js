@@ -5575,7 +5575,14 @@ document.addEventListener('touchmove', function (e) {
 var THEME_VT = (function () {
   var m = null;
   try { m = new URLSearchParams(location.search).get('vt'); } catch (e) {}   // 只认网址参数
-  if (m !== 'classic' && m !== 'hole') m = 'hole';
+  // ★★★ V1.9.6：默认改回 **classic**（用户 2026-10-17 明确要求"要原来的效果"）★★★
+  //   原来（V1.6.0~V1.9.4）的效果 = classic：新快照裁成扩散圆盖在旧快照上 →
+  //   **一条圆形边界线非线性扫过，线内已经是切换后的页面，线外还是旧主题**。
+  //   V1.9.5 我曾把默认换成实验性的 hole（挖洞露出活页面，好让扩散期间地球继续自转），
+  //   但它给出的观感不是"边界线扫过"，用户视为功能退化 → 默认回到 classic。
+  //   hole 仍然保留为**可选实验**（?vt=hole / CISTrack.vtMode('hole')），
+  //   但不再是默认，也不会在文档里当默认效果宣传。
+  if (m !== 'classic' && m !== 'hole') m = 'classic';
   // 洞要靠 @property 注册的 --vt-hole-r 做插值；没有 @property 的浏览器（老 Firefox / 老 Safari）
   //   插不了值 → 那个洞会变成"0 → 满"的两段跳。这类浏览器直接退回旧版，观感与 V1.9.5 之前一致。
   try { if (typeof CSS === 'undefined' || typeof CSS.registerProperty !== 'function') m = 'classic'; } catch (e) { m = 'classic'; }

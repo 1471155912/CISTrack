@@ -51,7 +51,9 @@ const ALLOW_ROOT_EXACT = new Set([
 // 带版本号的产物：`CISTrack_v<主>.<次>.<修>.html`（数量另有限制）
 const ALLOW_ROOT_RE = [/^CISTrack_v\d+\.\d+\.\d+\.html$/];
 const MAX_VERSIONED_HTML = 2;   // 既有约定：只留「当前版 + 上一版」，更早的靠 git 历史回滚
-const ALLOW_DIR = new Set(['assets', 'data', 'history', 'scripts', '.github']);
+// ★ V1.9.6：新增 deploy/ —— 给"下载 Release 的 zip 本地部署"用的一键更新/定时任务脚本。
+//   里面只有 .bat / .sh（零依赖，Node 即可跑），不含任何过程文件。
+const ALLOW_DIR = new Set(['assets', 'data', 'history', 'scripts', 'deploy', '.github']);
 
 // ---- ② 全路径黑名单（任意深度）----
 const BLOCK = [

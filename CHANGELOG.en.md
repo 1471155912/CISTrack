@@ -67,6 +67,54 @@ release rebuilds the bundled data from it:
 on the second run** (a single run is 132/0). The four critical waits (load mask hidden + target element
 sized + canvas non-empty) now poll instead of sleeping for a fixed duration.
 
+### ⑥ ★ Local deployment with scheduled updates (new requirement)
+
+The project used to be "use it online / download the single file". Both are now fully supported,
+and the local copy can update itself:
+
+- New `deploy/` directory (plain `.bat` / `.sh`, zero dependencies, Node 18+):
+  - `update.bat` / `update.sh` — one-click "fetch latest elements → rebuild bundled data → repackage the single file → sync the versioned snapshot";
+  - `schedule-install.bat` / `.sh` — register a **daily 06:00** automatic update (Windows Task Scheduler / crontab);
+  - `schedule-remove.bat` / `.sh` — remove that scheduled task; logs go to `deploy/update.log`.
+- **New Release asset `CISTrack_v1.9.6_local-deploy.zip`**: the complete, unzip-and-go local deployment package (including `deploy/`).
+- READMEs (zh/en): "Quick start" is now split into **① Online / ② Local**, plus a dedicated
+  **「🖥️ Local deployment (with scheduled updates)」** chapter and 7 Q&A entries (works without Node?,
+  what if an update fails, does it overwrite the old file, servers/NAS/Docker, the flashing bat window, …).
+- `repo_hygiene` allowlist now includes `deploy/`; `.gitignore` excludes `deploy/*.log`.
+- All Windows bat files are written as **CRLF + pure ASCII** (avoids GBK garbling and the "window flashes and vanishes" problem).
+
+### ⑦ Fixed the missing big GIF at the top of the README (raw CDN 502)
+
+**Symptom**: the CISTrack wordmark animation above the badge row in the GitHub README turned into a broken image.
+**Root cause** (measured): the README used the relative path `assets/cistrack-logo.gif`, which GitHub rewrites to
+`github.com/.../raw/main/...` → 302 → `raw.githubusercontent.com`, and that CDN **keeps returning 502**
+for this file (3/3 attempts).
+**Fix**: point it at the project's own Pages URL (same content as the repo, identical md5, stable 200),
+and add a smoke guard that pins it **both ways** (must be absolute; must not fall back to relative).
+
+### ⑧ ★ Theme switch default restored to classic (fixes the "disc covering" regression)
+
+**Your report**: since 1.9.5/1.9.6 the light/dark switch is no longer a "circular boundary line sweeping"
+but "an area simply covering".
+**Root cause**: in V1.9.5 I had switched the default to the experimental **hole mode** (cut a hole in the old
+snapshot to reveal the live page, so the globe could keep spinning during the wipe). Frame-by-frame
+measurement (`_diag4.mjs`) showed its look is not a boundary-line sweep.
+**Fix**: **default restored to `classic`** — the original V1.6.0–V1.9.4 effect (the new snapshot clipped to a
+growing circle over the old one → **a circular boundary line sweeps non-linearly, inside the line the page
+has already switched, outside it is still the old theme**).
+- `hole` remains an **opt-in experiment** (`?vt=hole` / `CISTrack.vtMode('hole')`) but is no longer the default;
+- a new smoke guard stops the default from being flipped back to hole;
+- also fixed a real bug in hole mode's mask: the "show" end used to be **opaque white** — CSS mask descends
+  from SVG and is **luminance-based** (white = show, black = hide), which is part of why it looked wrong.
+
+### ⑨ build.mjs wiki.json guard now also rejects an `asOf` regression
+
+`build.mjs` copies `build/wiki.json` back over the repository-root `wiki.json`; the old guard compared
+**counts only, not the date**, so a file with the same counts but an older date was silently written back
+(it actually clobbered CI's newer stats once). An `asOf` criterion is now in place (taking the newer of
+gw/qf; ISO date strings compare lexicographically), with both directions verified:
+older `asOf` → refuses to overwrite and the file's md5 is unchanged; normal → copies.
+
 ## [V1.9.5] — 2026-10-17
 
 > Highlights: the **globe keeps spinning during a theme switch** ("hole wipe", revertible in one step),

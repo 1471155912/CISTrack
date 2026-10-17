@@ -2,7 +2,12 @@
 
 
 <div align="center">
-  <img src="assets/cistrack-logo.gif" alt="CISTrack 顶栏字标 · 星网↔千帆切换时的非线性变色扫过" width="720">
+  <!-- V1.9.6：这里**必须用 Pages 绝对地址**，不能写相对路径 assets/cistrack-logo.gif。
+       原因（2026-10-17 实测）：GitHub 渲染 README 时会把相对路径转成
+       github.com/.../raw/main/... → 302 → raw.githubusercontent.com，而该 CDN 对这个文件
+       持续返回 502（连续 3 次全 502）→ 页面顶部的大 GIF 显示为裂图。
+       Pages 地址（项目自己的在线版，同仓库同内容，md5 与本地一致）稳定 200。 -->
+  <img src="https://1471155912.github.io/CISTrack/assets/cistrack-logo.gif" alt="CISTrack 顶栏字标 · 星网↔千帆切换时的非线性变色扫过" width="720">
 </div>
 
 <p align="center">
@@ -49,10 +54,23 @@ the original author for the discovery and the advice, and we encourage everyone 
 
 ## 🚀 Quick start
 
-1. Download `CISTrack_v1.9.0.html` (or the same-named attachment from a Release; the repository's `index.html` redirects to the latest build)
+Two ways to use it — **pick either one**.
+
+### ① Online (easiest, recommended)
+
+Just open **<https://1471155912.github.io/CISTrack/CISTrack.html>** — that is this repository's
+GitHub Pages. It updates on every release, nothing to download.
+
+### ② Local (single file, double-click to run)
+
+1. Download `CISTrack_v1.9.6.html` (the [latest Release attachment](https://github.com/1471155912/CISTrack/releases/latest);
+   the repository's `index.html` also redirects to the latest build)
 2. Double-click to open it in a browser (Chrome / Edge / Firefox / Safari all work)
 
 That is all. On first open it tries to fetch the latest TLEs; if that fails it falls back to the bundled snapshot and everything still works.
+
+> Want **scheduled automatic updates on your own machine** (periodically pull fresh orbital elements
+> and repackage the HTML)? See the dedicated **「🖥️ Local deployment (with scheduled updates)」** chapter below.
 
 
 ## ✨ What it does
@@ -85,6 +103,93 @@ The four search boxes (top bar / table / the two full-screen panels) stay in syn
 - Input and selection survive entering/leaving full screen, switching language and toggling controls
 
 
+
+## 🖥️ Local deployment (with scheduled updates)
+
+Besides "just double-click the single HTML file", you can put the whole repository on your own machine
+and have it **periodically** pull fresh orbital elements and repackage the page. Ideal if you want the
+data always current without manually downloading anything.
+
+### Prerequisites
+
+| Item | Requirement |
+|---|---|
+| Node.js | **18 or newer** (<https://nodejs.org/>). The build chain has **zero npm dependencies** — once Node is installed you are done, no `npm install` |
+| Network | Only the "update data" step needs the internet (`celestrak.org`); everyday viewing is fully offline |
+| Disk | About 20 MB |
+
+### Step 1: get the repository
+
+Either way works:
+
+- **Download the Release zip** (`CISTrack_v1.9.6_local-deploy.zip` from the [latest Release](https://github.com/1471155912/CISTrack/releases/latest)) — unzip and go; **this is the complete package for local deployment**;
+- or `git clone https://github.com/1471155912/CISTrack.git`
+
+### Step 2: pick the usage that fits
+
+#### A. Just use the page as-is (install nothing)
+
+Double-click `CISTrack.html`. The page tries to update itself online when opened, and falls back to the bundled data.
+
+#### B. Update manually whenever you want
+
+| OS | Command |
+|---|---|
+| Windows | Double-click `deploy\update.bat` (or run `deploy\update.bat` from a console) |
+| macOS / Linux | `./deploy/update.sh` |
+
+It does four things in order: fetch the latest orbital elements → rebuild the bundled data →
+repackage the single-file HTML → sync the versioned snapshot. Then double-click the new `CISTrack.html`.
+
+#### C. Update automatically every day (scheduled task)
+
+| OS | Register | Remove |
+|---|---|---|
+| Windows | Double-click `deploy\schedule-install.bat` (daily at 06:00) | Double-click `deploy\schedule-remove.bat` |
+| macOS / Linux | `./deploy/schedule-install.sh` (daily at 06:00 via crontab) | `./deploy/schedule-remove.sh` |
+
+On Windows the job appears in Task Scheduler (`taskschd.msc`) as `CISTrack-Update`;
+on macOS/Linux check it with `crontab -l`. Logs go to `deploy/update.log`.
+
+### Data & privacy
+
+- Updating talks **only** to `celestrak.org` (the public NORAD satellite catalog) and the satellite wiki.
+  Nothing is uploaded; there are no accounts, keys or telemetry.
+- The page **writes nothing to browser storage**: settings, views and page numbers reset on refresh (by design).
+- The scheduled task runs locally only, and writes only local files.
+
+### ❓ Local deployment Q&A
+
+**Q1: Can I use it without Node.js?**
+Yes. Without Node you are in "option A" — just double-click `CISTrack.html`, and the page tries to update
+itself online when opened. Node is only needed when you want to **repackage** (bake new TLEs into the single file).
+
+**Q2: What if the scheduled update fails?**
+Almost always the network was unreachable (CelesTrak). This **does not** affect the existing page:
+bundled data keeps working, and the page retries the online update on next open. Check `deploy/update.log` for the reason.
+
+**Q3: Does updating overwrite my previous page?**
+Yes. `deploy/update.bat` / `update.sh` regenerate `CISTrack.html` (and keep a `CISTrack_v<version>.html`
+snapshot). Copy the old one somewhere first if you want to keep it.
+
+**Q4: Why is updating sometimes seconds and sometimes minutes?**
+Slow runs are usually waiting on CelesTrak (it retries a few times). The build itself is pure local computation and takes seconds.
+
+**Q5: Can I run it on a server / NAS / Docker?**
+Yes — it is just "Node scripts + static files". Put the repository anywhere, run `deploy/update.sh`, then
+serve `CISTrack.html` + `wiki.json` + `history/` with any static server (Nginx, `python -m http.server`).
+Note: over `http(s)://` the page can also load `wiki.json` and the history shards; over `file://` those two
+are skipped (satellite positions and elements are unaffected — only the top counters and chapter 04 history curves).
+
+**Q6: On Windows the bat window flashes and disappears?**
+Then it has already finished (both success and failure `pause` for a keypress; if it still flashes,
+right-click → run from a console to see the output). The bat files here are written as CRLF + pure ASCII
+to avoid encoding problems.
+
+**Q7: Is the scheduled job noisy?**
+No popups (Task Scheduler and cron both run in the background); it only appends to `deploy/update.log`.
+
+---
 
 ## 🔄 Updating the data
 
@@ -298,6 +403,7 @@ CISTrack_v1.9.4.html    snapshot of the previous version (for rollback / compari
                         ↑ older ones are **trimmed automatically** by `release.mjs` (current + previous only)
 index.html              entry page (an 811-byte redirect to CISTrack.html)
 assets/                 assets used by the READMEs (the wordmark animation cistrack-logo.gif)
+deploy/                local-deployment scripts: one-click update + schedule register/remove (.bat / .sh, zero-dependency; see "Local deployment")
 README.md / README.en.md
                         this documentation: Chinese (default) / English (split out in V1.9.1 A16, cross-linked at the top)
 CHANGELOG.md / CHANGELOG.en.md

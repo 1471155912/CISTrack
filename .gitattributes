@@ -17,3 +17,11 @@ data/cssi/* -text
 *.ico binary
 *.gif binary
 *.zip binary
+
+# ★ V1.9.6：deploy/*.bat **必须逐字节保留 CRLF**。
+#   cmd.exe 只认 CRLF：LF 的 bat 双击会一闪而过、无任何输出（本项目踩过）。
+#   发布包是用 `git archive HEAD` 打的，导出的是**仓库里的 blob**；若走 `text eol=crlf`
+#   （仓库存 LF、检出时转 CRLF），archive 出来的仍是 LF → 用户拿到的是坏 bat。
+#   故显式 `-text`：仓库即存 CRLF，检出 / archive 都原样给出。
+*.bat -text
+*.cmd -text

@@ -72,6 +72,19 @@ function wikiCounts(o) {
     }, 0);
   } catch (e) { return 0; }
 }
+// ★ V1.9.6：**asOf 也不许倒退**。原守卫只比"发射+在轨"计数，于是**计数相同、日期更旧**的
+//   wiki.json 会被静默写回仓库根 —— 2026-10-17 实测踩到：CI 推了新统计（asOf 10-17），
+//   本地 mkdata 却从一份 asOf 10-15 的输入重建，build 再把这份旧的拷回 wiki.json，
+//   等于把 CI 的更新冲掉，而计数一样所以守卫完全不响。
+//   口径：取 gw/qf 两者里较新的那个 asOf（ISO 日期串可直接按字典序比）；任一缺失/不可解析就不拦。
+function wikiAsOf(o) {
+  try {
+    return ['gw', 'qf'].reduce(function (a, k) {
+      var s = o && o[k] && o[k].asOf;
+      return (typeof s === 'string' && s > a) ? s : a;
+    }, '');
+  } catch (e) { return ''; }
+}
 const wj = `${B}/build/wiki.json`;
 if (fs.existsSync(wj)) {
   const tgt = `${B}/wiki.json`;
@@ -80,11 +93,19 @@ if (fs.existsSync(wj)) {
     let a = null, b2 = null;
     try { a = JSON.parse(fs.readFileSync(wj, 'utf8')); b2 = JSON.parse(fs.readFileSync(tgt, 'utf8')); } catch (e) {}
     const na = wikiCounts(a), nb = wikiCounts(b2);
+    const sa = wikiAsOf(a), sb = wikiAsOf(b2);
     if (a && b2 && na < nb) {
       skip = true;
       console.log('!! wiki.json **拒绝覆盖**：build/wiki.json 的计数 ' + na + ' < 现有 wiki.json 的 ' + nb +
         '（疑似 build/wiki.json 过期 —— 先跑 `node mkdata.mjs` 再构建）');
       console.log('   如确实要下调（例如词条被更正），设 CISTRACK_ALLOW_WIKI_REGRESS=1 或直接改 wiki.json 后跑 mkdata。');
+    } else if (a && b2 && sa && sb && sa < sb) {
+      // ★ V1.9.6：计数没变但日期更旧 = 同样是"用旧数据覆盖新数据"，必须一起拦
+      skip = true;
+      console.log('!! wiki.json **拒绝覆盖**：build/wiki.json 的 asOf ' + sa + ' **早于** 现有 wiki.json 的 ' + sb +
+        '（计数相同所以旧守卫不响，但这是"拿旧统计覆盖新统计"）');
+      console.log('   处理：确认 `node mkdata.mjs` 读到的 wiki.json 是不是最新的（它读仓库根那一份）；'
+        + '如确实要回退日期，设 CISTRACK_ALLOW_WIKI_REGRESS=1。');
     }
   }
   if (!skip) {

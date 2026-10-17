@@ -2,7 +2,12 @@
 
 
 <div align="center">
-  <img src="assets/cistrack-logo.gif" alt="CISTrack 顶栏字标 · 星网↔千帆切换时的非线性变色扫过" width="720">
+  <!-- V1.9.6：这里**必须用 Pages 绝对地址**，不能写相对路径 assets/cistrack-logo.gif。
+       原因（2026-10-17 实测）：GitHub 渲染 README 时会把相对路径转成
+       github.com/.../raw/main/... → 302 → raw.githubusercontent.com，而该 CDN 对这个文件
+       持续返回 502（连续 3 次全 502）→ 页面顶部的大 GIF 显示为裂图。
+       Pages 地址（项目自己的在线版，同仓库同内容，md5 与本地一致）稳定 200。 -->
+  <img src="https://1471155912.github.io/CISTrack/assets/cistrack-logo.gif" alt="CISTrack 顶栏字标 · 星网↔千帆切换时的非线性变色扫过" width="720">
 </div>
 
 <p align="center">
@@ -42,10 +47,23 @@
 
 ## 🚀 快速开始
 
-1. 下载 `CISTrack_v1.9.6.html`（或 Release 里的同名附件；仓库内的 `index.html` 会自动跳到最新版）
+两种用法，**选一种就行**。
+
+### ① 在线版（最省事，推荐）
+
+直接打开 **<https://1471155912.github.io/CISTrack/CISTrack.html>** —— 这就是本仓库的 GitHub Pages，
+每次发布自动更新，不用下载任何东西。
+
+### ② 本地版（单文件，双击即用）
+
+1. 下载 `CISTrack_v1.9.6.html`（[最新 Release 附件](https://github.com/1471155912/CISTrack/releases/latest)；
+   仓库内的 `index.html` 也会自动跳到最新版）
 2. 双击用浏览器打开（Chrome / Edge / Firefox / Safari 均可）
 
 就这两步。首次打开会尝试联网拉取最新 TLE，失败则用内置快照，功能完全不受影响。
+
+> 想在自己的电脑上**定时自动更新**（定期拉最新轨道要素、重新打包 HTML）？
+> 看下面专门的 **「🖥️ 本地部署（含定时自动更新）」** 一章。
 
 
 ## ✨ 它有什么
@@ -78,6 +96,92 @@
 - 输入内容与选中的卫星在进出全屏、切语言、开关控件后都保留，不会丢
 
 
+
+## 🖥️ 本地部署（含定时自动更新）
+
+除了"双击单文件 HTML"，你也可以把这整个仓库放到自己电脑上，**定期自动**拉最新轨道要素并重新打包。
+适合想让数据始终最新、又不想手动下载的人。
+
+### 前提条件
+
+| 项 | 要求 |
+|---|---|
+| Node.js | **18 或更高**（<https://nodejs.org/>）。构建链**零 npm 依赖**，装完 Node 就能跑，不需要 `npm install` |
+| 网络 | 只有"更新数据"那一步需要联网（访问 `celestrak.org`）；日常看图完全离线 |
+| 磁盘 | 约 20 MB |
+
+### 第一步：拿到仓库
+
+两种方式任选：
+
+- **下载 Release 的 zip**（[最新 Release](https://github.com/1471155912/CISTrack/releases/latest) 的
+  `CISTrack_v1.9.6_本地部署.zip`）→ 解压即用，**这是给本地部署准备的完整包**；
+- 或 `git clone https://github.com/1471155912/CISTrack.git`
+
+### 第二步：按需要选一种用法
+
+#### A. 只用现成的页面（什么都不用装）
+
+直接双击 `CISTrack.html`。页面自己会在打开时尝试联网更新，失败就用内置数据。
+
+#### B. 想更新时手动更新一次
+
+| 系统 | 命令 |
+|---|---|
+| Windows | 双击 `deploy\update.bat`（或命令行执行 `deploy\update.bat`） |
+| macOS / Linux | `./deploy/update.sh` |
+
+它会依次做四件事：拉最新轨道要素 → 重建内置数据 → 重新打包单文件 HTML → 同步版本快照。
+跑完双击新的 `CISTrack.html` 即可。
+
+#### C. 每天自动更新（定时任务）
+
+| 系统 | 注册 | 取消 |
+|---|---|---|
+| Windows | 双击 `deploy\schedule-install.bat`（每天 06:00） | 双击 `deploy\schedule-remove.bat` |
+| macOS / Linux | `./deploy/schedule-install.sh`（每天 06:00 写入 crontab） | `./deploy/schedule-remove.sh` |
+
+Windows 上注册后可在"任务计划程序"（`taskschd.msc`）里看到名为 `CISTrack-Update` 的任务；
+macOS/Linux 上用 `crontab -l` 查看。日志写在 `deploy/update.log`。
+
+### 数据与隐私
+
+- 更新时**只**访问 `celestrak.org`（公开的 NORAD 空间目标目录）与卫星百科；
+  不上传任何东西，也没有账号、密钥或遥测。
+- 页面**不写浏览器本地存储**：设置、视图、页码刷新即回到默认（这是有意的设计）。
+- 定时任务只在本机执行，产出只写本机文件。
+
+### ❓ 本地部署 Q&A
+
+**Q1：没有 Node.js 能用吗？**
+能。不装 Node 就等于"方式 A"——直接双击 `CISTrack.html`，页面打开时会自己联网更新。
+Node 只在你想**重新打包**（把新 TLE 写进单文件）时才需要。
+
+**Q2：定时更新失败了怎么办？**
+绝大多数是当时网络不通（访问不到 CelesTrak）。这**不影响**已有页面：内置数据照旧工作，
+页面打开时还会再试一次联网更新。想看原因就打开 `deploy/update.log`。
+
+**Q3：更新后的页面覆盖了原来的吗？**
+是。`deploy/update.bat` / `update.sh` 会重新生成 `CISTrack.html`（并留一份
+`CISTrack_v<版本>.html` 快照）。想留旧版，更新前自己复制一份即可。
+
+**Q4：为什么更新只要几秒，有时候却要几分钟？**
+慢的时候通常是在等 CelesTrak 响应（它会自动重试几次）。构建本身是纯本地计算，几秒钟。
+
+**Q5：能在服务器 / NAS / Docker 里跑吗？**
+能，它就是"Node 脚本 + 静态文件"。把仓库放到任意目录，用 `deploy/update.sh` 更新，
+再把 `CISTrack.html` + `wiki.json` + `history/` 用任意静态服务器（Nginx、`python -m http.server`）Serve 即可。
+注意：若通过 `http(s)://` 访问，页面才能拉 `wiki.json` 与历史分片；`file://` 双击打开时这两项会被跳过
+（卫星位置与要素不受影响，只影响顶部词条统计与 04 章历史曲线）。
+
+**Q6：Windows 上双击 bat 窗口一闪而过？**
+那说明它已经跑完了（成功或失败都会 `pause` 等你按键；若仍是一闪，请右键"用命令行运行"看输出）。
+本仓库的 bat 已按 CRLF + 纯 ASCII 编写，避免编码问题。
+
+**Q7：定时任务会不会很吵？**
+不会弹窗（Windows 任务计划与 cron 都是后台执行），只在 `deploy/update.log` 里留日志。
+
+---
 
 ## 🔄 更新数据
 
@@ -301,6 +405,7 @@ CISTrack_v1.9.4.html    上一版快照（回滚 / 对照用）
                         ↑ 更早的版本由 `release.mjs` **自动裁剪**（只留当前版 + 上一版）
 index.html              入口页（811 字节的跳转页，自动跳到 CISTrack.html）
 assets/                 README 用到的素材（顶栏字标动图 cistrack-logo.gif）
+deploy/                本地部署脚本：一键更新 + 定时任务注册/取消（.bat / .sh，零依赖，见「本地部署」一章）
 README.md / README.en.md
                         本说明：中文版（默认）/ 英文版（V1.9.1 A16 起拆出，顶部可互跳）
 CHANGELOG.md / CHANGELOG.en.md
