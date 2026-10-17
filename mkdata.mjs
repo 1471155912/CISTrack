@@ -976,6 +976,23 @@ const ORBIT_ST = (() => {
   const NEAR = 30;       // 「已到该批工作高度」的容差（km）
   const CLUSTER_GAP = 30;// 工作高度聚类：相邻高度差 <= 它算同一簇
   const MIN_PTS = 4;     // 点数少于它 → 数据不足，改按"是否近期首现"判
+  // ★ V1.9.7（§9）：改用 **2 天 LSQ 速率** 判"是否在推"，阈值 0.8 km/day ≈ 5σ
+  //   （数值取自 findrassvet 的 METHODOLOGY §3.3–3.5：其估计噪声 0.11 km/day、阈值 0.8 约 5σ、无误触发）。
+  const RATE_TH = 0.8;   // km/day：|速率| 超过它才算"在推"
+  // 2 天窗口最小二乘速率（km/day）—— 与展示用的 rr 是**同一个函数**，避免两套口径
+  const lsqRateDay = (pts, days) => {
+    const H = days * DAY, tail = pts[pts.length - 1][0];
+    const win = pts.filter(p => Math.abs(p[0] - tail) <= H);
+    const use = win.length >= 2 ? win : pts.slice(-2);
+    if (use.length < 2) return null;
+    const t0 = use[0][0];
+    const xs = use.map(p => (p[0] - t0) / DAY), ys = use.map(p => p[1]);
+    const mx = xs.reduce((a, b) => a + b, 0) / xs.length;
+    const my = ys.reduce((a, b) => a + b, 0) / ys.length;
+    const den = xs.reduce((a, v) => a + (v - mx) * (v - mx), 0);
+    if (!(den > 0)) return null;
+    return xs.reduce((a, v, i) => a + (v - mx) * (ys[i] - my), 0) / den;
+  };
   const GEO_SMA = 42000; // GEO 判据：半长轴 ≥ 42000 km（对应周期 ≈1436 min，即 Q46 的口径）
   const now = Date.now();
 
@@ -1012,10 +1029,17 @@ const ORBIT_ST = (() => {
         for (const p of pts) if (p[1] > hmax) hmax = p[1];
         // 数据不足：近期首现（<30 天）→ 判"变轨中"（刚发射的新星）；否则保守判"在轨"
         const thin = pts.length < MIN_PTS;
+        // ★★ V1.9.7（§9 主改）：**用 2 天最小二乘速率判"是否在推"，不再用首末差分。**
+        //   为什么：`d` 是「末 k 点中位数 − 首 k 点中位数」，属于差分式判据 ——
+        //   findrassvet 的实测（METHODOLOGY §3.2）指出这类判据的噪声足以让**被动飞行看起来像在推**；
+        //   本项目的实测也印证：星网 1150km 那批明明已到位，`rr = 0`，却因 `|d| > EPS_LEO` 被判 orb=1。
+        //   现在：速率用与展示完全相同的 2 天 LSQ（同一函数），阈值 ≈ 5σ（findrassvet 取 0.8 km/day）。
+        const rate = lsqRateDay(pts, 2);
         rows.set(n, {
-          key: key, pts: pts, sma: sma, geo: geo, drift: d, hmax: hmax - RE,
+          key: key, pts: pts, sma: sma, geo: geo, drift: d, hmax: hmax - RE, rate: rate,
           moving: thin ? (now - pts[0][0] <= WIN * DAY)
-                       : (d === null || Math.abs(d) > (geo ? EPS_GEO : EPS_LEO))
+                       : (rate !== null ? Math.abs(rate) > RATE_TH
+                                        : (d === null || Math.abs(d) > (geo ? EPS_GEO : EPS_LEO)))
         });
       }
     }
@@ -1065,20 +1089,9 @@ const ORBIT_ST = (() => {
     }
     const rec = { orb: orb, wk: x.wk, od: od ? ymd8(od) : '' };
     if (orb) {
-      // 升轨速度：±2 天窗口最小二乘 —— 与升轨章的 climbRates(pts, 2, 2) 同一算法（清单要求）
-      const H = 2 * DAY, tail = x.pts[x.pts.length - 1][0];
-      const win = x.pts.filter(p => Math.abs(p[0] - tail) <= H);
-      const use = win.length >= 2 ? win : x.pts.slice(-2);
-      if (use.length >= 2) {
-        const t0 = use[0][0];
-        const xs = use.map(p => (p[0] - t0) / DAY), ys = use.map(p => p[1]);
-        const mx = xs.reduce((a, b) => a + b, 0) / xs.length;
-        const my = ys.reduce((a, b) => a + b, 0) / ys.length;
-        const den = xs.reduce((a, v) => a + (v - mx) * (v - mx), 0);
-        if (den > 0) {
-          const s = xs.reduce((a, v, i) => a + (v - mx) * (ys[i] - my), 0) / den;
-          rec.rr = Math.round(s * 100) / 100;
-        }
+      // 升轨速度：直接复用前面算好的 2 天 LSQ 速率（★ V1.9.7：与 moving 判据同一份数据，不再重算一遍）
+      if (x.rate !== null && x.rate !== undefined && isFinite(x.rate)) {
+        rec.rr = Math.round(x.rate * 100) / 100;
       }
     }
     out.set(n, rec);
