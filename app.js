@@ -5726,6 +5726,15 @@ document.getElementById('themeBtn').addEventListener('click', function () {
     //   在动画最后一刻再失效一次（又一轮光栅化）—— 实测那正是长帧最集中的位置。
     try { renderTable(); } catch (e) {}
   };
+  // ★ V1.9.7（§23.5-j）：尊重系统的「减弱动态效果」。
+  //   为什么必须有：用户把系统开关打开后，全站最大面积的那段 520ms 圆形扩散**仍然照放** ——
+  //   等于这个无障碍开关在本页完全失效。CSS 侧已有三处 @media（表格淡入淡出/加载环/入场），
+  //   JS 侧只有这一处，补上即可；直接换主题、不播扩散（与"浏览器不支持 VT"走同一条静默路径）。
+  try {
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      apply(); finishHeavy(); return;
+    }
+  } catch (e) {}
   if (typeof document.startViewTransition !== 'function') { apply(); finishHeavy(); return; }
   var r = this.getBoundingClientRect();
   var root = document.documentElement;
