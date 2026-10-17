@@ -5597,6 +5597,34 @@ function vtApplyMode() {
 vtApplyMode();
 window.CISTrack = window.CISTrack || {};
 // 一键回退入口（控制台可用，也供说明文档引用）；不带参数则返回当前模式。**不落盘**。
+// ★ 边界羽化宽度（0~1px ≈ 原来的硬边；默认 110px = "看不见的线"）
+//   只影响那圈渐变带的宽度，不动动画时长/缓动/半径，也不改 hole 的机制。
+window.CISTrack.vtFeather = function (px) {
+  try {
+    var v = parseFloat(px);
+    if (!isFinite(v) || v < 0) return null;
+    document.documentElement.style.setProperty('--vt-feather', v + 'px');
+    return v;
+  } catch (e) { return null; }
+};
+try {
+  var _fq = new URLSearchParams(location.search).get('vtfeather');
+  if (_fq !== null) window.CISTrack.vtFeather(_fq);
+} catch (e) {}
+// ★ 边界羽化宽度（0~1px ≈ 原来的硬边；默认 110px = "看不见的线"）
+//   只影响那圈渐变带的宽度，不动动画时长/缓动/半径，也不改 hole 的机制。
+window.CISTrack.vtFeather = function (px) {
+  try {
+    var v = parseFloat(px);
+    if (!isFinite(v) || v < 0) return null;
+    document.documentElement.style.setProperty('--vt-feather', v + 'px');
+    return v;
+  } catch (e) { return null; }
+};
+try {
+  var _fq = new URLSearchParams(location.search).get('vtfeather');
+  if (_fq !== null) window.CISTrack.vtFeather(_fq);
+} catch (e) {}
 window.CISTrack.vtMode = function (m) {
   if (m === undefined) return THEME_VT;
   if (m !== 'classic' && m !== 'hole') { console.warn('[vt] 只认 classic / hole，当前仍是 ' + THEME_VT); return THEME_VT; }

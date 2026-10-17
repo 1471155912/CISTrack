@@ -1498,10 +1498,18 @@ html.vt-hole::view-transition-old(root) {
        洞内 rgba(0,0,0,0)  →  Alpha 0 / 亮度 0  →  两种语义都隐藏 ✓
        洞外 rgb(255,255,255) →  Alpha 1 / 亮度 1  →  两种语义都显示 ✓
      （这也解释了为什么"边界高光"那条 inset 阴影看着没生效 —— 同一类"想当然"的坑。） */
+  /* ★ 边界羽化：用户要的是"一条**看不见**的线推过去、沿途逐渐变色"，不是"一个圆把内容盖住"。
+     默认 **1px = 硬边**（与 V1.9.4 观感一致）；需要"看不见的线"时把 --vt-feather 调大（如 60~120）——
+     带内旧快照按比例淡出、活页面按比例露出，视觉上是**一道柔波**，看不到圆的轮廓。
+     运行期调：?vtfeather=1（默认，硬边）/ 60 / 120；或控制台 CISTrack.vtFeather(px)。 */
   -webkit-mask-image: radial-gradient(circle at var(--vt-x, 96%) var(--vt-y, 4%),
-      rgba(0,0,0,0) 0, rgba(0,0,0,0) var(--vt-hole-r, 0px), rgba(255,255,255,1) calc(var(--vt-hole-r, 0px) + 1px));
+      rgba(0,0,0,0) 0,
+      rgba(0,0,0,0) max(0px, calc(var(--vt-hole-r, 0px) - var(--vt-feather, 1px))),
+      rgba(255,255,255,1) var(--vt-hole-r, 0px));
   mask-image: radial-gradient(circle at var(--vt-x, 96%) var(--vt-y, 4%),
-      rgba(0,0,0,0) 0, rgba(0,0,0,0) var(--vt-hole-r, 0px), rgba(255,255,255,1) calc(var(--vt-hole-r, 0px) + 1px));
+      rgba(0,0,0,0) 0,
+      rgba(0,0,0,0) max(0px, calc(var(--vt-hole-r, 0px) - var(--vt-feather, 1px))),
+      rgba(255,255,255,1) var(--vt-hole-r, 0px));
 }
 @keyframes vtHole {
   from { --vt-hole-r: 0px; }

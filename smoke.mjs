@@ -4296,14 +4296,16 @@ assert('A9（V1.9.2 重新划分）：合并判据 = 数据空间可分辨阈值
     // hole 机制的关键件必须原样在（改了就等于"动了机制"）
     /html\.vt-hole::view-transition-new\(root\) \{ display:none/.test(tpl) &&
     // mask 跨行书写，中间允许任意空白（第一版写死 `, ` 因此假红）
-    /radial-gradient\(circle at var\(--vt-x[\s\S]{0,120}?rgba\(255,255,255,1\) calc\(var\(--vt-hole-r/.test(tpl) &&
+    // V1.9.6：边界改成可调羽化后，白色端直接落在 --vt-hole-r 上（带 max() 夹住羽化起点）
+    /radial-gradient\(circle at var\(--vt-x[\s\S]{0,400}?rgba\(255,255,255,1\) var\(--vt-hole-r/.test(tpl) &&
+    /--vt-feather/.test(tpl) &&
     /@keyframes vtHole/.test(tpl) && /@property --vt-hole-r/.test(tpl));
   assert('V1.9.5（洞式）：没有 `@property` 的浏览器自动退回 classic（未注册的自定义属性不能插值 → 洞会两段跳）',
       /typeof CSS\.registerProperty !== 'function'\) m = 'classic'/.test(appSrc));
     assert('V1.9.5（洞式）：CSS 三件套齐备 —— 新快照不画 / 旧快照挖洞（mask + 注册属性动画）/ hole 只在挂类时生效',
       /html\.vt-hole::view-transition-new\(root\) \{ display:none !important; animation:none !important; \}/.test(tpl) &&
       /@property --vt-hole-r \{ syntax: "<length>"; inherits: false; initial-value: 0px; \}/.test(tpl) &&
-      /html\.vt-hole::view-transition-old\(root\) \{[\s\S]{0,900}?mask-image: radial-gradient\(circle at var\(--vt-x, 96%\) var\(--vt-y, 4%\),/.test(tpl) &&
+      /html\.vt-hole::view-transition-old\(root\) \{[\s\S]{0,1800}?mask-image: radial-gradient\(circle at var\(--vt-x, 96%\) var\(--vt-y, 4%\),/.test(tpl) &&
       /@keyframes vtHole \{[\s\S]{0,200}?to   \{ --vt-hole-r: var\(--vt-r, 3000px\); \}/.test(tpl));
     // ---- ★ V1.9.5（§14.3-D）：hover 命中测试收口（用户批准 + 要求可撤回）----
     assert('V1.9.5（§14.3-D）：hover 闸门默认改成**每帧一次**，且旧 32ms 时间节流**仍在代码里**（可一键回退）',
