@@ -31,6 +31,19 @@ jobs:
       - name: Fetch & parse wiki stats
         run: node scripts/fetch_wiki.mjs
 
+      # ★ V1.9.7（§23.3-d 的同款闸门）：这个 workflow 是**手动触发、只改 wiki.json、不构建产物**，
+      #   所以加 smoke 意义不大；但它**推送前没有任何校验** —— 一旦抓取解析出错（例如 WAF 挑战页被当成数据），
+      #   坏结构会直接进 main，再被下一次构建消费。这里做最小结构校验，不合格就不提交。
+      - name: 校验 wiki.json 结构（必填字段 + 数值类型）
+        run: |
+          node -e '
+          const w = require("./wiki.json");
+          const ok = k => w[k] && typeof w[k].asOf === "string" && w[k].asOf
+            && w[k].launched && typeof w[k].launched.n === "number" && isFinite(w[k].launched.n)
+            && w[k].inOrbit && typeof w[k].inOrbit.n === "number" && isFinite(w[k].inOrbit.n);
+          if (!ok("gw") || !ok("qf")) { console.error("wiki.json 结构不合格，拒绝提交"); process.exit(1); }
+          console.log("wiki.json 结构 OK:", w.gw.asOf, "/", w.qf.asOf);
+          '
       - name: Commit if changed
         run: |
           git config user.name "github-actions[bot]"

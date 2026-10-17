@@ -479,3 +479,35 @@ Three points adopted (each with the quantitative reason it gives):
 > Citation: findrassvet's methodology text and figures are **CC BY 4.0**. If you cite this project's implementation
 > of those methods, please also credit **"findrassvet.ru, V. Bulybenko"**.
 > This project is not affiliated with findrassvet or Bureau 1440; both use the public NORAD catalog.
+
+### 🔐 About the third-party CORS proxies (disclosed, V1.9.7)
+
+If a direct browser request to `celestrak.org` is blocked by CORS or the local network, the page **falls back to two
+public CORS proxies**:
+
+- `api.allorigins.win`
+- `api.codetabs.com`
+
+**What that means, plainly**: when the proxy path is used, the target URL and **your IP** pass through those two
+third-party services. This project sends no personal data — the proxies only relay public TLE requests — but **if you
+do not want traffic to go through a third party**, keep the direct path working (or use the local-deployment +
+scheduled-task setup so data is refreshed on your own machine).
+
+> Planned after V1.9.7: a **direct-only** switch (direct by default; ask before using a proxy) and the actual network
+> footprint listed in the in-app About panel.
+
+### 🔐 About the third-party CORS proxies (disclosed, V1.9.7)
+
+If a direct browser request to `celestrak.org` is blocked by CORS or the local network, the page **falls back to two
+public CORS proxies**:
+
+- `api.allorigins.win`
+- `api.codetabs.com`
+
+**What that means, plainly**: when the proxy path is used, the target URL and **your IP** pass through those two
+third-party services. This project sends no personal data — the proxies only relay public TLE requests — but **if you
+do not want traffic to go through a third party**, keep the direct path working (or use the local-deployment +
+scheduled-task setup so data is refreshed on your own machine).
+
+> Planned after V1.9.7: a **direct-only** switch (direct by default; ask before using a proxy) and the actual network
+> footprint listed in the in-app About panel.
