@@ -8046,14 +8046,16 @@ document.addEventListener('touchmove', function (e) {
 var THEME_VT = (function () {
   var m = null;
   try { m = new URLSearchParams(location.search).get('vt'); } catch (e) {}   // 只认网址参数
-  // ★★★ V1.9.6：默认改回 **classic**（用户 2026-10-17 明确要求"要原来的效果"）★★★
-  //   原来（V1.6.0~V1.9.4）的效果 = classic：新快照裁成扩散圆盖在旧快照上 →
-  //   **一条圆形边界线非线性扫过，线内已经是切换后的页面，线外还是旧主题**。
-  //   V1.9.5 我曾把默认换成实验性的 hole（挖洞露出活页面，好让扩散期间地球继续自转），
-  //   但它给出的观感不是"边界线扫过"，用户视为功能退化 → 默认回到 classic。
-  //   hole 仍然保留为**可选实验**（?vt=hole / CISTrack.vtMode('hole')），
-  //   但不再是默认，也不会在文档里当默认效果宣传。
-  if (m !== 'classic' && m !== 'hole') m = 'classic';
+  // ★★★ 默认 = **hole**（用户 2026-10-17 最终裁决）★★★
+  //   决策依据（实测，不是推测）：
+  //     · 停转有**两层**原因：① `vt-running` 让主循环早退（状态冻结）；② **VT 期间页面是两张静态位图**
+  //       （像素级证据：手动摘掉 vt-running 后 yaw 推进 0.018 rad，但两帧**最大像素差 = 0**）。
+  //       ⇒ 只要还用 classic 的机制，圆内永远是"照片"，地球不可能看起来在转。
+  //     · hole 的洞内是**活页面**：扩散期间 Δyaw 达名义速率的 101%，边界仍是同一条硬边（过渡 3px vs classic 2px），
+  //       非线性缓动与时长**与 classic 完全共用**。
+  //   ⚠️ hole 的机制本身**一行未改** —— 本次只改了这一个默认值。
+  //   回退：?vt=classic / CISTrack.vtMode('classic')（不落盘）。
+  if (m !== 'classic' && m !== 'hole') m = 'hole';
   // 洞要靠 @property 注册的 --vt-hole-r 做插值；没有 @property 的浏览器（老 Firefox / 老 Safari）
   //   插不了值 → 那个洞会变成"0 → 满"的两段跳。这类浏览器直接退回旧版，观感与 V1.9.5 之前一致。
   try { if (typeof CSS === 'undefined' || typeof CSS.registerProperty !== 'function') m = 'classic'; } catch (e) { m = 'classic'; }

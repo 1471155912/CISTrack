@@ -134,6 +134,22 @@ third line '加载中' the same font size as the first line, and make the three 
 - Two new smoke guards (both lines must share the size variable / all three dots must have their own animation with
   staggered delays, plus the reduced-motion fallback).
 
+### ⑪ Theme switch **default is now hole** (final ruling: "non-linear wipe + globe keeps spinning" together)
+
+> Follows ⑧: there I restored the default to classic per "I want the original effect". Measurement then proved that
+> **under classic's mechanism the globe can never be seen spinning**, so per your final requirement the default is now hole.
+> **The hole mechanism itself is untouched** — only this one default value changed.
+
+**Why classic cannot do it** (pixel-level evidence): after manually removing the `vt-running` pause mid-transition,
+`G.yaw` advanced 0.018 rad but the **maximum pixel difference between the two frames was 0** — during a View Transition
+the page is **two static bitmaps**; the content inside the circle is a photo that never updates.
+
+**Why hole can**: inside the hole is the **live page** (new theme); measured Δyaw during the wipe reaches **99–101%** of
+nominal; the boundary is the same hard edge (3px transition vs classic's 2px); easing, duration (520ms) and start/end
+radius are **shared with classic** — no visual parameter was changed.
+
+**Fallback**: `?vt=classic` or `CISTrack.vtMode('classic')` (not persisted; refresh returns to the default).
+
 ## [V1.9.5] — 2026-10-17
 
 > Highlights: the **globe keeps spinning during a theme switch** ("hole wipe", revertible in one step),

@@ -4281,15 +4281,23 @@ assert('A9（V1.9.2 重新划分）：合并判据 = 数据空间可分辨阈值
         const blk = i < 0 ? '' : appCode.slice(i, i + 900);
         return blk.length > 100 && !/localStorage|sessionStorage|document\.cookie/.test(blk);
       })());
-    // ★★★ V1.9.6：主题切换的**默认必须是 classic**（用户 2026-10-17：「我要的是原来的效果」）。
-  //   原效果 = 新快照裁成扩散圆盖在旧快照上：**一条圆形边界线非线性扫过，线内已是切换后的页面**。
-  //   V1.9.5 曾把默认换成实验性 hole，观感退化为"一块区域直接覆盖"→ 默认回到 classic。
-  //   hole 仍可作为可选实验存在，但**不得**再当默认（这条守卫就是防它被翻回去）。
-  assert('V1.9.6：主题切换默认 = classic（原来的边界线扫过效果）；hole 仅作可选实验',
-    /if \(m !== 'classic' && m !== 'hole'\) m = 'classic';/.test(appCode) &&
-    !/if \(m !== 'classic' && m !== 'hole'\) m = 'hole';/.test(appCode) &&
+    // ★★★ 主题切换的**默认 = hole**（用户 2026-10-17 最终裁决：要"非线性扩散 + 地球继续自转"同时成立）。
+  //   为什么只有 hole 能做到（实测，不是推测）：
+  //     · classic 的圆内是 VT 拍下的**静态位图** —— 手动摘掉 `vt-running` 让 yaw 推进 0.018 rad 后，
+  //       两帧仍**最大像素差 = 0**（照片不会自己更新）⇒ 停在 classic 机制里永远看不到地球转。
+  //     · hole 的洞内是**活页面**：扩散段 Δyaw 达名义速率 101%，边界仍是同一条硬边
+  //       （过渡 3px vs classic 2px），缓动与时长与 classic 完全共用。
+  //   ⚠️ hole 的**机制**本身一行未改，本次只改默认值；classic 仍可 `?vt=classic` 回退。
+  assert('默认 = hole（非线性扩散 + 地球继续自转）；classic 仍可回退；hole 机制未被改写',
+    /if \(m !== 'classic' && m !== 'hole'\) m = 'hole';/.test(appCode) &&
+    !/if \(m !== 'classic' && m !== 'hole'\) m = 'classic';/.test(appCode) &&
     /window\.CISTrack\.vtMode = function \(m\)/.test(appCode) &&
-    /classList\.toggle\('vt-hole', THEME_VT === 'hole'\)/.test(appCode));
+    /classList\.toggle\('vt-hole', THEME_VT === 'hole'\)/.test(appCode) &&
+    // hole 机制的关键件必须原样在（改了就等于"动了机制"）
+    /html\.vt-hole::view-transition-new\(root\) \{ display:none/.test(tpl) &&
+    // mask 跨行书写，中间允许任意空白（第一版写死 `, ` 因此假红）
+    /radial-gradient\(circle at var\(--vt-x[\s\S]{0,120}?rgba\(255,255,255,1\) calc\(var\(--vt-hole-r/.test(tpl) &&
+    /@keyframes vtHole/.test(tpl) && /@property --vt-hole-r/.test(tpl));
   assert('V1.9.5（洞式）：没有 `@property` 的浏览器自动退回 classic（未注册的自定义属性不能插值 → 洞会两段跳）',
       /typeof CSS\.registerProperty !== 'function'\) m = 'classic'/.test(appSrc));
     assert('V1.9.5（洞式）：CSS 三件套齐备 —— 新快照不画 / 旧快照挖洞（mask + 注册属性动画）/ hole 只在挂类时生效',
