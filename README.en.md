@@ -441,3 +441,41 @@ scripts/import_history.mjs etc. see each script's header (history import / climb
 
 
 
+
+## 🧭 Methodology credits (V1.9.7)
+
+The **orbit computation, altitude and sub-satellite point** in this project follow, in method, the open
+**[findrassvet](https://findrassvet.ru)** project (by V. Bulybenko, which tracks the orbit-raising of Bureau 1440's
+Rassvet constellation). Its methodology is public:
+[vbklgd/findrassvet · METHODOLOGY.md](https://github.com/vbklgd/findrassvet/blob/main/METHODOLOGY.md).
+
+Three points adopted (each with the quantitative reason it gives):
+
+| Adopted | Why (their measurement) | Where it applies here |
+|---|---|---|
+| **Semi-major axis via Kozai→Brouwer** (the three `sgp4init` steps, WGS-72) instead of plain `a=(μ/n²)^⅓` | The plain formula is systematically **+3.03 / +3.04 km high at 82.3° / 97.4° inclination** and only −0.50 km at 51.6° | This project's computation model defaults to **Brouwer**, matching |
+| **Orbit-raising rate from a 2-day least-squares window**, never adjacent-set differencing | Single-set noise σ = 0.166 km with a median 7.5 h spacing → adjacent differencing gives ≈ **0.75 km/day** of noise, enough to make passive flight (−0.05 km/day) look like thrusting; the 2-day window cuts it to 0.11 km/day, with the **"thrusting" threshold at 0.8 km/day ≈ 5σ** | The "raising / in orbit" classification and the rate (`rr`) |
+| **Instantaneous altitude ≠ semi-major axis altitude**: the instantaneous radius oscillates by **±a·e** around it (≈ ±1.4 km at e≈2e-4) | Orbit raising is only cleanly visible in the semi-major axis; the instantaneous altitude naturally wobbles | The live-ticking altitude in the info panel (that wobble is **physical**, not jitter) |
+
+> Citation: findrassvet's methodology text and figures are **CC BY 4.0**. If you cite this project's implementation
+> of those methods, please also credit **"findrassvet.ru, V. Bulybenko"**.
+> This project is not affiliated with findrassvet or Bureau 1440; both use the public NORAD catalog.
+
+## 🧭 Methodology credits (V1.9.7)
+
+The **orbit computation, altitude and sub-satellite point** in this project follow, in method, the open
+**[findrassvet](https://findrassvet.ru)** project (by V. Bulybenko, which tracks the orbit-raising of Bureau 1440's
+Rassvet constellation). Its methodology is public:
+[vbklgd/findrassvet · METHODOLOGY.md](https://github.com/vbklgd/findrassvet/blob/main/METHODOLOGY.md).
+
+Three points adopted (each with the quantitative reason it gives):
+
+| Adopted | Why (their measurement) | Where it applies here |
+|---|---|---|
+| **Semi-major axis via Kozai→Brouwer** (the three `sgp4init` steps, WGS-72) instead of plain `a=(μ/n²)^⅓` | The plain formula is systematically **+3.03 / +3.04 km high at 82.3° / 97.4° inclination** and only −0.50 km at 51.6° | This project's computation model defaults to **Brouwer**, matching |
+| **Orbit-raising rate from a 2-day least-squares window**, never adjacent-set differencing | Single-set noise σ = 0.166 km with a median 7.5 h spacing → adjacent differencing gives ≈ **0.75 km/day** of noise, enough to make passive flight (−0.05 km/day) look like thrusting; the 2-day window cuts it to 0.11 km/day, with the **"thrusting" threshold at 0.8 km/day ≈ 5σ** | The "raising / in orbit" classification and the rate (`rr`) |
+| **Instantaneous altitude ≠ semi-major axis altitude**: the instantaneous radius oscillates by **±a·e** around it (≈ ±1.4 km at e≈2e-4) | Orbit raising is only cleanly visible in the semi-major axis; the instantaneous altitude naturally wobbles | The live-ticking altitude in the info panel (that wobble is **physical**, not jitter) |
+
+> Citation: findrassvet's methodology text and figures are **CC BY 4.0**. If you cite this project's implementation
+> of those methods, please also credit **"findrassvet.ru, V. Bulybenko"**.
+> This project is not affiliated with findrassvet or Bureau 1440; both use the public NORAD catalog.

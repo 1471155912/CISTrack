@@ -1269,11 +1269,26 @@ console.log('history: 分片 ' + HIST.stat.shards + '  历史点 ' + HIST.stat.d
 //   "少了 wu/wn 字段"的 satdata 并被发布 → 表格全变「在轨（~-, undefinedkm）」、03 章 GEO 三星消失。
 //   判据只做**数量级**判断（星网/千帆各自的下限），不猜具体内容；命中即**不写文件**并非 0 退出。
 //   ⚠️ 用 exitCode 而不是 process.exit()：端到端测试是**同进程 import** 本脚本的（见 refresh.mjs 同款注释）。
+//   ★ V1.9.7 追加：**字段覆盖率闸门**。只数条数不够 —— 2026-10-17 那次事故里条数是够的（251 颗），
+//     坏的是字段维度：表格「在轨状态」由 `wk` 拼出、三态由 `orb` 决定，任一缺失就是满屏 `undefinedkm`。
+//     实测（好数据）：`wk`/`orb` 覆盖率 **100%**；而 `wu`/`wn` 只有 8.3% / 1.9%（**合法可缺**，不能拿它当判据）。
 const MIN_SATS = { gw: 200, qf: 200 };
 const bad = ['gw', 'qf'].filter(k => ((DATA[k] && DATA[k].sats) || []).length < MIN_SATS[k]);
-if (bad.length) {
+const NEED = ['wk', 'orb'];          // 必须近乎全覆盖的字段
+const COVER_MIN = 0.98;
+const thin = [];
+['gw', 'qf'].forEach(k => {
+  const s = (DATA[k] && DATA[k].sats) || [];
+  if (!s.length) return;
+  NEED.forEach(f => {
+    const c = s.filter(x => x[f] !== undefined).length / s.length;
+    if (c < COVER_MIN) thin.push(k + '.' + f + ' 覆盖 ' + (100 * c).toFixed(1) + '%');
+  });
+});
+if (bad.length || thin.length) {
   bad.forEach(k => console.error('[mkdata] 拒绝写出：' + k + ' 只有 ' +
     ((DATA[k] && DATA[k].sats) || []).length + ' 颗（下限 ' + MIN_SATS[k] + '）'));
+  if (thin.length) console.error('[mkdata] 拒绝写出：字段覆盖不足（阈值 ' + (COVER_MIN * 100) + '%）→ ' + thin.join('；'));
   console.error('[mkdata] 输入疑似残缺 —— 先确认 `node refresh.mjs` 是否真的抓到了数据（输出里不应出现大量「0 份」）。');
   console.error('[mkdata] 已**不写出** build/satdata.json，避免坏数据被打包发布。');
   process.exitCode = 5;

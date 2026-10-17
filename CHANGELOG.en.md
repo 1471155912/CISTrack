@@ -194,6 +194,28 @@ math (`t + CHART_GEO_SHIFT`) is untouched. GEO satellites and the "orbit status"
 
 **Cost (stated plainly)**: the globe does **not** spin during the 560ms wipe — that is exactly V1.9.4's behaviour and the effect you chose.
 
+### ⑬ Methodology credit: orbit / altitude / subpoint now follow findrassvet (V1.9.7)
+
+Per your request, the orbit computation, altitude and sub-satellite point follow findrassvet's published methodology,
+and the credit is now in the docs:
+
+- **Semi-major axis via Kozai→Brouwer** (already the default here) — their measurement: plain `a=(μ/n²)^⅓` is +3.03/+3.04 km high at 82.3°/97.4°.
+- **Rate from a 2-day least-squares window** (not adjacent differencing) — their measurement: adjacent differencing gives 0.75 km/day of noise
+  (passive flight looks like thrusting); the 2-day window gives 0.11 km/day, with the "thrusting" threshold at 0.8 km/day ≈ 5σ.
+- **Info panel shows instantaneous altitude**, which naturally wobbles ±a·e (≈ ±1.4 km at e≈2e-4) — physical, not jitter.
+- READMEs (zh/en) gained a "Methodology credits" section citing **"findrassvet.ru, V. Bulybenko"** under **CC BY 4.0**.
+
+### ⑬ Methodology credit: orbit / altitude / subpoint now follow findrassvet (V1.9.7)
+
+Per your request, the orbit computation, altitude and sub-satellite point follow findrassvet's published methodology,
+and the credit is now in the docs:
+
+- **Semi-major axis via Kozai→Brouwer** (already the default here) — their measurement: plain `a=(μ/n²)^⅓` is +3.03/+3.04 km high at 82.3°/97.4°.
+- **Rate from a 2-day least-squares window** (not adjacent differencing) — their measurement: adjacent differencing gives 0.75 km/day of noise
+  (passive flight looks like thrusting); the 2-day window gives 0.11 km/day, with the "thrusting" threshold at 0.8 km/day ≈ 5σ.
+- **Info panel shows instantaneous altitude**, which naturally wobbles ±a·e (≈ ±1.4 km at e≈2e-4) — physical, not jitter.
+- READMEs (zh/en) gained a "Methodology credits" section citing **"findrassvet.ru, V. Bulybenko"** under **CC BY 4.0**.
+
 ## [V1.9.5] — 2026-10-17
 
 > Highlights: the **globe keeps spinning during a theme switch** ("hole wipe", revertible in one step),
