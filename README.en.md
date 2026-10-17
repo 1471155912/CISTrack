@@ -477,25 +477,17 @@ scripts/import_history.mjs etc. see each script's header (history import / climb
 
 
 
-## 🧭 Methodology credits (V1.9.7)
+## 🧭 Three kinds of "altitude": where each is used and how it is computed (V1.9.7)
 
-The **orbit computation, altitude and sub-satellite point** in this project follow, in method, the open
-**[findrassvet](https://findrassvet.ru)** project (by V. Bulybenko, which tracks the orbit-raising of Bureau 1440's
-Rassvet constellation). Its methodology is public:
-[vbklgd/findrassvet · METHODOLOGY.md](https://github.com/vbklgd/findrassvet/blob/main/METHODOLOGY.md).
+The numbers labelled "altitude" are **not the same quantity** — do not convert one into another. All three come from the public TLEs; none is a hand-entered design value. The in-app "Readme → Accuracy → Three kinds of altitude" section carries the same text.
 
-Three points adopted (each with the quantitative reason it gives):
+**① Semi-major-axis altitude** (table / chart Y axis / the "orbit distribution" row / the climb curves in 04): `h = a_Brouwer − 6378.135 km`. `a_Brouwer` is the catalog mean motion with the WGS-72 J2 secular terms removed (what SGP4 recurses with), minus the WGS-72 equatorial radius. It is a **geometric scale**, independent of which latitude the satellite flies over.
 
-| Adopted | Why (their measurement) | Where it applies here |
-|---|---|---|
-| **Semi-major axis via Kozai→Brouwer** (the three `sgp4init` steps, WGS-72) instead of plain `a=(μ/n²)^⅓` | The plain formula is systematically **+3.03 / +3.04 km high at 82.3° / 97.4° inclination** and only −0.50 km at 51.6° | This project's computation model defaults to **Brouwer**, matching |
-| **Orbit-raising rate from a 2-day least-squares window**, never adjacent-set differencing | Single-set noise σ = 0.166 km with a median 7.5 h spacing → adjacent differencing gives ≈ **0.75 km/day** of noise, enough to make passive flight (−0.05 km/day) look like thrusting; the 2-day window cuts it to 0.11 km/day, with the **"thrusting" threshold at 0.5 km/day ≈ 4.5σ** (lowered from 0.8 on 2026-10-17; measured to reclassify exactly one extra satellite, with no false positives) | The "raising · burning / coasting / in orbit" classification and the rate (`rr`) |
-| **A slow climb cannot be caught by a rate test alone** — a **rate-independent** altitude band runs alongside it | "A tiny gain every day, accumulating over weeks" is invisible to any per-day rate threshold; being **more than ±30 km away from the group working altitude** does not depend on rate at all, so accumulated drift eventually trips it | The fallback for "raising" (and the rule behind the "coasting" state); the cost is that up to **30 km of drift stays invisible** (≈ 2.6% at 1,150 km) |
-| **Instantaneous altitude ≠ semi-major axis altitude**: the instantaneous radius oscillates by **±a·e** around it (≈ ±1.4 km at e≈2e-4) | Orbit raising is only cleanly visible in the semi-major axis; the instantaneous altitude naturally wobbles | The live-ticking altitude in the info panel (that wobble is **physical**, not jitter) |
+**② Instantaneous altitude** (info panel of 01 Map / 02 Globe, refreshed every second): **geodetic height above the WGS-84 ellipsoid** (sea level). SGP4 gives ECI → ECEF → solve the **geodetic latitude** `φ` iteratively (`p=√(x²+y²)`, `z`; Bowring form, 20 iterations) → `h = p/cosφ − N(φ)` with `N(φ)=a/√(1−e²sin²φ)`, `a=6378.137 km`, `b=6356.7523142 km`, `f=1/298.257223563`, `e²=2f−f²=0.00669437999014`. It excludes terrain elevation and atmospheric refraction.
 
-> Citation: findrassvet's methodology text and figures are **CC BY 4.0**. If you cite this project's implementation
-> of those methods, please also credit **"findrassvet.ru, V. Bulybenko"**.
-> This project is not affiliated with findrassvet or Bureau 1440; both use the public NORAD catalog.
+**③ Geocentric radius** (internal only): `r=|position|`. The difference from ② is exactly "Earth is not a sphere".
+
+**Why ② swings by 20-odd kilometres**: for a circular orbit `r` barely changes, but the ellipsoid sits **21.4 km lower at the poles** (`a−b`) — a satellite at 1,150 km reads ≈1,150 km over the equator and ≈1,171 km over the poles. That is geometry, not jitter; on top of it sits **±a·e** (≈±1.4 km). The sub-satellite latitude is geodetic, not geocentric (they differ by ≈0.19° near 45°). **Coverage zones / elevation / visibility cones still use a geocentric sphere** (6378.135 km) — a deliberate approximation worth under 0.3% at a 10° mask.
 
 ## 🧭 Methodology credits (V1.9.7)
 
@@ -511,27 +503,12 @@ Three points adopted (each with the quantitative reason it gives):
 | **Semi-major axis via Kozai→Brouwer** (the three `sgp4init` steps, WGS-72) instead of plain `a=(μ/n²)^⅓` | The plain formula is systematically **+3.03 / +3.04 km high at 82.3° / 97.4° inclination** and only −0.50 km at 51.6° | This project's computation model defaults to **Brouwer**, matching |
 | **Orbit-raising rate from a 2-day least-squares window**, never adjacent-set differencing | Single-set noise σ = 0.166 km with a median 7.5 h spacing → adjacent differencing gives ≈ **0.75 km/day** of noise, enough to make passive flight (−0.05 km/day) look like thrusting; the 2-day window cuts it to 0.11 km/day, with the **"thrusting" threshold at 0.5 km/day ≈ 4.5σ** (lowered from 0.8 on 2026-10-17; measured to reclassify exactly one extra satellite, with no false positives) | The "raising · burning / coasting / in orbit" classification and the rate (`rr`) |
 | **A slow climb cannot be caught by a rate test alone** — a **rate-independent** altitude band runs alongside it | "A tiny gain every day, accumulating over weeks" is invisible to any per-day rate threshold; being **more than ±30 km away from the group working altitude** does not depend on rate at all, so accumulated drift eventually trips it | The fallback for "raising" (and the rule behind the "coasting" state); the cost is that up to **30 km of drift stays invisible** (≈ 2.6% at 1,150 km) |
-| **Instantaneous altitude ≠ semi-major axis altitude**: the instantaneous radius oscillates by **±a·e** around it (≈ ±1.4 km at e≈2e-4) | Orbit raising is only cleanly visible in the semi-major axis; the instantaneous altitude naturally wobbles | The live-ticking altitude in the info panel (that wobble is **physical**, not jitter) |
+| **Instantaneous altitude ≠ semi-major axis altitude**: it is **WGS-84 geodetic height** (above the ellipsoid). For a circular orbit the same geocentric radius reads **21.4 km lower over the equator than over the poles** (a−b), plus **±a·e** (≈ ±1.4 km at e≈2e-4) | Orbit raising is only cleanly visible in the semi-major axis; the instantaneous altitude genuinely swings along an orbit — the ellipsoid term is an order of magnitude larger than the eccentricity term | The live-ticking altitude in the info panel (the swing is **physical**, not jitter); see "Three kinds of altitude" below |
 
 > Citation: findrassvet's methodology text and figures are **CC BY 4.0**. If you cite this project's implementation
 > of those methods, please also credit **"findrassvet.ru, V. Bulybenko"**.
 > This project is not affiliated with findrassvet or Bureau 1440; both use the public NORAD catalog.
 
-### 🔐 About the third-party CORS proxies (disclosed, V1.9.7)
-
-If a direct browser request to `celestrak.org` is blocked by CORS or the local network, the page **falls back to two
-public CORS proxies**:
-
-- `api.allorigins.win`
-- `api.codetabs.com`
-
-**What that means, plainly**: when the proxy path is used, the target URL and **your IP** pass through those two
-third-party services. This project sends no personal data — the proxies only relay public TLE requests — but **if you
-do not want traffic to go through a third party**, keep the direct path working (or use the local-deployment +
-scheduled-task setup so data is refreshed on your own machine).
-
-> Planned after V1.9.7: a **direct-only** switch (direct by default; ask before using a proxy) and the actual network
-> footprint listed in the in-app About panel.
 
 ### 🔐 About the third-party CORS proxies (disclosed, V1.9.7)
 

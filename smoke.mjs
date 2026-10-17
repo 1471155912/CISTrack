@@ -3439,7 +3439,12 @@ assert('V1.9.2：右侧留白按"要标几条"动态加宽（否则名称会被�
       return { txt: td.textContent.trim(), cls: td.className, html: td.innerHTML };
     };
     // 取样（都加兜底：数据若异常也不让整份 smoke 崩在 TypeError 上，而是照常报 FAIL）
-    const raiSample = raiS.filter(r => r.rr !== undefined)[0] || raiS[0] || { id: -1, rr: 0 };
+    // ★ V1.9.7：取样必须挑**有数值 rr** 的（rr 为 null/undefined 的星按设计就不显示速度片段，
+    //   拿它去验 <span class="st-rate"> 必然假红 —— 旧口径下恰好第一颗有 rr，掩盖了这个取样缺陷）
+    //   取样要挑**点火中**（|rr| > 0.5）：间歇态按设计只显示日期与高度、不追加速度片段，
+    //   拿间歇星去验 <span class="st-rate"> 必然假红。
+    const raiSample = raiS.filter(r => typeof r.rr === 'number' && isFinite(r.rr) && Math.abs(r.rr) > 0.5)[0]
+      || raiS.filter(r => typeof r.rr === 'number')[0] || raiS[0] || { id: -1, rr: 0 };
     const orbSample = orbS.filter(r => r.wk !== 'GEO')[0] || orbS[0] || { id: -1 };
     const geoSample = geoS[0] || { id: -1 };
     const c1 = cellOf(raiSample.id);
@@ -4092,8 +4097,11 @@ assert('A9（V1.9.7 §6）：圈的来源 = 工作轨道层（orbLayerDefs），
     const before9 = k3.chartEll().length;
     k3.chartDraw();
     const drewN = k3.chartEll().length - before9;
-    assert('A9：绘制时每个簇都画了一个椭圆（ellipse 调用数 = 簇数）',
-      drewN === cls.length, 'ellipse=' + drewN + ' 簇=' + cls.length);
+    // ★ V1.9.7：GEO 那一组现在也画一个**虚线椭圆**（用户口径：圈起来、旁边写 GEO），
+    //   所以期望值 = 簇数 + (本星座有 GEO ? 1 : 0)。
+    const geoRing = ((RAW.gw.sats || []).some(s2 => s2.wk === 'GEO')) ? 1 : 0;
+    assert('A9：绘制时每个簇都画了一个椭圆（+ GEO 组一个圈）',
+      drewN === cls.length + geoRing, 'ellipse=' + drewN + ' 簇=' + cls.length + ' GEO圈=' + geoRing);
     assert('A9：圆圈**不填充**（该段只有 stroke，没有 fill）且用星座主题色 + [4,4] 虚线',
       /ctx\.setLineDash\(\[4, 4\]\); ctx\.lineWidth = 1;/.test(appSrc) &&
       /ctx\.beginPath\(\); ctx\.ellipse\(cx, cy, rx, ry, 0, 0, 6\.2832\); ctx\.stroke\(\);/.test(appSrc) &&

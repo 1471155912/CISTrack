@@ -334,6 +334,9 @@ var I18N = {
   d_grp_all2: [' 颗）', ')'],
   d_row_batch: ['批次/组', 'Batch/Group'], d_row_cat: ['目录名', 'Catalog name'],
   d_row_sub: ['星下点', 'Sub-satellite point'], d_row_alt: ['瞬时高度', 'Altitude now'],
+  // ★ V1.9.7（§8）：瞬时高度的口径必须在界面上就能查到（悬停该行）—— 它每秒跳，且沿轨道会变 ~21 km
+  d_row_alt_tip: ['瞬时高度 = WGS-84 椭球面（海平面）以上的大地高，由 SGP4 的瞬时位置反解；同一颗星在赤道上空比在极地上空低约 21 km，这是椭球形状造成的，不是误差。',
+    'Instantaneous altitude = height above the WGS-84 ellipsoid (sea level), inverted from the SGP4 position at that instant; the same satellite sits ~21 km lower over the equator than over the poles — ellipsoid geometry, not error.'],
   d_row_el: ['观测点仰角', 'Elevation at site'],
   d_row_inc: ['倾角', 'Inclination'], d_row_period: ['周期', 'Period'],
   d_row_epoch: ['更新历元', 'Updated epoch'], d_row_sma: ['半长轴', 'Semi-major axis'],
@@ -2071,10 +2074,33 @@ function modeBin(vals, step) {
   });
   return best;
 }
-/** 工作轨道层：[{ alt, inc, n, members:[sat.idx…] }]，按成员数降序、同数按高度升序 */
+/** 工作轨道层：[{ alt, inc, n, sd, members:[sat.idx…] }]，按成员数降序、同数按高度升序
+ *  ★ V1.9.7（§6 治本）：**优先读构建期发布的 `satdata.<星座>.layers`** —— 那份是 mkdata 用
+ *    历史轨道点算出、并**同时用于在轨状态判定**的层（单一事实来源）。页面端只在老数据没有
+ *    这个字段时才现场重算（例如拿 1.9.6 的 satdata 配 1.9.7 的页面这种混搭情形）。
+ *    成员也直接由发布结果推：mkdata 给每颗星的 `wk` 就是它所属层的高度，所以
+ *    「orb===0 且 wk===层高 且 同倾角带」的在轨星 = 该层成员。 */
 function orbLayerDefs(st) {
   if (!st || !st.sats) return [];
   if (st.__layers && st.__layersN === st.sats.length) return st.__layers;
+  var pub = (RAW[st.key] && RAW[st.key].layers) || null;
+  if (pub && pub.length) {
+    var outPub = [];
+    pub.forEach(function (L) {
+      var mem = [];
+      st.sats.forEach(function (s) {
+        if (s.orb !== 0 || s.wk !== L.alt || !isFinite(s.inc)) return;
+        if (Math.abs(Math.round(s.inc / LAYER_INC) * LAYER_INC - L.inc) > 1e-6) return;
+        mem.push(s.idx);
+      });
+      if (mem.length) outPub.push({ alt: L.alt, inc: L.inc, n: mem.length, sd: L.sd, members: mem });
+    });
+    if (outPub.length) {
+      outPub.sort(function (a, b) { return (b.n - a.n) || (a.alt - b.alt); });
+      st.__layers = outPub; st.__layersN = st.sats.length;
+      return outPub;
+    }
+  }
   var seeds = st.sats.filter(function (s) {
     return s.orb === 0 && s.wk !== 'GEO' && isFinite(s.smaB) && isFinite(s.inc);
   });
@@ -2402,110 +2428,42 @@ function drawChart() {
     ctx.globalAlpha = 1;
   });
 
-  // ★ 2026-10-17（用户要求：「几颗 GEO 卫星也应该使用**主题颜色圆圈勾画并标注**」）：
-  //   三颗 GEO（星网高轨业务星）在等效高度 ~1986 处与 LEO 混画在同一张图里，
-  //   普通 2.7px 的小点在它们那一片（只有 3 个点）几乎没有辨识度。
-  //   这里给它们单独一层：**主题色空心圆圈 + 星名标注**。
-  //   实现口径（与本章既有元素保持一致，避免"再多一套机制"）：
-  //     · 圆圈裁在绘图区内（与簇椭圆同一套裁剪；否则会画到轴外，触发 visual 的
-  //       「绘图区外无高饱和像素」守卫 —— 簇椭圆当年就是这么被抓到的）；
-  //     · 标签走**同一个 `_labelFor()` 避让表**（与簇标签/批次名共表，不会叠字）；
-  //     · 名字用 `nameOf()`（与星名标签同源，中文模式出中文名）；
-  //     · 标签再夹一次绘图区右/左边界（GEO 名字比簇标签长，_labelFor 的 72px 假设不够）。
+  // ★ 2026-10-17 建立 / ★ V1.9.7 修订（用户口径）：「几颗 GEO 卫星用**虚线**圈出来，
+  //   旁边用主题色小字直接写 `GEO`」—— 不再逐个标卫星名（三颗星的名字挤在同一像素附近，
+  //   既看不清、又抢了簇标签的位置）。GEO 在图上走的是**等效高度**（实际 − 33800），
+  //   与 LEO 混画在同一坐标系，所以只圈不参与命中测试。
+  //   ⚠️ 这段曾被重复粘贴过两遍（同名 `var` 重复声明、圆圈与名字各画两次 → 线更粗、字更重），
+  //     这里一并收成一份。
   var geoPts = pts.filter(function (p2) { return p2.sat && p2.sat.wk === 'GEO'; });
   if (geoPts.length) {
-    ctx.save();
-    ctx.beginPath(); ctx.rect(PL, PT, pw, ph); ctx.clip();
-    ctx.lineWidth = 1.6; ctx.strokeStyle = C.theme; ctx.globalAlpha = 0.95;
-    var geoLab = [];
+    var gx0 = Infinity, gx1 = -Infinity, gy0 = Infinity, gy1 = -Infinity, gAny = false;
     geoPts.forEach(function (p2) {
       var x = X(p2.x), y = Y(p2.y);
       if (y == null) return;                                   // 落在断轴区 → 不画
       if (x < PL - 4 || x > PL + pw + 4 || y < PT - 4 || y > PT + ph + 4) return;
-      var R = 8;
-      ctx.beginPath(); ctx.arc(x, y, R, 0, 6.2832); ctx.stroke();
-      geoLab.push({ p: p2, x: x, y: y, R: R });
+      gAny = true;
+      if (x < gx0) gx0 = x;
+      if (x > gx1) gx1 = x;
+      if (y < gy0) gy0 = y;
+      if (y > gy1) gy1 = y;
     });
-    ctx.restore(); ctx.lineWidth = 1;
-    // 标签：**确定性竖排**（不用 _labelFor 的随机避让）——
-    //   实测三颗 GEO 的等效高度只差约 1 km → 画出来几乎同一像素，随机避让会把三行字叠在一起。
-    //   这里按已放置的**本层**标签做一次局部碰撞检查，撞了就把 slot 往下挪一行（13px），
-    //   再夹进绘图区内；同一行的多个标签也照此排开。
-    ctx.font = '10px ' + MONO; ctx.fillStyle = C.theme;
-    ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
-    var geoPlaced = [];
-    geoLab.sort(function (a, b) { return (a.y - b.y) || (a.x - b.x); });
-    geoLab.forEach(function (o) {
-      var txt = nameOf(o.p.sat), w = ctx.measureText(txt).width;
-      var lx = Math.max(PL + 2, Math.min(PL + pw - w - 2, o.x + o.R + 4));
-      var ly = o.y - 3, slot = 0;
-      for (var t = 0; t < 12; t++) {
-        var hit = false;
-        for (var q = 0; q < geoPlaced.length; q++) {
-          var G = geoPlaced[q];
-          if (Math.abs(G[0] - lx) < Math.max(w, G[2]) + 6 && Math.abs(G[1] - ly) < 13) { hit = true; break; }
-        }
-        if (!hit) break;
-        slot++; ly = o.y - 3 + slot * 13;
-      }
-      ly = Math.max(PT + 12, Math.min(PT + ph - 2, ly));
-      geoPlaced.push([lx, ly, w]);
-      ctx.fillText(txt, lx, ly);
-    });
-    ctx.globalAlpha = 1;
-  }
-
-  // ★ 2026-10-17（用户要求：「几颗 GEO 卫星也应该使用**主题颜色圆圈勾画并标注**」）：
-  //   三颗 GEO（星网高轨业务星）在等效高度 ~1986 处与 LEO 混画在同一张图里，
-  //   普通 2.7px 的小点在它们那一片（只有 3 个点）几乎没有辨识度。
-  //   这里给它们单独一层：**主题色空心圆圈 + 星名标注**。
-  //   实现口径（与本章既有元素保持一致，避免"再多一套机制"）：
-  //     · 圆圈裁在绘图区内（与簇椭圆同一套裁剪；否则会画到轴外，触发 visual 的
-  //       「绘图区外无高饱和像素」守卫 —— 簇椭圆当年就是这么被抓到的）；
-  //     · 标签走**同一个 `_labelFor()` 避让表**（与簇标签/批次名共表，不会叠字）；
-  //     · 名字用 `nameOf()`（与星名标签同源，中文模式出中文名）；
-  //     · 标签再夹一次绘图区右/左边界（GEO 名字比簇标签长，_labelFor 的 72px 假设不够）。
-  var geoPts = pts.filter(function (p2) { return p2.sat && p2.sat.wk === 'GEO'; });
-  if (geoPts.length) {
-    ctx.save();
-    ctx.beginPath(); ctx.rect(PL, PT, pw, ph); ctx.clip();
-    ctx.lineWidth = 1.6; ctx.strokeStyle = C.theme; ctx.globalAlpha = 0.95;
-    var geoLab = [];
-    geoPts.forEach(function (p2) {
-      var x = X(p2.x), y = Y(p2.y);
-      if (y == null) return;                                   // 落在断轴区 → 不画
-      if (x < PL - 4 || x > PL + pw + 4 || y < PT - 4 || y > PT + ph + 4) return;
-      var R = 8;
-      ctx.beginPath(); ctx.arc(x, y, R, 0, 6.2832); ctx.stroke();
-      geoLab.push({ p: p2, x: x, y: y, R: R });
-    });
-    ctx.restore(); ctx.lineWidth = 1;
-    // 标签：**确定性竖排**（不用 _labelFor 的随机避让）——
-    //   实测三颗 GEO 的等效高度只差约 1 km → 画出来几乎同一像素，随机避让会把三行字叠在一起。
-    //   这里按已放置的**本层**标签做一次局部碰撞检查，撞了就把 slot 往下挪一行（13px），
-    //   再夹进绘图区内；同一行的多个标签也照此排开。
-    ctx.font = '10px ' + MONO; ctx.fillStyle = C.theme;
-    ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
-    var geoPlaced = [];
-    geoLab.sort(function (a, b) { return (a.y - b.y) || (a.x - b.x); });
-    geoLab.forEach(function (o) {
-      var txt = nameOf(o.p.sat), w = ctx.measureText(txt).width;
-      var lx = Math.max(PL + 2, Math.min(PL + pw - w - 2, o.x + o.R + 4));
-      var ly = o.y - 3, slot = 0;
-      for (var t = 0; t < 12; t++) {
-        var hit = false;
-        for (var q = 0; q < geoPlaced.length; q++) {
-          var G = geoPlaced[q];
-          if (Math.abs(G[0] - lx) < Math.max(w, G[2]) + 6 && Math.abs(G[1] - ly) < 13) { hit = true; break; }
-        }
-        if (!hit) break;
-        slot++; ly = o.y - 3 + slot * 13;
-      }
-      ly = Math.max(PT + 12, Math.min(PT + ph - 2, ly));
-      geoPlaced.push([lx, ly, w]);
-      ctx.fillText(txt, lx, ly);
-    });
-    ctx.globalAlpha = 1;
+    if (gAny) {
+      var gcx = (gx0 + gx1) / 2, gcy = (gy0 + gy1) / 2;
+      // 半径 = 组的外接半宽 + 一点余量；给下限是为了"三颗几乎同点"时也能看出一个圈
+      var grx = Math.max(16, (gx1 - gx0) / 2 + 12), gry = Math.max(10, (gy1 - gy0) / 2 + 8);
+      ctx.save();
+      ctx.beginPath(); ctx.rect(PL, PT, pw, ph); ctx.clip();     // 与簇椭圆同一套裁剪，不甩到轴外
+      ctx.setLineDash([4, 4]); ctx.lineWidth = 1.7; ctx.strokeStyle = C.theme; ctx.globalAlpha = 0.95;
+      ctx.beginPath(); ctx.ellipse(gcx, gcy, grx, gry, 0, 0, 6.2832); ctx.stroke();
+      ctx.setLineDash([]); ctx.restore(); ctx.lineWidth = 1;
+      ctx.font = '10px ' + MONO; ctx.fillStyle = C.theme;
+      ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+      var gtxt = 'GEO', gtw = ctx.measureText(gtxt).width;
+      var glx = Math.max(PL + 2, Math.min(PL + pw - gtw - 2, gcx + grx * 0.707));
+      var gly = Math.max(PT + 12, Math.min(PT + ph - 2, gcy - gry * 0.707));
+      ctx.fillText(gtxt, glx, gly);
+      ctx.globalAlpha = 1;
+    }
   }
   // 待编目批次：空心点 + 虚线高度区间（仅有目录摘要，无轨道要素 → 不参与选中/悬停）
   var ghost = pendPts();
@@ -2639,7 +2597,37 @@ function satBlock(s, scope, extra) {
     '<div class="si-row"><span>' + t('d_row_epoch_sat') + '</span><span>' + fmtUTC(s.epochMs) + '</span></div>' +
     (extra || '') + '</div>';
 }
-function siRow(label, val) { return '<div class="si-row"><span>' + label + '</span><span>' + val + '</span></div>'; }
+// ★ V1.9.7（§8）：`live` 参数给"会跳动"的那两行（星下点 / 瞬时高度）打标记，
+//   由 tickLiveInfo() 每秒就地改文本 —— 不重建整块 HTML（重建会打断选择、闪烁）。
+function siRow(label, val, live, tip) {
+  return '<div class="si-row"' + (tip ? ' title="' + tip + '"' : '') + '><span>' + label + '</span><span' +
+    (live ? ' class="si-live" data-live="' + live + '"' : '') + '>' + val + '</span></div>';
+}
+// ★ V1.9.7（§8）：信息窗里"会跳动"的两行 —— 每帧推算已经按秒推进（loop() 里 sec 变了才重推），
+//   这里只需把新值写进 DOM。250ms 轮询比推算频率快一档，保证"秒一变"能立刻看到；
+//   `document.hidden` 时直接跳过（切到后台不白烧 CPU）。
+//   ⚠️ 只改文本，不重建 HTML —— 重建会打断用户正在选的文字，也会让浮窗闪一下。
+var LIVE_ROWS = [
+  { id: 'mapInfo', view: 'map' }, { id: 'mapInfoB', view: 'map' },
+  { id: 'globeInfo', view: 'globe' }, { id: 'globeInfoB', view: 'globe' }
+];
+function tickLiveInfo() {
+  if (document.hidden) return;
+  for (var i = 0; i < LIVE_ROWS.length; i++) {
+    var el = document.getElementById(LIVE_ROWS[i].id);
+    if (!el || el.style.display === 'none' || !el.__lastId) continue;
+    var m = /^sat(\d+)$/.exec(el.__lastId);
+    if (!m) continue;
+    var arr = (LIVE_ROWS[i].view === 'map') ? frameStatesMap : frameStatesGlobe;
+    var g = arr && arr[+m[1]];
+    if (!g) continue;
+    var sub = el.querySelector('.si-live[data-live="sub"]');
+    if (sub) sub.textContent = g.lat.toFixed(2) + '°, ' + g.lon.toFixed(2) + '°';
+    var alt = el.querySelector('.si-live[data-live="alt"]');
+    if (alt) alt.textContent = fmtNum(g.h, 1) + ' km';
+  }
+}
+setInterval(tickLiveInfo, 250);
 
 // A 窗（图表）：选中态常驻，可有多颗（最多 8 块）
 function showChartInfo(pts) {
@@ -6150,8 +6138,8 @@ function mapBlockHtml(idx) {
   if (!g || !s) return null;
   var el = (S.pick.on && S.pick.fixed) ? elevationOf(g) : null;
   var extra = siRow(t('d_row_cat'), s.name) +
-    siRow(t('d_row_sub'), g.lat.toFixed(2) + '°, ' + g.lon.toFixed(2) + '°') +
-    siRow(t('d_row_alt'), fmtNum(g.h, 1) + ' km') +
+    siRow(t('d_row_sub'), g.lat.toFixed(2) + '°, ' + g.lon.toFixed(2) + '°', 'sub') +
+    siRow(t('d_row_alt'), fmtNum(g.h, 1) + ' km', 'alt', t('d_row_alt_tip')) +
     (el !== null ? siRow(t('d_row_el'), fmtNum(el, 1) + '°') : '');
   return satBlock(s, 'map', extra);
 }
@@ -6694,8 +6682,8 @@ function globeBlockHtml(best) {
   // 与 01 章节同一套字段，再追加本视图特有的目录名 / 星下点 / 瞬时高度（V1.3.4 起删掉地心距）
   return satBlock(s, 'globe',
     siRow(t('d_row_cat'), s.name) +
-    siRow(t('d_row_sub'), g2.lat.toFixed(2) + '°, ' + g2.lon.toFixed(2) + '°') +
-    siRow(t('d_row_alt'), fmtNum(g2.h, 1) + ' km'));
+    siRow(t('d_row_sub'), g2.lat.toFixed(2) + '°, ' + g2.lon.toFixed(2) + '°', 'sub') +
+    siRow(t('d_row_alt'), fmtNum(g2.h, 1) + ' km', 'alt', t('d_row_alt_tip')));
 }
 // A 窗（地球）：选中态常驻
 function showGlobeInfo(best) {
@@ -7073,11 +7061,29 @@ var README_ZH = [
   '',
   '**点火判据。** 速率取最近 **2 天**历史点的**最小二乘斜率**（不是首末差分）。阈值 **0.5 km/天**：单点高度噪声约 **0.166 km**（[findrassvet.ru](https://findrassvet.ru/) 的 METHODOLOGY §3.2–3.5 实测），2 天拟合后斜率噪声约 **0.11 km/天**，因此 0.5 km/天 ≈ **4.5σ** —— 被动飞行（电推点火之间的滑行）不会被误判成在推。之所以不用首末差分：那是两个单点之差，噪声足以让**静止的星看起来在爬**（本项目 V1.9.2 就踩过：26108 批的星 14 天里高度来回跳 4~5 次、净变化只有 0.04 km，差分斜率却被带偏成 −1.3 km/天）。**2026-10-17 该阈值由 0.8 下调为 0.5**，实测只多判 1 颗（千帆），没有引入误判。',
   '',
-  '**累计兜底。** 只靠速率会漏掉"每天变化很小、但连着很多天都在涨"的情况，所以还有一条**与速率无关**的判据：**高度偏离该批工作高度超过 ±30 km 就判「变轨中」**。这条兜住了累积漂移，代价是不可见的漂移上限为 30 km（星网 1150 km 上约 2.6%）。**间歇判据**用的就是它：速率不超 0.5、但人还在带外 → 「变轨中·间歇」（电推点火之间的滑行段，票面上"没在推"，但确实还没到位）。',
+  '**累计兜底。** 只靠速率会漏掉"每天变化很小、但连着很多天都在涨"的情况，所以另有两条**与速率无关**的判据。① **工作轨道层**：只拿"稳定的星"（不在推、30 天净升 < 10 km、点数足够）按 0.5° 倾角带 + 30 km 高度聚类，要求成员 ≥ 8 且高度标准差 ≤ 8 km，层高取**众数档（整十公里）** —— 这就是第 0 章「轨道分布」与 03 章虚线椭圆上那几个数，也是 06 章「在轨状态」的参照系；**离最近一层超过 ±30 km 就判「变轨中·间歇」**。② **贴层慢爬**：已经在层上、但最近 **7 天**仍净升 ≥ **3 km**（≈0.43 km/天，低于 2 天速率的检出线），同样判「变轨中·间歇」—— 这一条专治"每天涨一点点、连着很多天"的累积漂移。',
   '',
-  '**已知边界（如实写）。** ① 一条批量缓慢抬升的星，其"工作高度"是按**该批历史最高高度簇**推出来的，会跟着一起涨 —— 这类整体漂移不触发 ±30 km 带判据（速率判据仍可能抓到）；② 大气阻尼导致的缓慢降轨只会触发"带判据"，不会被误标成"在推"（判据不区分方向，但降轨会被带判据解释为"未到位"）—— 遇到这类批次时，04 章的曲线比状态列更可信。',
+  '**为什么参照系从"该批最高簇"改成"实测层"（2026-10-18 治本）。** 旧口径里每颗星的"工作高度"取的是它所在批次历史最高那一簇 —— 只要批里几颗星摸到过更高的高度，整批的基准就被抬高。实测两处翻车：千帆 69863 那批批高 1090、实际全停在 1071（差 19 km）；千帆 69800/69807/69811 人在 926~942、30 天净升 33~44 km（还在爬），只因离批高 950 不到 10 km 就被判成"在轨"。现在基准是**星座层面实测出来的层**（层高本身就是 TLE 高度的众数），所以**页面上写的高度与状态都直接可回溯到 TLE**，不再含任何"设计值/批级推断"。',
   '',
-  '## 🔗 数据来源与引用合规',
+  '**已知边界（如实写）。** ① 一层至少要有 8 颗稳定成员才会被认出来：两三颗自成一体、长期停在别处的星（如千帆 21070 那 2 颗试验星停在 ~940 km）不会被当成"层"，会被持续标成「变轨中·间歇」；② 大气阻尼导致的缓慢降轨只会触发"离层"判据，不会被误标成"在推"—— 遇到这类批次时，04 章的曲线比状态列更可信；③ GEO（星网 3 颗业务星）不参与低轨分层，仍按自身的漂移阈值判定。',
+  '',
+  '## 🧭 三种「高度」：各用在哪、怎么算',
+  '',
+  '页面上出现的"高度"不是同一个量，**不要互相换算**。三者的定义与落点如下（全部由公开 TLE 算出，不含任何人工填写的数值）：',
+  '',
+  '**① 半长轴高度（表格 / 图表纵轴 / 轨道分布 / 04 章曲线）。** `h = a_Brouwer − 6378.135 km`。`a_Brouwer` 是把目录平均运动按 WGS-72 剥掉 J2 长期项后的半长轴（SGP4 内部递推用的就是它），减去的是 **WGS-72 赤道半径 6378.135 km**。它是一个**几何尺度**：与卫星此刻飞到哪个纬度无关，因此同一颗星在表格里始终是同一个数，图表上的"爬坡"也是一条干净曲线。',
+  '',
+  '**② 瞬时高度（01 地图 / 02 地球的信息窗，每秒刷新）。** 这是 **WGS-84 椭球面（海平面）以上的大地高**，算法是：SGP4 给出 ECI 位置 → 转到 ECEF → 由 `p = √(x²+y²)`、`z` **迭代反解大地纬度** `φ`（Bowring 式，20 次迭代，亚米级收敛）→ `h = p / cos φ − N(φ)`，其中 `N(φ) = a / √(1 − e² sin²φ)` 是该纬度处的卯酉圈曲率半径，`a = 6378.137 km`、`b = 6356.7523142 km`、`f = 1/298.257223563`、`e² = 2f − f² = 0.00669437999014`。**不含**当地地形海拔、不含大气折射 —— 所谓"海平面"就是椭球面本身。',
+  '',
+  '**③ 地心距（只在内部用，不显示）。** `r = |位置矢量|`，是球坐标下的半径。它与 ② 的差别就是"地球不是球"：`r` 是同一条线，而 ② 减的是**该纬度处的椭球面**。',
+  '',
+  '**为什么 ② 会自己跳 20 多公里。** 对一条圆轨道来说 `r` 几乎不变，但椭球面在极地比赤道**低** 21.4 km（`a − b`）：同一颗 1150 km 的星，飞到赤道上空时椭球高约 1150 km、飞到极地上空时约 1171 km。这是**几何事实，不是抖动**（若轨道是 86.5° 近极轨，一个周期内就能完整看到这个起伏）。在此之上再叠加偏心率造成的 **±a·e**（`e ≈ 2×10⁻⁴` → **±1.4 km**）—— 两者都是真实的物理量。',
+  '',
+  '**星下点经纬度用的是大地纬度。** 信息窗里的纬度是 ② 的 `φ`（大地纬度，法线方向），不是地心纬度；两者在 45° 附近相差约 **0.19°**（地面约 21 km），这是椭球的直接后果，也是"地图上的星下点与真实地面点对齐"的前提。',
+  '',
+  '**覆盖区 / 仰角 / 可视锥仍用地心球。** 这三处是一次**有意的近似**（半径 6378.135 km 的球）：它们算的是"能不能看见"的几何，10° 仰角时覆盖半径已达 ~1000 km 量级，椭球带来的差异在 0.3% 以内，换成椭球只会让公式复杂十倍而肉眼无差别。',
+  '',
+
   '',
   '- 🌐 [CelesTrak](https://celestrak.org/) —— 公开轨道要素（TLE）的分发方；**本源**是美国太空军第 18 太空防御中队（18 SDS）的公开编目（经 Space-Track 分发）。本项目按 CelesTrak 的[使用政策](https://celestrak.org/usage-policy.php)取数（按更新节奏、只取需要的）；',
   '- 📚 [卫星百科](https://sat.huijiwiki.com/) —— 「星网」「千帆星座」词条的批次、时间、运载火箭、发射地点、研发机构与顶部计数。词条内容按 [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/deed.zh-hans) 共享（[版权页](https://sat.huijiwiki.com/wiki/Project:%E7%89%88%E6%9D%83)）：本项目**署名并链接协议**、只呈现事实性条目；你若转载本页内容，请一并遵守该协议；',
@@ -7279,6 +7285,24 @@ var README_EN = [
   '**The cumulative fallback.** A rate test alone would miss "a tiny change every day that adds up over weeks", so a **rate-independent** rule runs alongside it: **an altitude more than ±30 km away from the group working altitude is also treated as raising**. This catches cumulative drift, at the price of leaving up to 30 km of drift invisible (about 2.6% at CSCN\'s 1,150 km). The **coasting** state is exactly this rule: rate at or below 0.5 km/day but still outside the band — no thrust right now, but not yet on station.',
   '',
   '**Known limits (stated plainly).** ① A whole group climbing slowly raises its own reference: the "working altitude" is derived from that group\'s highest historical cluster, so it rises with them and the ±30 km band will not fire (the rate test still may). ② Slow drag-induced decay only ever trips the band rule and is reported as "not yet on station" rather than "under thrust"; for such groups the curve in section 04 is more informative than the status column.',
+  '',
+  '## 🧭 Three kinds of "altitude": where each is used and how it is computed',
+  '',
+  'The numbers labelled "altitude" on this page are **not the same quantity** — do not convert one into another. All three come from the public TLEs; none is a hand-entered design value.',
+  '',
+  '**① Semi-major-axis altitude (table / chart Y axis / orbit-distribution layers / climb curves in 04).** `h = a_Brouwer − 6378.135 km`. `a_Brouwer` is the catalog mean motion converted with the WGS-72 J2 secular terms removed (what SGP4 recurses with), minus the **WGS-72 equatorial radius 6378.135 km**. It is a **geometric scale**: it does not depend on which latitude the satellite happens to fly over, so a satellite keeps the same value in the table and the climb curve stays clean.',
+  '',
+  '**② Instantaneous altitude (info panel of 01 Map / 02 Globe, refreshed every second).** This is the **geodetic height above the WGS-84 ellipsoid** (sea level): SGP4 gives an ECI position → ECEF → solve the geodetic latitude `φ` iteratively (`p = √(x²+y²)`, `z`; Bowring form, 20 iterations, sub-metre convergence) → `h = p / cos φ − N(φ)`, with `N(φ) = a / √(1 − e² sin²φ)` the prime-vertical radius, `a = 6378.137 km`, `b = 6356.7523142 km`, `f = 1/298.257223563`, `e² = 2f − f² = 0.00669437999014`. It **excludes** local terrain elevation and atmospheric refraction — "sea level" here *is* the ellipsoid.',
+  '',
+  '**③ Geocentric radius (internal only, never displayed).** `r = |position|`. The difference between ③ and ② is precisely "Earth is not a sphere": `r` is one straight line, while ② subtracts the **ellipsoid surface at that latitude**.',
+  '',
+  '**Why ② swings by 20-odd kilometres.** For a circular orbit `r` barely changes, but the ellipsoid sits **21.4 km lower at the poles than at the equator** (`a − b`): a satellite at 1,150 km reads ≈1,150 km over the equator and ≈1,171 km over the poles. That is **geometry, not jitter** (on an 86.5° near-polar orbit you see the whole swing within one revolution). On top of it sits the eccentricity term **±a·e** (`e ≈ 2×10⁻⁴` → **±1.4 km**) — both are physically real.',
+  '',
+  '**Sub-satellite latitude is geodetic, not geocentric.** The latitude in the info panel is `φ` from ② (along the ellipsoid normal). The two differ by about **0.19°** near 45° latitude (≈21 km on the ground) — that is exactly what makes the plotted sub-satellite point line up with the real ground point.',
+  '',
+  '**Coverage zones / elevation / visibility cones still use a geocentric sphere.** These are a deliberate approximation (a 6378.135 km sphere): they answer "can this be seen?", and at a 10° mask the coverage radius is already of order 1,000 km, so the ellipsoid changes the answer by under 0.3% while complicating the formula tenfold.',
+  '',
+
   '',
   '## 🔗 Sources and attribution',
   '',

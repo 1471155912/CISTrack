@@ -968,6 +968,15 @@ const HIST = loadHistory();
 //   实测 gw 有 450/508 km（55° 新试验星，设计高度就这么低）与 1100~1171 km（组网星）两簇，
 //   qf 有 800~890 km（仍在升轨）与 1071 km（工作轨道）两簇 —— 用全局范围必然误判。
 //   同批多星取中位数后再档位化（Q26a：取整到 **10 km**），保证"同批同高"读起来干净。
+// ★ V1.9.7：NORAD → { 星座, 倾角 } —— 建层与判据都要用（历史点里没有倾角，只能从 TLE 取）。
+//   倾角直接读 TLE 第 2 行第 9–16 列（度），不经 SGP4：这里只需要"哪条倾角带"，不需要精度。
+const SAT_META = new Map();
+for (const bk of ['gw', 'qf']) {
+  for (const s of (bk === 'gw' ? gw : qf)) {
+    const inc = parseFloat(s.l2.slice(8, 16));
+    SAT_META.set(s.id, { c: bk, inc: isFinite(inc) ? inc : undefined });
+  }
+}
 const ORBIT_ST = (() => {
   const DAY = 86400000, RE = 6378.137;
   const WIN = 30;        // 漂移窗口（天）
@@ -1038,7 +1047,8 @@ const ORBIT_ST = (() => {
         //   现在：速率用与展示完全相同的 2 天 LSQ（同一函数），阈值 ≈ 5σ（findrassvet 取 0.8 km/day）。
         const rate = lsqRateDay(pts, 2);
         rows.set(n, {
-          key: key, pts: pts, sma: sma, geo: geo, drift: d, hmax: hmax - RE, rate: rate,
+          key: key, norad: n, pts: pts, sma: sma, geo: geo, drift: d, hmax: hmax - RE, rate: rate,
+          thin: thin,                      // ★ V1.9.7：层/判据要用（点数不足的星不参与建层）
           moving: thin ? (now - pts[0][0] <= WIN * DAY)
                        : (rate !== null ? Math.abs(rate) > RATE_TH
                                         : (d === null || Math.abs(d) > (geo ? EPS_GEO : EPS_LEO)))
@@ -1047,76 +1057,157 @@ const ORBIT_ST = (() => {
     }
   }
 
-  // ③ 批次工作轨道高度（wk）—— 取**最高的一簇**的中位数，再档位化到 10 km
-  //    ★ 为什么不能取"全批中位数"：实测 24185（千帆极轨02组）18 颗里**只有 4 颗**到了
-  //      1071 km，其余 14 颗长期停在 800~974 km（例：61552 自 2024-11 发射后一直停在 846.9）。
-  //      全批中位数只有 888 → 会把这个错误的"工作高度"再拿去判定，把 4 颗**已到位**的星也判成变轨中。
-  //      改用「最高簇」：按高度降序聚合，相邻差 > CLUSTER_GAP 即断开 → 得到真正到位的那一簇。
-  //      （24185 的最高簇 = 1046/1055/1073/1073/1076 → 中位 1073 → 档位 **1070** ✓ 与同族批次一致）
-  const byKey = new Map();
-  for (const r of rows.values()) {
-    if (!byKey.has(r.key)) byKey.set(r.key, []);
-    byKey.get(r.key).push(r);
+  // ③ ★★ V1.9.7（用户裁决「治本」）：**工作轨道 = 实测层**，不再用「该批历史最高簇」当基准。
+  //   旧口径的病根：wk 取「该批历史最高的一簇」→ 只要有几个成员摸到过更高的高度，整批的「工作高度」
+  //   就被抬上去。实测两处翻车：
+  //     · qf 69863 那批：批 wk=1090，实际全停在 1071（偏差 19 km）→ 状态里显示的高度不是它真在的高度；
+  //     · qf 69800/69807/69811：人在 926~942、30 天净升 33~44 km（还在爬），只因离批 wk=950 不到 10 km
+  //       就被判成「在轨」—— 这正是用户问的「每天变化很小、连着很多天累积」的那种漏判。
+  //   新口径三条，全部由 TLE 历史点算出，不含任何设计值：
+  //     ① 种子 = **稳定**的星：不在推（2 天速率 ≤ RATE_TH）、30 天净升 < RISE_TH、点数足够；
+  //     ② 层 = 同一倾角带（0.5°）内按高度聚类（相邻差 > LAYER_GAP 断开），要求成员 ≥ LAYER_MIN
+  //        且高度标准差 ≤ LAYER_SD —— 后半条专拦「一群还在爬的星刚好排成一条竖线」：
+  //        实测 qf 有 31 颗稳定地散在 800~974 km（σ=57.7），不拦就会被当成一个 174 km 厚的"工作层"；
+  //        层高取**众数档**（10 km，即用户要的整十数），倾角取该带档位（0.5° 才能表达 86.5°）。
+  //     ③ 每颗星归到**同倾角带内最近的层**：距离 ≤ NEAR 才算"在层上"。
+  //   判据（逐星，全部只依赖 TLE）：
+  //     hot   = |2 天速率| > RATE_TH                       → 变轨中·点火
+  //     off   = 无层 或 距层 > NEAR                         → 变轨中·间歇
+  //     creep = 在层上、但最近 7 天仍净升 ≥ CREEP_TH        → 变轨中·间歇（贴层慢爬）
+  //     其余                                               → 在轨
+  //   ★ creep 就是「每天变化很小、连着很多天」的兜底：7 天净升 3 km ≈ 0.43 km/天，低于 2 天速率的
+  //     检出线（0.5），但 7 天累计看得见 —— 稳定星同口径的噪声 p99 只有 0.54 km/14 天。
+  //   ★ 为什么不用「30 天净升 ≥10」直接判：刚到位不到 30 天的星，窗口里还带着爬升段（实测 qf
+  //     69857/69860/69865 三颗 Δ30=24.9 但 Δ7≈0，早就停了）。7 天窗把这类误判挡掉。
+  const RISE_TH = 10;    // 30 天净升（km）：超过它就不算「稳定种子」
+  const CREEP_TH = 3;    // 7 天净升（km）：贴层但仍在慢爬 → 判变轨中
+  const LAYER_INC = 0.5, LAYER_GAP = 30, LAYER_MIN = 8, LAYER_SD = 8;
+  const hAt = (pts, agoDays, tail) => {          // tail 之前最近一点的高度（km，离地）
+    const t = tail - agoDays * DAY;
+    let best = null;
+    for (const p of pts) if (p[0] <= t + 1e-9) best = p;
+    return best ? best[1] - RE : null;
+  };
+  // ① 稳定种子 + 逐星统计量
+  for (const [, x] of rows) {
+    const tail = x.pts[x.pts.length - 1][0];
+    const h30 = hAt(x.pts, 30, tail), h7 = hAt(x.pts, 7, tail);
+    x.rise30 = h30 === null ? null : (x.sma - RE) - h30;
+    x.rise7 = h7 === null ? null : (x.sma - RE) - h7;
+    const meta = SAT_META.get(x.norad) || {};
+    x.con = meta.c || null;                      // 星座：层必须分星座建（星网 50° / 千帆 89° 各一套）
+    x.inc = meta.inc;
+    x.band = (x.inc === undefined || !isFinite(x.inc)) ? null : (Math.round(x.inc / LAYER_INC) * LAYER_INC).toFixed(1);
+    x.stable = !x.geo && !x.thin && !x.moving && x.band !== null &&
+      x.rise30 !== null && x.rise30 < RISE_TH;
+    x.layer = null; x.dist = null;
   }
-  for (const [, g] of byKey) {
-    const geo = g[0].geo;
-    let wk;
-    if (geo) {
-      wk = 'GEO';
-    } else {
-      const hs = g.map(x => x.hmax).sort((a, b) => b - a);   // 降序
-      const cl = [hs[0]];
-      for (let i = 1; i < hs.length; i++) {
-        if (hs[i - 1] - hs[i] <= CLUSTER_GAP) cl.push(hs[i]); else break;
-      }
-      wk = Math.round(median(cl) / 10) * 10;
+  // ② 分星座建层（层高 = 众数档 10 km；倾角 = 该带档位）
+  const buildLayers = (list) => {
+    const bands = new Map();
+    for (const x of list) {
+      if (!x.stable) continue;
+      if (!bands.has(x.band)) bands.set(x.band, []);
+      bands.get(x.band).push(x);
     }
-    for (const x of g) x.wk = wk;
+    const res = [];
+    for (const [bk, arr] of bands) {
+      arr.sort((a, b) => a.sma - b.sma);
+      const groups = [];
+      let g = [arr[0]];
+      for (let i = 1; i < arr.length; i++) {
+        if (arr[i].sma - arr[i - 1].sma > LAYER_GAP) { groups.push(g); g = []; }
+        g.push(arr[i]);
+      }
+      groups.push(g);
+      for (const grp of groups) {
+        if (grp.length < LAYER_MIN) continue;
+        const hs = grp.map(x => x.sma - RE);
+        const mean = hs.reduce((a, b) => a + b, 0) / hs.length;
+        const sd = Math.sqrt(hs.reduce((a, b) => a + (b - mean) * (b - mean), 0) / hs.length);
+        if (sd > LAYER_SD) continue;             // 不像"壳"的一律不认（见上面 qf 800~974 的例子）
+        const cnt = {};
+        for (const h of hs) { const k = Math.round(h / 10) * 10; cnt[k] = (cnt[k] || 0) + 1; }
+        let alt = 0, bn = -1;
+        for (const k of Object.keys(cnt)) if (cnt[k] > bn) { bn = cnt[k]; alt = Number(k); }
+        res.push({ alt: alt, inc: Number(bk), n: grp.length, sd: Math.round(sd * 10) / 10 });
+      }
+    }
+    res.sort((a, b) => (b.n - a.n) || (a.alt - b.alt));
+    return res;
+  };
+  const ORB_LAYERS = {};
+  for (const bk of ['gw', 'qf']) {
+    ORB_LAYERS[bk] = buildLayers([...rows.values()].filter(x => x.con === bk));
   }
-
-  // ④ 出参：orb(0 在轨 / 1 变轨中) + wk + od(进入工作轨道日期) + rr(升轨速度)
+  // ③ 逐星归层
+  for (const [, x] of rows) {
+    if (x.geo || x.band === null) continue;
+    const cands = ORB_LAYERS[x.con] || [];
+    let best = null, bd = Infinity;
+    for (const L of cands) {
+      if (L.inc !== Number(x.band)) continue;    // 只跟同倾角带比（50° 的星不可能落到 86.5° 的层里）
+      const dd = Math.abs((x.sma - RE) - L.alt);
+      if (dd < bd) { bd = dd; best = L; }
+    }
+    x.layer = best; x.dist = best ? bd : null;
+  }
+  // ④ 出参：orb(0 在轨 / 1 变轨中) + wk(参照层高度) + od(进入工作轨道日期) + rr(升轨速度)
   const out = new Map();
+  let nHot = 0, nIdle = 0, nCreep = 0, nOn = 0;
   for (const [n, x] of rows) {
-    // 修正：未到达该批工作高度的一律算变轨中（覆盖"暂时静止但明显偏低"的情形）
-    const orb = (x.moving || (!x.geo && Math.abs(x.sma - RE - x.wk) > NEAR)) ? 1 : 0;
-    // 进入工作轨道日期 = 首次落在工作带内的那条 TLE（GEO 用半长轴阈值，与 Q46 的周期口径等价）
-    //   ⚠️ 只对"在轨"态求值：变轨中的星在上升途中会**穿过**工作带，那不算"进入工作轨道"，
-    //     若照算会得到一个早于它真正到位的日期（实测 26120 的 69321 在 10-05 穿过 510 km 带）。
+    let orb, why;
+    if (x.geo) {
+      // 高轨沿用原口径（station-keeping 的浮动比 LEO 大，阈值 EPS_GEO）
+      orb = x.moving ? 1 : 0; why = 'geo';
+    } else if (x.thin) {
+      // 数据不足：近期首现 → 变轨中；否则保守判在轨（与旧口径一致）
+      orb = (Date.now() - x.pts[0][0] <= WIN * DAY) ? 1 : 0; why = 'thin';
+    } else if (x.moving) {
+      orb = 1; why = 'hot'; nHot++;
+    } else if (!x.layer || x.dist > NEAR) {
+      orb = 1; why = 'off'; nIdle++;
+    } else if (x.rise7 !== null && x.rise7 >= CREEP_TH) {
+      orb = 1; why = 'creep'; nCreep++;
+    } else {
+      orb = 0; why = 'on'; nOn++;
+    }
+    // wk = 参照层高度（真实在的高度档位）。没有层时才退回旧口径（该批稳定成员的中位高度），
+    //   仅用于「变轨中」的"目标高度"展示；GEO 仍写 'GEO'。
+    let wk;
+    if (x.geo) wk = 'GEO';
+    else if (x.layer) wk = x.layer.alt;
+    else {
+      const sib = [...rows.values()].filter(y => y.key === x.key && y.layer && !y.geo);
+      wk = sib.length
+        ? Math.round((sib.reduce((a, y) => a + y.layer.alt, 0) / sib.length) / 10) * 10
+        : Math.round((x.hmax) / 10) * 10;
+    }
+    // 进入工作轨道日期 = 首次落进参照层 ±NEAR 的那条 TLE（只对在轨态求值：
+    //   变轨中的星在上升途中会穿过工作带，那不算"进入工作轨道"）
     let od = null;
     if (orb === 0) {
-      for (const p of x.pts) {
-        const ok = x.geo ? (p[1] >= GEO_SMA) : (Math.abs(p[1] - RE - x.wk) <= NEAR);
-        if (ok) { od = p[0]; break; }
+      const ref = (typeof wk === 'number') ? wk : null;
+      if (x.geo) {
+        for (const p of x.pts) if (p[1] >= GEO_SMA) { od = p[0]; break; }
+      } else if (ref !== null) {
+        for (const p of x.pts) if (Math.abs((p[1] - RE) - ref) <= NEAR) { od = p[0]; break; }
       }
     }
-    const rec = { orb: orb, wk: x.wk, od: od ? ymd8(od) : '' };
+    const rec = { orb: orb, wk: wk, od: od ? ymd8(od) : '' };
     if (orb) {
-      // 升轨速度：直接复用前面算好的 2 天 LSQ 速率（★ V1.9.7：与 moving 判据同一份数据，不再重算一遍）
       if (x.rate !== null && x.rate !== undefined && isFinite(x.rate)) {
         rec.rr = Math.round(x.rate * 100) / 100;
       }
     }
     out.set(n, rec);
   }
-  // ★ V1.9.7（§23.12-p）：**把"因哪条判据判为变轨中"打出来** —— 否则误判永远靠猜。
-  //   alt  = 只因高度差（|sma−RE−wk| > NEAR）：通常是"还在爬、正处于两次点火之间的间歇"
-  //   mov  = 只因速率（|rate| > RATE_TH）：正在点火
-  //   both = 两条都命中
-  //   ⚠️ 必须放在 IIFE **内部**：`why` 是这里声明的，模块层引用会 ReferenceError（上一轮踩过）。
-  (() => {
-    // 不分星座（key 的命名不保证带 gw/qf 前缀，强行分组会串味 —— 上一版就是这么错的）；
-    // 总数可与 satdata 里 orb=1 的条数对照，三个分支的分布才是关键。
-    let n = 0, mov = 0, alt = 0, both = 0;
-    for (const [, x] of rows) {
-      const altHit = (!x.geo && x.wk !== 'GEO' && Math.abs(x.sma - RE - x.wk) > NEAR);
-      if (!(x.moving || altHit)) continue;
-      n++;
-      if (x.moving && altHit) both++;
-      else if (altHit) alt++;
-      else mov++;
-    }
-    console.log('[orb] 变轨中合计 ' + n + ' 颗｜仅速率 ' + mov + '｜仅高度差 ' + alt + '｜两者都中 ' + both);
-  })();
+  // ★ V1.9.7：判据构成写进日志 —— 误判只能靠这张表定位（与旧版的 [orb] 行对应）
+  console.log('[orb] 在轨 ' + nOn + '｜点火 ' + nHot + '｜离层 ' + nIdle + '｜贴层慢爬 ' + nCreep +
+    '｜层数 ' + Object.keys(ORB_LAYERS).map(k => k + '=' + ORB_LAYERS[k].length).join(' ') +
+    '｜层明细 ' + Object.keys(ORB_LAYERS).map(k =>
+      k + '[' + ORB_LAYERS[k].map(L => L.alt + '/' + L.inc + '°×' + L.n + '(σ' + L.sd + ')').join(' ') + ']').join(' '));
+  out.layers = ORB_LAYERS;      // 随 satdata 发布：页面第 0 章与 03 章直接用这份（单一事实来源）
   return out;
 })();
 
@@ -1170,6 +1261,11 @@ const ORBIT_ST = (() => {
     (nFallback ? '，其中 ' + nFallback + ' 颗因无历史点走兜底' : '') + '）' +
     '｜H13 单星词条已挂 ' + nWiki + ' 颗');
 }
+// ★ V1.9.7（§6 治本）：把**实测工作轨道层**随 satdata 发布 —— 页面第 0 章「轨道分布」与
+//   03 章的虚线椭圆直接读这份，与判定用的层是**同一份数据**（不再两处各算一遍，避免漂移）。
+//   结构：[{ alt: 整十公里, inc: 0.5° 档位, n: 成员数, sd: 高度标准差 }]，按成员数降序。
+DATA.gw.layers = ORBIT_ST.layers.gw;
+DATA.qf.layers = ORBIT_ST.layers.qf;
 
 // ---------------------------------------------------------------- V1.9.5（H10 ③b）：**升轨阶段**（构建期预计算）
 // 为什么放构建期、而不在页面端现算（2026-10-16 样张复盘的结论）：
