@@ -978,7 +978,9 @@ const ORBIT_ST = (() => {
   const MIN_PTS = 4;     // 点数少于它 → 数据不足，改按"是否近期首现"判
   // ★ V1.9.7（§9）：改用 **2 天 LSQ 速率** 判"是否在推"，阈值 0.8 km/day ≈ 5σ
   //   （数值取自 findrassvet 的 METHODOLOGY §3.3–3.5：其估计噪声 0.11 km/day、阈值 0.8 约 5σ、无误触发）。
-  const RATE_TH = 0.8;   // km/day：|速率| 超过它才算"在推"
+  const RATE_TH = 0.5;   // km/day：|速率| 超过它才算"在推"
+  //   ★ 2026-10-17 用户要求 0.8 → 0.5：仍远高于本项目的噪声水平（findrassvet 实测单点 σ=0.166 km、
+  //     2 天 LSQ 后 0.11 km/day；0.5 ≈ 4.5σ），所以不会把被动飞行误判成在推，只是对**慢速爬升**更敏感。
   // 2 天窗口最小二乘速率（km/day）—— 与展示用的 rr 是**同一个函数**，避免两套口径
   const lsqRateDay = (pts, days) => {
     const H = days * DAY, tail = pts[pts.length - 1][0];

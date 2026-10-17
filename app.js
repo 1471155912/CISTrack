@@ -3332,7 +3332,8 @@ function orbitStatusHtml(r) {
     //   阶梯式升轨里"变轨中"有两类：正在点火（速率显著）与两次点火之间的间歇（速率≈0）。
     //   阈值与 mkdata 的 RATE_TH 同口径（0.8 km/day ≈ 5σ，源自 findrassvet METHODOLOGY §3.3–3.5）。
     var _hasRR = (r.rr !== undefined && r.rr !== null && isFinite(r.rr));
-    var _hot = _hasRR && Math.abs(r.rr) > 0.8;
+    // 阈值与 mkdata 的 RATE_TH **必须同口径**（这里 0.5 km/day，源自 findrassvet §3.3–3.5；2026-10-17 由 0.8 下调）
+    var _hot = _hasRR && Math.abs(r.rr) > 0.5;
     var _lead = !_hasRR ? t('st_raising_a') : (_hot ? t('st_raise_hot') : t('st_raise_idle'));
     var txt = _lead + ymd8(r.epoch) + t('st_gone_b') + h + 'km';
     if (_hot) {
