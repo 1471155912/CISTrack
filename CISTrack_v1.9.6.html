@@ -2667,6 +2667,12 @@ var I18N = {
   st_orbit_a: ['在轨（~', 'In orbit (~'],
   st_raising: ['变轨中', 'Raising'],
   st_raising_a: ['变轨中（~', 'Raising (~'],
+  // ★ V1.9.7：把「变轨中」拆成两种状态（用户批准）——点火中 / 间歇
+  st_raise_hot: ['变轨中·点火（~', 'Raising · burning (~'],
+  st_raise_idle: ['变轨中·间歇（~', 'Raising · coasting (~'],
+  // ★ V1.9.7：把「变轨中」拆成两种状态（用户批准）——点火中 / 间歇
+  st_raise_hot: ['变轨中·点火（~', 'Raising · burning (~'],
+  st_raise_idle: ['变轨中·间歇（~', 'Raising · coasting (~'],
   st_kmday: ['km/天', 'km/day'],
   st_close: ['）', ')'],
   st_gone_tip: ['已再入，再入日期：', 'Re-entered on '],
@@ -5767,8 +5773,14 @@ function orbitStatusHtml(r) {
     // ⚠️ `smaB` 在 build() 里**已经是离地高度**（`aBro - RE`），不要再减一次 RE ——
     //   减了会得到 -5890 这种负高度（smoke 的渲染层断言当场抓到）。
     var h = Math.round(r.smaB);
-    var txt = t('st_raising_a') + ymd8(r.epoch) + t('st_gone_b') + h + 'km';
-    if (r.rr !== undefined && r.rr !== null && isFinite(r.rr)) {
+    // ★ V1.9.7（用户批准）：区分「点火中」与「间歇」——
+    //   阶梯式升轨里"变轨中"有两类：正在点火（速率显著）与两次点火之间的间歇（速率≈0）。
+    //   阈值与 mkdata 的 RATE_TH 同口径（0.8 km/day ≈ 5σ，源自 findrassvet METHODOLOGY §3.3–3.5）。
+    var _hasRR = (r.rr !== undefined && r.rr !== null && isFinite(r.rr));
+    var _hot = _hasRR && Math.abs(r.rr) > 0.8;
+    var _lead = !_hasRR ? t('st_raising_a') : (_hot ? t('st_raise_hot') : t('st_raise_idle'));
+    var txt = _lead + ymd8(r.epoch) + t('st_gone_b') + h + 'km';
+    if (_hot) {
       var cls = r.rr > 0 ? 'pos' : (r.rr < 0 ? 'neg' : 'zero');
       txt += ' (<span class="st-rate ' + cls + '">' +
         (r.rr > 0 ? '+' : '') + r.rr.toFixed(2) + t('st_kmday') + '</span>)';
