@@ -89,7 +89,31 @@ const wj = `${B}/build/wiki.json`;
 if (fs.existsSync(wj)) {
   const tgt = `${B}/wiki.json`;
   let skip = false;
-  if (fs.existsSync(tgt) && !process.env.CISTRACK_ALLOW_WIKI_REGRESS) {
+  // ★ V1.9.7（§23.3-d）：**必填字段校验**。
+  //   原来的守卫只比"计数"和"asOf"，对**字段级残缺**完全无感 —— 一次真实风险是
+  //   launched/inOrbit 里的 n 变成 undefined：计数会算成 NaN（比较恒 false）、日期还照样更新，
+  //   于是守卫全绿，页面上「发射 / 在轨」直接变成空值。
+  //   判据只看**页面真的会渲染的那几个字段**：gw/qf 各自的 asOf(string) + launched.n + inOrbit.n(number)。
+  const wikiFieldsOk = o => {
+    try {
+      return ['gw', 'qf'].every(k => {
+        const c = o && o[k];
+        return !!c && typeof c.asOf === 'string' && !!c.asOf
+          && c.launched && typeof c.launched.n === 'number' && isFinite(c.launched.n)
+          && c.inOrbit && typeof c.inOrbit.n === 'number' && isFinite(c.inOrbit.n);
+      });
+    } catch (e) { return false; }
+  };
+  {
+    let a0 = null;
+    try { a0 = JSON.parse(fs.readFileSync(wj, 'utf8')); } catch (e) {}
+    if (!wikiFieldsOk(a0)) {
+      skip = true;
+      console.log('!! wiki.json **拒绝覆盖**：build/wiki.json 的**必填字段不全**（需要 gw/qf 的 asOf + launched.n + inOrbit.n）。');
+      console.log('   处理：先跑 `node mkdata.mjs` 重新生成；若仍如此，检查仓库根 wiki.json 是否被写坏。');
+    }
+  }
+  if (!skip && fs.existsSync(tgt) && !process.env.CISTRACK_ALLOW_WIKI_REGRESS) {
     let a = null, b2 = null;
     try { a = JSON.parse(fs.readFileSync(wj, 'utf8')); b2 = JSON.parse(fs.readFileSync(tgt, 'utf8')); } catch (e) {}
     const na = wikiCounts(a), nb = wikiCounts(b2);

@@ -4909,6 +4909,13 @@ assert('A9（V1.9.2 重新划分）：合并判据 = 数据空间可分辨阈值
     /function wikiAsOf/.test(bc) && /const sa = wikiAsOf\(a\), sb = wikiAsOf\(b2\);/.test(bc) &&
     /sa < sb/.test(bc) && /sa && sb/.test(bc) &&
     /早于/.test(bc) && /拿旧统计覆盖新统计/.test(bc));
+  // ★ V1.9.7（§23.3-d）：字段必填校验 —— 原守卫只比"计数 + asOf"，对字段级残缺无感：
+  //   launched.n 变 undefined 时计数算成 NaN（比较恒 false）、日期照样更新 → 守卫全绿而页面空值。
+  assert('V1.9.7：build.mjs 对 wiki.json 做**必填字段**校验（gw/qf 的 asOf + launched.n + inOrbit.n）',
+    /const wikiFieldsOk = o =>/.test(bc) &&
+    /typeof c\.launched\.n === 'number'/.test(bc) &&
+    /typeof c\.inOrbit\.n === 'number'/.test(bc) &&
+    /必填字段不全/.test(bc));
   assert('V1.9.1：wiki.json 与 build/wiki.json 当前同步（若不同步=守卫拦下过，应先跑 mkdata）',
     (function () {
       try {
