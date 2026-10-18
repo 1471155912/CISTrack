@@ -32,9 +32,12 @@ export function tmpRoot() {
   const cands = [];
   if (process.env.CISTRACK_TMP) cands.push(process.env.CISTRACK_TMP);
   const sys = String(process.env.SystemDrive || 'C:').toUpperCase();
+  // ★ V1.9.8（去敏感）：这里原来写死了开发机的目录名（`<盘>:\\<某项目根>\\_tmp`），
+  //   发布包里会暴露出本机的目录结构。改成**中性名字**：优先环境变量，其次各盘根下的
+  //   `cistrack_tmp`，最后退回系统临时目录 —— 行为等价，但不带任何本机痕迹。
   for (const d of ['D', 'E', 'F', 'G']) {
     if ((d + ':').toUpperCase() === sys) continue;
-    cands.push(d + ':\\workbuddyproject\\_tmp', d + ':\\_tmp');
+    cands.push(d + ':\\cistrack_tmp', d + ':\\_tmp');
   }
   cands.push(process.env.TEMP, process.env.TMP, os.tmpdir());
   for (const c of cands) {
