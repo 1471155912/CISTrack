@@ -23,6 +23,16 @@ if errorlevel 1 (
   exit /b 1
 )
 
+rem ★ V1.9.8: wiki first (satellite names / cards). Failure is NOT fatal: the build
+rem   falls back to the bundled wiki.json + wiki_tables.json + the known-NORAD table.
+echo ==^> 0/5  Updating the Satellite Wiki data       (wiki: stats / tables / cards)
+call node scripts\fetch_wiki.mjs
+if errorlevel 1 echo    [warn] wiki stats failed - keeping the previous wiki.json
+call node scripts\fetch_wiki_tables.mjs
+if errorlevel 1 echo    [warn] wiki tables failed - keeping the previous wiki_tables.json
+call node scripts\fetch_wiki_cards.mjs
+if errorlevel 1 echo    [warn] wiki cards failed - keeping the previous wiki_cards.json
+
 echo ==^> 1/4  Fetching the latest orbital elements  (refresh.mjs)
 call node refresh.mjs
 if errorlevel 1 goto :failed

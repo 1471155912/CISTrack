@@ -264,8 +264,12 @@ if (!Object.keys(stats).length) {
 //   另外任务改为每天 00:00 与 12:00 各跑一次，只显示日期已经分不清是哪一次，
 //   故新增 checkedAt（精确到时分），页面显示它。
 const now = new Date();
-const today = now.toISOString().slice(0, 10);
-const checkedAt = now.toISOString().slice(0, 16).replace('T', ' ');   // YYYY-MM-DD HH:MM (UTC)
+// ★ V1.9.8（O24/Q34）：页面把这一行标成「（北京时间）」/「(UTC+8)」，所以**必须写北京时间**。
+//   旧写法用 toISOString()（UTC），于是页面上的时分永远比真实北京时间早 8 小时
+//   （实测：某次 12:00 的核对被显示成 04:00）。
+const bj = new Date(now.getTime() + 8 * 3600 * 1000);
+const today = bj.toISOString().slice(0, 10);
+const checkedAt = bj.toISOString().slice(0, 16).replace('T', ' ');   // YYYY-MM-DD HH:MM (UTC+8)
 const oldAsOf = old.asOf || '';
 const numbersSame = ['gw', 'qf'].every(k =>
   stats[k] && old[k] && old[k].launched.n === stats[k].launched.n &&

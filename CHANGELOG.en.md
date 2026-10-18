@@ -10,6 +10,68 @@ The version is written in the footer (`CISTrack · Vx.y.z`), and the bottom bar 
 
 ---
 
+## [V1.9.8] — 2026-10-18
+
+> The naming system is rebuilt in this version, plus a few long-standing data/display fixes.
+
+### Naming
+
+- **Two name sets**: canvas labels (map/globe dots, chapter-03 cluster labels, chapter-04 right-hand
+  labels) use **short names**; info panels, the satellite table and search use **full official names**.
+- **Short-name rules** (shared by zh/en): LEO constellation/service satellites `A`+serial (`A124`) |
+  GEO `G`+2 digits (`G01`) | test satellites `S`+serial (`S03`/`S04C`/`S08A`) | unnumbered test
+  satellites `S(NORAD)` (`S(62186)`) | Chuangxin `CX`+number (`CX19`) | Qianfan α/β `KLAA`/`KLAB`/`KLBA`/`KLBB` |
+  `DTC01` | `EUHT` | inclined test satellites `XGQ02A`; the newest two batches (group name only, no
+  per-satellite serial) use `A`+group+letter (`A27A`).
+- **Full names**: Chinese from the Satellite Wiki article; ranges written as `…0001星-0004星` or
+  `…08组A星~D星` are **expanded automatically at build time** — all 31 CSCN test satellites now have a
+  unique name. English is unified to `WHJSW-<serial>` (e.g. `WHJSW-03`, `WHJSW-08B`).
+- **Mixed-payload split**: 2026-211 = Qianfan Polar Group 26 (8 sats) + EUHT test satellite
+  (1 sat, NORAD 100711).
+- **Search** accepts short names (`A124`/`S03`/`KLAA`/`EUHT`), COSPAR ids and orbit types
+  (searching `GEO` lists the geostationary satellites).
+
+### Table
+
+- New **COSPAR column** right after NORAD (normal font, bold only).
+- The name column now shows the **full official name**, and the **colour swatch before the name is gone**
+  (including in the exported image).
+- **The exported image now matches the on-page table cell by cell**: each cell is split into
+  runs and every run is drawn with its **real computed style** (colour / weight / underline /
+  opacity / `.tag` chip border), so themed links, the purple satcat NORAD links, the three
+  mission-result colours, the 62% faded re-entered rows and the bold COSPAR column all land in
+  the PNG; multi-page stacking and the top CISTrack row are unchanged (measured: 195 ms).
+- **The exported image now matches the on-page table cell by cell**: each cell is split into
+  runs and every run is drawn with its **real computed style** (colour / weight / underline /
+  opacity / `.tag` chip border), so themed links, the purple satcat NORAD links, the three
+  mission-result colours, the 62% faded re-entered rows and the bold COSPAR column all land in
+  the PNG; multi-page stacking and the top CISTrack row are unchanged (measured: 195 ms).
+
+### Info panel
+
+- Field order unified: name → NORAD → **catalog name** → batch/group → perigee×apogee → inclination →
+  period → **orbit change** (new in chapters 01/02, three-state colouring) → launch date → element epoch →
+  sub-satellite point → altitude now.
+- Epoch is rendered as `UTC2026-10-17 19:26` (the `UTC` prefix sits **before** the time; the table keeps
+  its own UTC column header).
+- "Sub-satellite point" renamed to "**Sub-satellite point location**".
+
+### Charts and titles
+
+- Constellation-progress chart is now a **truthful step curve**: one step per real launch event, so the
+  7-day markers always sit on the line (fixes 7 of 15 markers floating off the curve, up to 9 satellites off).
+- The right-hand labels of the orbit-change chart are **tappable on touch devices** too (mouse-only before).
+- Hero title: desktop returns to the V1.9.4 **two-line, left-aligned** layout; phones get one centred line,
+  28–40px (zh) and 24–40px (en) — fixes the 41px overflow of `SpaceSail/Qianfan` at 320px.
+
+### Robustness and time zones
+
+- **Post-refresh health check with automatic rollback**: if satellite count, working-altitude coverage,
+  GEO count or `orb` coverage collapses, the page falls back to the bundled data and says so in the header
+  (a third line of defence for the "degrades as soon as it goes online" class of bug).
+- "First launch" date now uses Beijing time (it used to take the UTC date but label it GMT+8).
+- "Wiki updated" now shows Beijing time (it used to be UTC, off by 8 hours on the page).
+
 ## [V1.9.7] — 2026-10-18
 
 ### 🔧 V1.9.7 fixes (2026-10-18, second round) — the online-only regression, fixed at the root

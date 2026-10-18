@@ -11,7 +11,7 @@ var DAY = 86400000;
 var SGP4 = window.satellite;
 var RAW = window.SATDATA;
 var COAST = window.COAST_DATA || [];
-var VERSION = 'V1.9.7';          // 页脚版本号，后续更新在此改动
+var VERSION = 'V1.9.8';          // 页脚版本号，后续更新在此改动
 
 // ---------------------------------------------------------------- V1.3.7：TLE 分组差分解码
 // 构建脚本按发射批次（COSPAR 前缀）把「名称+两行要素」压成公共模板 + 每颗星的差异串，
@@ -187,6 +187,10 @@ var I18N = {
   d_shot_disc: ['非官方项目，模拟基于开源 TLE 数据，不代表实际情况',
     'Unofficial project · simulated from open TLE data — does not reflect actual conditions'],
   b_pick: ['选择地面观测点', 'Pick ground site'], b_names: ['名称', 'Names'],
+  // ★ V1.9.8（用户第 7 条）：导出弹层第二行改成「打印第 X 页～第 Y 页」
+  shot_from: ['打印第', 'Pages '], shot_to: ['页～第', ' to '], shot_page: ['页', ' of this table'],
+  shot_go: ['导出', 'Export'], shot_ph1: ['起', 'from'], shot_ph2: ['止', 'to'],
+  shot_bad: ['输入错误，请重试', 'Invalid page range, please retry'],
   b_spin: ['自转', 'Spin'], b_tracks: ['轨道', 'Orbits'],
   // V1.3.6：按钮名精简（"显示可视锥"→"可视区域"，"显示名称"→"名称"）
   b_cone: ['可见区域', 'Coverage area'],
@@ -330,15 +334,13 @@ var I18N = {
   d_grp_all: ['全部批次（', 'All groups ('],
   d_grp_all2: [' 颗）', ')'],
   d_row_batch: ['批次/组', 'Batch/Group'], d_row_cat: ['目录名', 'Catalog name'],
-  d_row_sub: ['星下点', 'Sub-satellite point'], d_row_alt: ['瞬时高度', 'Altitude now'],
+  d_row_sub: ['星下点位置', 'Sub-satellite point'], d_row_alt: ['瞬时高度', 'Altitude now'],
   // ★ V1.9.7（§8）：瞬时高度的口径必须在界面上就能查到（悬停该行）—— 它每秒跳，且沿轨道会变 ~21 km
   d_row_alt_tip: ['瞬时高度 = WGS-84 椭球面（海平面）以上的大地高，由 SGP4 的瞬时位置反解；同一颗星在赤道上空比在极地上空低约 21 km，这是椭球形状造成的，不是误差。',
     'Instantaneous altitude = height above the WGS-84 ellipsoid (sea level), inverted from the SGP4 position at that instant; the same satellite sits ~21 km lower over the equator than over the poles — ellipsoid geometry, not error.'],
   d_row_el: ['观测点仰角', 'Elevation at site'],
   d_row_inc: ['倾角', 'Inclination'], d_row_period: ['周期', 'Period'],
-  // ★ V1.9.7（§7）：03 章信息窗里那条「变轨情况」的行名（内容取 06 表格的同名字段）
-  d_row_status: ['变轨情况', 'Orbit change'],
-  // ★ V1.9.7（§7）：03 章信息窗里那条「变轨情况」的行名（内容取 06 表格的同名字段）
+  // ★ V1.9.8：信息窗「变轨情况」的行名（01/02/03 三章共用；内容取 06 表格的同名字段）
   d_row_status: ['变轨情况', 'Orbit change'],
   d_row_epoch: ['更新历元', 'Updated epoch'], d_row_sma: ['半长轴', 'Semi-major axis'],
   d_row_pa: ['近地点×远地点', 'Perigee×Apogee'],
@@ -449,16 +451,13 @@ function batchName(name) {
     .replace(/^千帆\s+(.+)$/, 'Qianfan $1')
     .replace(/^星网\s+(.+)$/, 'CSCN $1');
 }
+/** ★ V1.9.8（B4）：词条标题清洗 —— 词条 URL 里的空格在个别词条上写成了 `_`
+ *  （实测 `卫星互联网技术试验卫星(CZ_12_Y1)`），而卡片标题本身带空格。显示前一律还原。 */
+function cleanName(t) { return String(t || '').replace(/_/g, ' ').replace(/\s+/g, ' ').trim(); }
+
 function cnName(s) {
   var n = s.name;
-  // V1.7.0 第三轮修正：**卫星的名字来自来源平台的原始命名，与星座品牌无关。**
-  //   · 英文界面一律直接显示目录原名（如 HULIANWANG DIGUI-128），不再改写；
-  //   · 中文界面按平台通名译出可读名：HULIANWANG DIGUI-128 → 互联网低轨-128，
-  //     HULIANWANG JISHU SHIYAN / HJS → 互联网技术试验。
-  if (LANG === 'en') {
-    return n.replace(/^试验星(\d+)组?$/, 'Test Satellite $1')
-      .replace(/^高轨(\d+)星?$/, 'High-Orbit Sat $1');
-  }
+  if (LANG === 'en') return enOf(s);
   return zhRules(n);
 }
 /** ★ V1.9.5（H19）：**按中文规则翻译**（与界面语言无关）—— cnName() 与搜索变体共用同一份规则。
@@ -470,8 +469,8 @@ function zhRules(n) {
     .replace(/^HJS.*$/, '互联网技术试验')
     .replace(/^HULIANWAN GAOGUI-(\d+).*$/, '互联网高轨-$1')
     .replace(/^GUOWANG TEST OBJECT ([A-Z])$/, '互联网试验-$1')
-    .replace(/^GUOWANG (\d+) OBJECT ([A-Z])$/, '互联网$1组$2')
-    .replace(/^QIANFAN (\d+) OBJECT ([A-Z])$/, '千帆$1组$2')
+    .replace(/^GUOWANG (\d+) OBJECT ([A-Z])$/, '互联网$1组$2星')
+    .replace(/^QIANFAN (\d+) OBJECT ([A-Z])$/, '千帆$1组$2星')
     .replace(/^QIANFAN-(\d+)$/, '千帆-$1')
     // ★ V1.9.5（H19）：补齐普查出来的最后几种残留形态（实测 30 颗，见 §23.2）
     .replace(/^CHUANG ?XIN (\d+)([A-Z]?)(?: \([^)]*\))?$/, '创新$1$2')
@@ -502,67 +501,134 @@ function wikiOf(s) {
   if (lu) return { u: wikiAbs(lu), lvl: 2 };
   return { u: '', lvl: 0 };
 }
-/** 完整显示名（**旧口径**：中文优先词条名，英文走目录名翻译）。
- *  只在"需要识别是谁"的地方用（诊断/日志、导出说明）；界面上一律走 nameOf() 的短名。 */
+/** ★★ V1.9.8：**正式全名**（信息窗标题、卫星表格、搜索联想、导出说明都用它）
+ *  · 中文 = 百科词条名（`s.wn`，构建期由 mkdata 的区间展开补齐）→ 缺失时按规则译名；
+ *  · 英文 = `WHJSW-编号`（用户 2026-10-18 口径：HULIANWANG SHIYAN 太长，统一缩写）
+ *          → 其余星用 TLE 原名（顺带修掉 24 字符截断留下的半个括号）。
+ *  ⚠️ 画布上的小字（地图/地球光点、03 聚集标签、04 右侧标签）**不用这个**，走 shortOf()。 */
 function fullNameOf(s) {
   if (!s) return '';
-  if (LANG === 'en') return cnName(s);
-  return s.wn || cnName(s);
+  if (LANG === 'en') return enOf(s);
+  return cleanName(s.wn) || zhAuto(s);
+}
+/** 只认「第 N 次发射的载荷字母」这种形态：`GUOWANG 27 OBJECT A` / `QIANFAN 16 OBJECT A`。
+ *  注意里面的数字是**发射序号**，不是单星编号，也未必等于组号（千帆 2026-211 是"第16次发射"，
+ *  但组名是"极轨26组"）—— 所以组号必须从**批次名**取，不能从 TLE 里取。 */
+function objForm(s) {
+  var m = /^(GUOWANG|QIANFAN)\s+(\d+)\s+OBJECT\s+([A-Z])$/.exec(String(s.name || ''));
+  if (!m) return null;
+  var bn = (s.launch && s.launch.name) || '';
+  var g = /(\d+)\s*组/.exec(bn);
+  return { sys: m[1], seq: m[2], letter: m[3], batch: bn, group: g ? g[1] : m[2] };
+}
+/** 没有词条名时的中文名（★ V1.9.8 / Q21：`互联网低轨27组A星`、`千帆极轨26组A星`） */
+function zhAuto(s) {
+  var o = objForm(s);
+  if (o && o.batch) return (o.sys === 'GUOWANG' ? '互联网' : '千帆') + batchName(o.batch) + o.letter + '星';
+  return zhRules(s.name);
+}
+/** TLE 原名清洗：`HULIANWAN GAOGUI-01 (HG-` 这种被 24 字符上限截断的尾巴要去掉，
+ *  否则界面上会露出半个括号（实测 3 颗 GEO 都是这个形态）。 */
+function tidyTle(n) {
+  var t = String(n || '').trim();
+  var i = t.indexOf('(');
+  if (i > 0 && t.indexOf(')', i) < 0) t = t.slice(0, i).trim();   // 半截括号 → 砍掉
+  return t;
 }
 var CN_NUM = { '一': 1, '二': 2, '三': 3, '四': 4, '五': 5, '六': 6, '七': 7, '八': 8, '九': 9, '十': 10 };
-/** ★★ V1.9.7（用户口径）：**短名** —— 中英文页面都显示这一套；**TLE 登记原名 `s.name` 完整保留在数据里**
- *  （信息窗「目录名」行、搜索、导出诊断都还能看到/搜到它）。
- *  规则（按优先级，取自卫星百科的逐星区分符 → 目录名的编号/字母 → 兜底 NORAD）：
- *   ① 词条名 `…02组A星` / `…04组01星` → 中文 `A星` / `01星`；英文 `02A` / `0401`
- *   ② 词条名 `…DTC_01星`              → `01星` / `DTC01`
- *   ③ 词条名 `…α阶段A卫星`            → `αA星` / `αA`
- *   ④ 词条名 `…高轨卫星01星`          → `01星` / `G01`
- *   ⑤ 词条名 `…一号/二号`             → `一号` / `No.1`
- *   ⑥ 词条名 `…试验卫星03`（无"组"）  → `03星` / `03`
- *   ⑦ 词条名 `CX-26卫星`              → `CX-26`
- *   ⑧ 目录名 `GUOWANG 27 OBJECT G`    → `G星` / `27G`（OBJECT 是**发射顺序**，不是设计区分符，
- *      但用户口径：wiki 没有官方单称时就按 A/B/C 星叫）
- *   ⑨ 目录名 `KL-ALPHA A` / `DTC TEST OBJECT A` → `A星` / `KL-A`、`DTC-A`
- *   ⑩ 目录名 `HULIANWANG DIGUI-123` / `QIANFAN-123` → `123`（两语言同一个数）
- *   ⑪ 目录名 `CHUANGXIN 20A` → `A星` / `20A`
- *   ⑫ 都不匹配（如 10 颗 `HULIANWANG JISHU SHIYAN` 无序号）→ **NORAD**（唯一可用的身份）
- */
-function shortNameOf(s, en) {
-  var raw = String((s && s.name) || '').trim();
-  var wn = String((s && s.wn) || '').trim();
-  var g;
-  g = /(\d+)\s*组\s*([A-Za-z]|\d{1,3})\s*星$/.exec(wn);
-  if (g) return en ? (g[1] + g[2].toUpperCase()) : (g[2] + '星');
-  g = /[_\s](\d{1,3})\s*星$/.exec(wn);
-  if (g && /DTC/i.test(wn)) return en ? ('DTC' + g[1]) : (g[1] + '星');
-  g = /([αβ])\s*阶段\s*([A-Z])\s*卫星?$/.exec(wn);
-  if (g) return g[1] + g[2] + (en ? '' : '星');
-  g = /高轨[^0-9]{0,8}(\d{1,3})\s*星$/.exec(wn);
-  if (g) return en ? ('G' + g[1]) : (g[1] + '星');
-  g = /([一二三四五六七八九十]+)\s*号$/.exec(wn);
-  if (g) return en ? ('No.' + (CN_NUM[g[1]] || g[1])) : (g[1] + '号');
-  g = /(\d{1,3})$/.exec(wn);
-  if (g && /星$/.test(wn) && !/组/.test(wn)) return en ? g[1] : (g[1] + '星');
-  if (/^CX-\d+/i.test(wn)) return wn.replace(/卫星$/, '');
-  g = /\b(\d+)\s+OBJECT\s+([A-Z])$/.exec(raw);
-  if (g) return en ? (g[1] + g[2]) : (g[2] + '星');
-  g = /^OBJECT\s+([A-Z])$/.exec(raw);
-  if (g) return en ? g[1] : (g[1] + '星');
-  g = /^KL-(ALPHA|BETA)\s+([A-Z])$/.exec(raw);
-  if (g) return en ? ('KL-' + g[2]) : (g[2] + '星');
-  g = /^DTC TEST OBJECT\s+([A-Z])$/.exec(raw);
-  if (g) return en ? ('DTC-' + g[1]) : (g[1] + '星');
-  g = /-(\d{1,4})$/.exec(raw);
-  if (g) return g[1];
-  g = /(\d{1,3})([A-Z])(?:\s*\(.*\))?$/.exec(raw);
-  if (g) return en ? (g[1] + g[2]) : (g[2] + '星');
-  return String((s && s.id) || raw);
+/** ★★ V1.9.8：**英文全名**。
+ *  规则（用户 Q17=B / Q28=B / Q32=A）：
+ *   · `卫星互联网技术试验卫星…` → `WHJSW-<编号>`（编号部分 = 中文名去掉前缀后的那一段，去掉空格）
+ *     例：`卫星互联网技术试验卫星03` → `WHJSW-03`；`…04组A星` → `WHJSW-04A`；
+ *        `…0001星` → `WHJSW-0001`；`…一号` → `WHJSW-01`；`…(CZ 12 Y1)` → `WHJSW-CZ12Y1`
+ *   · 其它（组网星 / 高轨 / CX / KL / DTC / EUHT / 倾斜轨道试验星）→ **TLE 原名**（清洗后）
+ *  为什么不全用卡片英文名：卡片里同一个系列有 `WHJSW 03` 与 `Hulianwang Jishu Shiyan 0001`
+ *  两种写法（实测），统一成 `WHJSW-` 才整齐；卡片仍用于**中文名与 NORAD 校验**。 */
+function enOf(s) {
+  if (!s) return '';
+  var zh = cleanName(s.wn);
+  if (/^卫星互联网技术试验卫星/.test(zh)) {
+    var rest = zh.replace(/^卫星互联网技术试验卫星/, '');
+    var m = /^([一二三四五六七八九十]+)\s*号?$/.exec(rest);
+    if (m) return 'WHJSW-' + pad2(CN_NUM[m[1]] || 0);
+    rest = rest.replace(/[\(\（]/, '').replace(/[\)\）]/, '').replace(/\s+/g, '');
+    if (rest) return 'WHJSW-' + rest;
+    return 'WHJSW';
+  }
+  return tidyTle(s.name);
 }
-/** 显示用名字（**所有名字渲染点都走这里**）—— V1.9.7 起返回**短名**（中英各一套）。
- *  ⚠️ 不要在这里读 `s.name` 做判断以外的拼接：原名只用于识别（信息窗「目录名」、搜索、日志）。 */
+function pad2(n) { n = n | 0; return (n < 10 ? '0' : '') + n; }
+
+/** ★★ V1.9.8：**短名**（只给画布用：地图/地球光点小字、03 聚集标签、04 右侧标签）。
+ *  用户口径（2026-10-18，逐字）：
+ *    · 一般 LEO 组网/业务星 → `A` + 真实编号（`A124`）
+ *    · GEO 高轨            → `G` + 两位（`G01`）
+ *    · 试验星              → `S` + 编号（`S03` / `S04C` / `S08A` / `S0001`；一号/二号 → `S01`/`S02`）
+ *    · 无编号的试验星      → `S(NORAD)`（`S(62186)`；按 NORAD 升序可再编号，但现有数据已全部有名字）
+ *    · 创新 CX 系列        → `CX` + 数字（`CX19` / `CX26`）
+ *    · 千帆 α/β 阶段       → `KLAA` / `KLAB` / `KLBA` / `KLBB`
+ *    · 千帆 DTC            → `DTC01`
+ *    · EUHT               → `EUHT`
+ *    · 倾斜轨道试验星      → `XGQ` + 组号 + 字母（`XGQ02A`）
+ *    · 只有组名没有单星编号（最新两批）→ `A` + 组号 + 字母（`A27A` / `A26A`）
+ *  中英文共用同一套（全是拉丁字符，天然两语言通用）。
+ */
+function shortOf(s) {
+  if (!s) return '';
+  var zh = cleanName(s.wn);
+  var name = String(s.name || '');
+  var g;
+  // ① 千帆 α/β 阶段（全球多媒体卫星系统）
+  if (/α\s*阶段\s*A/.test(zh)) return 'KLAA';
+  if (/α\s*阶段\s*B/.test(zh)) return 'KLAB';
+  if (/β\s*阶段\s*A/.test(zh)) return 'KLBA';
+  if (/β\s*阶段\s*B/.test(zh)) return 'KLBB';
+  // ② DTC
+  if (/DTC/i.test(zh) || /^DTC TEST OBJECT/.test(name)) {
+    g = /(\d{1,3})\s*星?$/.exec(zh) || /(\d{1,3})/.exec(name);
+    return 'DTC' + (g ? pad2(g[1]) : '');
+  }
+  // ③ EUHT
+  if (/EUHT/i.test(zh) || /EUHT/i.test(name)) return 'EUHT';
+  // ④ 倾斜轨道试验星 → XGQ + 组号 + 字母
+  g = /倾斜轨道试验星\s*(\d+)\s*组\s*([A-Z])\s*星?$/.exec(zh);
+  if (g) return 'XGQ' + pad2(g[1]) + g[2];
+  // ⑤ 卫星互联网技术试验卫星系列
+  g = /技术试验卫星\s*([一二三四五六七八九十]+)\s*号?$/.exec(zh);
+  if (g) return 'S' + pad2(CN_NUM[g[1]] || 0);
+  g = /技术试验卫星\s*(\d+)\s*组\s*([A-Z])\s*星?$/.exec(zh);
+  if (g) return 'S' + pad2(g[1]) + g[2];
+  g = /技术试验卫星\s*(\d+)\s*星?$/.exec(zh);
+  if (g) return 'S' + g[1];
+  if (/^卫星互联网技术试验卫星/.test(zh)) return 'S(' + s.norad + ')';   // 保底：无编号 → S(NORAD)
+  // ⑥ 高轨（GEO）
+  g = /高轨[^0-9]{0,8}(\d{2})\s*星?$/.exec(zh) || /GAOGUI-(\d+)/.exec(name);
+  if (g) return 'G' + pad2(g[1]);
+  // ⑦ 创新 / CX
+  g = /CX-?\s*(\d+[A-Z]?)/i.exec(zh) || /CX-?\s*(\d+[A-Z]?)/i.exec(name) || /创新\s*(\d+[A-Z]?)/.exec(zh);
+  if (g) return 'CX' + g[1].toUpperCase();
+  // ⑧ 只有组名（最新批次，没有单星编号）：`互联网低轨27组A星` / `千帆极轨26组A星`
+  var o = objForm(s);
+  if (o) return 'A' + o.group + o.letter;
+  g = /(?:互联网|千帆)[^0-9]{0,8}(\d+)\s*组\s*([A-Z])\s*星?$/.exec(zh);
+  if (g) return 'A' + g[1] + g[2];
+  // ⑨ 组网星：名字里带真实编号
+  g = /DIGUI-(\d+)/.exec(name) || /^QIANFAN-(\d+)/.exec(name);
+  if (g) return 'A' + g[1];
+  g = /(?:低轨|千帆)[-－]\s*(\d+)$/.exec(zh);
+  if (g) return 'A' + g[1];
+  // ⑩ 兜底：NORAD（唯一可用的身份）
+  return String(s.norad || name);
+}
+/** 画布用短名（地图/地球光点、03 聚集标签、04 右侧标签） */
 function nameOf(s) {
   if (!s) return '';
-  return shortNameOf(s, LANG === 'en');
+  return shortOf(s);
+}
+/** COSPAR 标准写法：库内是 `26211K`，页面要 `2026-211K`。 */
+function cosparOf(s) {
+  var c = String((s && s.cospar) || '');
+  return /^\d{5}[A-Z]?$/.test(c) ? ('20' + c.slice(0, 2) + '-' + c.slice(2)) : c;
 }
 
 // ---------------------------------------------------------------- 预计算（性能）
@@ -656,6 +722,14 @@ function ymd8(ms) {
   return d.getUTCFullYear() + '-' + pad(d.getUTCMonth() + 1) + '-' + pad(d.getUTCDate());
 }
 function fmtNum(v, n) { return (Math.round(v * Math.pow(10, n)) / Math.pow(10, n)).toFixed(n); }
+/** ★ V1.9.8（Q7/Q25）：图表横轴用的是**浏览器本地时区**（默认 GMT+8），
+ *  必须在轴角标出当前偏移，否则在外地打开机器的人无法判断刻度是哪一天。 */
+function tzLabel() {
+  var m = -new Date().getTimezoneOffset();          // 分钟，东为正
+  var sign = m >= 0 ? '+' : '-';
+  var a = Math.abs(m), hh = Math.floor(a / 60), mm = a % 60;
+  return 'GMT' + sign + hh + (mm ? ':' + pad(mm) : '');
+}
 /**
  * ★ V1.9.3（用户要求）：科学记数法的**标准写法**（`1.23×10⁻⁴`），替换裸 `1.23e-4`。
  *   用户原话：「卫星表格里的大气阻力系数各项改用标准的科学记数法写（10↑n…），提高可读性」。
@@ -2650,24 +2724,27 @@ function satBlock(s, scope, extra) {
   // 顺序：NORAD → 批次/组 → 近地点×远地点 → 倾角 → 周期 → 发射日期 → 更新历元；
   // 已按要求去掉「半长轴」与「目录名」两项。
   // ★ V1.9.5（H19）：中文模式用词条名/规则译名（信息窗顶行也不能露英文名）
-  return '<div class="si-block"><div class="si-name">' + nameOf(s) +
+  return '<div class="si-block"><div class="si-name">' + fullNameOf(s) +
     '<span class="swatch" style="background:' + colOf(s, scope) + '"></span></div>' +
     '<div class="si-row"><span>NORAD</span><span>' + s.norad + '</span></div>' +
+    // ★ V1.9.8（用户第 2 条）：**目录名**上移到 NORAD 之后（三章统一）；内容是 TLE 登记原名
+    '<div class="si-row"><span>' + t('d_row_cat') + '</span><span class="si-cat">' + (s.name || '—') + '</span></div>' +
     '<div class="si-row"><span>' + t('d_row_batch') + '</span><span>' + batchName(L.name) + '</span></div>' +
     '<div class="si-row"><span>' + t('d_row_pa') + '</span><span>' +
       fmtNum(b ? s.hpB : s.hpK, 2) + ' km×' + fmtNum(b ? s.haB : s.haK, 2) + ' km</span></div>' +
     '<div class="si-row"><span>' + t('d_row_inc') + '</span><span>' + fmtNum(s.inc, 2) + '°</span></div>' +
     '<div class="si-row"><span>' + t('d_row_period') + '</span><span>' + fmtNum(s.period, 3) + t('u_min') + '</span></div>' +
-    // ★ V1.9.7（§7 用户要求）：03 倾角分布的信息窗加一条「变轨情况」，位置在**周期之下、发射日期之上**，
-    //   内容与 06 表格的「在轨状态」列**完全同源**（同一个 orbitStatusHtml、同一套染色类）。
-    (scope === 'chart' ? satStatusRow(s) : '') +
+    // ★ V1.9.8（用户第 2 条）：**三个章节都显示**「变轨情况」，位置固定在周期之下、发射日期之上，
+    //   内容与 06 表格的「在轨状态」列完全同源（同一个 orbitStatusHtml、同一套染色类）。
+    satStatusRow(s) +
     '<div class="si-row"><span>' + t('d_row_launch') + '</span><span>' + date +
       (days === null ? '' : paren(days + (LANG === 'en' ? ' d' : ' 天'))) + '</span></div>' +
     // V1.7.2 第七轮（需求6）：**信息窗里只保留「该星历元」这一行**。
     //   用户确认：整包口径的「TLE 更新时间」只显示在主标题下方那一处即可，
     //   所有信息窗（A 窗 / 浮窗）、以及导出图片里的卫星信息行，末尾都只留单星历元。
     //   这样也不再出现"同一颗星的窗里两个日期、分不清哪个是最新"的困惑。
-    '<div class="si-row"><span>' + t('d_row_epoch_sat') + '</span><span>' + fmtUTC(s.epochMs) + '</span></div>' +
+    // ★ V1.9.8（Q5）：历元写成 `UTC2026-10-17 19:26` —— **UTC 前缀写在时间前面**（表格不动，列头已写 UTC）
+    '<div class="si-row"><span>' + t('d_row_epoch_sat') + '</span><span>UTC' + fmtUTC(s.epochMs) + '</span></div>' +
     (extra || '') + '</div>';
 }
 // ★ V1.9.7（§7）：03 章信息窗的「变轨情况」行 —— 与 06 表格同一份文案与染色。
@@ -3502,8 +3579,10 @@ function tableVals(s) {
   var L = s.launch;
   var mkRow = manufacturerOf(s);
   return {
-    // ★ V1.9.5（H19）：显示名统一走 nameOf()（中文模式**词条名优先**，缺失按规则翻译）
-    name: nameOf(s), norad: s.norad, launch: L.name,
+    // ★ V1.9.8：表格名称列用**正式全名**（简名只留给画布小字）
+    name: fullNameOf(s), norad: s.norad, launch: L.name,
+    // ★ V1.9.8（用户新增需求）：COSPAR 列 —— 排在 NORAD 右侧，普通字体、仅加粗（见 .cospar-cell）
+    cospar: cosparOf(s),
     // V1.9.1（1.4-D）：「在轨状态」列 —— 0=在轨 / 1=已再入（排序用数值：在轨排前面）。
     //   已再入的卫星在 mkdata 里带了 `st:'r'` 与 `dt`（再入日期，来自 satcat 的 DECAY_DATE）。
     // V1.9.2（A7）：三态化 —— 0=在轨 / 1=变轨中 / 2=已再入（升序排 → 在轨在前、已再入最后）。
@@ -3523,7 +3602,7 @@ function tableVals(s) {
     raan: s.raan0, ecc: s.ecc, bstar: s.bstar, epoch: s.epochMs,
     // 混合搜索用：中英卫星名、目录名、NORAD、批次名（中英）、COSPAR、在轨状态
     //   （V1.9.1 / 1.4-D：把"已再入"也纳入搜索 —— 用户口径是"已再入的不可联动但可搜索"）
-    q: [s.name, nameVariants(s), String(s.norad),
+    q: [s.name, nameVariants(s), String(s.norad), cosparOf(s),
         L.name, batchVariants(L.name), s.cospar,
         s.st === 'r' ? (t('st_gone') + ' ' + t('t_status'))
                      : (s.orb ? t('st_raising') : t('st_orbit')),
@@ -3641,9 +3720,12 @@ function satRowHtml(r) {
     : '<span class="sat-plain" title="' + (LANG === 'en' ? 'No wiki article for this satellite or batch' : '卫星百科暂无该星/该批次的词条') + '">' + r.name + '</span>';
   return '<tr data-idx="' + s.idx + '" class="' + (sel && !r.gone ? 'focused' : '') +
     (r.gone ? ' gone' : '') + (goneFocus ? ' gone-focus' : '') + '">' +
-    '<td class="lname"><span class="swatch" style="background:' + colOf(s, 'chart') + ';margin-right:6px"></span>' +
-    nameCell + '</td>' +
+    // ★ V1.9.8（用户口径）：名称列**去掉毫无用处的色块**（表格与导出图都去；信息窗保留）
+    '<td class="lname">' + nameCell + '</td>' +
     '<td class="norad-cell"><a class="norad-link" href="' + SATCAT(r.norad) + '" target="_blank" rel="noopener" title="Satcat · ' + r.norad + '">' + r.norad + '</a></td>' +
+    // ★ V1.9.8（用户新增需求）：COSPAR 列，位置在 NORAD 右侧；普通字体、仅加粗（不带颜色/下划线）
+    //   ⚠️ 不要套 V()：已再入的星**仍然有** COSPAR，写 `-` 是错的（会多出一个 .no-data，把 8 项守卫打红）
+    '<td class="cospar-cell">' + (r.cospar || '—') + '</td>' +
     // V1.9.1（1.4-D）：「在轨状态」列 —— 在轨绿 / 已再入红。
     // V1.9.1（A10）：已再入的写**完整**文案「已再入（~YYYY-MM-DD，XXX 天）」（XXX = 冻结的在轨日）。
     // V1.9.2（A7）：三态 —— 在轨绿 / **变轨中黄** / 已再入红，内容见 orbitStatusHtml()。
@@ -4590,37 +4672,87 @@ function exportView(view) {
 // 这样导出第 N 页时不必真的去翻页渲染（避免闪屏），也能拿到非当前页的行。
 var SHOT_HEADS = { sat: [], launch: [] };
 function rowsTextFromHtml(html, vis, which) {
-  var box = document.createElement('tbody');
-  box.innerHTML = html;
-  // ★ V1.9.5（H14）：**不再只取文字** —— 每个单元格连"页面上的样式语义"一起带出来，
-  //   导出才能与页面一致（旧版整表一种字体、一种灰，用户报"全默认字体"）。
-  //   kind 的判据直接读**页面的类名**（satRowHtml/launchRowHtml 生成的 markup 就在眼前）：
-  //     lname = 名称列（加粗 + --fg + 色块）｜stcell = 在轨状态列（三态色）｜rk = 批次名列（加粗）
-  //     wl = 可跳转项（主题色）｜nodata = 无数据（保持 --dim）
-  //   row: gone = 已再入整行（页面 opacity:.62，状态格除外）
-  return [].slice.call(box.children).map(function (tr) {
+  // ★★ V1.9.8（用户：**导出图要和页面表格一模一样**）：
+  //   旧实现把每个 <td> 拍成「一段纯文本 + 一个类别标签」，只能还原 6 种外观，
+  //   **下划线从来不画**、`.tag` 小标签与任务结果三色全丢。
+  //   现在改成「**一格若干 run**」：逐元素读**页面真实计算样式**（颜色/字重/下划线/透明度），
+  //   于是导出图与屏幕上的表格逐格一致（含中英、明暗主题、已再入的 62% 透明）。
+  //   ⚠️ 踩过两个坑：
+  //     ① 计算样式必须在**已挂载**的元素上取（detached 节点退回初始值）；
+  //     ② 配色规则大量写成 `#satTable td.xxx`（id 作用域）。浏览器对 id 选择器走 id 索引，
+  //        **同 id 的第二个元素拿不到规则**（实测：探针表里 `.st-raising` 算出来是灰的）。
+  //        → 直接把真表的 tbody 内容临时换成"全部页的行"，读完再原样放回去。
+  //          整段是同步执行的，浏览器不会在中间绘制，用户看不到闪烁。
+  var realId = (which === 'sat') ? 'satTable' : 'launchTable';
+  var realTbl = document.getElementById(realId);
+  var realBody = realTbl ? realTbl.tBodies[0] : null;
+  if (!realBody) return [];
+  var saved = realBody.innerHTML;
+  realBody.innerHTML = html;
+  var box = realBody;
+
+  var csCache = (typeof WeakMap === 'function') ? new WeakMap() : null;
+  function csOf(el) { return getComputedStyle(el); }
+  /** 一个元素的样式快照（颜色 / 粗细 / 下划线 / 透明度 / 是否小标签） */
+  function snap(el) {
+    var cs = csOf(el);
+    var w = String(cs.fontWeight || '400');
+    return {
+      c: cs.color || '',
+      b: (+w >= 600) || w === 'bold' || w === 'bolder',
+      u: /underline/.test(cs.textDecorationLine || cs.textDecoration || ''),
+      tl: cs.textDecorationLine || '',
+      a: (function (x) { return isFinite(x) ? x : 1; })(parseFloat(cs.opacity)),
+      tag: el.classList ? el.classList.contains('tag') : false,
+      tagBorder: cs.borderTopColor || cs.borderColor || ''
+    };
+  }
+  /** 把一个 td 拆成 runs（保留空格，去掉首尾空 run） */
+  function runsOf(td) {
+    var out = [];
+    function push(style, txt) {
+      if (!txt) return;
+      var last = out[out.length - 1];
+      if (last && last.c === style.c && last.b === style.b && last.u === style.u &&
+          last.a === style.a && last.tag === style.tag) { last.t += txt; return; }
+      out.push({ t: txt, c: style.c, b: style.b, u: style.u, a: style.a, tag: style.tag, tb: style.tagBorder });
+    }
+    (function walk(node) {
+      for (var n = node.firstChild; n; n = n.nextSibling) {
+        if (n.nodeType === 3) {
+          var txt = String(n.nodeValue || '').replace(/\s+/g, ' ');
+          if (txt.trim() === '' && !out.length) continue;        // 行首空白丢掉
+          push(snap(node), txt);
+        } else if (n.nodeType === 1) {
+          if (n.tagName === 'BR') { push(snap(node), ' '); continue; }
+          walk(n);
+        }
+      }
+    })(td);
+    while (out.length && out[out.length - 1].t.trim() === '') out.pop();
+    if (out.length) out[0].t = out[0].t.replace(/^ +/, '');
+    return out;
+  }
+
+  var res = [].slice.call(box.children).map(function (tr) {
     var gone = tr.classList.contains('gone');
+    var goneTd = null;
     var cells = vis.map(function (i) {
       var td = tr.children[i];
-      if (!td) return { t: '', k: '' };
-      var t = String(td.textContent || '').replace(/\s+/g, ' ').trim();
-      var k = '';
-      if (td.classList.contains('lname')) k = 'lname';
-      else if (td.classList.contains('stcell')) {
-        k = td.classList.contains('st-raising') ? 'st-raising'
-          : (td.classList.contains('st-gone') ? 'st-gone' : 'st-orbit');
-      } else if (td.classList.contains('rk')) k = 'rk';
-      else if (td.querySelector('a.wl')) k = 'wl';
-      else if (td.querySelector('.no-data')) k = 'nodata';
-      var sw = '';
-      var swEl = td.querySelector('.swatch');
-      if (swEl) sw = swEl.style.background || '';     // 名称列的色块（内联 background，页面同一份）
-      return { t: t, k: k, sw: sw };
+      if (!td) return { t: '', runs: [] };
+      var runs = runsOf(td);
+      var alpha = parseFloat(getComputedStyle(td).opacity);
+      if (!isFinite(alpha)) alpha = 1;
+      var txt = String(td.textContent || '').replace(/\s+/g, ' ').trim();
+      return { t: txt, runs: runs, alpha: alpha, gone: gone };
     });
     return { gone: gone, cells: cells };
   });
+  realBody.innerHTML = saved;            // ← 原样放回（同步执行，用户看不到）
+  return res;
 }
 /**
+ * ★ V1.9.3：把一段文本按**可用像素宽**折成多行（用于表格导出图片）。/**
  * ★ V1.9.3：把一段文本按**可用像素宽**折成多行（用于表格导出图片）。
  *
  * 为什么要它：旧实现是 `cell.length > 40 ? cell.slice(0,39) + '…' : cell` ——
@@ -4665,6 +4797,107 @@ function wrapCell(ctx, text, maxW) {
   }
   return out.length ? out : [''];
 }
+/** ★★ V1.9.8：按 run 量宽（`tag` 小标签额外加左右内边距，与页面 `.tag` 的 padding 同量级） */
+function runsWidth(ctx, runs, fs, dpr) {
+  var w = 0;
+  (runs || []).forEach(function (r) {
+    ctx.font = monoFont(fs, r.b);
+    w += ctx.measureText(r.t).width + (r.tag ? 8 * dpr : 0);
+  });
+  return w;
+}
+/** ★★ V1.9.8：把「若干 run」折成多行。规则与 wrapCell 同：优先在空格断，超宽单词按字符硬断。
+ *  返回 lines[]，每行是一组 run（已带 w），供绘制时逐 run 换色/换字重/画下划线。 */
+function wrapRuns(ctx, runs, maxW, fs, dpr, maxLines) {
+  var chars = [];
+  (runs || []).forEach(function (r) {
+    var t = String(r.t || '');
+    for (var i = 0; i < t.length; i++) chars.push({ ch: t[i], r: r });
+    if (r.tag) chars.push({ ch: '', r: r, pad: 8 * dpr });
+  });
+  if (!maxW || !(maxW > 0)) maxW = 1e6;
+  var wcache = {};
+  function cw(c) {
+    var k = (c.r.b ? 'b' : 'n') + c.ch;
+    if (wcache[k] == null) {
+      ctx.font = monoFont(fs, c.r.b);
+      wcache[k] = c.ch ? ctx.measureText(c.ch).width : 0;
+    }
+    return wcache[k] + (c.pad || 0);
+  }
+  var lines = [], start = 0, w = 0, lastSp = -1;
+  for (var i = 0; i < chars.length; i++) {
+    var c = chars[i];
+    if (c.ch === ' ') lastSp = i;
+    var cwid = cw(c);
+    if (w + cwid > maxW && i > start) {
+      var cut = (lastSp >= start) ? lastSp : i;
+      lines.push([start, cut]);                       // 空格本身不画
+      start = (lastSp >= start) ? cut + 1 : cut;
+      w = 0; lastSp = -1;
+      for (var j = start; j <= i; j++) { w += cw(chars[j]); if (chars[j].ch === ' ') lastSp = j; }
+      continue;
+    }
+    w += cwid;
+  }
+  lines.push([start, chars.length]);
+  // 行 → runs
+  var ML = maxLines || 4;
+  var out = lines.filter(function (r) { return r[1] > r[0]; }).map(function (rg) {
+    var arr = [], cur = null;
+    for (var k = rg[0]; k < rg[1]; k++) {
+      var c = chars[k], base = c.r;
+      var ww = cw(c);
+      if (cur && cur.c === base.c && cur.b === base.b && cur.u === base.u && cur.a === base.a && cur.tag === base.tag) {
+        cur.t += c.ch; cur.w += ww;
+      } else {
+        cur = { t: c.ch, c: base.c, b: base.b, u: base.u, a: base.a, tag: base.tag, tb: base.tb, w: ww };
+        arr.push(cur);
+      }
+    }
+    return arr;
+  });
+  if (!out.length) return [[]];
+  if (out.length > ML) {                               // 超过 4 行 → 末行加省略号
+    out = out.slice(0, ML);
+    var lastLine = out[ML - 1];
+    if (lastLine.length) {
+      var last = lastLine[lastLine.length - 1];
+      last.t = last.t.replace(/\s+$/, '');
+      last.t = (last.t.length > 1 ? last.t.slice(0, -1) : last.t) + '…';
+      last.w = runsWidth(ctx, [last], fs, dpr);
+    }
+  }
+  return out;
+}
+/** ★★ V1.9.8：逐 run 绘制（颜色 / 字重 / 下划线 / 小标签边框 / 透明度全部照抄页面） */
+function drawRuns(ctx, line, x, y, fs, dpr, alpha0) {
+  var cx = x;
+  (line || []).forEach(function (r) {
+    var a = (r.a == null ? 1 : r.a) * (alpha0 == null ? 1 : alpha0);
+    ctx.globalAlpha = a;
+    ctx.font = monoFont(fs, r.b);
+    ctx.fillStyle = r.c || '#e6e9ef';
+    ctx.textAlign = 'left';
+    var pad = r.tag ? 4 * dpr : 0;
+    if (r.tag) {                                       // 小标签：画一个与页面同色的细边框
+      ctx.save();
+      ctx.globalAlpha = a * 0.9;
+      ctx.strokeStyle = r.tb || r.c || '#5a6470';
+      ctx.lineWidth = Math.max(1, dpr * 0.7);
+      ctx.strokeRect(cx + 0.5, y - fs * 0.62, r.w - 1, fs * 1.24);
+      ctx.restore();
+      ctx.globalAlpha = a;
+    }
+    if (r.t) ctx.fillText(r.t, cx + pad, y);
+    if (r.u && r.t) {                                  // 下划线（页面 a.wl / .norad-link / .batch-link 都靠它）
+      var tw = ctx.measureText(r.t).width;
+      ctx.fillRect(cx + pad, y + fs * 0.42, tw, Math.max(1, dpr * 0.9));
+    }
+    cx += r.w;
+  });
+  ctx.globalAlpha = 1;
+}
 function exportTable(opts) {
   // opts: { which:'sat'|'launch', mode:'cur'|'all'|number, allCols:boolean }
   var which = opts && opts.which ? opts.which : 'sat';
@@ -4707,6 +4940,11 @@ function exportTable(opts) {
   };
   var rows, from = curPage, to = curPage;
   if (opts && opts.mode === 'all') { from = 0; to = uiPages - 1; }
+  // ★ V1.9.8（Q8 绝对页码）：`mode: {from,to}` —— 两个输入框直接给绝对页号（0 基）
+  else if (opts && opts.mode && typeof opts.mode === 'object') {
+    from = Math.max(0, Math.min(uiPages - 1, opts.mode.from | 0));
+    to = Math.max(from, Math.min(uiPages - 1, opts.mode.to | 0));
+  }
   else if (opts && typeof opts.mode === 'number') { from = curPage; to = Math.min(curPage + opts.mode - 1, uiPages - 1); }
   // 逐页取（跨页时把各页拼起来 —— 每页的行数可能不同，不能用一个固定步长切片）
   if (from === to) rows = mkRange(from);
@@ -4744,7 +4982,12 @@ function exportTable(opts) {
   var widths = heads.map(function (h, c) {
     if (pageW && pageW[c] > 0) return Math.max(44 * dpr, pageW[c] * dpr);   // ★ 与页面同比例
     var w = probe.measureText(h).width;
-    rows.forEach(function (r) { var cc = (r.cells && r.cells[c]) || null; w = Math.max(w, probe.measureText(String((cc && cc.t) || '')).width); });   // ★ H14：rows 结构变了
+    // ★ V1.9.8：按 run 量宽（粗体与常规体宽度不同，纯文本测量会低估）
+    rows.forEach(function (r) {
+      var cc = (r.cells && r.cells[c]) || null;
+      if (cc && cc.runs && cc.runs.length) w = Math.max(w, runsWidth(probe, cc.runs, fs, dpr));
+      else w = Math.max(w, probe.measureText(String((cc && cc.t) || '')).width);
+    });
     return Math.min(w + padX * 2, 300 * dpr);
   });
   var W = widths.reduce(function (a, b) { return a + b; }, 0);
@@ -4753,9 +4996,10 @@ function exportTable(opts) {
   //   ⚠️ 用 `probe`（离线量尺）而非最终 ctx —— 两者字体一致（都设了 monoFont(fs)），
   //     但 probe 在 ctx 创建**之前**就绪，避免"先算尺寸再建画布"的顺序倒置。
   probe.font = monoFont(fs);
+  // ★ V1.9.8：折行也按 run 做（同一格里粗体/常规体混排时，纯文本测量的行宽会偏窄）
   var cellLines = rows.map(function (r) {
-    return r.cells.map(function (cell, c) {           // ★ H14：rows 现在是 {gone, cells}
-      return wrapCell(probe, String(cell && cell.t != null ? cell.t : ''), widths[c] - padX * 2);
+    return r.cells.map(function (cell, c) {
+      return wrapRuns(probe, (cell && cell.runs) || [], widths[c] - padX * 2, fs, dpr);
     });
   });
   // 行高 = 该行最多行数 × 单行高（不再全局固定 26*dpr）
@@ -4822,46 +5066,27 @@ function exportTable(opts) {
   y += headH2;
   // 数据行
   ctx.font = monoFont(fs);
-  // ★ V1.9.5（H14）：颜色/字重/透明度按页面语义逐格施加（与 .ltable 的 CSS 一一对应）
+  // ★★ V1.9.8（用户：**把页面内表格原封不动导出来**）：
+  //   不再按"6 个类别猜颜色"，而是逐 run 用**页面计算样式**里的颜色/字重/下划线/透明度绘制。
+  //   每个 td 自带 alpha（`tr.gone td{opacity:.62}` 会算到 td 上），逐 run 再乘自己的 opacity。
   var upCol = cssVar('--st-orbit', '#51cf66');
   var raisingCol = cssVar('--st-raising', '#f59f00');
   var goneCol = cssVar('--st-gone', '#ff6b6b');
-  var faint = cssVar('--faint', '#5a6470');
   rows.forEach(function (r, ri) {
     var rh = rowHeights[ri];
     if (ri % 2) { ctx.fillStyle = 'rgba(255,255,255,.035)'; ctx.fillRect(0, y, W, rh); }
     ctx.fillStyle = hair; ctx.fillRect(0, y, W, Math.max(1, dpr / 2));
     cellLines[ri].forEach(function (ls, c) {
-      var cell = r.cells[c] || { k: '' };
-      var k = cell.k || '';
-      // 页面口径：td 默认 --dim；.lname / .rk 加粗且 --fg；状态列三色；已再入整行 opacity .62（状态格除外）
-      var col = dim, bold = false, alpha = 1;
-      if (k === 'lname') { col = fg; bold = true; }
-      else if (k === 'rk') { col = fg; bold = true; }
-      else if (k === 'wl') { col = shotAccent(); }
-      else if (k === 'st-orbit') { col = upCol; }
-      else if (k === 'st-raising') { col = raisingCol; }
-      else if (k === 'st-gone') { col = goneCol; }
-      else if (k === 'nodata') { col = faint; }
-      if (r.gone && k !== 'st-gone' && k !== 'st-raising') alpha = 0.62;   // 与 tr.gone td{opacity:.62} 同款
-      ctx.font = monoFont(fs, bold);
-      ctx.fillStyle = col;
-      ctx.globalAlpha = alpha;
-      ctx.textAlign = alignOf(c);
-      var cx0 = alignOf(c) === 'left' ? colX[c] + padX : colX[c] + widths[c] / 2;
+      var cell = r.cells[c] || {};
       var ty = y + (rh - (ls.length * lineH)) / 2 + lineH / 2;
-      // 名称列的**色块小方**（页面 .swatch 10px）—— 画在文字左边，文字相应右移
-      var tx = cx0;
-      if (k === 'lname' && cell.sw) {
-        var sw2 = Math.round(8 * dpr);
-        ctx.save(); ctx.globalAlpha = alpha; ctx.fillStyle = cell.sw;
-        ctx.fillRect(cx0, ty - sw2 / 2 - Math.round(dpr), sw2, sw2);
-        ctx.restore();
-        ctx.fillStyle = col;
-        tx = cx0 + sw2 + Math.round(5 * dpr);
-      }
-      ls.forEach(function (ln, kk) { ctx.fillText(ln, tx, ty + kk * lineH); });
-      ctx.globalAlpha = 1;
+      var left = alignOf(c) === 'left';
+      ls.forEach(function (line, kk) {
+        var lw = 0;
+        line.forEach(function (ru) { lw += ru.w; });
+        // 与页面 text-align 一致：首列左对齐、其余**居中**（居中按整行实际宽算，不是按列宽）
+        var tx = left ? colX[c] + padX : colX[c] + (widths[c] - lw) / 2;
+        drawRuns(ctx, line, tx, ty + kk * lineH, fs, dpr, cell.alpha == null ? 1 : cell.alpha);
+      });
     });
     y += rh;
   });
@@ -5176,15 +5401,15 @@ function renderHeader() {
     '" target="_blank" rel="noopener">' + t(gw ? 'cn_gw_long' : 'cn_qf_long') + '</a>';
   var titleHtml = (LANG === 'en')
     ? nameHtml + ' <br class="br-title-narrow">Constellation<br>' + t('d_title_suffix_en')
-    // ★ V1.9.7（§4 用户口径）：中文标题宽屏**一行居中**（`星网星座在轨态势` / `千帆星座在轨态势`），
-    //   窗口过窄时再过渡为**两行各四字**（`星网星座` / `在轨态势`）。断点类 `.br-cn-narrow`
-    //   只在 ≤350px 生效（390px 的常见手机宽度下实测单行可容纳，见 template.html 的说明）。
-    : nameHtml + t('d_title_suffix_zh') + '<br class="br-cn-narrow">' + t('d_title_suffix_en');
+    // ★ V1.9.8（用户第 11 条）：**电脑端回到 1.9.4 的两行左对齐**（`星网星座` / `在轨态势`），
+    //   只有手机（≤620px）才变成一行居中 —— 断点类 `.br-cn-wide` 在手机下隐藏。
+    : nameHtml + t('d_title_suffix_zh') + '<br class="br-cn-wide">' + t('d_title_suffix_en');
   var heroEl = document.getElementById('heroTitle');
   // ★ V1.9.7（§4）：中文标题固定 8 个字（`星网星座在轨态势`）—— 桌面端 h1 与右侧统计表并排、
   //   可用宽度只有 759px（1440 视口实测），原来的 104px 字号会让它**折在"势"字上**。
   //   给中文标题加 `.zh-title` 单独收敛字号（见 template.html），足够大的同时保证一行放得下。
   heroEl.classList.toggle('zh-title', LANG !== 'en');
+  heroEl.classList.toggle('en-title', LANG === 'en');
   heroEl.innerHTML = titleHtml +
     '<span class="en" id="heroEn">' + (gw ? 'CSCN / SATNET — CHINA SATELLITE CONSTELLATION NETWORK' : 'QIANFAN / THOUSAND SAILS — SPACESAIL CONSTELLATION') + '</span>';
   // V1.3.5：Constellation 一行（中英都）用标准名称 + 染色粗体缩写，与下方简介同一套口径
@@ -5252,8 +5477,11 @@ function renderHeader() {
       distEl.title = t('d_dist_note') + lays.length + t('d_dist_note2');
     }
   }
+  // ★ V1.9.8（Q6）：这里后缀是「（北京时间）」，**必须用 UTC+8 的日期**。
+  //   旧写法 `toISOString().slice(0,10)` 取的是 UTC 日 —— 只要首发是在 00:00–07:59(北京) 发射，
+  //   页面就会显示"前一天"并自称北京时间（当前两星座首发都在 18–19 时，所以一直没暴露）。
   document.getElementById('mFirst').textContent = isFinite(st.firstMs)
-    ? new Date(st.firstMs).toISOString().slice(0, 10) + t('d_bjtime') : '—';
+    ? ymd8(st.firstMs) + t('d_bjtime') : '—';
   // V1.7.0 第四轮（需求5b）：简介按用户口径重写 ——
   //   星座名/别称 = 加粗 + 主题色；运营方/主办方 = 仅加粗；其余（制造商等）维持原有加粗。
   document.getElementById('heroNote').innerHTML = gw
@@ -5280,7 +5508,10 @@ function renderHeader() {
   //   下方这一行（#pageEpoch），并且所有宽度 + 中英文都显示（不再只在窄屏出现）。
   //   命名口径统一为 TLE 更新时间（= 本星座目录里最新的那份要素历元）。
   var pe = document.getElementById('pageEpoch');
-  if (pe) pe.textContent = t('d_dataupd') + ' ' + fmtUTC(st.epochMax) + ' UTC';
+  if (pe) {
+    pe.textContent = t('d_dataupd') + ' ' + fmtUTC(st.epochMax) + ' UTC' +
+      (LIVE_ROLLBACK ? (LANG === 'en' ? ' · online data rejected, using bundled data' : ' · 在线数据未通过校验，已回退到打包数据') : '');
+  }
   // V1.7.1（需求3）：顶栏三键改绝对定位后，nav-right 需要按按钮实际宽度让位 → 重算
   layoutNav();
   var pendN = st.launches.reduce(function (a, L) { return a + (L.pending > 0 && L.pinfo ? L.pinfo.n : 0); }, 0);
@@ -6246,8 +6477,8 @@ function mapBlockHtml(idx) {
   // 这时候直接返回，别让 s.name / g.lat 抛异常把整帧渲染打断
   if (!g || !s) return null;
   var el = (S.pick.on && S.pick.fixed) ? elevationOf(g) : null;
-  var extra = siRow(t('d_row_cat'), s.name) +
-    siRow(t('d_row_sub'), g.lat.toFixed(2) + '°, ' + g.lon.toFixed(2) + '°', 'sub') +
+  // ★ V1.9.8：「目录名」已由 satBlock 统一放在 NORAD 之后，这里只留星下点 / 瞬时高度 / 仰角
+  var extra = siRow(t('d_row_sub'), g.lat.toFixed(2) + '°, ' + g.lon.toFixed(2) + '°', 'sub') +
     siRow(t('d_row_alt'), fmtNum(g.h, 2) + ' km', 'alt', t('d_row_alt_tip')) +
     (el !== null ? siRow(t('d_row_el'), fmtNum(el, 1) + '°') : '');
   return satBlock(s, 'map', extra);
@@ -6790,7 +7021,6 @@ function globeBlockHtml(best) {
   if (!s || !g2) return null;                 // V1.3.8：数据正在重建时不要抛异常
   // 与 01 章节同一套字段，再追加本视图特有的目录名 / 星下点 / 瞬时高度（V1.3.4 起删掉地心距）
   return satBlock(s, 'globe',
-    siRow(t('d_row_cat'), s.name) +
     siRow(t('d_row_sub'), g2.lat.toFixed(2) + '°, ' + g2.lon.toFixed(2) + '°', 'sub') +
     siRow(t('d_row_alt'), fmtNum(g2.h, 2) + ' km', 'alt', t('d_row_alt_tip')));
 }
@@ -7157,10 +7387,18 @@ var README_ZH = [
   '- 退出选择：再点一次该项，或点击图表 / 地图 / 地球 / 表格的空白处 —— 任何视图都能全局退出（已不再需要 Ctrl 多选）；',
   '- **图 → 表联动**：在图表 / 地图 / 地球里点中一颗卫星，卫星表格会自动翻到它所在的那一页，并把那一行闪一下；',
   '',
+  '## 🏷️ 卫星名称与简写',
+  '',
+  '- **两套名字**：信息窗标题、卫星表格、搜索联想用**正式全名**；画布上的小字（地图 / 地球的光点标注、倾角分布的聚集标签、变轨图右侧标签）用**简名** —— 全名太长，铺在图里会互相遮盖。',
+  '- **正式全名**：中文取卫星百科词条名（如 `卫星互联网技术试验卫星08组B星`、`互联网低轨-205`）；英文统一为 `WHJSW-编号`（如 `WHJSW-08B`），其余星用 NORAD 目录原名。**TLE 登记原名**完整保留在信息窗「目录名」一行。',
+  '- **简名规则**（中英同一套）：组网 / 业务星 `A`+真实编号（`A205`）；GEO `G`+两位（`G01`）；试验星 `S`+编号（`S03`／`S04C`／`S08A`）；无编号的试验星 `S(NORAD)`；创新系列 `CX`+数字（`CX26`）；千帆 α/β 阶段 `KLAA`／`KLAB`／`KLBA`／`KLBB`；`DTC01`；`EUHT`；倾斜轨道试验星 `XGQ02A`；最新两批"只有组名、还没有单星编号"的用 `A`+组号+字母（`A27A`）。',
+  '- 简名与正式全名都**可以被搜索**；此外还能按 COSPAR（`2026-230J`）与轨道类型（`GEO` / `极轨` / `低轨`）搜。',
+  '',
   '## 🖼️ 导出图片',
   '',
   '- 三幅图（地图 / 轨道 / 倾角分布）右下角最下面一个按键就是导出键：把当前这一屏画布连同一行「CISTrack · 星座 · 章节 · 日期」的说明一起存成 PNG；',
-  '- 两个表格（卫星表格 / 发射历史）的导出键在翻页那一行的**右端**：把当前这一页按屏幕上的列顺序画成 PNG；',
+  '- 两个表格（卫星表格 / 发射历史）的导出键在翻页那一行的**右端**：可以导出当前页、**按页码范围导出**（「打印第 X 页～第 Y 页」，绝对页码，起止相同即单页），或导出全部页；多页会**上下拼成一张图**；',
+  '- 表格导出图与页面表格**逐格一致**：字体颜色、粗细、下划线、小标签（如「自动补录」「COSPAR 编号」）的边框、已再入整行的淡化，全部照抄页面的实际样式；顶部那行 `CISTrack · 版本 · 星座 · 章节 · 日期 · 页码` 保持不变；',
   '- 全程在本机完成，不上传任何数据；文件名形如 `CISTrack_星网_卫星表格_p3_2026-09-30.png`。',
   '',
   '## 📱 全屏与移动端',
@@ -7695,9 +7933,12 @@ document.querySelectorAll('.view-ctl button[data-shot]').forEach(function (b) {
 });
 // V1.4.0：点导出键不再直接出图，而是弹一个小窗（当前页 / 多页 / 全页），三键竖排居中
 function shotPopEls(which) {
+  // ★ V1.9.8：第二行改成两个输入框（起/止），`num` 保留为"起点"的别名，供旧的键盘处理器复用
+  var from = document.getElementById(which === 'sat' ? 'shotFromSat' : 'shotFromLaunch');
+  var to = document.getElementById(which === 'sat' ? 'shotToSat' : 'shotToLaunch');
   return {
     pop: document.getElementById(which === 'sat' ? 'shotPopSat' : 'shotPopLaunch'),
-    num: document.getElementById(which === 'sat' ? 'shotNumSat' : 'shotNumLaunch')
+    from: from, to: to, num: from
   };
 }
 function shotTotalPages(which) {
@@ -7739,8 +7980,8 @@ document.addEventListener('click', function (e) {
     if (!pop) return;
     var which = (pop.id === 'shotPopSat') ? 'sat' : 'launch';
     var mode = doBtn.getAttribute('data-shot-do');
-    if (mode === 'multi') {
-      if (!shotMulti(which)) return;              // 非法/越界 → 红框，不关窗
+    if (mode === 'multi' || mode === 'range') {
+      if (!shotMulti(which)) return;              // 非法/越界 → 红框 + 红 toast，不关窗
     } else {
       exportTable({ which: which, mode: mode, allCols: shotAllCols(which) });
     }
@@ -7759,20 +8000,30 @@ function shotAllCols(which) {
 //   合法范围 [1, 总页数 − 当前页号] —— 例如 26 页、当前在第 25 页（0 基 24）时最多 2 页。
 //   （旧实现是"第 1~N 页"，与用户对"导出多页"的直觉不符，且与"当前页"按钮割裂。）
 function shotMulti(which) {
-  var inp = shotPopEls(which).num, total = shotTotalPages(which);
-  var v = String(inp.value || '').trim();
-  var n = /^\d+$/.test(v) ? parseInt(v, 10) : NaN;
-  var cur = which === 'sat' ? (S.tpage + 1) : (S.page + 1);
-  var maxN = Math.max(1, total - cur + 1);
-  if (!(n >= 1 && n <= maxN)) { inp.classList.add('bad'); inp.focus(); return false; }
-  inp.classList.remove('bad');
-  exportTable({ which: which, mode: n, allCols: shotAllCols(which) });
+  // ★ V1.9.8（用户第 7 条 / Q8 / Q9）：
+  //   · 第二行改成「打印第 [起] 页～第 [止] 页 [导出]」；
+  //   · 页码是**绝对页码**（1…总页数），与分页器上「第 N 页」同一口径；
+  //   · 起 == 止 → 单页；越界 / 非数字 / 起 > 止 → 输入框标红 + **红色 toast「输入错误，请重试」**。
+  var el = shotPopEls(which), total = shotTotalPages(which);
+  var a = String(el.from && el.from.value || '').trim();
+  var b = String(el.to && el.to.value || '').trim();
+  var bad = function () {
+    [el.from, el.to].forEach(function (x) { if (x) x.classList.add('bad'); });
+    showToast(t('shot_bad'), 'inv');
+    if (el.from) el.from.focus();
+    return false;
+  };
+  if (!/^\d+$/.test(a) || !/^\d+$/.test(b)) return bad();
+  var f = parseInt(a, 10), tt = parseInt(b, 10);
+  if (!(f >= 1 && tt >= 1 && f <= total && tt <= total && f <= tt)) return bad();
+  [el.from, el.to].forEach(function (x) { if (x) x.classList.remove('bad'); });
+  exportTable({ which: which, mode: { from: f - 1, to: tt - 1 }, allCols: shotAllCols(which) });
   return true;
 }
 // V1.4.1：在页数输入框里按 Enter = 点「导出多页」
 document.addEventListener('keydown', function (e) {
   if (e.key !== 'Enter') return;
-  var inp = e.target.closest && e.target.closest('.sp-num');
+  var inp = e.target.closest && e.target.closest('.sp-num, #shotFromSat, #shotToSat, #shotFromLaunch, #shotToLaunch');
   if (!inp) return;
   var pop = inp.closest('.shot-pop');
   if (!pop) return;
@@ -8390,7 +8641,14 @@ function afterSelection() {
 function nameVariants(s) {
   // ★ V1.9.5（H19）：规则只写一处 —— 直接复用 zhRules()（旧版这里自己抄了半套规则，缺 GEO/KL/DTC/CX），
   //   并把**词条名**（H13 的 s.wn）也算进搜索变体：用户看到的是词条名，就得能搜到它。
-  return zhRules(s.name) + ' ' + s.name + (s.wn ? ' ' + s.wn : '');
+  // ★ V1.9.8（用户第 3 条）：搜索要认**简名**（A124 / S03 / KLAA / GEO…）与**英文全名**。
+  //   简名同时给中英两套（短名本身两语言共用），英文名按 enOf 推导。
+  var kinds = '';
+  if (s.wk === 'GEO') kinds = ' geo gso 地球静止 高轨 同步轨道';
+  else if ((s.inc || 0) >= 80) kinds = ' 极轨 polar 太阳同步';
+  else kinds = ' leo 低轨';
+  return zhRules(s.name) + ' ' + s.name + (s.wn ? ' ' + cleanName(s.wn) : '') +
+    ' ' + shortOf(s) + ' ' + enOf(s) + ' ' + cosparOf(s) + kinds;
 }
 function batchVariants(name) {
   var zh = name, en = name.replace(/^低轨(\d+)组$/, 'LEO Group $1')
@@ -8785,7 +9043,7 @@ function sugItemHtml(o, mark) {
   var name, right, tail, attrs, cls = '';
   if (o.kind === 'sat') {
     var s = o.sat;
-    name = nameOf(s);
+    name = fullNameOf(s);
     right = o.note || clip(String(s.norad), 10);
     tail = String(s.norad);
     // V1.6.3：批次项的 data-lk 必须是 launch.key（裸号，如 23095）—— 此前误用 cospar（2023-095），
@@ -9974,6 +10232,52 @@ function backfillExtra(group, list) {
 //   · 与打包 NORAD 的命中率 < 50%（可能抓错了分组/代理返回了别的东西）。
 //   这与 mkdata 的"条数下限 + 字段覆盖"闸门是同一思路：**宁可旧，不可残**。
 var LIVE_MIN_RATIO = 0.9, LIVE_MIN_HIT = 0.5;
+/** ★★ V1.9.8（Q16/Q24=A）：**刷新后体检** —— 闸门只看"条数/命中率"，看不到派生字段是否还在。
+ *  历史三次事故（st/dt、orb/wk/od/rr、wn/wu 被 `unpackSat` 的白名单吞掉）都是
+ *  「条数一个不少、闸门全绿、页面却全默认值」，而**离线测试永远看不到**。
+ *  所以这里量三件事，任何一个塌了就整体回滚到打包数据：
+ *    ① 颗数 ② 有工作轨道高度(wk) 的占比 ③ GEO 颗数 ④ orb 缺失（undefined）的占比
+ *  ⚠️ 纯函数、不改任何状态 —— smoke 可以直接喂假数据断言。 */
+function healthOf(sats) {
+  var n = 0, withWk = 0, geo = 0, none = 0;
+  (sats || []).forEach(function (s) {
+    n++;
+    if (s.wk !== undefined && s.wk !== null && s.wk !== '') withWk++;
+    if (s.wk === 'GEO') geo++;
+    if (s.st !== 'r' && s.orb !== 0 && s.orb !== 1) none++;
+  });
+  return { n: n, withWk: withWk, geo: geo, none: none };
+}
+function healthOk(h, base) {
+  var why = [];
+  if (!base || !base.n) return { ok: true, why: why };
+  if (h.n < base.n * 0.98) why.push('颗数 ' + h.n + ' < ' + base.n);
+  if (h.withWk < base.withWk * 0.98) why.push('有工作高度 ' + h.withWk + ' < ' + base.withWk);
+  if (base.geo > 0 && h.geo < base.geo) why.push('GEO ' + h.geo + ' < ' + base.geo);
+  if (base.none === 0 && h.none > h.n * 0.02) why.push('orb 缺失 ' + h.none);
+  return { ok: why.length === 0, why: why };
+}
+var HEALTH_BASE = null;      // 打包数据的基线（首帧建立，之后不随刷新变化）
+var HEALTH_SNAP = null;      // 打包数据的深拷贝（回滚用）
+var LIVE_ROLLBACK = false;   // 本次在线数据是否被体检拦下
+function snapSats(key) {
+  return (RAW[key].sats || []).map(function (s) {
+    var o = {};
+    for (var k in s) if (Object.prototype.hasOwnProperty.call(s, k)) o[k] = s[k];
+    return o;
+  });
+}
+function setHealthBase() {
+  if (HEALTH_BASE) return;
+  HEALTH_BASE = { gw: healthOf(RAW.gw.sats), qf: healthOf(RAW.qf.sats) };
+  HEALTH_SNAP = { gw: snapSats('gw'), qf: snapSats('qf') };
+}
+function rollbackLive() {
+  if (!HEALTH_SNAP) return false;
+  RAW.gw.sats = HEALTH_SNAP.gw.map(function (s) { var o = {}; for (var k in s) o[k] = s[k]; return o; });
+  RAW.qf.sats = HEALTH_SNAP.qf.map(function (s) { var o = {}; for (var k in s) o[k] = s[k]; return o; });
+  return true;
+}
 function mergeLive(key, list) {
   var c = RAW[key];
   if (!c || !c.sats || !c.sats.length) return { ok: true, upd: 0, add: 0, kept: 0 };
@@ -10027,6 +10331,24 @@ function applyFresh(gwList, qfList) {
   //   但**不能**在闸门之前置位，否则被拦下时页面会自称"已更新"。
   TLE_LIVE = true;
   CONST.gw = build('gw'); CONST.qf = build('qf');
+  // ★ V1.9.8（Q16/Q24=A）：合并完先体检，不健康就**整体回滚**（宁可旧，不可残）
+  var bad = [];
+  if (HEALTH_BASE) {
+    ['gw', 'qf'].forEach(function (k) {
+      var h = healthOf(RAW[k].sats), r = healthOk(h, HEALTH_BASE[k]);
+      if (!r.ok) bad.push(k + '(' + r.why.join('; ') + ')');
+    });
+  }
+  if (bad.length) {
+    console.warn('[live] 体检未通过，回滚到打包数据：' + bad.join(' | '));
+    rollbackLive();
+    TLE_LIVE = false;
+    LIVE_ROLLBACK = true;
+    CONST.gw = build('gw'); CONST.qf = build('qf');
+    restoreSelNorads(keepSel);
+    rebuild();
+    return null;
+  }
   restoreSelNorads(keepSel);
   rebuild();
   BUILTIN_NORAD = noradSetNow();       // ★ 刷新后基线同步：否则下次进来又把老星当"新增"
@@ -10634,21 +10956,27 @@ function netSpanNodes(d, span) {
 }
 /** 时段档下，某星座曲线的取样点（含窗口起点的 0 锚点） */
 function netSpanPts(d, key, span) {
-  var R = netSpanRange(d, span), B = netWindowBase(d, span), arr = d.series[key], b0 = B[key];
-  var pts = [], kFrom = 0, kTo = -1;
-  for (var k = 0; k < d.weeks.length; k++) {
-    if (d.weeks[k] + NET_WK <= R.from) { kFrom = k + 1; continue; }
-    if (d.weeks[k] > R.to) break;
-    kTo = k;
+  var R = netSpanRange(d, span), B = netWindowBase(d, span), b0 = B[key];
+  // ★ V1.9.8（Q15=B，用户裁决"必须如实画出实际的点和实际的曲线"）：
+  //   以前是"每周一个采样点 + 斜线相连"，于是每 7 天的节点（按真实时刻 netCumAt 取值）
+  //   会浮在折线外（实测近 3 月档 15 个节点里 7 个偏离，最大差 9 颗 = 整整一批）。
+  //   现在改成**按真实发射事件画阶梯**：每次发射在它真正发生的那一刻跳一级，
+  //   与 netCumAt() 完全同源 → 节点必然落在水平段上，一个都不会跑出去。
+  var pts = [{ ms: R.from, v: 0, k: -1 }];
+  var cum = 0;
+  for (var j = 0; j < d.weeks.length; j++) {
+    var items = ((d.delta[key] || [])[j] || {}).items || [];
+    for (var q = 0; q < items.length; q++) {
+      var e = items[q];
+      if (!isFinite(e.ms)) continue;
+      if (e.ms < R.from) { cum += e.n; continue; }     // 窗口之前的事件：只累计、不画
+      if (e.ms > R.to) continue;
+      pts.push({ ms: e.ms, v: cum - b0, k: j });        // 跳变前（保持上一级）
+      cum += e.n;
+      pts.push({ ms: e.ms, v: cum - b0, k: j });        // 跳变后
+    }
   }
-  for (var j = kFrom; j <= kTo; j++) {
-    // 几何与旧版**逐点一致**：只有 k=0 从周首起笔，其余都取周中
-    pts.push({ ms: (j === 0 ? d.weeks[j] : d.weeks[j] + NET_WK / 2), v: arr[j] - b0, k: j });
-  }
-  // 窗口左边界锚点：曲线从 x=PL 处的 0 起笔。
-  //   注意窗口起点正好落在第一个取样点上时不加（否则会多出一个重合点）——
-  //   这样 'all' 档的几何与改档前**完全一样**。
-  if (!pts.length || pts[0].ms > R.from + 1) pts.unshift({ ms: R.from, v: 0, k: kFrom - 1 });
+  pts.push({ ms: R.to, v: cum - b0, k: d.weeks.length - 1 });
   return { pts: pts, R: R, base: b0 };
 }
 /** 时段档下纵轴上限（窗口内的最大值，而不是全量累计） */
@@ -10881,6 +11209,11 @@ function drawNet() {
   // V1.9.0（小修改）：横轴标题由「日期（按周）」改为**「日期」** —— 刻度现在随缩放自适应
   //   （可能是天/周/月/季），再写「（按周）」就不准了。（d_week_unit 这个键随之删除。）
   ctx.fillText(t('d_x_date'), PL + pw / 2, PT + ph + 24);
+  // ★ V1.9.8：轴角标出本地时区偏移（与"横轴 = 本地日期"配套，见 tzLabel 注释）
+  ctx.textAlign = 'right';
+  ctx.fillStyle = C.dim;
+  ctx.fillText(tzLabel(), PL + pw, PT + ph + 24);
+  ctx.textAlign = 'left';
 
   // 曲线：V1.8.0（需求17 / ⑱）同样裁剪到绘图区 —— 端点数值标签也不会跑到坐标线外
   ctx.save();
@@ -10902,7 +11235,11 @@ function drawNet() {
       ctx.beginPath();
       for (var q = from; q <= to; q++) {
         var px = X(pts[q].ms), py = Y(pts[q].v);
-        if (q === from) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+        if (q === from) { ctx.moveTo(px, py); continue; }
+        // ★ V1.9.8（Q15=B）：**阶梯线** —— 先水平走到新时刻、再竖直跳变。
+        //   这样"某周累计了多少颗"就是一段水平的长度，节点圆点永远不会浮在折线外。
+        ctx.lineTo(px, Y(pts[q - 1].v));
+        ctx.lineTo(px, py);
       }
       ctx.stroke();
       ctx.setLineDash([]);
@@ -11914,6 +12251,11 @@ function drawClimb() {
   ctx.font = '10px ' + MONO; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
   ctx.fillStyle = C.dim;
   ctx.fillText(t('d_x_date'), PL + pw / 2, PT + ph + 24);
+  // ★ V1.9.8：轴角标出本地时区偏移（与"横轴 = 本地日期"配套，见 tzLabel 注释）
+  ctx.textAlign = 'right';
+  ctx.fillStyle = C.dim;
+  ctx.fillText(tzLabel(), PL + pw, PT + ph + 24);
+  ctx.textAlign = 'left';
 
   // ═══ ★ V1.9.5（H10 第③/③b步）：**升轨阶段竖虚线**（用户 2026-10-15 第 10 条）═══
   //   两条线 = 上面取好的 climbPhase 的 startMs / endMs。数据来自**构建期预计算**（satdata.phases，
@@ -12176,7 +12518,7 @@ function climbShowInfoAt(h) {
   // ⚠️ 键名与 01/02 章信息窗**保持一致**（d_row_batch / d_row_epoch_sat …），
   //   且值一律用 <span>（旧版信息窗的第二格就是 span，用 <b> 会与相邻行粗细不一致）。
   var rows = [];
-  rows.push('<div class="si-row"><span>' + t('t_name') + '</span><span>' + (sat ? nameOf(sat) : h.norad) + '</span></div>');
+  rows.push('<div class="si-row"><span>' + t('t_name') + '</span><span>' + (sat ? fullNameOf(sat) : h.norad) + '</span></div>');
   rows.push('<div class="si-row"><span>NORAD</span><span>' + h.norad + '</span></div>');
   if (sat) {
     var L = sat.launch || {};
@@ -12224,7 +12566,7 @@ function climbLoneOptions(C, seen) {
     if (seen[k]) return;                       // 已在批次列表里
     (C[k] || []).forEach(function (c) {
       var idx = climbSatIdx(c.norad);
-      var nm = idx >= 0 ? nameOf(cur().sats[idx]) : String(c.norad);
+      var nm = idx >= 0 ? fullNameOf(cur().sats[idx]) : String(c.norad);
       out.push({ v: 's:' + c.norad, label: nm + paren(1), lone: true });
     });
   });
@@ -12499,7 +12841,25 @@ function climbInit() {
       clampClimbView(climbView); drawClimb();
     },
     pinch: function (k, x, y) { zoomClimbAt(x, y, k); },
-    tap: function (x, y) { var h = climbHitAt(x, y); if (h) { climbShowInfoAt(h); climbPinned = true; } }
+    // ★ V1.9.8（用户第 2 条）：触摸端**也必须能点右侧标签** ——
+    //   旧实现只查数据点（climbHitAt），而标签是画在 canvas 上的矩形，
+    //   于是手机上点标签完全没反应（鼠标端一直是好的，实测已验证）。
+    tap: function (x, y) {
+      var labN = climbLabelAt(x, y);
+      if (labN) {
+        var li = climbSatIdx(labN);
+        if (li >= 0) toggleSel(li, false);
+        var sL = climbSeries(), cL = null;
+        for (var q = 0; q < sL.list.length; q++) if (sL.list[q].norad === labN) { cL = sL.list[q]; break; }
+        if (cL && cL.pts.length) {
+          var lp = cL.pts[cL.pts.length - 1];
+          climbPinned = true;
+          climbShowInfoAt({ norad: labN, ms: lp.ms, v: lp.v });
+        }
+        return;
+      }
+      var h = climbHitAt(x, y); if (h) { climbShowInfoAt(h); climbPinned = true; }
+    }
   });
 }
 
@@ -12507,6 +12867,7 @@ try { initStore(); applyConstel(); } catch (e) {}
 rebuild();
 try { afterConstelSwap(); } catch (e) {}
 BUILTIN_NORAD = noradSetNow();          // V1.4.2：先记下打包时收录的那份有哪些 NORAD 编号
+setHealthBase();                        // ★ V1.9.8：记下打包数据的体检基线 + 回滚快照
 // 第三行：内置快照的要素历元（联网成功后再刷新成最新的）
 // V1.3.4：先恢复上次保存的设置（初始打开就是默认配置，此时「还原所有默认设置」暗淡不可点）
 // V1.4.1：不再读取上次的设置 —— 每次打开都是默认初始状态（默认配置 + 实时时刻 + 暗色主题）。

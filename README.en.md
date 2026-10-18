@@ -2,7 +2,7 @@
 
 
 <div align="center">
-  <!-- V1.9.7：这里**必须用 Pages 绝对地址**，不能写相对路径 assets/cistrack-logo.gif。
+  <!-- V1.9.8：这里**必须用 Pages 绝对地址**，不能写相对路径 assets/cistrack-logo.gif。
        原因（2026-10-17 实测）：GitHub 渲染 README 时会把相对路径转成
        github.com/.../raw/main/... → 302 → raw.githubusercontent.com，而该 CDN 对这个文件
        持续返回 502（连续 3 次全 502）→ 页面顶部的大 GIF 显示为裂图。
@@ -11,7 +11,7 @@
 </div>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.9.7-ff6b6b?style=flat-square" alt="version">
+  <img src="https://img.shields.io/badge/version-1.9.8-ff6b6b?style=flat-square" alt="version">
   <a href="https://sat.huijiwiki.com/wiki/%E6%98%9F%E7%BD%91"><img src="https://img.shields.io/badge/%E6%98%9F%E7%BD%91-CSCN-ff6b6b?style=flat-square" alt="SatNet"></a>
   <a href="https://sat.huijiwiki.com/wiki/%E5%8D%83%E5%B8%86%E6%98%9F%E5%BA%A7"><img src="https://img.shields.io/badge/%E5%8D%83%E5%B8%86-G60-4dabf7?style=flat-square" alt="Qianfan"></a>
   <img src="https://img.shields.io/badge/license-MIT-4dabf7?style=flat-square" alt="license">
@@ -84,20 +84,20 @@ GitHub Pages. It updates on every release, nothing to download.
 
 ### ② Local (single file, double-click to run)
 
-1. Download `CISTrack_v1.9.7.html` (the [latest Release attachment](https://github.com/1471155912/CISTrack/releases/latest);
+1. Download `CISTrack_v1.9.8.html` (the [latest Release attachment](https://github.com/1471155912/CISTrack/releases/latest);
    the repository's `index.html` also redirects to the latest build)
 2. Double-click to open it in a browser (Chrome / Edge / Firefox / Safari all work)
 
 That is all. On first open it tries to fetch the latest TLEs; if that fails it falls back to the bundled snapshot and everything still works.
 
-> **What can actually update (clarified in V1.9.7)**:
+> **What can actually update (clarified in V1.9.8)**:
 > - **TLE (positions/orbits)**: the single file updates too — it fetches from CelesTrak on open.
 > - **Wiki stats (launched / in orbit / launches)**: previously readable **only** from a sibling `wiki.json`, so a **downloaded single file kept them frozen**;
 >   there is now an **official Pages fallback**: when no local `wiki.json` exists, the page fetches
 >   `https://1471155912.github.io/CISTrack/wiki.json` once (needs network) and falls back to the bundled values otherwise.
 > - Fully offline: both use the snapshot bundled at build time; everything still works.
 
-> **What can actually update (clarified in V1.9.7)**:
+> **What can actually update (clarified in V1.9.8)**:
 > - **TLE (positions/orbits)**: the single file updates too — it fetches from CelesTrak on open.
 > - **Wiki stats (launched / in orbit / launches)**: previously readable **only** from a sibling `wiki.json`, so a **downloaded single file kept them frozen**;
 >   there is now an **official Pages fallback**: when no local `wiki.json` exists, the page fetches
@@ -115,7 +115,7 @@ That is all. On first open it tries to fetch the latest TLEs; if that fails it f
 | **01 Map** | Each satellite's current sub-satellite point, ground coverage (adjustable minimum elevation) and half an orbit of ground track before/after; you can pin a ground station and highlight the satellites visible from it |
 | **02 Orbits** | 3D globe: inclinations, coverage cones and the separation between different launch batches at a glance (altitudes are drawn exaggerated 2.4× above 8000 km so the shells are easy to tell apart) |
 | **03 Inclination distribution** | X = orbital inclination, Y = semi-major axis / apogee / perigee; one chart shows which orbital planes the constellation uses. When the data spans LEO and GEO, an **axis break** is applied (the LEO upper bound and the GEO lower bound are aligned on the canvas and the altitudes in between are treated as non-existent) — the two regions form one **continuous** chart, so zooming and panning move as a single rigid body with no jump at the seam |
-| **04 Orbit Change Status** | Each satellite's **semi-major-axis climb** from insertion to its working orbit (driven by a self-built historical orbit database; pick a batch or a single satellite to plot it; re-entered satellites are flagged red). Climb rate = least squares over a ±2 day window; **status rule: \|rate\| > 0.5 km/day ⇒ "burning", ≤ 0.5 km/day while outside the working-altitude band (±30 km) ⇒ "coasting"** (the same sentence sits under the chart in that chapter); **the Y axis hugs the selected batch's actual altitude range** (magnifying inter-satellite differences) and the X axis runs from launch day to the last data point; two modes (semi-major axis / climb rate), image export with a Δ column, and two-way sync with the global selection. **Right-hand labels are short names** (`A星` / `23A` / `123`) and **clicking a label selects that satellite** across chapters; the full catalog name stays in the info panel's "catalog name" row |
+| **04 Orbit Change Status** | Each satellite's **semi-major-axis climb** from insertion to its working orbit (driven by a self-built historical orbit database; pick a batch or a single satellite to plot it; re-entered satellites are flagged red). Climb rate = least squares over a ±2 day window; **status rule: \|rate\| > 0.5 km/day ⇒ "burning", ≤ 0.5 km/day while outside the working-altitude band (±30 km) ⇒ "coasting"** (the same sentence sits under the chart in that chapter); **the Y axis hugs the selected batch's actual altitude range** (magnifying inter-satellite differences) and the X axis runs from launch day to the last data point; two modes (semi-major axis / climb rate), image export with a Δ column, and two-way sync with the global selection. **Right-hand labels are short names** (`A124` / `S03` / `G01` / `A27A`, identical in both languages) and **clicking or tapping a label selects that satellite** across chapters; the **full official name** (wiki article name / English `WHJSW-<serial>`) appears in the info-panel title and the satellite table, while the raw TLE name stays in the "catalog name" row |
 | **05 Network progress** | Two cumulative curves over time (X axis by week, labelled with the matching date): **launches** = cumulative satellites launched (stowaways and the upper stage of the same launch are excluded), **in orbit** = satellites with a TLE available; three time-range presets (all / this year / last 3 months) |
 | **06 Satellite table** | Orbital elements for every in-orbit satellite (batch/group, manufacturer, **status**, semi-major axis, apogee/perigee, inclination, period, days in orbit, RAAN, eccentricity, BSTAR, epoch) — sortable, searchable, exportable as an image. Eccentricity and BSTAR use **standard scientific notation** (`1.23×10⁻⁵`). Manufacturers come from the satellite wiki, shortened, and link out |
 | **07 Launch history** | Batch / rocket / launch time / site / **target inclination** / **satellites** / mission result per launch. The satellite count is this constellation's own; when the launch also carried others it reads `M/N` (M = this constellation's, N = the whole launch), and failed launches show `-` in both columns. Rockets and sites link to the satellite wiki, satellite names link to satcat.com |
@@ -157,7 +157,7 @@ data always current without manually downloading anything.
 
 Either way works:
 
-- **Download the Release zip** (`CISTrack_v1.9.7_local-deploy.zip` from the [latest Release](https://github.com/1471155912/CISTrack/releases/latest)) — unzip and go; **this is the complete package for local deployment**;
+- **Download the Release zip** (`CISTrack_v1.9.8_local-deploy.zip` from the [latest Release](https://github.com/1471155912/CISTrack/releases/latest)) — unzip and go; **this is the complete package for local deployment**;
 - or `git clone https://github.com/1471155912/CISTrack.git`
 
 ### Step 2: pick the usage that fits
@@ -433,7 +433,7 @@ with 0 requests. Run `--prune` afterwards for capacity governance.
 ```
 CISTrack.html           ★ latest build (no version in the name) — use it for the stable link:
                           https://1471155912.github.io/CISTrack/CISTrack.html
-CISTrack_v1.9.7.html    snapshot of the current version
+CISTrack_v1.9.8.html    snapshot of the current version
 CISTrack_v1.9.4.html    snapshot of the previous version (for rollback / comparison)
                         ↑ older ones are **trimmed automatically** by `release.mjs` (current + previous only)
 index.html              entry page (an 811-byte redirect to CISTrack.html)
@@ -477,7 +477,7 @@ scripts/import_history.mjs etc. see each script's header (history import / climb
 
 
 
-## 🧭 Three kinds of "altitude": where each is used and how it is computed (V1.9.7)
+## 🧭 Three kinds of "altitude": where each is used and how it is computed (V1.9.8)
 
 The numbers labelled "altitude" are **not the same quantity** — do not convert one into another. All three come from the public TLEs; none is a hand-entered design value. The in-app "Readme → Accuracy → Three kinds of altitude" section carries the same text.
 
@@ -489,7 +489,7 @@ The numbers labelled "altitude" are **not the same quantity** — do not convert
 
 **Why ② swings by 20-odd kilometres**: for a circular orbit `r` barely changes, but the ellipsoid sits **21.4 km lower at the poles** (`a−b`) — a satellite at 1,150 km reads ≈1,150 km over the equator and ≈1,171 km over the poles. That is geometry, not jitter; on top of it sits **±a·e** (≈±1.4 km). The sub-satellite latitude is geodetic, not geocentric (they differ by ≈0.19° near 45°). **Coverage zones / elevation / visibility cones still use a geocentric sphere** (6378.135 km) — a deliberate approximation worth under 0.3% at a 10° mask.
 
-## 🧭 Methodology credits (V1.9.7)
+## 🧭 Methodology credits (V1.9.8)
 
 The **orbit computation, altitude and sub-satellite point** in this project follow, in method, the open
 **[findrassvet](https://findrassvet.ru)** project (by V. Bulybenko, which tracks the orbit-raising of Bureau 1440's
@@ -510,7 +510,7 @@ Three points adopted (each with the quantitative reason it gives):
 > This project is not affiliated with findrassvet or Bureau 1440; both use the public NORAD catalog.
 
 
-### 🔐 About the third-party CORS proxies (disclosed, V1.9.7)
+### 🔐 About the third-party CORS proxies (disclosed, V1.9.8)
 
 If a direct browser request to `celestrak.org` is blocked by CORS or the local network, the page **falls back to two
 public CORS proxies**:
@@ -523,5 +523,5 @@ third-party services. This project sends no personal data — the proxies only r
 do not want traffic to go through a third party**, keep the direct path working (or use the local-deployment +
 scheduled-task setup so data is refreshed on your own machine).
 
-> Planned after V1.9.7: a **direct-only** switch (direct by default; ask before using a proxy) and the actual network
+> Planned after V1.9.8: a **direct-only** switch (direct by default; ask before using a proxy) and the actual network
 > footprint listed in the in-app About panel.

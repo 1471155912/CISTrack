@@ -93,3 +93,9 @@ data/history/*.bak
 
 # 本地部署：定时任务产生的日志（deploy/ 脚本生成，不进仓库）
 deploy/*.log
+
+# V1.9.8：词条卡片抓取器的 Edge profile（可能上百 MB）绝不允许进仓库
+data/.edge-profile-*/
+
+# V1.9.8：词条卡片抓取器的 Edge profile（可能上百 MB）绝不允许进仓库
+data/.edge-profile-*/

@@ -375,10 +375,10 @@ section.fs-mobile .fs-exit-btn { display:flex; }
   /* V1.7.0：星座主标题禁止选中/复制（去掉拖选时的蓝色选区框） */
   -webkit-user-select:none; -moz-user-select:none; -ms-user-select:none; user-select:none; -webkit-touch-callout:none; }
 .hero h1 .en { display:block; font-family:var(--mono); font-size:clamp(11px,1.2vw,15px); font-weight:400; letter-spacing:0.28em; color:var(--faint); margin-top:18px; line-height:1.6; }
-/* ★ V1.9.7（§4 用户口径）：中文主标题固定 8 个字（`星网星座在轨态势`），要求**一行居中**。
-   约束来自布局：≥1280px 时 h1 与右侧统计表并排，可用宽只有 **759px**（1440 视口实测），
-   原 104px 字号会让它折在"势"字上（截图实测）。这里按"8 字 × 字号 ×0.97 ≤ 759"取 88px 上限。 */
-.hero h1.zh-title { font-size:clamp(30px,6.2vw,88px); text-align:center; }
+/* ★ V1.9.8（用户第 11 条）：**电脑端回到 V1.9.4 的版式** —— 两行（`星网星座` / `在轨态势`）、左对齐、
+   字号 clamp(40px,7.6vw,104px)（即 .hero h1 的默认值，这里不需要再覆盖）。
+   只有手机（≤620px）才变一行居中 + 收敛字号（见文件末尾的窄屏覆盖）。 */
+.hero h1.zh-title { font-size:clamp(40px,7.6vw,104px); }
 /* 居中后，下面那行英文副标题也对齐中心（它是 block 子元素，会继承 text-align） */
 .c-gw { color:var(--c-gw); }
 .c-qf { color:var(--c-qf); }
@@ -1094,13 +1094,18 @@ html.loading, html.loading body { overflow:hidden; touch-action:none; }
    没有空格就会拼成「CSCN/GWConstellation」。 */
 .hero h1 .br-title-narrow { display:none; }
 @media (max-width:1100px) { .hero h1 .br-title-narrow { display:inline; } }
-/* ★ V1.9.7（§4 用户口径）：中文主标题宽屏**一行居中**（`星网星座在轨态势`），
-   窗口过窄时再变成**两行各四字**（`星网星座` / `在轨态势`）。
-   为什么断点取 350px 而不是 620px：8 个字在 clamp 字号下 390px 宽仍能单行放下
-   （实测 390px 时字宽 ≈310px，可用宽 ≈342px）；真正放不下的是 320~350px 的极小屏，
-   到那里才断开。**居中**由 .hero 的 text-align 承担（本来就有）。 */
-.hero h1 .br-cn-narrow { display:none; }
-@media (max-width:350px) { .hero h1 .br-cn-narrow { display:inline; } }
+/* ★ V1.9.8（用户第 11 条）：中文主标题**电脑端两行**（`星网星座` / `在轨态势`，与 1.9.4 一致），
+   手机（≤620px）**一行居中** —— 那条 <br> 在手机上隐藏。
+   手机字号用 clamp(28px,10vw,40px)：实测 320→32 / 360→36 / 390→39 三档都能单行放下
+   （旧值 30px 偏保守，用户第 8 条要求"适当扩大"）。 */
+.hero h1 .br-cn-wide { display:inline; }
+@media (max-width:620px) {
+  .hero h1.zh-title { font-size:clamp(28px,10vw,40px); text-align:center; }
+  .hero h1 .br-cn-wide { display:none; }
+  /* ★ V1.9.8（用户第 12 条）：英文手机标题过大 —— `SpaceSail/Qianfan` 在 40px 时宽 345px，
+     320px 屏溢出 41px、360px 溢出 1px。这里只在手机上降一档（桌面保持 104px 不变）。 */
+  .hero h1.en-title { font-size:clamp(24px,9vw,40px); }
+}
 @media (max-width:860px) {
   .brand-name { font-size:25px; letter-spacing:.02em; }
   .brand .dim { display:block; font-size:12px; }
@@ -1211,7 +1216,11 @@ html.loading, html.loading body { overflow:hidden; touch-action:none; }
   font-family:var(--mono); font-size:11.5px; letter-spacing:0.06em; padding:7px 12px; cursor:pointer;
   transition:color .18s var(--ease), border-color .18s var(--ease), background .18s var(--ease); }
 .sp-btn:hover { border-color:var(--row-sel); color:var(--row-sel); }
-.sp-multi { display:flex; align-items:center; gap:7px; }
+.sp-multi { display:flex; align-items:center; gap:6px; }
+/* ★ V1.9.8：范围内导出 —— 「打印第 X 页～第 Y 页 [导出]」 */
+.sp-lab { font-size:11.5px; color:var(--dim); white-space:nowrap; }
+.sp-multi .sp-num { width:4.2ch; text-align:center; }
+.sp-multi .sp-go { min-width:0; padding:7px 14px; }
 .sp-num { width:6.5ch; background:var(--bg); border:1px solid var(--hair); color:var(--fg);
   font-family:var(--mono); font-size:11.5px; padding:7px 8px; text-align:center; }
 .sp-num:focus { outline:0; border-color:var(--dim); }
@@ -1912,6 +1921,9 @@ html[data-theme="light"] .res-part { color:#b26a00; }
 html[data-theme="light"] .res-fail { color:#c72929; }
 /* 卫星表的「发射时间」列与发射历史的「任务结果」列都不换行 */
 #satTable td.ltime, #launchTable td.lres { white-space:nowrap; }
+/* ★ V1.9.8（用户新增需求）：COSPAR 列 —— 与其它轨道要素列同字号，**仅加粗**，不染色、不加下划线 */
+#satTable td.cospar-cell { font-weight:700; color:var(--dim); white-space:nowrap; }
+#satTable td.cospar-cell .no-data { font-weight:400; }
 /* V1.9.1（1.4-D）：「在轨状态」列 —— 在轨绿 / 已再入红。
    颜色走 CSS 变量以便深浅主题各自取值（浅色主题下要压暗一档才够对比度）。 */
 :root { --st-orbit:#3ddc84; --st-gone:#ff5c5c; --st-raising:#f59f00; }
@@ -2361,6 +2373,7 @@ html[data-theme="light"] .res-fail { color:#c72929; }
       <thead><tr>
         <th data-key="name" class="sortable" data-i18n="t_name">卫星</th>
         <th data-key="norad" class="sortable">NORAD</th>
+        <th data-key="cospar" class="sortable">COSPAR</th>
         <th data-key="status" class="sortable" data-i18n="t_status">在轨状态</th>
         <th data-key="launch" class="sortable" data-i18n="t_launch">批次/组</th>
         <th data-key="ltime" class="sortable" data-i18n="t_ltime">发射时间 (GMT+8)</th>
@@ -2384,9 +2397,14 @@ html[data-theme="light"] .res-fail { color:#c72929; }
     <!-- V1.4.0：导出弹窗（点击分页行右端的导出键弹出）——三个按钮竖排居中 -->
     <div class="shot-pop" id="shotPopSat" hidden>
       <button class="sp-btn" type="button" data-shot-do="cur" data-i18n="shot_cur">导出当前页</button>
+      <!-- ★ V1.9.8（用户第 7 条 + Q8 绝对页码 + Q9 只改第二行）：「打印第 X 页 ～ 第 Y 页」 -->
       <div class="sp-multi">
-        <input class="sp-num" id="shotNumSat" type="text" inputmode="numeric" maxlength="3" data-i18n-ph="shot_ph" placeholder="页数" />
-        <button class="sp-btn" type="button" data-shot-do="multi" data-i18n="shot_multi">接着导出 N 页</button>
+        <span class="sp-lab" data-i18n="shot_from">打印第</span>
+        <input class="sp-num" id="shotFromSat" type="text" inputmode="numeric" maxlength="3" data-i18n-ph="shot_ph1" placeholder="起" />
+        <span class="sp-lab" data-i18n="shot_to">页～第</span>
+        <input class="sp-num" id="shotToSat" type="text" inputmode="numeric" maxlength="3" data-i18n-ph="shot_ph2" placeholder="止" />
+        <span class="sp-lab" data-i18n="shot_page">页</span>
+        <button class="sp-btn sp-go" type="button" data-shot-do="range" data-i18n="shot_go">导出</button>
       </div>
       <button class="sp-btn" type="button" data-shot-do="all" data-i18n="shot_all">导出全部页</button>
       <label class="sp-toggle"><input type="checkbox" id="shotAllColsSat" checked /><span data-i18n="shot_all_cols">含全部列</span></label>
@@ -2418,8 +2436,12 @@ html[data-theme="light"] .res-fail { color:#c72929; }
     <div class="shot-pop" id="shotPopLaunch" hidden>
       <button class="sp-btn" type="button" data-shot-do="cur" data-i18n="shot_cur">导出当前页</button>
       <div class="sp-multi">
-        <input class="sp-num" id="shotNumLaunch" type="text" inputmode="numeric" maxlength="3" data-i18n-ph="shot_ph" placeholder="页数" />
-        <button class="sp-btn" type="button" data-shot-do="multi" data-i18n="shot_multi">接着导出 N 页</button>
+        <span class="sp-lab" data-i18n="shot_from">打印第</span>
+        <input class="sp-num" id="shotFromLaunch" type="text" inputmode="numeric" maxlength="3" data-i18n-ph="shot_ph1" placeholder="起" />
+        <span class="sp-lab" data-i18n="shot_to">页～第</span>
+        <input class="sp-num" id="shotToLaunch" type="text" inputmode="numeric" maxlength="3" data-i18n-ph="shot_ph2" placeholder="止" />
+        <span class="sp-lab" data-i18n="shot_page">页</span>
+        <button class="sp-btn sp-go" type="button" data-shot-do="range" data-i18n="shot_go">导出</button>
       </div>
       <button class="sp-btn" type="button" data-shot-do="all" data-i18n="shot_all">导出全部页</button>
       <label class="sp-toggle"><input type="checkbox" id="shotAllColsLaunch" checked /><span data-i18n="shot_all_cols">含全部列</span></label>

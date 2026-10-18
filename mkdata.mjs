@@ -599,38 +599,117 @@ fillLedgerWikiUrls(QF_LEDGER, '千帆');
  *    · 其余（首尾两条链接的"range"形态、混编发射）→ **按 COSPAR 后缀字母唯一匹配**
  *      （标题以「X星」结尾且 X = 该星后缀字母）→ 只认能唯一匹配的星。
  */
+/** ★ V1.9.8（B1）：词条标题清洗 —— 词条 URL 路径里空格会被写成 `_`（如 `CZ_12_Y1`），
+ *  但百科**卡片标题本身是带空格的**。用户口径：「本名就是 卫星互联网技术试验卫星(CZ 12 Y1)」。
+ *  所以显示前必须把下划线还原成空格。 */
+function cleanTitle(t) { return String(t || '').replace(/_/g, ' ').replace(/\s+/g, ' ').trim(); }
+
+/** ★ V1.9.8（B1）：「区间展开」——百科表格用区间写一颗以上的卫星时，把中间那些补齐。
+ *  实测两种形态：
+ *    · 数字尾：`…0001星` … `…0004星`   → 0001/0002/0003/0004（保留前导零宽度）
+ *    · 字母尾：`…08组A星` … `…08组D星` → A/B/C/D（保留"星"字）
+ *  返回 null = 认不出，交给调用方放弃（宁缺毋滥）。
+ *  ⚠️ 只有「展开后条数 == 该批在库颗数」时才允许使用 —— 否则宁可不错配。 */
+function expandTitles(titles) {
+  if (!titles || titles.length < 2) return null;
+  const a = cleanTitle(titles[0]), b = cleanTitle(titles[titles.length - 1]);
+  if (!a || !b || a === b) return null;
+  const numA = /(\d+)(星?)$/.exec(a), numB = /(\d+)(星?)$/.exec(b);
+  if (numA && numB && a.slice(0, a.length - numA[0].length) === b.slice(0, b.length - numB[0].length)) {
+    const pre = a.slice(0, a.length - numA[0].length), tail = numA[2] || '';
+    const n1 = parseInt(numA[1], 10), n2 = parseInt(numB[1], 10), w = numA[1].length;
+    if (!(n2 > n1) || (n2 - n1) > 60) return null;
+    const out = [];
+    for (let n = n1; n <= n2; n++) out.push(pre + String(n).padStart(w, '0') + tail);
+    return out;
+  }
+  const letA = /([A-Z])(星?)$/.exec(a), letB = /([A-Z])(星?)$/.exec(b);
+  if (letA && letB && a.slice(0, a.length - letA[0].length) === b.slice(0, b.length - letB[0].length)) {
+    const pre = a.slice(0, a.length - letA[0].length), tail = letA[2] || '';
+    const c1 = letA[1].charCodeAt(0), c2 = letB[1].charCodeAt(0);
+    if (!(c2 > c1) || (c2 - c1) > 26) return null;
+    const out = [];
+    for (let c = c1; c <= c2; c++) out.push(pre + String.fromCharCode(c) + tail);
+    return out;
+  }
+  return null;
+}
+
+/** ★ V1.9.8（B3）：混编批次的「哪一颗是特殊载荷」—— 只能由百科卡片给出 NORAD。
+ *  实测 2026-211 = 千帆极轨26组（8 颗）+ EUHT技术试验卫星（1 颗，NORAD 100711）。
+ *  优先读 `data/wiki_cards.json`，没有就退到下面这张人工核对过的表（用户 2026-10-18 亲口确认）。 */
+const CARD_NORAD_FALLBACK = { 'EUHT技术试验卫星': 100711 };
+function cardNoradMap() {
+  const out = Object.assign({}, CARD_NORAD_FALLBACK);
+  try {
+    const j = JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'wiki_cards.json'), 'utf8'));
+    Object.keys(j.cards || {}).forEach(t => {
+      const c = j.cards[t];
+      if (c && isFinite(+c.norad)) out[cleanTitle(c.zh || t)] = +c.norad;
+    });
+  } catch (e) { /* 没有卡片文件就只用兜底表 */ }
+  return out;
+}
+const CARD_NORAD = cardNoradMap();
+
 function satWikiMap(sats, bk, tag) {
   const T = (WIKI_TABLES && WIKI_TABLES[bk]) || {};
   const byC = {};
   sats.forEach(s => { const p = String(s.c || '').slice(0, 5); (byC[p] || (byC[p] = [])).push(s); });
   const map = {};
-  let nEq = 0, nOne = 0, nLet = 0;
+  let nEq = 0, nOne = 0, nLet = 0, nRng = 0, nCard = 0;
   Object.keys(byC).forEach(p => {
-    const g = byC[p];
+    const g = byC[p].slice().sort((a, b) => a.id - b.id);
     const row = T[launchFull(p)];
     const links = (row && Array.isArray(row.nameLinks)) ? row.nameLinks.filter(x => x && x.u) : [];
     if (!links.length) return;
-    const put = (s, ln) => {
-      const title = ln.t || ln.n || '';
+    /** 用"标题 + 绝对链接"落一条记录（标题来自词条、URL 由标题反推 —— 区间补出来的没有现成 URL） */
+    const put = (s, title, url) => {
+      const t = cleanTitle(title);
+      if (!t) return;
       const o = {};
-      if (/[\u4e00-\u9fff]/.test(title)) o.wn = title;     // 纯拉丁词条名（如 "CX-26卫星"）不留作中文名
-      o.wu = wikiAbs(ln.u);
+      if (/[\u4e00-\u9fff]/.test(t)) o.wn = t;          // 纯拉丁词条名（如 "CX-26卫星"）不留作中文名
+      o.wu = url ? wikiAbs(url) : wikiAbs('/wiki/' + encodeURIComponent(t));
       map[s.id] = o;
     };
     if (links.length === g.length) {
-      g.slice().sort((a, b) => a.id - b.id).forEach((s, i) => { put(s, links[i]); nEq++; });
+      g.forEach((s, i) => { put(s, links[i].t || links[i].n, links[i].u); nEq++; });
       return;
     }
-    if (g.length === 1) { put(g[0], links[0]); nOne++; return; }
-    g.forEach(s => {
+    if (g.length === 1) { put(g[0], links[0].t || links[0].n, links[0].u); nOne++; return; }
+    // ① 区间展开（B1）：标题数与颗数一致才用
+    const ex = expandTitles(links.map(x => x.t || x.n));
+    if (ex && ex.length === g.length) {
+      g.forEach((s, i) => { put(s, ex[i]); nRng++; });
+      return;
+    }
+    // ② 混编批次（B3）：某条链接的 NORAD 已知 → 先把那颗钉住，其余留给"批次名"
+    let left = g.slice();
+    links.forEach(ln => {
+      const t = cleanTitle(ln.t || ln.n);
+      const n = CARD_NORAD[t];
+      if (!n) return;
+      const hit = left.find(s => (s.id | 0) === (n | 0));
+      if (!hit) return;
+      put(hit, t, ln.u); nCard++;
+      left = left.filter(s => s !== hit);
+    });
+    // ③ 剩下的：展开结果若与剩余颗数对得上，就接着用（例如「A星~D星」只给首尾两条）
+    if (left.length && links.length) {
+      const ex2 = expandTitles(links.map(x => x.t || x.n));
+      if (ex2 && ex2.length === left.length) { left.forEach((s, i) => { put(s, ex2[i]); nRng++; }); return; }
+    }
+    // ④ 最后兜底：按 COSPAR 后缀字母唯一匹配
+    const linksLeft = links.filter(ln => !CARD_NORAD[cleanTitle(ln.t || ln.n)]);
+    left.forEach(s => {
       const L = (String(s.c || '').match(/([A-Z])$/) || [])[1];
       if (!L) return;
-      const hit = links.filter(x => new RegExp('(^|[^A-Za-z])' + L + '星?$').test(x.t || ''));
-      if (hit.length === 1) { put(s, hit[0]); nLet++; }
+      const hit = linksLeft.filter(x => new RegExp('(^|[^A-Za-z])' + L + '星?$').test(cleanTitle(x.t || x.n)));
+      if (hit.length === 1) { put(s, hit[0].t || hit[0].n, hit[0].u); nLet++; }
     });
   });
-  console.log(tag + ' H13 单星词条：颗数一致 ' + nEq + ' 颗｜单颗 ' + nOne + ' 颗｜字母匹配 ' + nLet + ' 颗' +
-    '（其余走批次词条 / 无词条）');
+  console.log(tag + ' V1.9.8 单星词条：颗数一致 ' + nEq + '｜单颗 ' + nOne + '｜区间展开 ' + nRng +
+    '｜卡片 NORAD 定位 ' + nCard + '｜字母匹配 ' + nLet + '（其余走批次词条 / 无词条）');
   return map;
 }
 const H13_GW = satWikiMap(gw, 'gw', '星网');
@@ -788,14 +867,14 @@ try {
 } catch (e) {}
 const WIKI_STATIC = {
   gw: {
-    asOf: '2026-09-30',
+    asOf: '',
     article: '星网',
     launched: { n: 248, zh: '试验星32 + 高轨业务星3 + 低轨业务星213', en: 'test 32 + GEO service 3 + LEO service 213' },
     inOrbit: { n: 244, zh: '试验星28 + 高轨业务星3 + 低轨业务星213', en: 'test 28 + GEO service 3 + LEO service 213' },
     launches: '40/41'
   },
   qf: {
-    asOf: '2026-09-30',
+    asOf: '',
     article: '千帆星座',
     launched: { n: 262, zh: '试验星6，组网星256', en: 'test 6, network 256' },
     inOrbit: { n: 262, zh: '试验星6，组网星256，理论值', en: 'test 6, network 256, theoretical' },

@@ -308,8 +308,12 @@ assert('两个表格各有导出键与弹窗',
   d.querySelectorAll('.pg-shot').length === 2 &&
   !!$('#shotPopSat') && !!$('#shotPopLaunch'));
 assert('弹窗默认隐藏', $('#shotPopSat').hidden === true && $('#shotPopLaunch').hidden === true);
-assert('弹窗三个按钮竖排（cur / multi / all）',
-  [...$('#shotPopSat').querySelectorAll('button')].map(b => b.getAttribute('data-shot-do')).join('|') === 'cur|multi|all');
+// ★ V1.9.8（用户第 7 条 / Q9）：第二行由「接着导出 N 页」改成「打印第 X 页～第 Y 页 + 导出」
+assert('弹窗按钮 = cur / range / all（中间那行是页码范围）',
+  [...$('#shotPopSat').querySelectorAll('button')].map(b => b.getAttribute('data-shot-do')).join('|') === 'cur|range|all');
+assert('弹窗第二行有两个页码输入框（起/止）+ 导出键',
+  !!$('#shotFromSat') && !!$('#shotToSat') && !!$('#shotFromLaunch') && !!$('#shotToLaunch') &&
+  [...$('#shotPopSat').querySelectorAll('.sp-multi .sp-num')].length === 2);
 assert('弹窗是竖排布局 + 居中', /\.shot-pop \{[^}]*flex-direction:column[^}]*align-items:center/.test(tpl));
 assert('输入框非法时有红框样式', /\.sp-num\.bad \{ border-color:#ff6b6b/.test(tpl));
 const shotBtn = $('#satPager') ? $('#satPager').querySelector('button[data-tshot]') : null;
@@ -447,9 +451,10 @@ assert('导出弹窗有「含全部列」开关且默认勾选',
   d.querySelectorAll('input[type=checkbox][id^=shotAllCols]').length === 2 &&
   [...d.querySelectorAll('input[id^=shotAllCols]')].every(b => b.checked === true),
   [...d.querySelectorAll('input[id^=shotAllCols]')].map(b => b.id + '=' + b.checked).join(','));
-assert('导出参数带上 allCols 开关', /mode: n, allCols: shotAllCols\(which\) \}/.test(appSrc) &&
+assert('导出参数带上 allCols 开关', /mode: \{ from: f - 1, to: tt - 1 \}, allCols: shotAllCols\(which\) \}/.test(appSrc) &&
   /wantAll = !!\(opts && opts\.allCols\)/.test(appSrc));
-assert('页数输入框支持回车触发导出', /keydown/.test(appSrc) && /!== 'Enter'/.test(appSrc) && /closest\('\.sp-num'\)/.test(appSrc));
+assert('页码输入框支持回车触发导出', /keydown/.test(appSrc) && /!== 'Enter'/.test(appSrc) &&
+  /closest\('\.sp-num, #shotFromSat, #shotToSat, #shotFromLaunch, #shotToLaunch'\)/.test(appSrc));
 assert('主题不再读 localStorage（每次打开都是暗色）',
   !/localStorage\.getItem\('theme'\)/.test(tpl) && /removeAttribute\('data-theme'\)/.test(tpl));
 assert('偏好不再读取 / 不再落盘（每次打开都是默认配置）',
@@ -518,8 +523,9 @@ console.log('--- V1.4.2 ---');
 // ④ Manufacturer列
 // V1.8.0（需求6）：在「批次/组」之后插入「发射时间」列（ltime），Manufacturer 顺延到第 5 列
 // V1.9.1（1.4-D）：卫星表在 NORAD 之后插入了「在轨状态」列（status），列序整体后移一位。
-assert('表头前五列 = 名称/NORAD/在轨状态/批次·组/发射时间，第 6 列才是 Manufacturer',
-  [...d.querySelectorAll('#satTable thead th')].slice(0, 6).map(t => t.getAttribute('data-key')).join('|') === 'name|norad|status|launch|ltime|manufacturer',
+// ★ V1.9.8：NORAD 右侧新增 COSPAR 列 → 前七列顺序整体后移一位
+assert('表头前七列 = 名称/NORAD/COSPAR/在轨状态/批次·组/发射时间/制造商',
+  [...d.querySelectorAll('#satTable thead th')].slice(0, 7).map(t => t.getAttribute('data-key')).join('|') === 'name|norad|cospar|status|launch|ltime|manufacturer',
   [...d.querySelectorAll('#satTable thead th')].slice(0, 6).map(t => t.getAttribute('data-key')).join('|'));
 // V1.9.1（A13）：t_manufacturer 原为 ['Manufacturer','Manufacturer'] —— **中文页也显示英文**（真 bug）→ 改中文「制造商」。
 assert('表头文案「批次/组」「制造商」', /t_launch: \['批次\/组'/.test(appSrc) && /t_manufacturer: \['制造商', 'Manufacturer'\]/.test(appSrc));
@@ -683,9 +689,11 @@ assert('Manufacturer简要渲染：简称都是短文本（≤20 字），且渲
   assert('H19：规则翻译只写一处（zhRules），搜索变体与显示名共用（旧版 nameVariants 自己抄了半套）',
     /function zhRules\(n\)/.test(appSrc) && /return zhRules\(s\.name\) \+ ' ' \+ s\.name/.test(appSrc) &&
     !/function nameVariants\(s\) \{\s*var zh = s\.name\.replace/.test(appSrc));
-  assert('H19：显示名统一走 nameOf()，且英文模式不绕过 cnName（试验星/高轨的英文化改写要保留）',
-    /function nameOf\(s\)/.test(appSrc) && /if \(LANG === 'en'\) return cnName\(s\);/.test(appSrc) &&
-    (appSrc.match(/nameOf\(/g) || []).length >= 10);
+  // ★ V1.9.8：显示名拆成两套 —— 画布小字走 nameOf(shortOf)，DOM 走 fullNameOf(enOf/百科名)
+  assert('H19（V1.9.8 改口径）：nameOf 返回短名、fullNameOf 返回全名，两者都被实际调用',
+    /function nameOf\(s\)/.test(appSrc) && /return shortOf\(s\);/.test(appSrc) &&
+    /function fullNameOf\(s\)/.test(appSrc) && /if \(LANG === 'en'\) return enOf\(s\);/.test(appSrc) &&
+    (appSrc.match(/nameOf\(/g) || []).length >= 4 && (appSrc.match(/fullNameOf\(/g) || []).length >= 4);
   // 中文态抽样（含 GEO/CX/KL/DTC 这些曾经的残留形态）：显示名不得含成串拉丁字母
   assert('H19：中文模式显示名无拼音/英文残留（抽样 GEO/KL/DTC/组网星）',
     (function () {
@@ -1246,7 +1254,7 @@ assert('需求1：TLE 自动更新标志 TLE_LIVE 保留，且界面上已无「
   !/（内置快照）/.test(appCode) &&
   // V1.7.2 第七轮（需求2）：历元行从顶栏搬到主标题下方（#pageEpoch），文案仍取 d_dataupd
   /var pe = document\.getElementById\('pageEpoch'\);/.test(appCode) &&
-  /pe\.textContent = t\('d_dataupd'\) \+ ' ' \+ fmtUTC\(st\.epochMax\) \+ ' UTC';/.test(appCode) &&
+  /pe\.textContent = t\('d_dataupd'\) \+ ' ' \+ fmtUTC\(st\.epochMax\) \+ ' UTC'/.test(appCode) &&
   // 反向守卫：顶栏那行（navUpdated / navU.title）必须已经不存在
   !/navU\.title/.test(appCode) && !/navUpdated/.test(appCode));
 // V1.7.2 第七轮（新需求A）：口径收紧 ——
@@ -1268,7 +1276,8 @@ assert('需求1：TLE_LIVE 在 applyFresh 之前置位',
 //   旧断言要求信息窗"区分该星历元与数据更新"；用户现在明确要求**信息窗里只留「该星历元」**，
 //   「TLE更新时间」只在主标题下方。所以这里改成反向守卫。
 assert('V1.7.2r7（新需求A）：信息窗 satBlock 只有「该星历元」，不再输出「数据更新」那一行',
-  /t\('d_row_epoch_sat'\) \+ '<\/span><span>' \+ fmtUTC\(s\.epochMs\)/.test(appSrc) &&
+  // ★ V1.9.8（Q5）：历元前加了 `UTC` 前缀（用户要求写成 `UTC2026-10-17 19:26`）
+  /t\('d_row_epoch_sat'\) \+ '<\/span><span>UTC' \+ fmtUTC\(s\.epochMs\)/.test(appSrc) &&
   (function () {
     const body = appSrc.match(/function satBlock\(s, scope, extra\) \{[\s\S]*?\n\}/);
     return !!body && !/d_dataupd/.test(body[0]);
@@ -2315,7 +2324,7 @@ assert('V1.8.0（需求12）：卫星表插入「发射时间」列、发射历�
   /res_ok: /.test(appCode) && /res_part: /.test(appCode) && /res_fail: /.test(appCode) &&
   /function resTag\(L\)/.test(appCode) &&
   // V1.9.1（1.4-D）：卫星表新增「在轨状态」列后，ltime 从第 4 列（idx 3）后移到 idx 4。
-  [...d.querySelectorAll('#satTable thead th')].map(t => t.getAttribute('data-key')).indexOf('ltime') === 4 &&
+  [...d.querySelectorAll('#satTable thead th')].map(t => t.getAttribute('data-key')).indexOf('ltime') === 5 &&
   [...d.querySelectorAll('#launchTable thead th')].some(t => /t_result/.test(t.getAttribute('data-i18n') || '')));
 assert('V1.8.0（需求12）：任务结果按百科记载如实标注（成功/部分成功/失败，没写就不猜）',
   /if \(r === 'ok'\) return '<span class="res res-ok">'/.test(appCode) &&
@@ -2601,7 +2610,8 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
     // ★ V1.9.7（§7）：标签命中矩形（点击标签选中卫星的底层数据）
     "  climbLabels: function () { drawClimb(); return climbLabelRects.map(function (r) { return { n: r.n, x: r.x, y: r.y, w: r.w, h: r.h }; }); },\n" +
     "  climbLabelAt: function (x, y) { return climbLabelAt(x, y); },\n" +
-    "  shortName: function (norad, en) { var i = climbSatIdx(norad); return i < 0 ? '' : shortNameOf(cur().sats[i], en); },\n" +
+    "  shortName: function (norad, en) { var i = climbSatIdx(norad); return i < 0 ? '' : shortOf(cur().sats[i]); },\n" +
+    "  zhName: function (norad) { var i = climbSatIdx(norad); return i < 0 ? '' : fullNameOf(cur().sats[i]); },\n" +
     "  fullName: function (norad) { var i = climbSatIdx(norad); return i < 0 ? '' : String(cur().sats[i].name); },\n" +
     // ★★★ V1.9.7（P0-E）：**离线模拟"在线刷新"** —— 这是本项目最大的测试盲区：
     //   旧口径下 applyFresh 用在线列表整体替换 RAW.sats，而在线 feed 只有 {name,id,c,l1,l2}，
@@ -2964,19 +2974,25 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
     assert('§6：TLE 登记原名**完整保留**在数据层（`s.name` 不被改写）',
       k3.fullName(g27) === 'GUOWANG 27 OBJECT A',
       JSON.stringify(k3.fullName(g27)));
-    assert('§6：中文短名 = `A星`（OBJECT 无官方单称时按字母 + 星）',
-      k3.shortName(g27, false) === 'A星', JSON.stringify(k3.shortName(g27, false)));
-    assert('§6：英文短名 = `27A`（批次号 + 字母）',
-      k3.shortName(g27, true) === '27A', JSON.stringify(k3.shortName(g27, true)));
+    // ★ V1.9.8：短名规则整套换新（用户 2026-10-18 口径），中英共用一套；
+    //   全名改为「百科正式名 / WHJSW-编号」，且**只给 DOM 用**（画布小字仍用短名）。
+    assert('§6：最新批次没有单星编号 → `A` + 组号 + 字母（`A27A`）',
+      k3.shortName(g27, false) === 'A27A' && k3.shortName(g27, true) === 'A27A',
+      JSON.stringify(k3.shortName(g27, false)));
+    assert('§6：中文全名用批次组名构词（`互联网低轨27组A星`）',
+      k3.zhName(g27) === '互联网低轨27组A星', JSON.stringify(k3.zhName(g27)));
     // ⚠️ 100791 的目录名当前是 HULIANWANG DIGUI-205（编号会随目录更新变化，这里按实际值断言）
-    assert('§6：目录编号型（HULIANWANG DIGUI-205）→ 中英同为 `205`',
-      k3.shortName(100791, false) === '205' && k3.shortName(100791, true) === '205',
-      JSON.stringify([k3.shortName(100791, false), k3.shortName(100791, true)]));
-    assert('§6：词条名带逐星区分符（…02组A星）→ 中文 `A星` / 英文 `02A`',
-      k3.shortName(58425, false) === 'A星' && k3.shortName(58425, true) === '02A',
-      JSON.stringify([k3.shortName(58425, false), k3.shortName(58425, true)]));
-    assert('§6：`nameOf` 已改为走短名（不再直接返回词条全名）',
-      /function nameOf\(s\) \{[\s\S]{0,160}?return shortNameOf\(s, LANG === 'en'\);/.test(appSrc));
+    assert('§6：目录编号型（HULIANWANG DIGUI-205）→ `A205`',
+      k3.shortName(100791, false) === 'A205' && k3.shortName(100791, true) === 'A205',
+      JSON.stringify(k3.shortName(100791, false)));
+    assert('§6：倾斜轨道试验星（…02组A星）→ `XGQ02A`',
+      k3.shortName(58425, false) === 'XGQ02A', JSON.stringify(k3.shortName(58425, false)));
+    assert('§6：GEO → `G01`（高轨卫星01星）',
+      k3.shortName(59069, false) === 'G01', JSON.stringify(k3.shortName(59069, false)));
+    assert('§6：`nameOf` 已改为走短名（画布专用）',
+      /function nameOf\(s\) \{[\s\S]{0,160}?return shortOf\(s\);/.test(appSrc));
+    assert('§6：全名走 fullNameOf（信息窗/表格/搜索）',
+      /name: fullNameOf\(s\)/.test(appSrc) && /si-name">' \+ fullNameOf\(s\)/.test(appSrc));
     // ② 标签命中矩形（点击标签选中卫星的前提）
     const labs = k3.climbLabels();
     assert('§7：绘制后记录了**标签命中矩形**（每个标签一条，含 NORAD）',
@@ -3373,14 +3389,14 @@ assert('V1.9.2：右侧留白按"要标几条"动态加宽（否则名称会被�
       !!tr && /(^|\s)gone(\s|$)/.test(tr.className), tr ? tr.className : 'null');
     const tds = tr ? [...tr.querySelectorAll('td')].map(x => x.textContent.trim()) : [];
     assert('A10：8 项轨道要素（半长轴/近/远地点/倾角/周期/升交点/偏心率/BSTAR）一律显示 `-`',
-      !!tr && tr.querySelectorAll('.no-data').length === 8, tds[6] + '|' + tds[12]);
+      !!tr && tr.querySelectorAll('.no-data').length === 8, tds[7] + '|' + tds[13]);
     assert('A10：在轨状态为**红色**完整文案「已再入（~YYYY-MM-DD，XXX 天）」',
-      !!tr && /^已再入（~\d{4}-\d{2}-\d{2}，\d+ 天）$/.test(tds[2]) &&
-      /st-gone/.test(tr.querySelectorAll('td')[2].className), JSON.stringify(tds[2]));
+      !!tr && /^已再入（~\d{4}-\d{2}-\d{2}，\d+ 天）$/.test(tds[3]) &&
+      /st-gone/.test(tr.querySelectorAll('td')[3].className), JSON.stringify(tds[3]));
     assert('A10：在轨日 = **发射日 → 再入日**之差（冻结，不随今天增长）',
-      /^\d+d（\d{2}y\d{2}m\d{2}d）$/.test(tds[11]), JSON.stringify(tds[11]));
+      /^\d+d（\d{2}y\d{2}m\d{2}d）$/.test(tds[12]), JSON.stringify(tds[12]));
     assert('A10：历元 = 最后一条 TLE 的更新时间（再入前最后那份）',
-      /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(tds[15]), JSON.stringify(tds[15]));
+      /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(tds[16]), JSON.stringify(tds[16]));
     // 点击 → 灰框 + 红提示 + **无联动**
     tr.dispatchEvent(new w3.MouseEvent('click', { bubbles: true }));
     await new Promise(r => setTimeout(r, 140));
@@ -3558,7 +3574,8 @@ assert('V1.9.2：右侧留白按"要标几条"动态加宽（否则名称会被�
       ti7.dispatchEvent(new w3.Event('input', { bubbles: true }));
       const tr = d3.querySelector('#tbody tr[data-idx]');
       if (!tr) return null;
-      const td = tr.querySelectorAll('td')[2];
+      // ★ V1.9.8：NORAD 右侧新增 COSPAR 列 → 「在轨状态」从第 3 列（索引 2）挪到索引 3
+      const td = tr.querySelectorAll('td')[3];
       return { txt: td.textContent.trim(), cls: td.className, html: td.innerHTML };
     };
     // 取样（都加兜底：数据若异常也不让整份 smoke 崩在 TypeError 上，而是照常报 FAIL）
@@ -3927,9 +3944,11 @@ assert('V1.9.2：右侧留白按"要标几条"动态加宽（否则名称会被�
     const rQtr = k3.netRange(), cQtr = k3.netCurveOf('gw'), nQtr = k3.netNodes();
     k3.netSetSpan('all');
     const near = (a, b, tol) => Math.abs(a - b) <= (tol == null ? 60000 : tol);
-    assert('V1.9.2：全部 = 数据起点～今天（x 轴不缩，基线 0，曲线仍是逐周采样）',
+    // ★ V1.9.8（Q15=B）：曲线已从"逐周采样 + 斜线"改成"按真实发射事件的阶梯"，
+    //   顶点数从"周数"变成"2×事件数 + 2"，所以这里判据改为 ≥ 数据点数（不再是 >100 个周点）。
+    assert('V1.9.2/V1.9.8：全部 = 数据起点～今天（x 轴不缩，基线 0，阶梯按真实发射事件）',
       rAll.span === 'all' && cAll.base === 0 && rAll.from <= rAll.to &&
-      cAll.first.v === 0 && cAll.n > 100,
+      cAll.first.v === 0 && cAll.n >= 40,
       JSON.stringify({ r: rAll, first: cAll.first, n: cAll.n }));
     assert('V1.9.2：今年 = **本年 1/1 00:00（本地）** 至今',
       near(rYear.from, yearStart, 1000) && rYear.to >= rYear.from &&
@@ -4275,9 +4294,9 @@ assert('A9（V1.9.7 §6）：圈的来源 = 工作轨道层（orbLayerDefs），
       k3.chartDraw();
       const drew2 = k3.chartTexts().slice(before2);
       assert('H18③：放大到能分辨（拉满该批自身范围）→ 切换为**单星名**',
-        // ★ V1.9.7：显示名改短名 —— 低轨27组 = GUOWANG 27 OBJECT A–J → `A星`…`J星`
-        drew2.some(x => /^[A-J]星$/.test(x)) && drew2.indexOf('低轨27组') < 0,
-        '视窗 x=' + (rg.x0 - padX).toFixed(2) + '~' + (rg.x1 + padX).toFixed(2) + '；标签: ' + JSON.stringify(drew2.filter(x => /^低轨|^[A-J]星$/.test(x))));
+        // ★ V1.9.8：短名改成 `A`+组号+字母 —— 低轨27组 = GUOWANG 27 OBJECT A–J → `A27A`…`A27J`
+        drew2.some(x => /^A27[A-J]$/.test(x)) && drew2.indexOf('低轨27组') < 0,
+        '视窗 x=' + (rg.x0 - padX).toFixed(2) + '~' + (rg.x1 + padX).toFixed(2) + '；标签: ' + JSON.stringify(drew2.filter(x => /^低轨|^A27/.test(x))));
       k3.chartViewAuto();
       k3.state().sel.forEach(i => {});                 // 选中态由后续断言自行重置（selectGroup 会覆盖）
     })();
@@ -6042,36 +6061,41 @@ assert('V1.9.3：e2e 的实跑挂在 CI 上（本地 smoke 不跑，避免闸门
   assert('V1.9.3①：`shotTotalPages` 直接返回**屏幕页数**（`SAT_PAGES / LAUNCH_PAGES`），不再自己 `length/PAGE_SIZE` 另算一套',
     /var n = \(which === 'sat'\) \? SAT_PAGES : LAUNCH_PAGES;/.test(appCode) &&
     !/return Math\.max\(1, Math\.ceil\(n \/ PAGE_SIZE\)\);/.test(appCode));
-  assert('V1.9.3①：`shotMulti` 的合法上限 = **总页数 − 当前页 + 1**（从当前页起算，越界红框不关窗）',
-    /var maxN = Math\.max\(1, total - cur \+ 1\);/.test(appCode) &&
-    /if \(!\(n >= 1 && n <= maxN\)\) \{ inp\.classList\.add\('bad'\); inp\.focus\(\); return false; \}/.test(appCode));
+  // ★ V1.9.8（Q8）：N 的语义从"从当前页起算"改成**绝对页码区间**（起/止），单页就是起==止
+  assert('V1.9.8：`shotMulti` 用绝对页码范围（1…总页数），越界/非数字/起>止 → 红框 + 红 toast',
+    /if \(!\(f >= 1 && tt >= 1 && f <= total && tt <= total && f <= tt\)\) return bad\(\);/.test(appCode) &&
+    /showToast\(t\('shot_bad'\), 'inv'\)/.test(appCode) &&
+    /mode: \{ from: f - 1, to: tt - 1 \}/.test(appCode));
 
-  assert('V1.9.3②：长文本**按列宽折行**（新 `wrapCell`），不再用 `slice(0,39)+\'…\'` 按字符截断',
-    /function wrapCell\(ctx, text, maxW\)/.test(appCode) &&
-    /return wrapCell\(probe, String\(cell && cell\.t != null \? cell\.t : ''\), widths\[c\] - padX \* 2\);/.test(etSrc) &&
-    !/cell\.length > 40 \? cell\.slice\(0, 39\) \+ '…' : cell/.test(etSrc));
+  // ★ V1.9.8：折行改为按 run 做（`wrapRuns`），旧的纯文本 `wrapCell` 不再参与导出表格
+  assert('V1.9.3②/V1.9.8：长文本**按列宽折行**（`wrapRuns`），不再用 slice 截断',
+    /function wrapRuns\(ctx, runs, maxW, fs, dpr, maxLines\)/.test(appCode) &&
+    /return wrapRuns\(probe, \(cell && cell\.runs\) \|\| \[\], widths\[c\] - padX \* 2, fs, dpr\);/.test(etSrc) &&
+    !/cell\.length > 40 \? cell\.slice\(0, 39\)/.test(etSrc));
   // ★ V1.9.5（H14）：导出表格与页面**样式语义一致**（旧版整表一种字体、一种灰 = 用户报的"全默认字体"）
   //   ⚠️ 这段在 `rowsTextFromHtml` 里（exportTable **之前**）→ 不能拿 etSrc（只截 exportTable 函数体）去测，
   //      必须单独截函数体，否则断言永远失败（2026-10-16 踩过：窗口放宽两次都没用，根因是取错了源）。
   const rtfSrc = (appCode.match(/function rowsTextFromHtml\(html, vis, which\)[\s\S]*?\n\}\n/) || [''])[0];
-  assert('H14：导出把页面的样式语义带出来（按单元格读类名：lname / stcell 三态 / rk / wl / nodata + 已再入行）',
+  // ★ V1.9.8（用户：把页面表格原封不动导出来）——判据从"读类名猜颜色"改成"读**计算样式**取 run"
+  assert('H14（V1.9.8）：导出把页面的样式逐 run 带出来（颜色 / 字重 / 下划线 / 透明度 / 小标签）',
     rtfSrc.length > 200 &&
-    /classList\.contains\('lname'\)/.test(rtfSrc) &&
-    /classList\.contains\('stcell'\)/.test(rtfSrc) &&
-    /classList\.contains\('st-raising'\) \? 'st-raising'/.test(rtfSrc) &&
+    /getComputedStyle/.test(rtfSrc) &&
+    /fontWeight/.test(rtfSrc) &&
+    /textDecorationLine/.test(rtfSrc) &&
+    /parseFloat\(getComputedStyle\(td\)\.opacity\)/.test(rtfSrc) &&
+    /classList\.contains\('tag'\)/.test(rtfSrc) &&
     /var gone = tr\.classList\.contains\('gone'\);/.test(rtfSrc) &&
-    /var swEl = td\.querySelector\('\.swatch'\);/.test(rtfSrc) &&
-    /return \{ t: t, k: k, sw: sw \};/.test(rtfSrc));
-  assert('H14：导出按 kind 施加**字体/颜色/透明度**（名称列 & 批次名加粗、状态列三色、已再入 0.62、跳转项主题色）',
-    /if \(k === 'lname'\) \{ col = fg; bold = true; \}/.test(etSrc) &&
-    /else if \(k === 'st-raising'\) \{ col = raisingCol; \}/.test(etSrc) &&
-    /if \(r\.gone && k !== 'st-gone' && k !== 'st-raising'\) alpha = 0\.62;/.test(etSrc) &&
-    /ctx\.font = monoFont\(fs, bold\);/.test(etSrc) &&
-    /else if \(k === 'wl'\) \{ col = shotAccent\(\); \}/.test(etSrc));
-  assert('H14：名称列**画出色块小方**（取页面的内联 background，色块颜色与页面同一份）',
-    /if \(k === 'lname' && cell\.sw\) \{/.test(etSrc) &&
-    /ctx\.fillRect\(cx0, ty - sw2 \/ 2 - Math\.round\(dpr\), sw2, sw2\);/.test(etSrc) &&
-    /tx = cx0 \+ sw2 \+ Math\.round\(5 \* dpr\);/.test(etSrc));
+    !/\.swatch/.test(rtfSrc));
+  assert('H14（V1.9.8）：导出逐 run 施加**颜色/字重/下划线/透明度**，且小标签画边框',
+    /function drawRuns\(ctx, line, x, y, fs, dpr, alpha0\)/.test(appCode) &&
+    /ctx\.font = monoFont\(fs, r\.b\);/.test(appCode) &&
+    /ctx\.fillStyle = r\.c \|\| /.test(appCode) &&
+    /if \(r\.u && r\.t\)/.test(appCode) &&
+    /if \(r\.tag\)/.test(appCode) &&
+    /drawRuns\(ctx, line, tx, ty \+ kk \* lineH, fs, dpr, cell\.alpha == null \? 1 : cell\.alpha\);/.test(etSrc));
+  // ★ V1.9.8（Q11）：用户要求**删掉名称前的色块** —— 这条断言已反转成反向守卫
+  assert('H14（V1.9.8 反转）：导出图里**不再**画名称列色块',
+    !/cell\.sw/.test(etSrc) && !/ctx\.fillRect\(cx0, ty - sw2/.test(etSrc));
   assert('V1.9.3②：表头与数据行**居中**、**首列左对齐**（与页面 `text-align:center` + `td:first-child{left}` 同款）',
     /var alignOf = function \(c\) \{ return c === 0 \? 'left' : 'center'; \};/.test(etSrc) &&
     /ctx\.textAlign = alignOf\(c\);/.test(etSrc));
