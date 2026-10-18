@@ -375,6 +375,11 @@ section.fs-mobile .fs-exit-btn { display:flex; }
   /* V1.7.0：星座主标题禁止选中/复制（去掉拖选时的蓝色选区框） */
   -webkit-user-select:none; -moz-user-select:none; -ms-user-select:none; user-select:none; -webkit-touch-callout:none; }
 .hero h1 .en { display:block; font-family:var(--mono); font-size:clamp(11px,1.2vw,15px); font-weight:400; letter-spacing:0.28em; color:var(--faint); margin-top:18px; line-height:1.6; }
+/* ★ V1.9.7（§4 用户口径）：中文主标题固定 8 个字（`星网星座在轨态势`），要求**一行居中**。
+   约束来自布局：≥1280px 时 h1 与右侧统计表并排，可用宽只有 **759px**（1440 视口实测），
+   原 104px 字号会让它折在"势"字上（截图实测）。这里按"8 字 × 字号 ×0.97 ≤ 759"取 88px 上限。 */
+.hero h1.zh-title { font-size:clamp(30px,6.2vw,88px); text-align:center; }
+/* 居中后，下面那行英文副标题也对齐中心（它是 block 子元素，会继承 text-align） */
 .c-gw { color:var(--c-gw); }
 .c-qf { color:var(--c-qf); }
 /* V1.3.5：第一行（链接带下划线）与第二行的间距加大到与二/三行一致 —— inline-block + 下边距把该行行高撑开 */
@@ -1007,6 +1012,14 @@ footer a:hover { color:var(--fg); border-bottom-color:var(--fg); }
 .modal-body hr { border:0; border-top:1px solid var(--hair); margin:22px 0; }
 .modal-body blockquote { border-left:2px solid var(--row-sel); padding-left:14px; color:var(--faint); margin:12px 0; }
 .modal-body strong { color:var(--fg); }
+/* ★ V1.9.7（§10）：页内说明里的 Markdown 表格 —— 旧版没有表格渲染，`|` 行被当成段落，
+   看起来像"代码分段"。这里给出真正的表格样式（横向可滚，窄屏不撑破弹窗）。 */
+.modal-body .tbl-wrap { overflow-x:auto; margin:14px 0; -webkit-overflow-scrolling:touch; }
+.modal-body table { border-collapse:collapse; width:100%; min-width:420px; font-size:13px; }
+.modal-body th, .modal-body td { border:1px solid var(--hair); padding:8px 10px; text-align:left; vertical-align:top; line-height:1.65; }
+.modal-body th { background:var(--row-hover); color:var(--fg); font-weight:600; white-space:nowrap; }
+.modal-body td { color:var(--dim); }
+.modal-body tbody tr:nth-child(even) td { background:rgba(127,127,127,0.04); }
 
 /* 弹窗打开时锁住背景滚动 */
 html.modal-open, html.modal-open body { overflow:hidden; }
@@ -1081,6 +1094,13 @@ html.loading, html.loading body { overflow:hidden; touch-action:none; }
    没有空格就会拼成「CSCN/GWConstellation」。 */
 .hero h1 .br-title-narrow { display:none; }
 @media (max-width:1100px) { .hero h1 .br-title-narrow { display:inline; } }
+/* ★ V1.9.7（§4 用户口径）：中文主标题宽屏**一行居中**（`星网星座在轨态势`），
+   窗口过窄时再变成**两行各四字**（`星网星座` / `在轨态势`）。
+   为什么断点取 350px 而不是 620px：8 个字在 clamp 字号下 390px 宽仍能单行放下
+   （实测 390px 时字宽 ≈310px，可用宽 ≈342px）；真正放不下的是 320~350px 的极小屏，
+   到那里才断开。**居中**由 .hero 的 text-align 承担（本来就有）。 */
+.hero h1 .br-cn-narrow { display:none; }
+@media (max-width:350px) { .hero h1 .br-cn-narrow { display:inline; } }
 @media (max-width:860px) {
   .brand-name { font-size:25px; letter-spacing:.02em; }
   .brand .dim { display:block; font-size:12px; }
@@ -1986,7 +2006,8 @@ html[data-theme="light"] .res-fail { color:#c72929; }
   height:100vh;
   padding-top:var(--climbbar-h, 40px);
 }
-#sec-climb.fs-mobile #climbNote { display:none; }   /* 图下说明在竖屏太窄，全屏时省掉 */
+/* ★ V1.9.7（§8 用户要求）：图下说明（#climbNote）已整块删除，这条全屏隐藏规则随之一并去掉 ——
+   留着一条指向不存在元素的规则，只会让人误以为那段说明还在。 */
 /* 曲线末端数值标签（画在画布上，这里只给图例色点用） */
 .net-key { display:inline-flex; align-items:center; gap:6px; margin-right:14px; font-family:var(--mono); font-size:11px; color:var(--dim); }
 .net-key i { width:10px; height:10px; border-radius:50%; display:inline-block; }
@@ -2265,7 +2286,7 @@ html[data-theme="light"] .res-fail { color:#c72929; }
       <button data-shot="climb" class="shot" type="button" aria-label="导出图片" data-i18n-title="t_shot"><svg viewBox="0 0 24 24"><path d="M7 9V3h10v6"/><path d="M5 19h14a2 2 0 0 0 2-2v-4a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v4a2 2 0 0 0 2 2z"/><path d="M7 15h10v6H7z"/></svg></button>
     </div>
   </div>
-  <p class="note" id="climbNote"></p>
+  <!-- ★ V1.9.7（§8 用户要求）：原来这里有一行图下说明（#climbNote），已整块删除 -->
 </section>
 
 <section id="sec-progress"><button class="fs-exit-btn" type="button" aria-label="退出全屏" data-i18n-title="t_exitfs">×</button>

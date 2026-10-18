@@ -1242,7 +1242,8 @@ const histMod = fs.readFileSync(B + '/scripts/histstore.mjs', 'utf8');
 assert('需求1：TLE 自动更新标志 TLE_LIVE 保留，且界面上已无「（内置快照）」后缀',
   /var TLE_LIVE = false;/.test(appCode) && /TLE_LIVE = true;/.test(appCode) &&
   !/d_snap_suffix/.test(appCode) && !/d_snap_tip/.test(appCode) &&
-  !/内置快照/.test(appCode) &&
+  // ★ V1.9.7：只禁"界面上的括号后缀"，不禁注释/说明里提到这个词（说明里要解释数据从哪来）
+  !/（内置快照）/.test(appCode) &&
   // V1.7.2 第七轮（需求2）：历元行从顶栏搬到主标题下方（#pageEpoch），文案仍取 d_dataupd
   /var pe = document\.getElementById\('pageEpoch'\);/.test(appCode) &&
   /pe\.textContent = t\('d_dataupd'\) \+ ' ' \+ fmtUTC\(st\.epochMax\) \+ ' UTC';/.test(appCode) &&
@@ -1816,7 +1817,6 @@ function secHead(id) {
 assert('V1.9.1（A15）：04 变轨情况章节存在，且是**独立编号 04**（05/06/07 顺延）',
   /<section id="sec-climb">/.test(tplCode) && /<canvas id="climbCv">/.test(tplCode) &&
   /<select id="climbSel"/.test(tplCode) && /id="climbTakeSeg"/.test(tplCode) &&
-  /id="climbNote"/.test(tplCode) &&
   /<span class="sec-num">04<\/span>/.test(secHead('sec-climb')) &&
   /<span class="sec-num">06<\/span>/.test(secHead('sec-table')) &&
   /<span class="sec-num">07<\/span>/.test(secHead('sec-launches')));
@@ -1897,7 +1897,7 @@ assert('V1.9.0（R17）：章级过场映射含 05 章（默认设置按钮走 p
   /climb: 'sec-climb'/.test(appCode) && /data-defsec="climb"/.test(tplCode));
 assert('V1.9.0（R17）：i18n 三段式键位齐备（缺一个就会把键名当文字画在页面上）',
   ['h_climb', 'lead_climb', 'climb_pick', 'climb_take', 'climb_rate', 't_defclimb',
-   'climb_sel_tip', 'climb_none', 'climb_n_sats', 'climb_n_hist',
+   'climb_sel_tip', 'climb_none', 'climb_n_hist',
    'climb_take_sma', 'climb_take_rate', 'climb_y_alt', 'climb_y_rate',
    // V1.9.1（A1）：信息窗新行
    'climb_delta']
@@ -2598,6 +2598,46 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
     "})();\n" +
     "window.__CISTRACK__ = {\n" +
     "  selectGroup: function (lk) { return selectGroup(lk); },\n" +
+    // ★ V1.9.7（§7）：标签命中矩形（点击标签选中卫星的底层数据）
+    "  climbLabels: function () { drawClimb(); return climbLabelRects.map(function (r) { return { n: r.n, x: r.x, y: r.y, w: r.w, h: r.h }; }); },\n" +
+    "  climbLabelAt: function (x, y) { return climbLabelAt(x, y); },\n" +
+    "  shortName: function (norad, en) { var i = climbSatIdx(norad); return i < 0 ? '' : shortNameOf(cur().sats[i], en); },\n" +
+    "  fullName: function (norad) { var i = climbSatIdx(norad); return i < 0 ? '' : String(cur().sats[i].name); },\n" +
+    // ★★★ V1.9.7（P0-E）：**离线模拟"在线刷新"** —— 这是本项目最大的测试盲区：
+    //   旧口径下 applyFresh 用在线列表整体替换 RAW.sats，而在线 feed 只有 {name,id,c,l1,l2}，
+    //   于是 orb/wk/od 全丢 → 状态列全变默认、层变空、GEO 消失。所有测试都在离线跑，
+    //   从来没有执行过这条路径（V1.9.3 那次同类修复也是手工探针验的）。
+    //   这里把当前 sats 剥成 feed 形状（并故意丢掉 GEO 来模拟"在线查询取不到"），真的调一次 applyFresh。
+    "  liveSim: function (dropGeo) {\n" +
+    "    function feed(key) {\n" +
+    "      return RAW[key].sats.map(function (s) {\n" +
+    "        return { name: s.name, id: s.id, c: s.c, l1: s.l1, l2: s.l2 };\n" +
+    "      }).filter(function (s) { return !(dropGeo && /GAOGUI/i.test(s.name)); });\n" +
+    "    }\n" +
+    "    function snap() {\n" +
+    "      var el = document.getElementById('mDist');\n" +
+    "      return {\n" +
+    "        n: RAW.gw.sats.length + RAW.qf.sats.length,\n" +
+    "        dist: el ? el.textContent : '',\n" +
+    "        geo: RAW.gw.sats.filter(function (s) { return s.wk === 'GEO'; }).length,\n" +
+    "        orbOk: RAW.gw.sats.concat(RAW.qf.sats).filter(function (s) { return s.orb === 0 || s.orb === 1; }).length,\n" +
+    "        layers: orbLayerDefs(CONST[S.key]).length\n" +
+    "      };\n" +
+    "    }\n" +
+    "    var before = snap();\n" +
+    "    var ep = applyFresh(feed('gw'), feed('qf'));\n" +
+    "    var after = snap();\n" +
+    "    after.ep = (ep === null) ? null : 'ok';\n" +
+    "    return { before: before, after: after };\n" +
+    "  },\n" +
+    "  liveGate: function (howMany) {\n" +
+    "    var before = RAW[S.key].sats.length;\n" +
+    "    var list = RAW.gw.sats.slice(0, howMany).map(function (s) {\n" +
+    "      return { name: s.name, id: s.id, c: s.c, l1: s.l1, l2: s.l2 };\n" +
+    "    });\n" +
+    "    var ep = applyFresh(list, list);\n" +
+    "    return { ep: (ep === null) ? null : 'ok', n: RAW[S.key].sats.length, before: before };\n" +
+    "  },\n" +
     // ★ V1.9.5（H32-A）：网格 vs 线性扫描的一致性（性质判据；随机用例，不写死结果）
     "  gridParity: function () {\n" +
     "    function rnd(seed) { var x = seed; return function () { x = (x * 1103515245 + 12345) & 0x7fffffff; return x / 0x7fffffff; }; }\n" +
@@ -2890,6 +2930,65 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
   assert('A3：探针可用，且注入是唯一差异（去掉注入段后与发布产物逐字符相同）',
     !!k3 && err3.length === 0 && html3.replace(INS, '') === html,
     (err3.slice(0, 2).join(' | ') || 'no-error'));
+
+  // ================================================================ ★★★ V1.9.7（P0-E）：在线刷新回归
+  // 这一组是本轮事故的**根因守卫**：旧实现"整体替换"会让三态/层/GEO 一起消失，
+  // 而所有其它断言都在离线态跑，永远发现不了。这里真的调一次 applyFresh。
+  {
+    const sim = k3.liveSim(true);          // true = 模拟"在线查询取不到 GEO"
+    assert('P0-E①：模拟在线刷新后，**卫星总数不减**（在线缺的星必须保留，不许被删）',
+      sim.after.n >= sim.before.n,
+      '前 ' + sim.before.n + ' → 后 ' + sim.after.n);
+    assert('P0-E②：模拟在线刷新后，三态字段**仍在**（orb/wk/od 不被清空）',
+      sim.after.orbOk === sim.before.orbOk && sim.after.orbOk >= 400,
+      '三态齐备 ' + sim.before.orbOk + ' → ' + sim.after.orbOk);
+    assert('P0-E③：模拟在线刷新后，第 0 章「轨道分布」**逐字不变**（层没有塌成 "—"）',
+      sim.after.dist === sim.before.dist && /km/.test(sim.after.dist),
+      JSON.stringify(sim.before.dist) + ' → ' + JSON.stringify(sim.after.dist));
+    assert('P0-E④：模拟在线刷新后，工作轨道层数不变（03 章椭圆不会消失）',
+      sim.after.layers === sim.before.layers && sim.after.layers >= 3,
+      '层 ' + sim.before.layers + ' → ' + sim.after.layers);
+    assert('P0-E⑤：模拟在线刷新后，GEO 3 颗仍在（在线查询取不到的由打包数据保住）',
+      sim.after.geo === 3 && sim.before.geo === 3,
+      'GEO ' + sim.before.geo + ' → ' + sim.after.geo);
+    const gate = k3.liveGate(80);          // 只给 80 条（< 打包 ×0.9）→ 必须被闸门拦下
+    assert('P0-E⑥：在线条数骤降时**闸门生效**（applyFresh 返回 null，数据保持原样）',
+      gate.ep === null && gate.n === gate.before,
+      'ep=' + gate.ep + ' n=' + gate.before + '→' + gate.n);
+  }
+
+  // ================================================================ V1.9.7（§6/§7）：短名 + 标签点击
+  {
+    // ① 原名保留在底层、显示名走短名
+    const g27 = 100973;                    // GUOWANG 27 OBJECT A
+    assert('§6：TLE 登记原名**完整保留**在数据层（`s.name` 不被改写）',
+      k3.fullName(g27) === 'GUOWANG 27 OBJECT A',
+      JSON.stringify(k3.fullName(g27)));
+    assert('§6：中文短名 = `A星`（OBJECT 无官方单称时按字母 + 星）',
+      k3.shortName(g27, false) === 'A星', JSON.stringify(k3.shortName(g27, false)));
+    assert('§6：英文短名 = `27A`（批次号 + 字母）',
+      k3.shortName(g27, true) === '27A', JSON.stringify(k3.shortName(g27, true)));
+    // ⚠️ 100791 的目录名当前是 HULIANWANG DIGUI-205（编号会随目录更新变化，这里按实际值断言）
+    assert('§6：目录编号型（HULIANWANG DIGUI-205）→ 中英同为 `205`',
+      k3.shortName(100791, false) === '205' && k3.shortName(100791, true) === '205',
+      JSON.stringify([k3.shortName(100791, false), k3.shortName(100791, true)]));
+    assert('§6：词条名带逐星区分符（…02组A星）→ 中文 `A星` / 英文 `02A`',
+      k3.shortName(58425, false) === 'A星' && k3.shortName(58425, true) === '02A',
+      JSON.stringify([k3.shortName(58425, false), k3.shortName(58425, true)]));
+    assert('§6：`nameOf` 已改为走短名（不再直接返回词条全名）',
+      /function nameOf\(s\) \{[\s\S]{0,160}?return shortNameOf\(s, LANG === 'en'\);/.test(appSrc));
+    // ② 标签命中矩形（点击标签选中卫星的前提）
+    const labs = k3.climbLabels();
+    assert('§7：绘制后记录了**标签命中矩形**（每个标签一条，含 NORAD）',
+      labs.length > 0 && labs.every(L => L.n > 0 && L.w > 0),
+      '标签 ' + labs.length + ' 个');
+    const L0 = labs[0];
+    assert('§7：矩形中心点能被 `climbLabelAt` 命中，且返回对应 NORAD',
+      k3.climbLabelAt(L0.x + L0.w / 2, L0.y + L0.h / 2) === L0.n,
+      '期望 ' + L0.n + ' 实得 ' + k3.climbLabelAt(L0.x + L0.w / 2, L0.y + L0.h / 2));
+    assert('§7：点击标签走的是 `toggleSel`（与点数据点同一条选中通路 + 双向联动）',
+      /var labN = climbLabelAt\(mx, my\);[\s\S]{0,400}?toggleSel\(li, e\.ctrlKey \|\| e\.metaKey\);/.test(appSrc));
+  }
 
   // ================================================================ V1.9.3（用户复审）运行时断言
   // 为什么放这里：这一组要**真实渲染输出**（不是源码匹配）——"源码里写了但渲染出来不对"
@@ -3235,12 +3334,12 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
 //   （参考 findrassvet 的「График 01」；名称为本地化名，不用 NORAD）。
 assert('V1.9.2：末端标签改为**卫星名称**（中文用中文名、英文用英文名，不用 NORAD）',
   /function climbSatName\(norad\)/.test(appSrc) &&
-  /labelJobs\.push\(\{ y: ly2, name: climbSatName\(c\.norad\), color: own \}\)/.test(appSrc) &&
+  /labelJobs\.push\(\{ y: ly2, norad: c\.norad, name: climbSatName\(c\.norad\)/.test(appSrc) &&
   /climbSatName\(c\.norad\)/.test(appSrc));
 assert('V1.9.2：名称标签带**防重叠排版**（按 y 排序后逐个下压，保证最小行距）',
   /labelJobs\.sort\(function \(a, b\) \{ return a\.y - b\.y; \}\)/.test(appSrc) && /LBL_GAP/.test(appSrc));
 assert('V1.9.2：右侧留白按"要标几条"动态加宽（否则名称会被裁掉）',
-  /var PR = nLab \? \(narrow \? 76 : 128\)/.test(appSrc) && /var nLab = \(d\.length > 1 && d\.length <= 30\)/.test(appSrc));;
+  /var PR = nLab \? \(narrow \? 56 : 72\)/.test(appSrc) && /var nLab = \(d\.length > 1 && d\.length <= 30\)/.test(appSrc));;
   // 行为验证：真跑一次绘制，采样"写进 ctx 的 strokeStyle"里有多少种 hsl
   const st3 = d3.getElementById('climbCv').getContext('2d').__styles;
   k3.setClimbPick('b:24240');                    // 低轨01组：10 颗（内置兜底也有 10 颗 → 离线可画）
@@ -3437,7 +3536,9 @@ assert('V1.9.2：右侧留白按"要标几条"动态加宽（否则名称会被�
     //     build() 造行数据对象、unpackSat() 差分还原，**两处都只抄自己列出的字段**。
     //   判据：satdata 里出现过的卫星字段，必须在这两处都被带上（至少 orb/wk/od/rr 这一组）。
     assert('A7：三态字段穿过度分还原与 build() 两处白名单（`orb/wk/od/rr` 一处都不能漏）',
-      /orb: s\.orb, wk: s\.wk, od: s\.od, rr: s\.rr/.test(appSrc) &&
+      // ★ V1.9.7：build() 里 orb 改成"缺省保守判变轨中"（在线新增星没有 mkdata 的三态）
+      /orb: \(s\.orb === 0 \|\| s\.orb === 1\) \? s\.orb : 1,/.test(appSrc) &&
+      /wk: s\.wk, od: s\.od, rr: s\.rr,/.test(appSrc) &&
       /'orb'[^\]]*'wk'[^\]]*'od'[^\]]*'rr'/.test(appSrc));
     assert('A7：排序语义 = 0 在轨 / 1 变轨中 / 2 已再入',
       /status: s\.st === 'r' \? 2 : \(s\.orb \? 1 : 0\)/.test(appSrc));
@@ -4104,7 +4205,8 @@ assert('A9（V1.9.7 §6）：圈的来源 = 工作轨道层（orbLayerDefs），
       !/var CL_MERGE_Y = 80, CL_MERGE_X = 0\.8;/.test(appSrc) &&
       !/CHART_CL_BIN_ALT/.test(appSrc) &&
       /function orbLayerDefs\(st\)/.test(appSrc) &&
-      /s\.orb === 0 && s\.wk !== 'GEO'/.test(appSrc));
+      // ★ V1.9.7（P0-D）：种子不再强依赖 `orb`，改成"GEO/非数值剔除 + 明确的变轨中剔除"
+      /s\.wk === 'GEO' \|\| !isFinite\(s\.smaB\)/.test(appSrc));
     // 淡出：默认跨度可见；缩到 3° 全部消失；12° 阈值参与判定
     const span = k3.chartSpan();
     assert('A9：默认视图下圆圈可见（alpha = 1）',
@@ -4173,8 +4275,9 @@ assert('A9（V1.9.7 §6）：圈的来源 = 工作轨道层（orbLayerDefs），
       k3.chartDraw();
       const drew2 = k3.chartTexts().slice(before2);
       assert('H18③：放大到能分辨（拉满该批自身范围）→ 切换为**单星名**',
-        drew2.some(x => /^互联网27组[A-Z]$/.test(x)) && drew2.indexOf('低轨27组') < 0,
-        '视窗 x=' + (rg.x0 - padX).toFixed(2) + '~' + (rg.x1 + padX).toFixed(2) + '；标签: ' + JSON.stringify(drew2.filter(x => /^低轨|^互联网27组/.test(x))));
+        // ★ V1.9.7：显示名改短名 —— 低轨27组 = GUOWANG 27 OBJECT A–J → `A星`…`J星`
+        drew2.some(x => /^[A-J]星$/.test(x)) && drew2.indexOf('低轨27组') < 0,
+        '视窗 x=' + (rg.x0 - padX).toFixed(2) + '~' + (rg.x1 + padX).toFixed(2) + '；标签: ' + JSON.stringify(drew2.filter(x => /^低轨|^[A-J]星$/.test(x))));
       k3.chartViewAuto();
       k3.state().sel.forEach(i => {});                 // 选中态由后续断言自行重置（selectGroup 会覆盖）
     })();
@@ -4561,8 +4664,8 @@ assert('A9（V1.9.7 §6）：圈的来源 = 工作轨道层（orbLayerDefs），
     //   这里验证的是**探针暴露的真实函数**，不是把公式复述一遍。
     {
       const hi = k3.globeHi();
-      assert('A18/Q41：分段参数就位（分段点 8000 km / GEO 参考 42164 km / 落点 **1.75** 个地球半径 / LEO 仍 2.4×）',
-        hi.knee === 8000 && hi.ref === 42164 && hi.refY === 1.75 && Math.abs(hi.ex - 2.4) < 1e-9,
+      assert('A18/Q41：分段参数就位（分段点 8000 km / GEO 参考 42164 km / 落点 **2.05** 个地球半径 / LEO 仍 2.4×）',
+        hi.knee === 8000 && hi.ref === 42164 && hi.refY === 2.05 && Math.abs(hi.ex - 2.4) < 1e-9,
         JSON.stringify(hi));
       // ★ V1.9.3：`HI_REF_Y` 2.2 → 1.75（用户复审选定的"方案 B"，见 app.js 该处长注释）。
       //   关键不变式：**必须 > kneeY（1.6103）**，否则高轨段斜率变负、GEO 会落到 LEO 上限以内。
@@ -6093,18 +6196,21 @@ assert('V1.9.3：e2e 的实跑挂在 CI 上（本地 smoke 不跑，避免闸门
   const srcUrls = (appCode.match(/https:\/\/celestrak\.org\/NORAD\/elements\/gp\.php\?[^'"]+/g) || []);
   assert('V1.9.5：运行时取数源**全部**是 `FORMAT=json`（3+3 条），一条 legacy `FORMAT=tle` 都不剩',
     srcUrls.length >= 6 &&
+    // ★ V1.9.7（P0-B）：新增了按 NORAD 精确补拉的 URL（`CATNR=…&FORMAT=json`），
+    //   它同样必须带 FORMAT=json；这里只要求"不含 legacy FORMAT=tle"
     srcUrls.every(u => /FORMAT=json/.test(u)) &&
     !/FORMAT=tle/.test(appCode));
   assert('V1.9.5：同一个 URL 返回 JSON 还是 TLE **自动判别**（`parseGpText`）—— 镜像/代理忽略参数时仍有保险',
     /function parseGpText\(txt\) \{/.test(appCode) &&
     /t\.charAt\(0\) === '\[' \|\| t\.charAt\(0\) === '\{'/.test(appCode) &&
     /return parseTleText\(t\);/.test(appCode));
-  assert('V1.9.5：缓存键升到 `cistrack.tle.v3`（v2 条目是旧口径，留着会让"刚迁完就打开"的用户读到旧数据）',
-    /var TLE_CACHE_KEY = 'cistrack\.tle\.v3'/.test(appCode));
+  assert('V1.9.5：缓存键升到 `cistrack.tle.v4`（v3 是"整份列表"的旧口径，留着会误导合并式刷新）',
+    /var TLE_CACHE_KEY = 'cistrack\.tle\.v4'/.test(appCode));
   // ③ 回落语义：失败必须仍然 return null（= 继续用内置快照），且 URL 列表为空时不能抛
   assert('V1.9.5：回落语义未被破坏 —— `tryOne` 失败仍返回 `null`（页面继续用内置保底快照）',
-    /if \(list && list\.length > 20\) \{ cacheSet\(group, list\); return list; \}/.test(appCode) &&
-    /return null;/.test(appCode) &&
+    // ★ V1.9.7（P0-B）：取数成功后要先补拉白名单星再写缓存
+    /if \(!\(list && list\.length > 20\)\) return null;/.test(appCode) &&
+    /return backfillExtra\(group, list\)\.then\(function \(full\) \{/.test(appCode) &&
     /\.catch\(function \(\) \{ return \[\]; \}\);/.test(appCode) &&
     /\.catch\(function \(\) \{ return list; \}\);/.test(appCode));
 

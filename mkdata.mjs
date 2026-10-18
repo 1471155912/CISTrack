@@ -1394,6 +1394,22 @@ console.log('history: 分片 ' + HIST.stat.shards + '  历史点 ' + HIST.stat.d
   '  丢弃 ' + HIST.stat.dropped + '  (gw ' + Object.keys(HIST.out.gw).length +
   ' 批 / qf ' + Object.keys(HIST.out.qf).length + ' 批)  → 内置精简 ' + liteN + ' 条');
 
+// ★ V1.9.7（P0-B）：随数据发布「**在线分组/名称查询取不到**」的卫星 NORAD。
+//   为什么需要：页面运行时会联网刷新，但 TLE_SRC 只有 GROUP=hulianwang/qianfan + NAME= 前缀查询，
+//   而下面这些名字**一个都命中不了**（NAME= 是前缀匹配）：
+//     · 星网 GEO 三星写的是 `HULIANWAN GAOGUI-01/02/03`（**单 G**）
+//     · `CHUANGXIN 20A/B/C`、`CHUANGXIN 19`、`CHUANG XIN 26`、`OBJECT B`
+//     · 千帆 `KL-ALPHA A/B`、`KL-BETA A/B`、`DTC TEST OBJECT A`
+//   它们只能靠 refresh.mjs 的 INCLUDE 白名单点名纳入 → 页面联网后会把它们丢掉（含全部 GEO）。
+//   所以把真实名单随 satdata 发布，页面用 `CATNR=` 精确补拉。
+const LIVE_NAME_RE = { gw: /^(HULIANWANG|GUOWANG|GW-)/i, qf: /^(QIANFAN|SPACESAIL|G60)/i };
+['gw', 'qf'].forEach(k => {
+  const src = (k === 'gw' ? gw : qf) || [];
+  DATA[k].extra = src.filter(s => !LIVE_NAME_RE[k].test(s.name || '')).map(s => s.id).sort((a, b) => a - b);
+});
+console.log('[live] 需按 CATNR 补拉：gw ' + (DATA.gw.extra || []).length + ' 颗 / qf ' +
+  (DATA.qf.extra || []).length + ' 颗 → ' + JSON.stringify((DATA.gw.extra || []).concat(DATA.qf.extra || [])));
+
 // ★★ V1.9.7（§23.3-c）：**条数下限闸门** —— 输入残缺时宁可失败，也绝不写出可发布的坏数据。
 //   背景（2026-10-17 线上事故）：refresh 当时因网络退化只抓到 0 份数据，mkdata 照样产出一份
 //   "少了 wu/wn 字段"的 satdata 并被发布 → 表格全变「在轨（~-, undefinedkm）」、03 章 GEO 三星消失。
@@ -1403,6 +1419,8 @@ console.log('history: 分片 ' + HIST.stat.shards + '  历史点 ' + HIST.stat.d
 //     坏的是字段维度：表格「在轨状态」由 `wk` 拼出、三态由 `orb` 决定，任一缺失就是满屏 `undefinedkm`。
 //     实测（好数据）：`wk`/`orb` 覆盖率 **100%**；而 `wu`/`wn` 只有 8.3% / 1.9%（**合法可缺**，不能拿它当判据）。
 const MIN_SATS = { gw: 200, qf: 200 };
+// ★ V1.9.7（A12）：GEO 条数（星网 3 颗高轨业务星）—— 它们只能按白名单纳入，是链条上最脆的一环
+const nGeo = ((DATA.gw && DATA.gw.sats) || []).filter(s => s.wk === 'GEO').length;
 const bad = ['gw', 'qf'].filter(k => ((DATA[k] && DATA[k].sats) || []).length < MIN_SATS[k]);
 const NEED = ['wk', 'orb'];          // 必须近乎全覆盖的字段
 const COVER_MIN = 0.98;
@@ -1422,6 +1440,12 @@ if (bad.length || thin.length) {
   console.error('[mkdata] 输入疑似残缺 —— 先确认 `node refresh.mjs` 是否真的抓到了数据（输出里不应出现大量「0 份」）。');
   console.error('[mkdata] 已**不写出** build/satdata.json，避免坏数据被打包发布。');
   process.exitCode = 5;
+} else if (!nGeo) {
+  // ★ V1.9.7（A12）：**GEO 闸门** —— 星网那 3 颗高轨业务星是"点名纳入"的，源站分组一变就会整批消失，
+  //   而条数与字段覆盖率都察觉不到（2026-10-17 的线上退化里它们就是第一个没的）。这里宁可失败。
+  console.error('[mkdata] 拒绝写出：星网 GEO 卫星 0 颗（应 ≥1；它们只能按 INCLUDE 白名单纳入，' +
+    '请检查 refresh.mjs 的 INCLUDE 与 satcat 是否已变）');
+  process.exitCode = 6;
 } else {
   fs.writeFileSync(path.join(ROOT, 'build', 'satdata.json'), JSON.stringify(DATA), 'utf8');
   console.log('satdata.json bytes=', fs.statSync(path.join(ROOT, 'build', 'satdata.json')).size);

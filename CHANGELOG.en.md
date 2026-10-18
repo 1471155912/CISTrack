@@ -12,6 +12,95 @@ The version is written in the footer (`CISTrack · Vx.y.z`), and the bottom bar 
 
 ## [V1.9.7] — 2026-10-18
 
+### 🔧 V1.9.7 fixes (2026-10-18, second round) — the online-only regression, fixed at the root
+
+> The first V1.9.7 build had a severe regression that **only appeared when the page could reach the network**.
+> This round removes it at the root and lands the 11 requested items. **The version number is unchanged**
+> (still V1.9.7); it ships by **overwriting the same-named release assets**.
+
+#### 1. ★★ The regression: `applyFresh()` used to replace the whole satellite array
+
+**Symptom** (online only, never offline): the three GEO satellites vanished, the header "orbit distribution"
+row read `—`, section 03 showed no layer ellipses at all, and every row in section 06 read
+`In orbit (~—, undefinedkm)`.
+
+**Cause**: the runtime refresh did `RAW[key].sats = liveList` — a wholesale replacement. The live feed carries
+only `{name, id, c, l1, l2}`, so every field `mkdata` had written (`orb/wk/od/rr/wu/wn/st/dt`) was lost.
+On top of that, the live queries (`GROUP=` / `NAME=` prefix) **cannot reach 14 satellites** that are pulled in
+by an explicit whitelist at build time — including all three GEO satellites.
+
+**Fix**:
+- **Merged refresh**: live data only updates `l1/l2` (and the catalog name when it changes); every derived
+  field is preserved; satellites missing from the live feed are kept; genuinely new ones are appended
+  (no tri-state → conservatively "raising").
+- **Gates**: if the live list is below 90% of the packaged count, or matches fewer than 50% of the packaged
+  NORADs, the whole fetch is **discarded** and the packaged data is used.
+- **Exact backfill**: `mkdata` now publishes an `extra` NORAD list (those 14 satellites); the page fetches them
+  with `CATNR=` (batched, then one-by-one if a mirror ignores the multi-value form) — GEO can no longer vanish.
+- **Decoupling**: layer detection now uses geometry only (`smaB + inc`) instead of requiring `orb`, so losing one
+  field no longer blanks three modules at once.
+- The user's selection survives a refresh (restored by NORAD), the "new satellites" baseline is re-synced,
+  and the TLE cache key moves `v3 → v4`.
+
+**Test hardening (the actual cure)**: six new `P0-E` assertions strip the packaged data into the feed shape,
+**deliberately drop GEO**, and call `applyFresh` for real — asserting the total count, the tri-state fields,
+an unchanged `#mDist`, the layer count, the three GEO satellites, and that a truncated payload is rejected.
+**This is the first time the project ever executed that code path** (previously only its source order was asserted,
+which is why the regression survived several releases).
+
+#### 2. One short display name everywhere; the TLE name stays underneath
+
+New `shortNameOf(s, en)`:
+
+| Case | Chinese | English |
+|---|---|---|
+| Wiki name `…02组A星` / `…04组01星` | `A星` / `01星` | `02A` / `0401` |
+| Wiki name `…DTC_01星` | `01星` | `DTC01` |
+| Wiki name `…α阶段A卫星` | `αA星` | `αA` |
+| Wiki name `…高轨卫星01星` | `01星` | `G01` |
+| Wiki name `…一号/二号` | `一号` | `No.1` |
+| Catalog `GUOWANG 27 OBJECT G` / `QIANFAN 16 OBJECT A` | `G星` / `A星` | `27G` / `16A` |
+| Catalog `HULIANWANG DIGUI-123` / `QIANFAN-123` | `123` | `123` |
+| Catalog `CHUANGXIN 20A` / `KL-ALPHA A` / `DTC TEST OBJECT A` | `A星` | `20A` / `KL-A` / `DTC-A` |
+| No identifier at all (10 × `HULIANWANG JISHU SHIYAN`) | NORAD | NORAD |
+
+`nameOf()` now returns the short name, so every display surface switches at once (table, info panels, map/globe
+labels, the climb chart, exported images). `s.name` — the TLE name — is untouched and still visible in the info
+panel's "catalog name" row, searchable, and present in logs.
+
+#### 3. Section 04: short labels, click-to-select, and the note line removed
+
+- Chart labels use the short names; the right margin shrinks from **128 → 72 px** (76 → 56 on narrow screens),
+  giving the width back to the curves.
+- **Clicking a label selects exactly that satellite**: each label's screen rectangle is recorded while drawing,
+  and a click goes through the same `toggleSel()` path as clicking a data point (Ctrl to add), pinning the info
+  panel to that satellite's latest node and syncing every other chapter.
+- The line under the chart (batch / curve count / date span / Y axis / threshold) is **gone** — DOM,
+  `renderClimbNote()` and the fullscreen CSS rule were all removed.
+
+#### 4. Title, GEO and instantaneous altitude
+
+- **Hero title**: `星网星座在轨态势` / `千帆星座在轨态势` moves from a forced two-line break to **one centred line**,
+  breaking into two lines of four characters only below 350 px. At 1440 px the h1 shares the row with the stats
+  table and only has 759 px, so the Chinese title gets its own 88 px cap — otherwise it wrapped after "态".
+- **GEO exaggeration**: 1.75 → **2.05 Earth radii** (the gap to the LEO main shell at 1.433 widens from 22% to 43%);
+  the base-radius horizontal factor drops 0.30 → 0.232 so the GEO ring no longer runs off a 390 px screen.
+- **Instantaneous altitude**: two decimals (was one — the ~0.013 km/s change was invisible), still ticking.
+
+#### 5. In-app documentation: tables render now
+
+`md2html()` never supported tables — lines starting with `|` became paragraphs, which looked like code blocks.
+A minimal GFM subset (header + alignment row + body, cells still through `mdInline`) plus a scrollable
+`.tbl-wrap` style are in. The "where the data comes from" table in both languages now describes the merged refresh.
+
+#### 6. Other hardening
+
+- `mkdata` gains a **GEO gate** (zero GEO ⇒ refuse to write, exit code 6) — whitelisted satellites are the most
+  fragile link in the chain.
+- `smoke` grows from 884 to **899 assertions** (15 new: six for P0-E, five for short names, three for label clicks).
+
+
+
 > The core of this release: **orbit status is now derived from the TLEs themselves** instead of being inferred per launch batch.
 > A satellite's "working altitude" is no longer read off "the highest few in its batch"; it comes from a **working-orbit layer measured across the whole constellation**,
 > so every altitude and status shown on the page can be traced back to public element sets.
