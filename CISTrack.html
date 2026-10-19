@@ -729,7 +729,24 @@ section.fs-mobile .fs-search { display:block; width:100%; max-width:none; }
    最后一条是关键：容器再矮也不会把信息窗压扁。代价是窄屏时窗口可能高过所属画布容器、
    盖住画布下方的内容 —— 已与用户确认接受（信息窗本就是浮动窗口，层级在页面内容之上，且它可以被拖走）。
    同时 .si-head 钉成 flex:0 0 auto，保证关闭按钮（✕）在任何尺寸下都不会被压掉。 */
-.sat-info { display:none; position:absolute; top:16px; left:16px; z-index:30; width:max-content; font-family:var(--mono); font-size:var(--fs-info); line-height:1.42; flex-direction:column; flex-wrap:nowrap; gap:12px; max-width:calc(100% - 32px); max-height:calc(100vh - 40px); overflow:hidden; cursor:grab; touch-action:none; -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; }
+.sat-info {
+  /* ★★ V1.9.9（用户 2026-10-20 报的 bug）：信息窗宽度**统一固定**，不再 width:max-content。
+     为什么必须改（实测数据，真浏览器 1440px、font-size 14px）：
+       · 最长的一行是「变轨中·点火（~2026-10-17, 1149km, +3.63km/天）」，
+         整行 max-content = **396px**；加上 .si-block 左右内边距 14+14 与 1px 边框 = **426px**；
+       · 而窗口宽度原先由**内容**决定 → 在轨 347px / 变轨中 445px，翻一颗星窗口就跳一下；
+       · 更糟的是：当某一行比"当前最宽行"更宽时，它会顶到边界、被 .si-body 的 overflow:hidden **切掉**
+         （用户截图里「变轨中·间歇（…）」被右边界截断就是这个原因）。
+     取 **452px** = 426 + 26px 余量：对最长的情况"正好够"，又不会明显过宽；四个章节（01/02/03/05）共用同一值。
+     ⚠️ 窄屏（≤480）由 max-width 兜底，配合下面 .si-row 的换行规则 —— 宁可折成两行，也绝不截断。 */
+  --si-w: 452px;
+  display:none; position:absolute; top:16px; left:16px; z-index:30; width:var(--si-w);
+  /* ⚠️ max-width 必须按**视口**（100vw）而不是父容器（100%）：
+     手机端 `.chart-wrap` 的实际宽度可能大于视口（画布有最小宽度），
+     用 100% 时 max-width 会算出 ~700px → 452 不被收窄 → 整个信息窗**跑出屏幕**（实测 390px 视口拍到的就是这个）。
+     `min()` 让"固定宽度"和"不超出屏幕"同时成立；超出时由下面的换行规则兜底。 */
+  max-width:min(var(--si-w), calc(100vw - 32px));
+  font-family:var(--mono); font-size:var(--fs-info); line-height:1.42; flex-direction:column; flex-wrap:nowrap; gap:12px; max-height:calc(100vh - 40px); overflow:hidden; cursor:grab; touch-action:none; -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; }
 /* V1.7.2（需求4）：**B 窗 / hover 浮窗** —— 它是 A 窗（已选中那颗的常驻窗）的"附庸"。
    与 A 窗的区别：① 没有 ✕（不渲染 .si-head）② 不能拖（pointerdown 直接 return）
    ③ 不是恒定显示（鼠标移开即消失）④ 紧贴 A 窗右侧摆放。
@@ -776,8 +793,17 @@ section.fs-mobile .fs-search { display:block; width:100%; max-width:none; }
 .sat-info .si-body { display:flex; flex-direction:column; flex-wrap:wrap; align-content:flex-start; gap:12px 18px; flex:1 1 auto; min-height:0; overflow:hidden; }
 .sat-info .si-name { display:flex; align-items:center; justify-content:space-between; gap:18px; color:var(--fg); font-weight:700; letter-spacing:0.06em; margin-bottom:7px; }
 .sat-info .si-name .swatch { flex:0 0 auto; }
-.sat-info .si-row { display:flex; justify-content:space-between; gap:18px; padding:2px 0; color:var(--dim); }
-.sat-info .si-row span:last-child { color:var(--fg); }
+.sat-info .si-row { display:flex; justify-content:space-between; gap:18px; padding:2px 0; color:var(--dim); min-width:0; }
+/* ★ V1.9.9：值单元格**允许换行**（min-width:0 让 flex 能收缩；overflow-wrap 处理长串）
+   —— 窄屏上宽 452 被 max-width 压到 ~370 时，宁可折成两行，也不能被切掉。 */
+.sat-info .si-row > span { min-width:0; }
+/* ★ V1.9.9：标签**不许被压缩**（否则手机上「变轨情况」会折成「变轨情/况」两行）；
+   值吃掉剩余宽度再折行 —— 这是"宁折两行、绝不截断"的关键一步。 */
+.sat-info .si-row > span:first-child { flex:0 0 auto; }
+.sat-info .si-row span:last-child { flex:1 1 auto; color:var(--fg); text-align:right; white-space:normal; overflow-wrap:anywhere; }
+/* 名称行同理（最长的中文名如「卫星互联网技术试验卫星(CZ 12 Y1)」） */
+.sat-info .si-name { min-width:0; }
+.sat-info .si-name > span:first-child, .sat-info .si-name { overflow-wrap:anywhere; }
 /* ── V1.9.0（需求7 / 需求8）04 章信息窗 ────────────────────────────────────────────────
    需求7：这一章原先没有 .si-block 那一层，所以它的信息窗看上去是"透"的；现在由 JS 补上 .si-block，
    背景 / 边框 / 内边距 / 拖动时的主题色边框 / ✕ 全部与前三章一致，这里不需要额外样式。
@@ -790,7 +816,7 @@ section.fs-mobile .fs-search { display:block; width:100%; max-width:none; }
 .sat-info .batch-link.net-add-gw { color:var(--c-gw); font-weight:700; text-decoration:underline; text-underline-offset:2px; cursor:pointer; }
 .sat-info .batch-link.net-add-qf { color:var(--c-qf); font-weight:700; text-decoration:underline; text-underline-offset:2px; cursor:pointer; }
 .sat-info .net-add-n { color:var(--dim); }
-.sat-info .si-block { flex:0 0 auto; min-width:222px; background:var(--info-bg); border:1px solid var(--hair); padding:12px 14px; }
+.sat-info .si-block { flex:0 0 auto; min-width:222px; width:100%; background:var(--info-bg); border:1px solid var(--hair); padding:12px 14px; }
 /* V1.3.6：信息窗末尾那行主题色小字提示（「电脑点击 / 手机长按可自由拖拽」） */
 .sat-info .si-drag { align-self:flex-start; font-size:10px; letter-spacing:0.08em; padding:4px 2px 0; opacity:.92; margin-top:-9px; }   /* V1.4.9：颜色改由内联按星座给；V1.7.2：padding-top 6→4px，再省一点纵向空间 */
 .sat-info .si-more { align-self:flex-start; background:var(--info-bg); border:1px solid var(--hair); padding:8px 14px; color:var(--faint); letter-spacing:0.06em; }
@@ -1181,7 +1207,7 @@ html.loading, html.loading body { overflow:hidden; touch-action:none; }
    （→ 又变成滚动条/换列）。这里降到 118px 并再收 gap，让内容正常换行、纵向排布。
    注意：**只动尺寸，不动字号** —— 用户要求收窄时字号保持不变。 */
 @media (max-width:400px) {
-  .sat-info { max-width:calc(100% - 20px); }
+  .sat-info { max-width:min(var(--si-w), calc(100vw - 20px)); }
   .sat-info .si-block { min-width:118px; padding:7px 9px; }
   .sat-info .si-row { gap:8px; }
   .sat-info .si-name { gap:8px; }
@@ -2950,6 +2976,26 @@ function applyStaticLangIn(root) {
   root.querySelectorAll('[data-i18n-aria]').forEach(function (el) { el.setAttribute('aria-label', t(el.getAttribute('data-i18n-aria'))); });
 }
 // 批次名的英文写法（低轨01组 → LEO Group 01 等）
+/**
+ * ★ V1.9.9（信息窗一致性）：**单星发射**判据 —— 表格「批次/组」列与信息窗的同一行**共用这一条**。
+ *   用户口径（V1.9.0 需求9b）：一次发射只送 1 颗 → 谈不上"批次/组"，显示 `−`；
+ *   或者这次发射在百科里查不到元数据（L.name 回落成 COSPAR 前缀）→ 也算"无归属"。
+ *   ⚠️ 以前表格自己内联算了一遍、信息窗直接打印 batchName(L.name) ——
+ *     于是高轨单星在表格里是 `−`、在信息窗里却是「高轨03星」，同一颗星两个说法。
+ */
+function isLoneLaunch(L) {
+  return !L ||
+    (L.name && L.key && L.name === L.key) ||
+    ((L.count > 0 ? L.count : (L.sats ? L.sats.length : 0)) <= 1);
+}
+/** 表格 / 信息窗共用的「批次/组」内容（单星发射 → `−`） */
+function batchCellHtml(L, asLink) {
+  if (isLoneLaunch(L)) return '<span class="batch-none">\u2212</span>';
+  var nm = batchName(L && L.name);
+  return asLink
+    ? '<span class="batch-link" data-lk="' + L.key + '" title="' + t('d_sel_group') + '">' + nm + '</span>'
+    : nm;
+}
 function batchName(name) {
   if (LANG !== 'en') return name;
   return name.replace(/^低轨(\d+)组$/, 'LEO Group $1')
@@ -5249,9 +5295,12 @@ function satBlock(s, scope, extra) {
     '<div class="si-row"><span>NORAD</span><span>' + s.norad + '</span></div>' +
     // ★ V1.9.8（用户第 2 条）：**目录名**上移到 NORAD 之后（三章统一）；内容是 TLE 登记原名
     '<div class="si-row"><span>' + t('d_row_cat') + '</span><span class="si-cat">' + (s.name || '—') + '</span></div>' +
-    '<div class="si-row"><span>' + t('d_row_batch') + '</span><span>' + batchName(L.name) + '</span></div>' +
+    // ★ V1.9.9：批次/组**与 06 表格同一判据**（单星发射 → `−`），不再各说各话
+    '<div class="si-row"><span>' + t('d_row_batch') + '</span><span>' + batchCellHtml(L, false) + '</span></div>' +
+    // ★ V1.9.9：近/远地点精度与表格统一为 **1 位小数** —— 此前信息窗 2 位、表格 1 位，
+    //   同一颗星两个数（1148.79 vs 1148.8），看起来像"两边数据不一致"。
     '<div class="si-row"><span>' + t('d_row_pa') + '</span><span>' +
-      fmtNum(b ? s.hpB : s.hpK, 2) + ' km×' + fmtNum(b ? s.haB : s.haK, 2) + ' km</span></div>' +
+      fmtNum(b ? s.hpB : s.hpK, 1) + ' km×' + fmtNum(b ? s.haB : s.haK, 1) + ' km</span></div>' +
     '<div class="si-row"><span>' + t('d_row_inc') + '</span><span>' + fmtNum(s.inc, 2) + '°</span></div>' +
     '<div class="si-row"><span>' + t('d_row_period') + '</span><span>' + fmtNum(s.period, 3) + t('u_min') + '</span></div>' +
     // ★ V1.9.8（用户第 2 条）：**三个章节都显示**「变轨情况」，位置固定在周期之下、发射日期之上，
@@ -5272,9 +5321,13 @@ function satBlock(s, scope, extra) {
 //   `_s` / `epoch`），这里按同样形状包一层，**不另写一套判定**（否则两处迟早不一致）。
 function satStatusRow(s) {
   var r = {
-    _s: s, orb: s.orb, wk: s.wk, rr: s.rr, smaB: s.smaB, epoch: s.epochMs,
+    _s: s, orb: s.orb, wk: s.wk, od: s.od, rr: s.rr, smaB: s.smaB, epoch: s.epochMs,
     gone: s.st === 'r', deadOn: s.dt
   };
+  // ★ V1.9.9（用户 2026-10-20 报的 bug）：这里**漏了 `od`** ——
+  //   而「在轨」那条文案是 `在轨（~<od>, <高度>）`，于是信息窗一直显示 `在轨（~—, 1150km）`，
+  //   表格却是 `在轨（~2026-08-26, 1150km）`。同一颗星两个说法，看起来像数据错。
+  //   `od` = 工作轨道生效日（mkdata 的 ORBIT_ST 产出），表格从 tableVals 里拿，这里有它就行。
   var cls = r.gone ? 'st-gone' : (r.orb === 1 ? 'st-raising' : 'st-orbit');
   return '<div class="si-row ' + cls + '"><span>' + t('d_row_status') + '</span><span>' +
     orbitStatusHtml(r) + '</span></div>';
@@ -6219,9 +6272,7 @@ function satRowHtml(r) {
   //   这类卫星的「批次/组」列显示为**居中、加粗、无下划线**的「−」(U+2212)，且不再是可点链接。
   //   注：s.launch 就是 build() 里挂上去的发射对象（含 count / sats / key / name）。
   var L = s.launch;
-  var lone = !L ||
-    (L.name && L.key && L.name === L.key) ||
-    ((L.count > 0 ? L.count : (L.sats ? L.sats.length : 0)) <= 1);
+  var lone = isLoneLaunch(L);          // ★ V1.9.9：判据与信息窗共用（见 isLoneLaunch 注释）
   // V1.3.6：卫星名染主题色 + 下划线，点击跳到 satcat.com 的对应条目（按 NORAD 编号）
   // V1.9.1（1.4-D）：已再入的整行加 `.gone` 类（供样式与联动控制识别）。
   // V1.9.1（A10）：已再入行**不参与任何章节联动**，所以它的"框选"用独立的 `.gone-focus`
@@ -6255,9 +6306,7 @@ function satRowHtml(r) {
     '<td class="stcell ' + (r.gone ? 'st-gone' : (r.orb === 1 ? 'st-raising' : 'st-orbit')) + '"' +
       (r.gone && r.deadOn ? ' title="' + t('st_gone_tip') + r.deadOn + '"' : '') + '>' +
       orbitStatusHtml(r) + '</td>' +
-    '<td>' + (lone
-      ? '<span class="batch-none">\u2212</span>'
-      : '<span class="batch-link" data-lk="' + s.lk + '" title="' + t('d_sel_group') + '">' + batchName(r.launch) + '</span>') + '</td>' +
+    '<td>' + batchCellHtml(L, true) + '</td>' +
     '<td class="ltime">' + r.lstr + '</td>' +
     '<td class="manufacturer">' + manufacturerCell(s) + '</td>' +
     '<td>' + V(fmtNum(r.sma, 1)) + '</td>' +
@@ -15134,8 +15183,9 @@ function climbShowInfoAt(h) {
   rows.push('<div class="si-row"><span>NORAD</span><span>' + h.norad + '</span></div>');
   if (sat) {
     var L = sat.launch || {};
-    if (L.name) rows.push('<div class="si-row"><span>' + t('d_row_batch') + '</span><span>' + batchName(L.name) + '</span></div>');
-    rows.push('<div class="si-row"><span>' + t('d_row_epoch_sat') + '</span><span>' + fmtUTC(h.ms) + '</span></div>');
+    if (L.name) rows.push('<div class="si-row"><span>' + t('d_row_batch') + '</span><span>' + batchCellHtml(L, false) + '</span></div>');
+    // ★ V1.9.9：与 01/02/03 章一致 —— 该行统一写 `UTC<时间>`（此前 05 章少了 `UTC` 前缀）
+    rows.push('<div class="si-row"><span>' + t('d_row_epoch_sat') + '</span><span>UTC' + fmtUTC(h.ms) + '</span></div>');
     if (take === 'rate') {
       // 找该时刻的速度
       var rr = null;

@@ -74,6 +74,24 @@ The version is written in the footer (`CISTrack · Vx.y.z`), and the bottom bar 
 - New `mkdata` gate: **refuses to write when the 6-digit NORAD map is incomplete** (exit code 7). The old
   behaviour fell back to `parseInt` silently, so 100203 could be displayed as `203` with no warning.
 
+### Added later (2026-10-20, no re-release): one info-panel width + three table mismatches
+
+- **Info panel width is now fixed at 452px** (`--si-w`, shared by chapters 01/02/03/05). It used to be
+  `width:max-content`, so the window **changed width per satellite** (347 px in orbit / 445 px while
+  manoeuvring) and any row wider than the current widest one was **clipped** by `.si-body`'s
+  `overflow:hidden` — exactly the truncation seen in the screenshot.
+  Measured: the longest row (burn + rate) needs 396 px, plus block padding/border = 426 px → 452 px leaves 26 px.
+- **Never clipped**: labels are `flex:0 0 auto` (no more "变轨情/况" wrapping on phones), values are
+  `min-width:0` + `white-space:normal` + `overflow-wrap:anywhere`; narrow screens clamp with
+  `max-width:min(452px, 100vw-32px)` (the parent can be wider than the viewport, where `100%` resolved
+  to ~700 px and pushed the window off-screen).
+- **"In orbit" date**: the panel showed `在轨（~—, 1150km）` while the table showed
+  `在轨（~2026-08-26, 1150km）` — `satStatusRow` was not passing `od` (work-orbit date). Fixed.
+- **"Batch/group" mismatch**: for single-satellite launches the table showed `−` but the panel showed the
+  batch name. The rule now lives in `isLoneLaunch()` + `batchCellHtml()`, shared by the table and both panels.
+- **Perigee×Apogee precision**: 2 decimals in the panel vs 1 in the table (1148.79 vs 1148.8) → now 1.
+- **Chapter 05 "Element epoch"** was missing the `UTC` prefix → unified with 01/02/03.
+
 ### Added later (2026-10-20, no re-release): a release-pipeline status probe
 
 - New `scripts/check_gh_status.mjs` (`npm run ghstatus`): asks githubstatus.com about the three services

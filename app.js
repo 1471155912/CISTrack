@@ -426,6 +426,26 @@ function applyStaticLangIn(root) {
   root.querySelectorAll('[data-i18n-aria]').forEach(function (el) { el.setAttribute('aria-label', t(el.getAttribute('data-i18n-aria'))); });
 }
 // 批次名的英文写法（低轨01组 → LEO Group 01 等）
+/**
+ * ★ V1.9.9（信息窗一致性）：**单星发射**判据 —— 表格「批次/组」列与信息窗的同一行**共用这一条**。
+ *   用户口径（V1.9.0 需求9b）：一次发射只送 1 颗 → 谈不上"批次/组"，显示 `−`；
+ *   或者这次发射在百科里查不到元数据（L.name 回落成 COSPAR 前缀）→ 也算"无归属"。
+ *   ⚠️ 以前表格自己内联算了一遍、信息窗直接打印 batchName(L.name) ——
+ *     于是高轨单星在表格里是 `−`、在信息窗里却是「高轨03星」，同一颗星两个说法。
+ */
+function isLoneLaunch(L) {
+  return !L ||
+    (L.name && L.key && L.name === L.key) ||
+    ((L.count > 0 ? L.count : (L.sats ? L.sats.length : 0)) <= 1);
+}
+/** 表格 / 信息窗共用的「批次/组」内容（单星发射 → `−`） */
+function batchCellHtml(L, asLink) {
+  if (isLoneLaunch(L)) return '<span class="batch-none">\u2212</span>';
+  var nm = batchName(L && L.name);
+  return asLink
+    ? '<span class="batch-link" data-lk="' + L.key + '" title="' + t('d_sel_group') + '">' + nm + '</span>'
+    : nm;
+}
 function batchName(name) {
   if (LANG !== 'en') return name;
   return name.replace(/^低轨(\d+)组$/, 'LEO Group $1')
@@ -2725,9 +2745,12 @@ function satBlock(s, scope, extra) {
     '<div class="si-row"><span>NORAD</span><span>' + s.norad + '</span></div>' +
     // ★ V1.9.8（用户第 2 条）：**目录名**上移到 NORAD 之后（三章统一）；内容是 TLE 登记原名
     '<div class="si-row"><span>' + t('d_row_cat') + '</span><span class="si-cat">' + (s.name || '—') + '</span></div>' +
-    '<div class="si-row"><span>' + t('d_row_batch') + '</span><span>' + batchName(L.name) + '</span></div>' +
+    // ★ V1.9.9：批次/组**与 06 表格同一判据**（单星发射 → `−`），不再各说各话
+    '<div class="si-row"><span>' + t('d_row_batch') + '</span><span>' + batchCellHtml(L, false) + '</span></div>' +
+    // ★ V1.9.9：近/远地点精度与表格统一为 **1 位小数** —— 此前信息窗 2 位、表格 1 位，
+    //   同一颗星两个数（1148.79 vs 1148.8），看起来像"两边数据不一致"。
     '<div class="si-row"><span>' + t('d_row_pa') + '</span><span>' +
-      fmtNum(b ? s.hpB : s.hpK, 2) + ' km×' + fmtNum(b ? s.haB : s.haK, 2) + ' km</span></div>' +
+      fmtNum(b ? s.hpB : s.hpK, 1) + ' km×' + fmtNum(b ? s.haB : s.haK, 1) + ' km</span></div>' +
     '<div class="si-row"><span>' + t('d_row_inc') + '</span><span>' + fmtNum(s.inc, 2) + '°</span></div>' +
     '<div class="si-row"><span>' + t('d_row_period') + '</span><span>' + fmtNum(s.period, 3) + t('u_min') + '</span></div>' +
     // ★ V1.9.8（用户第 2 条）：**三个章节都显示**「变轨情况」，位置固定在周期之下、发射日期之上，
@@ -2748,9 +2771,13 @@ function satBlock(s, scope, extra) {
 //   `_s` / `epoch`），这里按同样形状包一层，**不另写一套判定**（否则两处迟早不一致）。
 function satStatusRow(s) {
   var r = {
-    _s: s, orb: s.orb, wk: s.wk, rr: s.rr, smaB: s.smaB, epoch: s.epochMs,
+    _s: s, orb: s.orb, wk: s.wk, od: s.od, rr: s.rr, smaB: s.smaB, epoch: s.epochMs,
     gone: s.st === 'r', deadOn: s.dt
   };
+  // ★ V1.9.9（用户 2026-10-20 报的 bug）：这里**漏了 `od`** ——
+  //   而「在轨」那条文案是 `在轨（~<od>, <高度>）`，于是信息窗一直显示 `在轨（~—, 1150km）`，
+  //   表格却是 `在轨（~2026-08-26, 1150km）`。同一颗星两个说法，看起来像数据错。
+  //   `od` = 工作轨道生效日（mkdata 的 ORBIT_ST 产出），表格从 tableVals 里拿，这里有它就行。
   var cls = r.gone ? 'st-gone' : (r.orb === 1 ? 'st-raising' : 'st-orbit');
   return '<div class="si-row ' + cls + '"><span>' + t('d_row_status') + '</span><span>' +
     orbitStatusHtml(r) + '</span></div>';
@@ -3695,9 +3722,7 @@ function satRowHtml(r) {
   //   这类卫星的「批次/组」列显示为**居中、加粗、无下划线**的「−」(U+2212)，且不再是可点链接。
   //   注：s.launch 就是 build() 里挂上去的发射对象（含 count / sats / key / name）。
   var L = s.launch;
-  var lone = !L ||
-    (L.name && L.key && L.name === L.key) ||
-    ((L.count > 0 ? L.count : (L.sats ? L.sats.length : 0)) <= 1);
+  var lone = isLoneLaunch(L);          // ★ V1.9.9：判据与信息窗共用（见 isLoneLaunch 注释）
   // V1.3.6：卫星名染主题色 + 下划线，点击跳到 satcat.com 的对应条目（按 NORAD 编号）
   // V1.9.1（1.4-D）：已再入的整行加 `.gone` 类（供样式与联动控制识别）。
   // V1.9.1（A10）：已再入行**不参与任何章节联动**，所以它的"框选"用独立的 `.gone-focus`
@@ -3731,9 +3756,7 @@ function satRowHtml(r) {
     '<td class="stcell ' + (r.gone ? 'st-gone' : (r.orb === 1 ? 'st-raising' : 'st-orbit')) + '"' +
       (r.gone && r.deadOn ? ' title="' + t('st_gone_tip') + r.deadOn + '"' : '') + '>' +
       orbitStatusHtml(r) + '</td>' +
-    '<td>' + (lone
-      ? '<span class="batch-none">\u2212</span>'
-      : '<span class="batch-link" data-lk="' + s.lk + '" title="' + t('d_sel_group') + '">' + batchName(r.launch) + '</span>') + '</td>' +
+    '<td>' + batchCellHtml(L, true) + '</td>' +
     '<td class="ltime">' + r.lstr + '</td>' +
     '<td class="manufacturer">' + manufacturerCell(s) + '</td>' +
     '<td>' + V(fmtNum(r.sma, 1)) + '</td>' +
@@ -12610,8 +12633,9 @@ function climbShowInfoAt(h) {
   rows.push('<div class="si-row"><span>NORAD</span><span>' + h.norad + '</span></div>');
   if (sat) {
     var L = sat.launch || {};
-    if (L.name) rows.push('<div class="si-row"><span>' + t('d_row_batch') + '</span><span>' + batchName(L.name) + '</span></div>');
-    rows.push('<div class="si-row"><span>' + t('d_row_epoch_sat') + '</span><span>' + fmtUTC(h.ms) + '</span></div>');
+    if (L.name) rows.push('<div class="si-row"><span>' + t('d_row_batch') + '</span><span>' + batchCellHtml(L, false) + '</span></div>');
+    // ★ V1.9.9：与 01/02/03 章一致 —— 该行统一写 `UTC<时间>`（此前 05 章少了 `UTC` 前缀）
+    rows.push('<div class="si-row"><span>' + t('d_row_epoch_sat') + '</span><span>UTC' + fmtUTC(h.ms) + '</span></div>');
     if (take === 'rate') {
       // 找该时刻的速度
       var rr = null;

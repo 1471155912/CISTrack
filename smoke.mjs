@@ -919,6 +919,24 @@ assert('表格列开关与默认设置按钮已移除（恒为全部列）', tpl
 assert('全屏搜索框注册在绑定循环之前', appSrc.indexOf('fsTopSearch') < appSrc.indexOf("el.addEventListener('input', function () { applySearch(this); })"));
 assert('窄屏适配：全屏搜索框收窄 + × 字号放大', tpl.indexOf('@media (max-width: 640px)') >= 0 && tpl.indexOf('fs-exit-btn { font-size:22px; }') >= 0);
 assert('三章节信息窗外观统一（无 chart-info / #mapInfo 特例）', tpl.indexOf('.chart-info {') < 0 && tpl.indexOf('#mapInfo {') < 0);
+// ================================================================ ★ V1.9.9（用户 2026-10-20 报的 bug）
+// 用户原话：「变轨情况章节内的正常，但前几章的显示不完整…信息窗宽度不足且没有统一」。
+// 实测（真浏览器 1440px）：最长一行「变轨中·点火（~…, 1149km, +3.63km/天）」max-content = 396px，
+// 加 .si-block 左右 padding 与边框 = 426px；原先宽度由内容决定（在轨 347 / 变轨 445），
+// 一旦某行比"当前最宽行"更宽就会顶到边界，被 .si-body 的 overflow:hidden 切掉。
+// 现在钉成 **452px 固定宽**（426 + 26 余量），窄屏用 max-width(100vw) + 换行兜底。
+assert('V1.9.9：信息窗宽度**固定统一**（452px 变量；不再 max-content）',
+  /--si-w:\s*452px/.test(tpl) && /\.sat-info \{[^}]*width:var\(--si-w\)/.test(tpl) &&
+  // ⚠️ 先去掉注释再判「不再 max-content」—— 否则规则上方那句"不再 width:max-content"的说明会被当成违规
+  !/\.sat-info \{[^}]*width:max-content/.test(tpl.replace(/\/\*[\s\S]*?\*\//g, '')));
+assert('V1.9.9：窄屏用 **100vw** 收窄（父容器可能比视口宽，用 100% 会算出 ~700px → 窗口跑出屏幕）',
+  /max-width:min\(var\(--si-w\), calc\(100vw - 32px\)\)/.test(tpl) &&
+  /max-width:min\(var\(--si-w\), calc\(100vw - 20px\)\)/.test(tpl));
+assert('V1.9.9：值**绝不截断** —— 标签不被压缩、值可收缩换行、块填满固定宽',
+  /\.sat-info \.si-row > span:first-child \{ flex:0 0 auto; \}/.test(tpl) &&
+  /\.sat-info \.si-row span:last-child \{[^}]*white-space:normal/.test(tpl) &&
+  /\.sat-info \.si-row span:last-child \{[^}]*overflow-wrap:anywhere/.test(tpl) &&
+  /\.sat-info \.si-block \{[^}]*width:100%/.test(tpl));
 assert('全屏控件小窗不再占满', /section\.fs-mobile \.fs-panel \{/.test(tpl) && tpl.indexOf('max-width:min(360px,50vw)') >= 0);
 assert('搜索框占位符统一为「支持模糊搜索」', /d_search_ph: \['支持模糊搜索'/.test(appSrc) &&
   tpl.indexOf('placeholder="支持模糊搜索"') >= 0);
@@ -1647,6 +1665,21 @@ assert('V1.7.2r7（需求2）+ V1.9.1：.nav-right 容器仍在（layoutNav 依�
 assert('V1.7.2r7（需求2）：#pageEpoch 常驻（CSS 里不得再有 display:none）',
   /id="pageEpoch"/.test(tplCode) &&
   !/\.page-epoch\s*\{[^}]*display\s*:\s*none/.test(tplCode));
+// ================================================================ ★ V1.9.9：信息窗与表格**内容一致**（三条真 bug）
+// ① 「在轨」行日期一直显示 `—`：satStatusRow 少传 `od`（工作轨道生效日），而文案模板是 `在轨（~<od>, …）`。
+assert('V1.9.9：信息窗「在轨」行带上 od（否则「在轨（~—, 1150km）」而表格有日期）',
+  /_s: s, orb: s\.orb, wk: s\.wk, od: s\.od,/.test(appSrc) && /function satStatusRow\(s\)/.test(appSrc));
+// ② 单星发射的「批次/组」：表格 `−`、信息窗曾直接印批次名 → 抽成 batchCellHtml 两处共用。
+assert('V1.9.9：批次/组判据**表格与信息窗同源**（单星发射两边都显示 `−`）',
+  /function isLoneLaunch\(L\)/.test(appSrc) && /function batchCellHtml\(L, asLink\)/.test(appSrc) &&
+  (appSrc.match(/batchCellHtml\(/g) || []).length >= 3 &&
+  !/t\('d_row_batch'\)[^\n]{0,80}batchName\(L\.name\)/.test(appSrc));
+// ③ 05 章信息窗的「该星历元」少了 `UTC` 前缀（01/02/03 都有）→ 统一。
+assert('V1.9.9：05 章信息窗的历元也写 `UTC…`（与 01/02/03 同一写法）',
+  /d_row_epoch_sat'\) \+ '<\/span><span>UTC' \+ fmtUTC\(h\.ms\)/.test(appSrc));
+// ④ 近地点×远地点：信息窗两位、表格一位 → 同一颗星两个数，统一为表格口径（1 位）。
+assert('V1.9.9：信息窗「近地点×远地点」精度与表格一致（1 位小数）',
+  /fmtNum\(b \? s\.hpB : s\.hpK, 1\) \+ ' km×' \+ fmtNum\(b \? s\.haB : s\.haK, 1\)/.test(appSrc));
 assert('V1.7.2r7（新需求A）：信息窗 satBlock 只输出「该星历元」一行，不含 TLE更新时间',
   /function satBlock\(s, scope, extra\) \{[\s\S]*?\n\}/.test(appCode) &&
   (function () {
