@@ -8,6 +8,10 @@
  *     · 单星词条的内页（infobox）里才有：中文名 / 英文名（如 `WHJSW 03`）/ COSPAR / NORAD；
  *     · 混编批次（如 2026-211 = 极轨26组 8 颗 + EUHT）**只能靠卡片里的 NORAD 才能定位**。
  *
+ * ★ V1.9.9（P1-D）：变更检测有**两条**路 ——
+ *   ① 首选 revid（一次批量 API，便宜）；② API 走不通时**退回逐页内容哈希比对**
+ *      （2026-10-19 实测：/api.php 会被 Cloudflare 长期拦在挑战页，而 /wiki/ 页面正常）。
+ *
  * 变更检测（用户要求"有更新才抓、没更新就用旧数据但更新时间要更新"）：
  *   用 MediaWiki API **一次批量**查 50 个词条的 `revid`：
  *     api.php?action=query&titles=A|B|C&prop=revisions&rvprop=ids|timestamp&formatversion=2
@@ -24,11 +28,12 @@
  * 退出码：全部成功 0；有词条失败 1（保留旧数据，不写空）。
  */
 import { spawn } from 'node:child_process';
-import os from 'node:os';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
+import { tmpRoot } from './tmproot.mjs';   // ★ V1.9.9（B1）：与 tables 脚本共用同一个**预热过的** profile
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const require = createRequire(import.meta.url);
 const { WebSocket } = require('ws');
@@ -38,6 +43,8 @@ const EDGE = 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe'
 const PORT = 9491;
 const HOST = 'https://sat.huijiwiki.com';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+/** 卡片内容的指纹（用于"逐页内容比对"这条退路；revid 拿不到时靠它判断有没有变） */
+const HASH = (o) => createHash('sha1').update(JSON.stringify(o)).digest('hex').slice(0, 16);
 const FORCE = process.argv.includes('--force');
 const DRY = process.argv.includes('--dry');
 
@@ -112,8 +119,13 @@ async function connect() {
   const ch = spawn(EDGE, ['--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
     '--disable-blink-features=AutomationControlled',
     '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-    // ★ 浏览器 profile 放系统临时目录 —— 放仓库里会被当成未跟踪文件（实测一次就 100+ MB）
-    '--user-data-dir=' + path.join(os.tmpdir(), 'cistrack-wiki-cards-profile'),
+    // ★★ V1.9.9（B1，用户裁决：不拆独立任务、与现有 wiki 任务一起跑、复用预热 profile）：
+    //   **必须复用 `fetch_wiki_tables.mjs` 那个已预热过的 profile**。
+    //   实测（2026-10-19）：全新 profile 的第一次导航，Cloudflare 挑战耗时 2 s ~ >136 s 剧烈波动，
+    //   而脚本原来只等 60 s → 每次都在"快过的时候"放弃；而 tables 脚本用的这个 profile 里
+    //   已经存着 `cf_clearance` cookie，首屏就是"已通过"，耗时 1.6~2.0 s。
+    //   （profile 在临时目录、不进仓库；两个脚本串行执行，不会抢锁。）
+    '--user-data-dir=' + path.join(tmpRoot(), 'edge-profile-fetch-wiki-tables'),
     '--remote-debugging-port=' + PORT, '--window-size=1600,1200', 'about:blank'], { stdio: 'ignore' });
   let target = null;
   for (let i = 0; i < 80 && !target; i++) {
@@ -135,16 +147,26 @@ async function connect() {
   return ch;
 }
 /** 打开一个 URL 并等 Cloudflare 挑战过去（中英文挑战页都算"没过"） */
-async function goto(url, tries) {
-  for (let attempt = 0; attempt < (tries || 2); attempt++) {
+async function goto(url, tries, waitSec) {
+  var n = tries || 3;
+  // ★ V1.9.9（P1-D）：窗口可调 —— api.php 只需要**确认能不能用**，
+  //   给它 180s 是白等（实测它就不会过）；页面才需要长窗口。
+  var rounds = Math.max(1, Math.round((waitSec || 180) / 1.5));
+  for (let attempt = 0; attempt < n; attempt++) {
     await send('Page.navigate', { url });
-    for (let i = 0; i < 40; i++) {
+    // ★ V1.9.9（B2）：窗口 60 s → **180 s**（实测出现过 71 s 与 >136 s 才通过的情形），
+    //   且每次重试之间随机退避 30~60 s（不要固定节奏，避免与挑战的风控节拍重合）。
+    for (let i = 0; i < rounds; i++) {
       await sleep(1500);
       let ti = '';
       try { ti = await ev('document.title'); } catch (e) { ti = ''; }
       if (ti && !/请稍候|Just a moment|Attention Required/i.test(String(ti))) { await sleep(800); return true; }
     }
-    if (attempt === 0) console.log('   …挑战页未过，60s 后重试');
+    if (attempt < n - 1) {
+      var back = 30000 + Math.round(Math.random() * 30000);
+      console.log('   …挑战页未过（已等 ' + (waitSec || 180) + 's），' + Math.round(back / 1000) + 's 后重试');
+      await sleep(back);
+    }
   }
   return false;
 }
@@ -178,9 +200,26 @@ const EXTRACT = `(function () {
   if (!norad) { var m = /NORAD\\s*(\\d{4,6})/.exec(all); if (m) norad = m[1]; }
   var cospar = pick(['国际卫星标识符', 'COSPAR', 'COSPAR 编号']);
   if (!cospar) { var c2 = /(\\d{4}-\\d{3}[A-Z]{0,3})/.exec(all); if (c2) cospar = c2[1]; }
+  // ★★ V1.9.9（P1-C）：英文名在 .infobox-above 的第 2 段，不在任何 label 行里。
+  //   实测 4 例（2026-10-19）：08组B星 → WHJSW 08 B；EUHT → EUHT Technology Test Satellite；
+  //   03 → WHJSW 03；α阶段A → KL-Alpha A。而 hasEnRow 全部为 false ——
+  //   旧实现 pick(['英文名', …]) 永远返回空串。
+  //   ⚠️ 本段在模板字符串里：注释中**不能出现反引号**（会提前结束字符串，已踩一次）。
+  var above = [];
+  try {
+    var ab = document.querySelector('.infobox-above');
+    if (ab) {
+      above = String(ab.innerHTML).split(/<br\\s*\\/?>/i).map(function (x) {
+        var d = document.createElement('div'); d.innerHTML = x; return txt(d);
+      }).filter(Boolean);
+    }
+  } catch (e) { above = []; }
+  var zhName = above[0] || txt(document.querySelector('#firstHeading, .page-header__title')) ||
+    document.title.replace(/\\s*-\\s*卫星百科.*$/, '');
+  var enName = above[1] || pick(['英文名', '英文名称', 'English name', 'English']);
   return {
-    zh: txt(document.querySelector('#firstHeading, .page-header__title')) || document.title.replace(/\\s*-\\s*卫星百科.*$/, ''),
-    en: pick(['英文名', '英文名称', 'English name', 'English']),
+    zh: zhName,
+    en: enName,
     norad: norad, cospar: cospar,
     fields: fields, parsed: Object.keys(fields).length >= 3
   };
@@ -205,7 +244,8 @@ const EXTRACT = `(function () {
       const batch = titles.slice(i, i + 50).map((x) => x.t);
       const api = HOST + '/api.php?action=query&prop=revisions&rvprop=ids%7Ctimestamp&formatversion=2&format=json&titles=' +
         encodeURIComponent(batch.join('|'));
-      const ok = await goto(api, 2);
+      // API 只给一次机会 + 45s 窗口：过不去就说明这条路被特别保护了（见下面 NO_API 分支）
+      const ok = await goto(api, 1, 45);
       if (!ok) { console.log('!! revid 批次 ' + (i / 50 + 1) + ' 没抓到'); failed++; continue; }
       let j = null;
       try { j = JSON.parse(await ev('document.body.innerText')); } catch (e) { j = null; }
@@ -219,20 +259,25 @@ const EXTRACT = `(function () {
     }
     console.log('revid 拿到 ' + Object.keys(revs).length + ' / ' + titles.length);
 
+    // ★★ V1.9.9（P1-D）：**api.php 走不通就退回「逐页内容比对」** ★★
+    //   实测（2026-10-19）：同一套预热 profile 下，`/wiki/<词条>` 页面能过 Cloudflare（fetch_wiki_tables 正常），
+    //   但 `/api.php?...` 一直停在挑战页（等到 180s 也不放行）→ revid 一个都拿不到 →
+    //   旧脚本在这里直接 exit 1，于是**卡片库永远是空的**（D3 的英文名也就永远不生效）。
+    //   新口径：API 不可用**不算失败**，改成"打开每一页、比内容哈希" —— 慢一点（37 页），
+    //   但链路上任何一环坏掉都不会再让整个卡片库停摆。
+    const NO_API = !Object.keys(revs).length;
+    if (NO_API) console.log('（api.php 不可用 → 改走逐页内容比对：本次会打开全部 ' + titles.length + ' 个词条）');
+
     // ② 挑出要抓的
-    const todo = titles.filter((x) => {
+    const todo = NO_API ? titles.slice() : titles.filter((x) => {
       const r = revs[x.t];
       if (!r) return false;                                   // 词条不存在（或批次没给链接）
       if (FORCE) return true;
       const c = oldCards[x.t];
       return !c || c.revid !== r.revid;
     });
-    if (!Object.keys(revs).length) {
-      console.log('!! revid 一个都没拿到（大概率是 Cloudflare 挑战没过）—— **保留旧数据，不写空**');
-      process.exitCode = 1;
-      return;
-    }
-    console.log('需要抓取 ' + todo.length + ' 个（其余 ' + (titles.length - todo.length) + ' 个 revid 未变，复用旧数据）');
+    console.log('需要抓取 ' + todo.length + ' 个' + (NO_API ? '（全部：逐页比对）' :
+      '（其余 ' + (titles.length - todo.length) + ' 个 revid 未变，复用旧数据）'));
 
     // ③ 抓卡片
     const cards = {};
@@ -245,11 +290,20 @@ const EXTRACT = `(function () {
       try { got = await ev(EXTRACT); } catch (e) { got = null; }
       if (!got || !got.zh) { console.log('   !! ' + x.t + ' 解析失败'); failed++; continue; }
       const rev = revs[x.t] || {};
-      cards[x.t] = {
-        revid: rev.revid || 0, ts: rev.ts || '',
+      const payload = {
         zh: got.zh, en: got.en || '', norad: got.norad ? parseInt(got.norad, 10) : 0,
         cospar: got.cospar || '', parsed: !!got.parsed, fields: got.fields || {}
       };
+      const hash = HASH(payload);
+      const prev = oldCards[x.t];
+      if (!FORCE && prev && prev.hash === hash) {
+        // 内容一字未变 → 复用旧条目（连 revid 一起保留），别把"没变"写成"抓了一遍"
+        cards[x.t] = prev;
+        console.log('   = ' + x.t + '（内容未变，复用）');
+        await sleep(300);
+        continue;
+      }
+      cards[x.t] = Object.assign({ revid: rev.revid || 0, ts: rev.ts || '', hash: hash }, payload);
       console.log('   ✓ ' + x.t + ' → ' + (got.en || '(无英文名)') + ' / NORAD ' + (got.norad || '?'));
       await sleep(700);
     }

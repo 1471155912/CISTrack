@@ -11,7 +11,7 @@ var DAY = 86400000;
 var SGP4 = window.satellite;
 var RAW = window.SATDATA;
 var COAST = window.COAST_DATA || [];
-var VERSION = 'V1.9.8';          // 页脚版本号，后续更新在此改动
+var VERSION = 'V1.9.9';          // 页脚版本号，后续更新在此改动
 
 // ---------------------------------------------------------------- V1.3.7：TLE 分组差分解码
 // 构建脚本按发射批次（COSPAR 前缀）把「名称+两行要素」压成公共模板 + 每颗星的差异串，
@@ -36,7 +36,7 @@ function unpackSat(s, tpls) {
   //     ② V1.9.2（A7）的三态字段 `orb`/`wk`/`od`/`rr` → 「在轨状态」列退化成
   //        「在轨（~—，undefinedkm）」（smoke 的渲染层断言当场抓到）。
   //   ⚠️ 以后往 satdata 的卫星记录里加字段时，**必须同步写进下面这张 EXTRA 表**。
-  var EXTRA = ['st', 'dt', 'orb', 'wk', 'od', 'rr', 'wu', 'wn'];
+  var EXTRA = ['st', 'dt', 'orb', 'wk', 'od', 'rr', 'wu', 'wn', 'en'];   // ★ V1.9.9：en = 词条英文名
   for (var ei = 0; ei < EXTRA.length; ei++) {
     var ek = EXTRA[ei];
     // 用 `!== undefined` 而不是真值判断 —— `orb` 的 0（在轨）是**合法且最常见**的取值，
@@ -68,13 +68,13 @@ var I18N = {
   // ★ V1.9.6（2026-10-17 用户裁决 C）：英文句式改为 "Live Status of …" —— 原句式三名词并置，
   //   `Constellations Live` 结尾读不出"在轨态势"这层"实时状态"的意思。
   pageTitle: ['中国低轨互联网卫星在轨态势', 'Live Status of China\'s LEO Internet Constellations'],
-  cn_gw: ['星网', 'CSCN'], cn_qf: ['千帆', 'Qianfan'],
   // V1.8.0（需求15 i18n 审计）：03.5 组网进度章的星座名（图例 / 信息窗 / 星座开关按钮共用）。
   //   此前这三个地方引用了 n_gw / n_qf，但表里**根本没有这两个键** —— t() 找不到键时会原样
   //   返回键名，于是新章节会直接把「n_gw」当文字画在页面上（英文界面同样漏）。现补齐。
+  // ★ V1.9.9（O30-1）：同名的 `cn_gw` / `cn_qf` 是改名前的旧键，全项目已无人引用（正文走 n_gw / n_qf，
+  //   顶栏走 cn_gw_short / cn_qf_short），已删 —— 留着只会让「改了 n_gw 忘了 cn_gw」的漂移有处可藏。
   n_gw: ['星网', 'CSCN'], n_qf: ['千帆', 'Qianfan'],
   // V1.9.0（需求9）：选中提示语 —— 批次/组全选、单颗选中、跨星座三种
-  d_sel_all: ['已全选', 'All selected'],
   d_sel_one: ['已选择', 'Selected'],
   // V1.9.1（A3）：黄框行（`pend-part` / `pend-none`：本星座有这条发射记录，但库内**没有任何轨道要素**）
   //   被点击时弹的**反色**提示 —— 用 `.inv` 变体（暗色=白底黑字 / 亮色=黑底白字）。
@@ -129,17 +129,16 @@ var I18N = {
   d_x_inc: ['轨道倾角', 'Inclination'],   // V1.3.6：分布图横轴标题
   md_bro: ['布劳威尔', 'Brouwer'], md_kep: ['开普勒', 'Kepler'],
   c_sat: ['按卫星', 'By satellite'], c_group: ['按批次', 'By group'],
-  b_reset: ['重置视图', 'Reset view'], b_cov: ['可见区域', 'Coverage area'],
+  b_cov: ['可见区域', 'Coverage area'],
   b_shot: ['导出图片', 'Save image'],          // V1.3.7
   // V1.4.0：导出弹窗与导出图底栏
   // ★ V1.9.3：三个模式的语义**明确定义**（旧文案含糊，实际行为也错）：
   //   · `shot_cur`   = **只导出当前这一页**（旧实现是"从第 1 页累积到当前页"）
   //   · `shot_multi` = **从当前页开始，连续 N 页**（旧实现是"第 1~N 页"）
   //   · `shot_all`   = 全部页
+  // ★ V1.9.9（O30-1）：`shot_multi` / `shot_ph` 是 V1.9.8 改成「第 N～M 页」后留下的死键，已删。
   shot_cur: ['导出当前页', 'Save This Page'],
-  shot_multi: ['接着导出 N 页', 'Save Next N Pages'],
   shot_all: ['导出全部页', 'Save All Pages'],
-  shot_ph: ['从本页起算的页数', 'pages from here'],
   shot_all_cols: ['含全部列', 'All columns'],
   d_err_t: ['页面遇到了一个脚本错误', 'The page hit a script error'],
   d_err_copy: ['复制诊断信息', 'Copy diagnostics'],
@@ -169,7 +168,6 @@ var I18N = {
   t_defmap: ['恢复 02 地图的初始设置', 'Restore the default settings of 02 Map'],
   t_deforb: ['恢复 03 轨道的初始设置', 'Restore the default settings of 03 Orbit'],
   t_defchart: ['恢复 03 倾角分布的初始设置', 'Restore the default settings of 03 Inclination Distribution'],
-  d_loading_tle: ['正在获取最新轨道要素…', 'Fetching the latest orbital elements…'],
   // V1.7.0 二轮（需求6）：真全屏被浏览器/系统拒绝时的提示
   fs_fallback_t: ['全屏未生效', 'Full screen unavailable'],
   fs_fallback_m: ['浏览器或系统没有允许真全屏，已切换为「页面内满屏」模式：内容仍然铺满，但手机顶部的状态栏/浏览器工具条会保留一点。想彻底全屏可以再点一次全屏键，或把浏览器切到无痕/独立窗口重试。',
@@ -194,7 +192,7 @@ var I18N = {
   b_spin: ['自转', 'Spin'], b_tracks: ['轨道', 'Orbits'],
   // V1.3.6：按钮名精简（"显示可视锥"→"可视区域"，"显示名称"→"名称"）
   b_cone: ['可见区域', 'Coverage area'],
-  b_now: ['实时', 'Now'], b_cols: ['全部列', 'All columns'], pg_jump: ['点击页码可输入跳页', 'Click the page number to jump'],
+  b_now: ['实时', 'Now'], pg_jump: ['点击页码可输入跳页', 'Click the page number to jump'],
   b_maptracks: ['轨道', 'Orbits'],
   b_default: ['默认设置', 'Defaults'], b_reset_all: ['还原所有默认设置', 'Restore all defaults'],
   b_readme: ['说明', 'README'],
@@ -237,7 +235,7 @@ var I18N = {
   // V1.9.1（A10）：在轨状态列的**完整**文案「已再入（~YYYY-MM-DD，XXX 天）」——
   //   拆三段是为了中英各自成句（英文括号/逗号/单位都不同），避免在 JS 里硬编码语言分支。
   st_gone_a: ['已再入（~', 'Re-entered (~'],
-  st_gone_b: ['，', ', '],
+  st_gone_b: [', ', ', '],   // ★ V1.9.9（Q5=A）：中英统一半角逗号（在轨/变轨中/已再入同一条口径）
   st_gone_c: [' 天）', 'd)'],
   // V1.9.1（A10）：点击"已再入"行时的红色提示（与 A19 搜索补池的 dead 提示同文案，但那是搜索场景）
   d_sel_gone: ['该卫星已再入', 'This satellite has re-entered'],
@@ -291,7 +289,6 @@ var I18N = {
   t_defclimb: ['恢复 04 变轨情况的初始设置', 'Restore the default settings of 04 Orbit Change Status'],
   // ↑↑ V1.9.0（R17）：05 章的三段式 i18n（标题/说明/选择器），其中「升轨速度」的算法口径见 climbNote
   t_defprogress: ['恢复 05 组网进度的初始设置', 'Restore the default settings of 05 Network Progress'],
-  t_netinfo: ['怎么看这张图', 'How to read this chart'],
   // V1.9.0（需求8）：改名「新增批次」→「新增卫星」（内容也确实是新增的卫星/批次组）
   d_net_week: ['该周', 'Week'], d_net_batches: ['新增卫星', 'New satellites'],
   d_net_span: ['数据跨度', 'Data span'],
@@ -302,8 +299,8 @@ var I18N = {
   foot_use: ['本项目为 MIT 开源项目，可自由使用、修改与分发（保留版权与许可声明即可）',
              'MIT-licensed open source: free to use, modify and redistribute (keep the copyright and license notice)'],
   // 动态文案
-  // ★ V1.9.6：去掉文字里的「…」—— 省略号改由 #lmThird 里三个**循环跳动**的点承担（见 template.html 的 .lm-dots）
-  d_loading3: ['加载中', 'Loading'], d_epoch2: ['更新历元：', 'Epoch: '], d_pending_suffix: ['颗待编目', 'awaiting catalog'],
+  // ★ V1.9.9（N3/O30-2）：加载页三行已改成**写死的双语**（不经 i18n，见 template.html 的 .lm-dots / #lmThird）→
+  //   `d_loading3`、`d_epoch2`、`d_pending_suffix` 三个键随之退役（最后一个与 d_more_pending2 重复）。
   d_in_orbit: ['颗', 'in orbit'], d_more_pending: [' · 另有 ', ' · '], d_more_pending2: [' 颗待编目', ' more pending'],
   d_page_track: ['本页实时推算 ', 'This page propagates '], d_page_track2: [' 颗', ' live'],
   // ★ V1.9.7（§4/§5）：`发射批次` 一行已删 → 原来的 d_groups_stat / d_groups_total / d_groups_note 三个键退役；
@@ -342,7 +339,6 @@ var I18N = {
   d_row_inc: ['倾角', 'Inclination'], d_row_period: ['周期', 'Period'],
   // ★ V1.9.8：信息窗「变轨情况」的行名（01/02/03 三章共用；内容取 06 表格的同名字段）
   d_row_status: ['变轨情况', 'Orbit change'],
-  d_row_epoch: ['更新历元', 'Updated epoch'], d_row_sma: ['半长轴', 'Semi-major axis'],
   d_row_pa: ['近地点×远地点', 'Perigee×Apogee'],
   d_latlon: ['纬度 / 经度', 'Lat / Lon'],   // V1.3.6：观测点信息窗里原先写死成英文
   d_more_sat: [' 颗', ' more'],
@@ -364,12 +360,14 @@ var I18N = {
   //   中文「联网失败，缓存数据可能已过时」；英文同名键。中英必须成对（i18n 审计会查漏译）。
   d_netfail: ['联网失败，缓存数据可能已过时', 'Network unavailable — cached data may be out of date'],
   d_offline: ['未能联网更新，正在使用内置轨道要素快照', 'Could not update online — using the built-in element snapshot'],
-  d_page: ['第 ', 'Page '], d_page2: [' 页', ' of '],
+  // ★ V1.9.9（N2/Q2=B）：用户点了「跳过」—— 不是网络故障，文案必须区分开，
+  //   否则事后回看会以为那次是断网。中英成对（i18n 审计会查漏译）。
+  d_skipped: ['已跳过更新，正在使用现有轨道要素', 'Update skipped — using the current elements'],
+  d_page: ['第 ', 'Page '],
   d_sel_group: ['点击可选中该批次的全部卫星', 'Click to select all satellites of this group'],
   d_close_info: ['关闭信息窗（只看图）', 'Close info panel'],
   // V1.3.6：信息窗末尾那行提示（主题色小字），拖动过一次后本窗口就不再显示
   d_drag_tip: ['电脑点击/手机长按可自由拖拽', 'Click/long-press to drag freely'],
-  l_search: ['搜索卫星', 'Search satellites'],
   d_pick_hint_desktop: ['电脑端可移动鼠标预览 · 点击固定观测点', 'On desktop, move the cursor to preview · click to fix the site'],
   d_pick_hint_touch: ['点击地图任意位置设置观测点', 'Tap the map anywhere to set the site'],
   d_search_none: ['没有匹配的卫星', 'No matching satellite'],
@@ -396,13 +394,6 @@ function t(k) { var p = I18N[k]; if (!p) return k; return LANG === 'en' ? p[1] :
 //   CJK 标点 —— i18n 审计（npm run i18n）就是靠这条规则把它们抓出来的。
 function paren(s) { return LANG === 'en' ? ' (' + s + ')' : '（' + s + '）'; }
 // V1.5.3：切语言时同步刷新加载蒙层文案（它只在加载时写一次，否则切换语言后会残留旧语言）
-function refreshMaskText() {
-  try {
-    // ★ V1.9.5（H4）：第三行已改为固定文案「加载中…」，这里只负责刷新**第一行**（语言切换时）。
-    var tx = document.getElementById('lmTxt');
-    if (tx && tx.textContent && tx.textContent.trim()) tx.textContent = t('d_updated');
-  } catch (e) {}
-}
 // V1.7.0 第三轮（需求5）：把焦点从搜索框让出去 ——
 // 手机上选中卫星后输入框仍保持焦点，长按拖动信息框时浏览器会把焦点拉回"最近的输入框"，于是弹出键盘。
 // 这里只做 blur，不改任何布局、不改 touch-action、不动长按 450ms 的手势逻辑。
@@ -546,6 +537,11 @@ var CN_NUM = { '一': 1, '二': 2, '三': 3, '四': 4, '五': 5, '六': 6, '七'
  *  两种写法（实测），统一成 `WHJSW-` 才整齐；卡片仍用于**中文名与 NORAD 校验**。 */
 function enOf(s) {
   if (!s) return '';
+  // ★★ V1.9.9（D3，用户裁决「英文名改用词条来源、与英文模式对齐」）：
+  //   词条卡片里有英文名就**直接用**（如 `WHJSW 08 B` / `EUHT Technology Test Satellite` / `KL-Alpha A`），
+  //   卡片缺失时才退回下面的 `WHJSW-编号` 推导 —— 这样英文页与卫星百科逐字对齐。
+  var cardEn = String(s.en || '').trim();
+  if (cardEn) return cardEn;
   var zh = cleanName(s.wn);
   if (/^卫星互联网技术试验卫星/.test(zh)) {
     var rest = zh.replace(/^卫星互联网技术试验卫星/, '');
@@ -3555,7 +3551,8 @@ function orbitStatusHtml(r) {
     var h = Math.round(r.smaB);
     // ★ V1.9.7（用户批准）：区分「点火中」与「间歇」——
     //   阶梯式升轨里"变轨中"有两类：正在点火（速率显著）与两次点火之间的间歇（速率≈0）。
-    //   阈值与 mkdata 的 RATE_TH 同口径（0.8 km/day ≈ 5σ，源自 findrassvet METHODOLOGY §3.3–3.5）。
+    //   阈值与 mkdata 的 RATE_TH 同口径（**0.5 km/day**，源自 findrassvet METHODOLOGY §3.3–3.5；
+    //   V1.9.7 由 0.8 下调，这里只是注释，别把它当成第二套值 —— 真值是下面那行的 0.5）。
     var _hasRR = (r.rr !== undefined && r.rr !== null && isFinite(r.rr));
     // 阈值与 mkdata 的 RATE_TH **必须同口径**（这里 0.5 km/day，源自 findrassvet §3.3–3.5；2026-10-17 由 0.8 下调）
     var _hot = _hasRR && Math.abs(r.rr) > 0.5;
@@ -3563,8 +3560,10 @@ function orbitStatusHtml(r) {
     var txt = _lead + ymd8(r.epoch) + t('st_gone_b') + h + 'km';
     if (_hot) {
       var cls = r.rr > 0 ? 'pos' : (r.rr < 0 ? 'neg' : 'zero');
-      txt += ' (<span class="st-rate ' + cls + '">' +
-        (r.rr > 0 ? '+' : '') + r.rr.toFixed(2) + t('st_kmday') + '</span>)';
+      // ★ V1.9.9（N5）：速度段不再套内层括号 —— 与日期、高度同级用 `, ` 分隔：
+      //   `变轨中·点火（~2026-10-17, 1149km, +3.63km/天）`
+      txt += t('st_gone_b') + '<span class="st-rate ' + cls + '">' +
+        (r.rr > 0 ? '+' : '') + r.rr.toFixed(2) + t('st_kmday') + '</span>';
     }
     return txt + t('st_close');
   }
@@ -3798,17 +3797,15 @@ function launchRowHtml(L) {
   // ★ V1.9.4：目标倾角 `inc === 0` = 未知（自动补录的批次百科没记倾角）→ 也写 `-`，别显示 0.0° 误导。
   //   日期列：`_dayOnly` 的合成时间不带时刻（已在 build() 里切成 YYYY-MM-DD），直接显示。
   var DASH = '<span class="no-data">-</span>';
-  // 批次名：自动补录的批次加一个「百科自动补录」小标 + 词条链接（payload 格的 <a>），
-  //   提醒这是百科口径、尚未人工核对；有链接时才挂 <a>。
-  var autoTag = L.auto
-    ? ' <span class="tag tag-auto" title="' +
-      (LANG === 'en' ? 'Filled from the wiki launch record; pending manual review' : '据卫星百科发射记录自动补录，待人工核对') + '">' +
-      (LANG === 'en' ? 'auto' : '自动补录') + '</span>'
-    : '';
-  var nameCell = L.auto && L.url
-    ? '<a class="batch-link" href="' + L.url + '" target="_blank" rel="noopener" title="' +
-      (LANG === 'en' ? 'Open the wiki entry' : '打开卫星百科词条') + '">' + batchName(L.name) + '</a>' + autoTag
-    : '<span class="batch-link" data-lk="' + L.key + '" title="' + t('d_sel_group') + '">' + batchName(L.name) + '</span>' + autoTag;
+  // ★★ V1.9.9（N6 + Q6=B，用户裁决）：
+  //   · 删掉「自动补录 / auto」小标（页面与导出图一起，导出走计算样式，DOM 去掉即无）；
+  //   · 批次名**一律**渲染成可点选的 `<span data-lk>`（点击选中该批次）；
+  //   · 原来 auto 行渲染成 `<a href=词条>` 且**没有 data-lk** —— 同一列表里"点批次名"两种行为，
+  //     是真实 bug（O30-6），本次一并修掉；
+  //   · 批次词条入口**不丢**：`L.url` 仍被 `wikiOf()` 用于"没有单星词条的卫星"
+  //     （卫星表格的名称单元格 + 信息窗里仍可点）。
+  var nameCell = '<span class="batch-link" data-lk="' + L.key + '" title="' + t('d_sel_group') + '">' +
+    batchName(L.name) + '</span>';
   return '<tr class="' + ((selLk[L.key] || S.selGroup === L.key) ? 'focused' : '') + pendClass + '" data-lk="' + L.key + '"><td class="lname">' + nameCell + '</td>' +
     '<td class="rk">' + rocket + ' <span class="tag">' + L.cospar + '</span></td>' +
     '<td' + (pend ? ' class="pend"' : '') + '>' + L.dateStr + '</td>' +
@@ -9805,7 +9802,6 @@ document.getElementById('langBtn').addEventListener('click', function () {
   playLangSwitch(dir, function () {
     LANG = newLang;
     applyStaticLang();
-    refreshMaskText();
     renderChrome();
     refreshJumpTitles();
     rebuild();
@@ -10094,15 +10090,37 @@ function parseGpText(txt) {
   }
   return parseTleText(t);
 }
+// ★★ V1.9.9（Q2=B）：**起动期全局中止** —— 用户点「跳过」时把这条链上所有在飞请求一并掐断。
+//   为什么放在 fetchText 这一层：启动阶段的取数（3 个直连 + 2 个代理 + backfillExtra 的逐星补拉）
+//   全部经过它，一处挂 signal 就能全覆盖，不必逐个改调用方。
+var BOOT = (typeof AbortController === 'function') ? new AbortController() : null;
+var BOOT_SKIPPED = false;        // 用户主动跳过 → 不算"联网失败"，不要弹红条
 function fetchText(url, timeoutMs) {
   return new Promise(function (res, rej) {
     var ctl = typeof AbortController === 'function' ? new AbortController() : null;
-    var to = setTimeout(function () { if (ctl) ctl.abort(); rej(new Error('timeout')); }, timeoutMs || 6000);
+    var done = false;
+    var to = null;
+    var onBootAbort = null;
+    function fin(fn, v) {
+      if (done) return;
+      done = true;
+      if (to) clearTimeout(to);
+      if (BOOT && BOOT.signal && onBootAbort) {
+        try { BOOT.signal.removeEventListener('abort', onBootAbort); } catch (e) {}
+      }
+      fn(v);
+    }
+    if (BOOT && BOOT.signal && BOOT.signal.aborted) { fin(rej, new Error('boot-aborted')); return; }
+    to = setTimeout(function () { if (ctl) ctl.abort(); fin(rej, new Error('timeout')); }, timeoutMs || 6000);
+    if (BOOT && BOOT.signal) {
+      onBootAbort = function () { if (ctl) ctl.abort(); fin(rej, new Error('boot-aborted')); };
+      BOOT.signal.addEventListener('abort', onBootAbort);
+    }
     fetch(url, ctl ? { signal: ctl.signal } : undefined).then(function (r) {
-      clearTimeout(to);
-      if (!r.ok) { rej(new Error('HTTP ' + r.status)); return; }
+      if (!r.ok) { fin(rej, new Error('HTTP ' + r.status)); return; }
       return r.text();
-    }).then(function (t) { if (t) res(t); }).catch(function (e) { clearTimeout(to); rej(e); });
+    }).then(function (tx) { if (tx) fin(res, tx); else fin(rej, new Error('empty')); })
+      .catch(function (e) { fin(rej, e); });
   });
 }
 function epochOf(s) { return parseFloat(s.l1.slice(18, 32)) || 0; }
@@ -10361,12 +10379,31 @@ function hideMask(m) {
   if (!m) return;
   m.classList.add('hide');
   document.documentElement.classList.remove('loading');
+  // ★ V1.9.9（N1/Q1=A）：解锁触摸拦截；并保证进场停在**页首**
+  //   （否则用户在加载期间若有任何位移，进来会落在页面中间 —— 实测能停在 557px）
+  try { document.removeEventListener('touchmove', bootTouchBlock); } catch (e) {}
+  try { window.scrollTo(0, 0); } catch (e) {}
   setTimeout(function () { m.style.display = 'none'; }, 500);
 }
-function endLoad(msg, ok) {
-  var m = document.getElementById('loadMask'), tx = document.getElementById('lmTxt');
-  if (tx) tx.textContent = msg;
+// 加载期间的触摸拦截：只在 loading 时挂、hideMask 里必解绑（否则会连带禁掉主页面滑动）
+function bootTouchBlock(e) {
+  if (!document.documentElement.classList.contains('loading')) return;
+  if (e.cancelable) e.preventDefault();
+}
+// ★★ V1.9.9（N3/O30-14）：加载页是**双语**的，收尾也必须两行一起改 ——
+//   否则第一行变"已更新"、第二行还写着 "Fetching…"，两行语义打架。
+function endLoad(zh, en, ok) {
+  var m = document.getElementById('loadMask');
+  var t1 = document.getElementById('lmTxt'), t2 = document.getElementById('lmTxt2');
+  if (t1 && zh) t1.textContent = zh;
+  if (t2 && en) t2.textContent = en;
   setTimeout(function () { hideMask(m); }, ok ? 420 : 1100);
+}
+// ★ V1.9.9（N3）：按 **i18n 键** 收尾 —— 加载页恒为双语（第一行中文、第二行英文），
+//   所以这里必须一次取到 [中文, 英文] 两段，而不是 t() 只给当前语言那一段。
+function endLoadKey(k, ok) {
+  var p = I18N[k] || [k, k];
+  endLoad(p[0], p[1], ok);
 }
 // ---------------------------------------------------------------- V1.4.0：词条计数可外部覆盖
 // 为什么不做「页面直接抓词条」：卫星百科的 WAF 对非浏览器请求一律 403（连 api.php 也拦），
@@ -10526,8 +10563,11 @@ function loadHistoryJson() {
   setTimeout(function () {
     var m = document.getElementById('loadMask');
     if (m && !m.classList.contains('hide')) {
-      if (document.getElementById('lmTxt').textContent === t('d_loading'))
-        document.getElementById('lmTxt').textContent = t('d_offline');
+      // ★ V1.9.9（N3）：双语 —— 两行一起改，别留下"中文说离线、英文还在 Fetching"。
+      var t1 = document.getElementById('lmTxt'), t2 = document.getElementById('lmTxt2');
+      var p = I18N.d_loading, p2 = I18N.d_offline;
+      if (t1 && p && t1.textContent === p[0] && p2) t1.textContent = p2[0];
+      if (t2 && p && t2.textContent === p[1] && p2) t2.textContent = p2[1];
       hideMask(m);
     }
   }, Math.max(0, 6000 - (Date.now() - started)));
@@ -10552,7 +10592,7 @@ function loadHistoryJson() {
     } catch (e) { return Infinity; }
   })();
   if (bootAgeMs < FRESH_SKIP_MS) {
-    endLoad(t('d_updated'), true);
+    endLoadKey('d_updated', true);
     return;
   }
   Promise.all([tryOne('gw'), tryOne('qf')]).then(function (r) {
@@ -10563,16 +10603,19 @@ function loadHistoryJson() {
     if (ep === null) {
       // 闸门拦下：照"离线"处理（不写 TLE_LIVE、不提示新卫星），但**不**当作失败弹红条 ——
       //   数据完整可用，只是没换成在线那份。
-      endLoad(t('d_offline'), false);
+      endLoadKey('d_offline', false);
       return;
     }
     checkNewSats();                     // V1.4.2：对一下在线目录与打包时收录的那份，有新卫星就提示
-    endLoad(t('d_updated'), true);      // V1.3.9：纪元只留在加载圈下面那行
+    endLoadKey('d_updated', true);      // V1.3.9：纪元只留在加载圈下面那行
   }).catch(function () {
+    // ★ V1.9.9（N2/Q2=B）：用户点了「跳过」→ 这是我们自己 abort 出来的
+    //   `boot-aborted`，不是网络故障：**不许**覆盖已写好的"已跳过"文案，也**不许**弹红条骂网络。
+    if (BOOT_SKIPPED) return;
     // V1.7.1（需求3）：联网失败时**不再**显示「（内置快照）」—— 访客看不懂这个说法。
     //   成功与失败现在显示的都是同一种格式的时间，口径一致；区别只体现在标题（已更新 / 离线），
     //   断网时用打包时的内置要素这件事写进页内说明的数据来源章节。
-    endLoad(t('d_offline'), false);
+    endLoadKey('d_offline', false);
     // ★ V1.9.5（H44）：联网失败要**进主页面之后**看得见 —— 顶部药丸（与"已全选/已再入"提示同款），
     //   红色、留存比普通提示更久（见 showToast 的 'fail' 模式）。
     //   文案（用户 2026-10-16 定）：中「联网失败，缓存数据可能已过时」/ 英同名键。
@@ -10680,7 +10723,37 @@ if (!window.satellite) {
 }
 
 // 启动
-document.getElementById('lmTxt').textContent = t('d_loading');
+// ★ V1.9.9（N3）：加载页恒为双语 —— 第一行中文、第二行英文，与当前 LANG 无关，
+//   所以这里直接取 i18n 的整对，而不是 t() 只给当前语言那一半。
+(function bootMaskText() {
+  var p = I18N.d_loading || ['', ''];
+  var t1 = document.getElementById('lmTxt'), t2 = document.getElementById('lmTxt2');
+  if (t1) t1.textContent = p[0];
+  if (t2) t2.textContent = p[1];
+})();
+// ★ V1.9.9（N2/Q2=B）：跳过按钮 —— 中断本次联网（AbortController 联动 fetchText），
+//   立刻收遮罩，沿用打包/会话缓存里那份要素；**不**弹"联网失败"红条（用户是主动跳过）。
+(function wireSkip() {
+  var b = document.getElementById('lmSkip');
+  if (!b) return;
+  b.addEventListener('click', function (e) {
+    if (e && e.preventDefault) e.preventDefault();
+    if (BOOT_SKIPPED) return;
+    BOOT_SKIPPED = true;
+    // ⚠️ 顺序很重要：先 abort（把在途请求一次性掐掉），再把 BOOT 置空。
+    //   置空这一步不是清理，是**功能修复**：`fetchText` 开头有一句
+    //   `if (BOOT.signal.aborted) reject('boot-aborted')` —— 若 BOOT 一直挂着这个已 abort 的
+    //   controller，那么**整场会话里所有后续联网都会被立刻拒绝**（05 章换批次、词条计数刷新全都失效）。
+    //   跳过只应对"本次启动的这批请求"生效，不该污染之后的每一次取数。
+    try { if (BOOT) BOOT.abort(); } catch (x) {}
+    BOOT = null;
+    endLoadKey('d_skipped', true);
+  });
+})();
+// ★ V1.9.9（N1）：加载期间禁止滑动 —— CSS 锁 html/body 只是第一层，
+//   这里再挂一道路径级拦截（iOS 的橡皮筋回弹能绕过 overflow:hidden）；
+//   hideMask 里必解绑，否则会一直禁掉主页面的滑动。
+document.addEventListener('touchmove', bootTouchBlock, { passive: false });
 // V1.3.6：遮罩还在时锁住背后页面的滑动（hideMask 会摘掉 .loading）
 document.documentElement.classList.add('loading');
 document.getElementById('sec-orbits').querySelector('.time-r').max = 180;
@@ -11003,8 +11076,23 @@ function netAutoView() {
 }
 /** ★ V1.9.1（#6）：组网进度横轴**允许的最早位置**（数据起点与「首个在轨 > 0」取较晚者） */
 function netX0Min(d) {
+  // ★★ V1.9.9（N4，用户裁决 Q4=A）：横轴起点按**当前可见的曲线集合**取最早发射——
+  //   · 只选星网（netQf=false）→ 从星网第一颗发射（2023-07-09）起算，横轴缩短到 ~3.3 年；
+  //   · 两条都显示 / 只选千帆 → 仍是全局最早（千帆 2019-11-17 的 KL 试验星），与旧行为一致。
+  //   ⚠️ 不动 `d.originMs`：它是**数据的全局起点**，其它按全量口径的地方还要用。
   var w0 = d.weeks[0];
   var o = (d.originMs && isFinite(d.originMs)) ? d.originMs : w0;
+  var keys = [];
+  if (S.netGw) keys.push('gw');
+  if (S.netQf) keys.push('qf');
+  if (keys.length && keys.length < 2 && Array.isArray(d.evs)) {
+    var first = Infinity;
+    for (var i = 0; i < d.evs.length; i++) {
+      var e = d.evs[i];
+      if (keys.indexOf(e.key) >= 0 && isFinite(e.ms)) first = Math.min(first, e.ms);
+    }
+    if (isFinite(first)) o = first;
+  }
   return Math.max(w0, o);
 }
 function clampNetView(v) {

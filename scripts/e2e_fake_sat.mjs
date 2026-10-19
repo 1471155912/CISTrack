@@ -125,8 +125,9 @@ const rowId = search(String(FAKE_ID));
 ok('按 NORAD 能搜到假星', !!rowId && /ZZZ/.test(rowId.textContent));
 // ★ V1.9.8：NORAD 右侧新增了 COSPAR 列 → 「在轨状态」从索引 2 挪到 3
 const cell = rowId && rowId.querySelectorAll('td')[3];
-ok('状态列按三态文案渲染（在轨 ~2026-10-01 / 1150km）',
-  !!cell && /^在轨（~2026-10-01，1150km）$/.test(cell.textContent.trim()),
+// ★ V1.9.9（N5/Q5=A）：分隔符全状态统一半角逗号 —— 在轨 / 变轨中 / 已再入同一口径
+ok('状态列按三态文案渲染（在轨 ~2026-10-01, 1150km）',
+  !!cell && /^在轨（~2026-10-01, 1150km）$/.test(cell.textContent.trim()),
   cell && JSON.stringify(cell.textContent.trim()));
 
 // 收尾

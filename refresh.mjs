@@ -107,6 +107,85 @@ const INCLUDE = {
     '26128': [69472]                 // 千帆DTC-01 → **只 2026-128A**；128B 是中国移动02星
   }
 };
+// ★★ V1.9.9（用户 2026-10-19 明确要求）★★
+//   **动态点名**：词条卡片里出现过的 NORAD，一律视为该星座成员。
+//
+//   要解决的问题：上面那份 INCLUDE 是**写死的名册**。将来新发一颗试验星（比如又一颗 CX-xx、
+//   一颗 KL-Gamma、一颗 GEO 业务星），它的目录名往往没有"卫星互联网 / 千帆"关键字 ——
+//   按名字 regex 收不进来，按 INCLUDE 也不在里面（没人手工加），于是**永远进不了本项目**，
+//   要等下次有人发现并改代码。这不可接受。
+//
+//   新口径的数据链（全自动，不需要改代码）：
+//     卫星百科 星网/千帆词条表格 → 每个批次的 nameLinks（含区间展开）
+//       → `scripts/fetch_wiki_cards.mjs` 打开每个单星词条、读 infobox 里的 NORAD
+//       → `data/wiki_cards.json`
+//       → **本函数**：只要这颗星有单独词条，就自动纳入。
+//   ⚠️ 卡片文件缺失/为空时自动退回纯 INCLUDE（不影响老行为）。
+// ⚠️⚠️ 动态点名必须带一张**黑名单**：有单独词条 ≠ 属于本星座。
+//   已知案例（用户 2026-10-18 已裁决）：`2024-226A`（「卫星互联网技术试验卫星(CZ 12 Y1)」，NORAD 62185）
+//   是同一发里的**搭车星**，不是组网/试验星 —— 我们只要 226B。但它有独立词条，
+//   所以"有词条就纳入"会把它误收进来。凡此类都要在这里登记，并写明理由。
+const CARD_EXCLUDE = new Set([
+  62185   // 2024-226A 卫星互联网技术试验卫星(CZ 12 Y1) —— 搭车星，非本星座成员（只要 226B/62186）
+]);
+const CARD_INCLUDE = (() => {
+  const out = { gw: new Set(), qf: new Set() };
+  let n = 0, skipped = 0;
+  try {
+    const cards = (JSON.parse(fs.readFileSync(path.join(D, 'wiki_cards.json'), 'utf8')).cards) || {};
+    const tables = JSON.parse(fs.readFileSync(path.join(D, 'wiki_tables.json'), 'utf8'));
+    const has = (k, p) => !!(tables[k] && tables[k][p]);
+    const clean = (t) => String(t || '').replace(/_/g, ' ').replace(/\s+/g, ' ').trim();
+    // 星座归属**优先按卡片的 COSPAR 前 8 位**（"2025-209B" → "2025-209"）查表。
+    //   为什么不按标题：区间展开出来的标题（…08组B星）在表格里根本没有对应行，
+    //   按标题查会整批漏掉 —— 而 COSPAR 是卫星自己的身份，最可靠。
+    //   标题只作兜底（个别卡片 infobox 没给国际编号时）。
+    const whoByTitle = new Map();
+    for (const k of ['gw', 'qf']) {
+      const T = tables[k] || {};
+      Object.keys(T).forEach((key) => {
+        if (key[0] === '_') return;
+        ((T[key] && T[key].nameLinks) || []).forEach((ln) => {
+          const t = clean(ln && (ln.t || ln.n)); if (t && !whoByTitle.has(t)) whoByTitle.set(t, k);
+        });
+      });
+    }
+    Object.keys(cards).forEach((t) => {
+      const c = cards[t] || {};
+      const norad = Number(c.norad) || 0;
+      if (norad < 1) return;                      // 卡片没解析出 NORAD → 这张卡帮不上忙
+      if (CARD_EXCLUDE.has(norad)) { skipped++; return; }   // 见 CARD_EXCLUDE（搭车星）
+      const cp = String(c.cospar || '').trim();
+      const pre = /^\d{4}-\d{3}/.test(cp) ? cp.slice(0, 8) : '';
+      let k = '';
+      if (pre && has('gw', pre)) k = 'gw';
+      else if (pre && has('qf', pre)) k = 'qf';
+      else k = whoByTitle.get(clean(t)) || whoByTitle.get(clean(c.zh)) || '';
+      if (!k || !out[k]) return;
+      out[k].add(norad); n++;
+    });
+  } catch (e) { /* 没有卡片/表格就退回纯 INCLUDE */ }
+  if (n || skipped) console.log('词条卡片点名：gw ' + out.gw.size + ' / qf ' + out.qf.size + ' 颗（有单星词条即自动纳入，含 INCLUDE 之外的新星）' +
+    (skipped ? '；黑名单排除 ' + skipped + ' 颗' : ''));
+  return out;
+})();
+// 排障/自测入口：`node refresh.mjs --card-include` 只打印这份动态名单就退出。
+//   为什么要它：这条链路的输入是**两个数据文件**（wiki_tables + wiki_cards），
+//   出问题时必须能一眼看出"到底点到了哪些号"，而不是去跑一遍全流程再猜。
+if (process.argv.includes('--card-include')) {
+  console.log('gw(' + CARD_INCLUDE.gw.size + '): ' + [...CARD_INCLUDE.gw].sort((a, b) => a - b).join(','));
+  console.log('qf(' + CARD_INCLUDE.qf.size + '): ' + [...CARD_INCLUDE.qf].sort((a, b) => a - b).join(','));
+  process.exit(0);
+}
+
+/** 该 NORAD 是否在"词条卡片点名"名单里（6 位号要先经 sidecar 还原真号） */
+function includedByCard(key, norad) {
+  const set = CARD_INCLUDE[key];
+  if (!set || !set.size) return false;
+  const real = Number(OMM_IDS[String(norad).padStart(5, '0')] || norad);
+  return set.has(real) || set.has(Number(norad));
+}
+
 // 判某对象是否由白名单点名纳入。
 //   ⚠️ `norad` 可能是**占位号**（6 位真号对象在 .tle/merged 里用真号后 5 位当键），
 //   所以先经 sidecar（data/omm_norad.json）还原真号再比，否则 GEO 之类将来真变 6 位号时又会漏。
@@ -355,7 +434,7 @@ if (fs.existsSync(catPath)) {
     const norad = +c[iNo];
     for (const k of ['gw', 'qf']) {
       const byName = MATCH[k].test(nm);
-      const byBatch = !byName && includedByBatch(k, pre, norad);
+      const byBatch = !byName && (includedByBatch(k, pre, norad) || includedByCard(k, norad));
       if (!byName && !byBatch) continue;
       if (byBatch) incHit[k]++;
       const o = { norad: norad, name: nm, cospar: id, type: (c[iTy] || '').trim(), pre: pre,
@@ -432,8 +511,8 @@ for (const key of ['gw', 'qf']) {
   //   恰恰是**唯一只有这条路能救**的，一旦被 cap 截掉就永远补不上（离线测试实测：CX-26 与
   //   DTC-01 正是这样丢的）。
   todo.sort((a, b) => {
-    const ia = includedByBatch(key, a.pre, a.norad) ? 0 : 1;
-    const ib = includedByBatch(key, b.pre, b.norad) ? 0 : 1;
+    const ia = (includedByBatch(key, a.pre, a.norad) || includedByCard(key, a.norad)) ? 0 : 1;
+    const ib = (includedByBatch(key, b.pre, b.norad) || includedByCard(key, b.norad)) ? 0 : 1;
     return ia - ib;
   });
   for (const o of todo.slice(0, 60)) {
@@ -609,7 +688,7 @@ for (const key of ['gw', 'qf']) {
   let outByName = 0, outByBatch = 0;
   [...merged.entries()].forEach(([norad, s]) => {
     const byName = MATCH[key].test(s.name);
-    const byBatch = !byName && includedByBatch(key, lkOfCospar(s.cospar), norad);
+    const byBatch = !byName && (includedByBatch(key, lkOfCospar(s.cospar), norad) || includedByCard(key, norad));
     if (!byName && !byBatch) return;
     if (byBatch) outByBatch++; else outByName++;
     out.set(parseInt(s.l1.slice(2, 7), 10), s);

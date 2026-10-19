@@ -99,7 +99,11 @@ const w = dom.window, d = w.document;
 const $ = s => d.querySelector(s);
 const rows = () => d.querySelectorAll('#tbody tr[data-idx]').length;
 
+// ★ V1.9.9：断言也要**自己计数** —— 历史上「错误数: 0」只统计运行时异常，
+//   有 FAIL 时它照样是 0（退出码虽为 1，但人眼先看到的往往是那行"错误数 0" → 误判全绿）。
+let PASS_N = 0, FAIL_N = 0;
 function assert(name, cond, extra) {
+  if (cond) PASS_N++; else FAIL_N++;
   console.log((cond ? 'PASS ' : 'FAIL ') + name + (extra !== undefined ? '  → ' + extra : ''));
   if (!cond) process.exitCode = 1;
 }
@@ -354,11 +358,12 @@ assert('行模板抽成函数（非当前页也能导出）',
 assert('三张图的导出底栏改成统一函数（V1.6.3 起为 drawShotBar）', /drawShotBar/.test(appSrc) && /drawShotBar\(ctx, out\.width/.test(appSrc));
 
 console.log('--- 加载与缓存 ---');
-assert('加载页第一行不重复纪元',
+assert('V1.9.9（N3）：加载页收尾用 i18n **键对**双语一起改（旧版 t() 只改当前语言那半，另一行会残留）',
   /d_updated: \['已更新至最新轨道要素', 'Updated to the latest elements'\]/.test(appSrc) &&
-  /endLoad\(t\('d_updated'\), true\)/.test(appSrc));
-assert('V1.9.5（H4）：加载页第三行是固定文案「加载中…」（不再写历元；历元只在主页面内显示）',
-  /id="lmThird"/.test(tpl) && /d_loading3/.test(tpl) && /加载中/.test($('#lmThird').textContent), $('#lmThird').textContent);
+  /endLoadKey\('d_updated', true\)/.test(appSrc) &&
+  /function endLoadKey\(k, ok\)[\s\S]{0,140}endLoad\(p\[0\], p\[1\], ok\)/.test(appSrc));
+assert('V1.9.5（H4）/V1.9.9（N3）：加载页第三行固定文案「加载中/Reloading」（不再写历元；历元只在主页面内显示）',
+  /id="lmThird"/.test(tpl) && /id="lmThirdMain">加载中\/Reloading</.test(tpl) && /加载中/.test($('#lmThird').textContent), $('#lmThird').textContent);
 assert('TLE 刷新带会话缓存（30 分钟）',
   /TLE_CACHE_KEY/.test(appSrc) && /sessionStorage\.getItem\(TLE_CACHE_KEY\)/.test(appSrc) && /30 \* 60 \* 1000/.test(appSrc));
 assert('多源抓取（GROUP + NAME）', /NAME=HULIANWANG/.test(appSrc) && /NAME=QIANFAN/.test(appSrc));
@@ -1085,14 +1090,16 @@ assert('需求9：外部数据源标识与目录原始名未被误改',
   //   原意（"名字过滤认得目录里的原始名"）不变 —— 判据改成认这三段关键字都在。
   /NAME_OK = \{/.test(appSrc) && /HULIANWANG/.test(appSrc) && /GUOWANG/.test(appSrc) && /\^GW-/.test(appSrc));
 assert('需求9：英文简称口径 —— 正文 CSCN、顶栏缩写 CS',
-  /cn_gw: \['星网', 'CSCN'\]/.test(appSrc) && /cn_gw_short: \['星网', 'CS'\]/.test(appSrc) &&
+  /n_gw: \['星网', 'CSCN'\]/.test(appSrc) && /cn_gw_short: \['星网', 'CS'\]/.test(appSrc) &&
   /cn_qf_short: \['千帆', 'SS'\]/.test(appSrc));
 // 需求11：title 与加载遮罩必须走 i18n（英文界面零中文）
 assert('需求11：title 提示气泡全部走 i18n（模板里不再有硬编码中文 title）',
   !/title="[^"]*[\u4e00-\u9fa5][^"]*"/.test(tpl) &&
   /\[data-i18n-title\]/.test(appSrc) && /t_selinfo:/.test(appSrc) && /t_zoomin:/.test(appSrc));
 assert('需求11：加载遮罩接入 i18n + 试验星译名 Test Satellite + KL 批次有规则',
-  /d_loading_tle:/.test(appSrc) && /Test Satellite \$1/.test(appSrc) &&
+  // ★ V1.9.9（O30-2）：`d_loading_tle` 与 `d_loading` 文案完全相同，已合并成后者
+  /d_loading: \['正在获取最新轨道要素…', 'Fetching the latest orbital elements…'\]/.test(appSrc) &&
+  !/d_loading_tle:/.test(appSrc) && /Test Satellite \$1/.test(appSrc) &&
   /KL-\[A-Za-z0-9\]\+/.test(appSrc) && !/'Test Sat \$1'/.test(appSrc));
 assert('需求11：帮助按钮视觉放大到 22px 且用右边距补偿（整行排布不变）',
   /\.help-btn \{[^}]*width:22px; height:22px/.test(tpl) && /margin-right:7px/.test(tpl));
@@ -1263,8 +1270,9 @@ assert('需求1：TLE 自动更新标志 TLE_LIVE 保留，且界面上已无「
 assert('V1.9.5（H4）：加载蒙层的「要素历元」写法已彻底移除（函数/调用/键三处都不留死代码）',
   !/setLoadEpoch/.test(appCode) && !/d_epoch: \[/.test(appCode) &&
   // ★ V1.9.6：文字里不再带「…」，省略号由 #lmThird 的三个跳动的点承担
-  /d_loading3: \['加载中', 'Loading'\]/.test(appCode) &&
-  /d_epoch2: \['更新历元：', 'Epoch: '\]/.test(appCode));
+  // ★ V1.9.9（N3）：第三行改为写死的「加载中/Reloading」，三个相关键（d_loading3 / d_epoch2 /
+  //   d_pending_suffix）一并退役 —— 这里反过来守"不许复活"。
+  !/d_loading3: \[/.test(appCode) && !/d_epoch2: \[/.test(appCode));
 // V1.7.0 第四轮补丁：TLE_LIVE 必须早于 applyFresh 置位。
 // applyFresh → rebuild() → renderHeader() 会立刻读 TLE_LIVE；
 // 置位晚一步会导致"联网成功"也被当成失败态（V1.7.1 已不再往界面写后缀，但时序约束保留：
@@ -2132,8 +2140,18 @@ assert('V1.9.0（R17）：升轨速率算法在页面端与构建期**同一口�
   assert('V1.9.1（1.4）：存在"按批次的显式纳入通道"，且**一律用精确 NORAD 列表**（不用"整批全收"）',
     /const INCLUDE = \{/.test(rf) && /function includedByBatch/.test(rf) &&
     !/'2\d{4}': null/.test(rf) && !/'1\d{4}': null/.test(rf));
-  assert('V1.9.1（1.4）：白名单搭车星已排除（2024-226A=62185 / 2026-128B=69473 不在名册里）',
-    !/\b62185\b/.test(rf) && !/\b69473\b/.test(rf) && /\b62186\b/.test(rf) && /\b69472\b/.test(rf));
+  // ★ V1.9.9：判据收紧到**INCLUDE 字面量内部** —— 62185 现在合法地出现在别处
+  //   （`CARD_EXCLUDE` 黑名单里，正是"有词条但不是本星座"那条，见 31.3/§31）。原先的全文扫描会误红。
+  assert('V1.9.1（1.4）：白名单 INCLUDE **内部**不含搭车星（226A=62185 / 128B=69473），只含 226B=62186 / 128A=69472',
+    (function () {
+      const m = /const INCLUDE = \{[\s\S]*?\n\};/.exec(rf);
+      if (!m) return false;
+      const blk = m[0];
+      return !/\b62185\b/.test(blk) && !/\b69473\b/.test(blk) &&
+        /\b62186\b/.test(blk) && /\b69472\b/.test(blk) &&
+        // 同时守：黑名单真的登记了 62185（否则"有词条就纳入"会把它收进来）
+        /CARD_EXCLUDE = new Set\(\[[\s\S]{0,120}?62185/.test(rf);
+    })());
   // ★ V1.9.5（H42 迁移）：S3 的判据**换成了 `parseGPGuarded`**（内部走 checkFormat，按本次格式判定）。
   //   这条历史守卫因此要改口径 —— 但**它守的教训不能丢**：
   //   旧写法 `/^1 /.test(r.text)` 少了 `m` 标志（`^` 只匹配串首，而返回值以卫星名开头）→
@@ -2150,7 +2168,9 @@ assert('V1.9.0（R17）：升轨速率算法在页面端与构建期**同一口�
   assert('V1.9.1（1.4）：批次 key 提取兼容两种 COSPAR 写法（归一化 6 列 与 原始 9 字符）',
     /function lkOfCospar/.test(rf) && /includedByBatch\(key, lkOfCospar\(s\.cospar\), norad\)/.test(rf));
   assert('V1.9.1（1.4）：S3 的 todo 把白名单批次排到最前（否则会被 slice(0,60) 挤掉而永远补不上）',
-    /todo\.sort\(\(a, b\) => \{/.test(rf) && /const ia = includedByBatch\(key, a\.pre, a\.norad\)/.test(rf));
+    /todo\.sort\(\(a, b\) => \{/.test(rf) &&
+    // V1.9.9：判据放宽到"白名单**或**词条卡片点名"——两者都该排在前面
+    /const ia = \(includedByBatch\(key, a\.pre, a\.norad\) \|\| includedByCard\(key, a\.norad\)\) \? 0 : 1/.test(rf));
   assert('V1.9.1（1.4）：名字正则的**两处**拦截点都接上了白名单通道（只改一处会"查到却被丢"/"没查却留下"）',
     (rf.match(/includedByBatch\(/g) || []).length >= 4);
   // ---- V1.9.1（1.4-D）：已再入卫星的采集与状态 ----
@@ -2783,6 +2803,7 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
     "  constelState: function (v) { return shotConstelState(v); },\n" +
     // V1.9.1（#6）：横轴刻度梯 + 轴起点
     "  netOrigin: function () { var d = netData(); return { x0min: netX0Min(d), weeks0: d.weeks[0], origin: d.originMs }; },\n" +
+    "  netShow: function (gw, qf) { S.netGw = !!gw; S.netQf = !!qf; netView = null; return { gw: S.netGw, qf: S.netQf }; },\n" +
     "  tickStep: function (spanD, want) { return tickStepDays(spanD, want); },\n" +
     "  tickLadder: function () { return TICK_LADDER.slice(); },\n" +
     "  netAxisNow: function () { netAutoView(); return { x0: netView.x0, x1: netView.x1 }; },\n" +
@@ -3265,11 +3286,14 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
       })());
   }
 
-  // ① 键名分离：`d_sel_all` 必须是「已全选」——
-  //    此前它与 03 章批次下拉的「全部批次（」**重名**，后者在对象字面量里后写 → **覆盖**前者，
-  //    于是选中提示显示的是「全部批次（」（现存 bug，本轮修）。
-  assert('A3：键名分离后 `d_sel_all` = 「已全选」（不再被 03 章下拉的同名键覆盖）',
-    k3.tt('d_sel_all') === '已全选', k3.tt('d_sel_all'));
+  // ① 键名分离：`d_sel_all` 必须**已经不存在**（V1.9.9/O30-1 清理）——
+  //    它原本与 03 章批次下拉的「全部批次（」**重名**，后者在对象字面量里后写 → **覆盖**前者，
+  //    于是选中提示显示的是「全部批次（」。A3 修法是改名（d_grp_all），而"已全选"这句提示
+  //    在 V1.9.1（A11）起改由 `d_sel_alive_a/b/c` 拼出（带 X/T 口径），旧键就此无人引用。
+  //    判据：`t()` 找不到键时原样返回键名 —— 所以 tt('d_sel_all') === 'd_sel_all' 正是"已删"。
+  assert('A3：键名分离 —— 旧键 `d_sel_all` 已删，全选提示走 `d_sel_alive_a/b/c`（不再被 03 章同名键覆盖）',
+    k3.tt('d_sel_all') === 'd_sel_all' && k3.tt('d_sel_alive_a') === '已全选仍在轨卫星（' &&
+    k3.tt('d_grp_all') === '全部批次（', k3.tt('d_sel_all'));
   assert('A3：新键 `d_grp_all` = 「全部批次（」+ `d_grp_all2`（03 章下拉专名）',
     k3.tt('d_grp_all') === '全部批次（' && k3.tt('d_grp_all2') === ' 颗）');
   const opt0 = d3.querySelector('#groupSel option');
@@ -3391,7 +3415,7 @@ assert('V1.9.2：右侧留白按"要标几条"动态加宽（否则名称会被�
     assert('A10：8 项轨道要素（半长轴/近/远地点/倾角/周期/升交点/偏心率/BSTAR）一律显示 `-`',
       !!tr && tr.querySelectorAll('.no-data').length === 8, tds[7] + '|' + tds[13]);
     assert('A10：在轨状态为**红色**完整文案「已再入（~YYYY-MM-DD，XXX 天）」',
-      !!tr && /^已再入（~\d{4}-\d{2}-\d{2}，\d+ 天）$/.test(tds[3]) &&
+      !!tr && /^已再入（~\d{4}-\d{2}-\d{2}, \d+ 天）$/.test(tds[3]) &&
       /st-gone/.test(tr.querySelectorAll('td')[3].className), JSON.stringify(tds[3]));
     assert('A10：在轨日 = **发射日 → 再入日**之差（冻结，不随今天增长）',
       /^\d+d（\d{2}y\d{2}m\d{2}d）$/.test(tds[12]), JSON.stringify(tds[12]));
@@ -3593,7 +3617,7 @@ assert('V1.9.2：右侧留白按"要标几条"动态加宽（否则名称会被�
       // 收尾是**两个括号**：速度那段的半角 `)`（在 span 外）+ st_close 的全角 `）`
       // 且速度**带符号**（`+3.63`）—— `[-+]?` 不能省，否则 "(+3.63" 匹配不上（踩过一次）
       // ★ V1.9.7：文案前缀现在按速率分流 —— 点火中 / 间歇 / 无速率（旧口径）
-      /^变轨中(·点火|·间歇)?（~\d{4}-\d{2}-\d{2}，\d+km( \([-+]?\d+\.\d{2}km\/天\))?）$/.test(c1.txt),
+      /^变轨中(·点火|·间歇)?（~\d{4}-\d{2}-\d{2}, \d+km(, [-+]?\d+\.\d{2}km\/天)?）$/.test(c1.txt),
       c1 ? JSON.stringify(c1.txt) : 'null（搜不到 ' + raiSample.id + '）');
     assert('A7：变轨中的**速度片段**是独立 <span class="st-rate …">（正数带 +、颜色类正确）',
       !!c1 && /<span class="st-rate (pos|neg|zero)">/.test(c1.html) &&
@@ -3602,11 +3626,11 @@ assert('V1.9.2：右侧留白按"要标几条"动态加宽（否则名称会被�
     const c2 = cellOf(orbSample.id);
     assert('A7：**在轨**的行 —— 单元格带 .st-orbit，文案形如「在轨（~YYYY-MM-DD，NNNkm）」',
       !!c2 && /st-orbit/.test(c2.cls) &&
-      /^在轨（~\d{4}-\d{2}-\d{2}，\d+km）$/.test(c2.txt),
+      /^在轨（~\d{4}-\d{2}-\d{2}, \d+km）$/.test(c2.txt),
       c2 ? JSON.stringify(c2.txt) : 'null（搜不到 ' + orbSample.id + '）');
     const c3 = cellOf(geoSample.id);
     assert('A7：**GEO** 的行 —— 写 `GEO` 不写高度',
-      !!c3 && /在轨（~\d{4}-\d{2}-\d{2}，GEO）$/.test(c3.txt),
+      !!c3 && /在轨（~\d{4}-\d{2}-\d{2}, GEO）$/.test(c3.txt),
       c3 ? JSON.stringify(c3.txt) : 'null');
     ti7.value = ''; ti7.dispatchEvent(new w3.Event('input', { bubbles: true }));
   }
@@ -3861,6 +3885,9 @@ assert('V1.9.2：右侧留白按"要标几条"动态加宽（否则名称会被�
     //   沿革：Q15 = 前移到最早试验星；Q2 曾想改「首个在轨>0」，但实测千帆 2019 的 KL-Alpha
     //   **确有 TLE 在库**（与清单里"无在轨数据"的记载不符），取"首个在轨>0"会把这两点
     //   挤到轴外、虚线试验星段整段消失 → 与用户要求相悖，故回到最早一条发射记录。
+    // ★ V1.9.9（N4）：这两条断言测的是"**两条曲线共同显示**"的既有口径 ——
+    //   必须先显式打开两条曲线（前面的用例可能把 netQf 关掉了）。
+    k3.netShow(true, true);
     const og = k3.netOrigin(), axn = k3.netAxisNow();
     assert('#6：横轴起点 = **最早一条发射记录**（早期卫星全部保留在图上，不被切到轴外）',
       Math.abs(axn.x0 - og.weeks0) < 1 && og.origin === og.weeks0 &&
@@ -3876,6 +3903,20 @@ assert('V1.9.2：右侧留白按"要标几条"动态加宽（否则名称会被�
       'qf 首个组网星=' + new Date(k3.netSolidFrom('qf')).toISOString().slice(0, 10) +
       ' / gw=' + new Date(k3.netSolidFrom('gw')).toISOString().slice(0, 10) +
       ' vs 轴起点=' + new Date(axn.x0).toISOString().slice(0, 10));
+    // ★ V1.9.9（N4，用户裁决 Q4=A）：只显示星网时，横轴起点改为**星网第一颗发射**
+    //   （2023-07-09），不再从千帆 2019 的 KL 试验星起算；两条同时显示时才回到 2019。
+    k3.netShow(true, false);
+    const ogGw = k3.netOrigin();
+    assert('V1.9.9（N4）：只显示星网 → 横轴起点 = 星网首颗发射（2023 年），不再从 2019 起算',
+      new Date(ogGw.x0min).getUTCFullYear() === 2023 &&
+      ogGw.x0min > ogGw.weeks0 &&
+      Math.abs(ogGw.x0min - ogGw.weeks0) > 365 * 86400000,
+      '只星网 x0min=' + new Date(ogGw.x0min).toISOString().slice(0, 10) +
+      ' / 数据最早周=' + new Date(ogGw.weeks0).toISOString().slice(0, 10));
+    k3.netShow(true, true);
+    assert('V1.9.9（N4）：两条曲线同显 → 起点回到 2019（与旧口径一致）',
+      new Date(k3.netOrigin().x0min).getUTCFullYear() === 2019,
+      new Date(k3.netOrigin().x0min).toISOString().slice(0, 10));
     // 真的画了虚线：分别只看一个星座，绘制时曲线段应有**一次** [5,5]（试验星段）
     const dashProbe = (key) => {
       k3.netOnly(key);
@@ -5112,17 +5153,20 @@ assert('V1.9.1：wiki.json 与 build/wiki.json 当前同步（若不同步=守�
     /newestSrc > packTime/.test(bc) && /拒绝覆盖/.test(bc) && /CISTRACK_ALLOW_STALE_HISTORY/.test(bc));
 }
 
-// V1.9.1（#9）：加载页两行字**写死进 HTML** ——
-//   原先 lmTxt 只有 data-i18n（脚本跑起来才填）、lmEpoch 完全为空 → 首帧只有一个圆环，
-//   要等 JS 解析完（单文件 1.2MB + SGP4 初始化）才出现两行字。现在从首帧起就是"两行字"版本。
-assert('V1.9.1（#9）：加载页两行字写死进 HTML（首帧就有字，不靠 JS 填）',
-  /<div class="lm-txt" id="lmTxt" data-i18n="d_loading_tle">正在获取最新轨道要素…<\/div>/.test(tpl) &&
-  // ★ V1.9.6：data-i18n 挂到**内层 span**，三个跳动的点放在外面（i18n 刷新不会把它们冲掉）
-  /<div class="lm-epoch" id="lmThird"><span data-i18n="d_loading3">加载中<\/span><span class="lm-dots"[^>]*><i>\.<\/i><i>\.<\/i><i>\.<\/i><\/span><\/div>/.test(tpl) &&
+// V1.9.1（#9）→ V1.9.9（N3）：加载页两行字**写死进 HTML**（首帧就有字，不靠 JS 填）。
+//   V1.9.9 起改成**双语常显**：第一行中文、第二行英文、第三行「加载中/Reloading」。
+//   关键判据 —— 三行**都不能挂 data-i18n**：applyStaticLang 执行的是 `el.innerHTML = t(key)`，
+//   一挂上就会把双语布局整体替换成单语（这条坑必须被守住）。
+assert('V1.9.9（N3）：加载页双语三行写死在模板与产物里，且都不挂 data-i18n（否则被 i18n 冲成单语）',
+  /<div class="lm-txt" id="lmTxt">正在获取最新轨道要素…<\/div>/.test(tpl) &&
+  /<div class="lm-txt2" id="lmTxt2">Fetching the latest orbital elements…<\/div>/.test(tpl) &&
+  /<div class="lm-epoch" id="lmThird"><span id="lmThirdMain">加载中\/Reloading<\/span><span class="lm-dots"/.test(tpl) &&
+  !/id="lmTxt"[^>]*data-i18n/.test(tpl) && !/id="lmTxt2"[^>]*data-i18n/.test(tpl) &&
+  !/id="lmThirdMain"[^>]*data-i18n/.test(tpl) &&
   // 产物里同样在（模板 → 产物的注入过程不能把它冲掉）
   /id="lmTxt"[^>]*>正在获取最新轨道要素…</.test(html) &&
-  // ★ V1.9.6：文字已移到内层 span，三个跳动的点跟在后面 —— 判据要跟着改（原来直接要求 id 后就是文字）
-  /id="lmThird"><span data-i18n="d_loading3">加载中<\/span><span class="lm-dots"/.test(html), '');
+  /id="lmTxt2"[^>]*>Fetching the latest orbital elements…</.test(html) &&
+  /id="lmThird"><span id="lmThirdMain">加载中\/Reloading</.test(html), '');
 // ★ V1.9.6（用户 2026-10-17 要求）：加载页第三行「加载中」**字号与第一行一致**，
 //   且末尾三个省略号**循环跳动**（不是静态 …，也不是整体一起跳）。
 //   判据都打在源码上：字号必须**共用同一个变量**（各写一个 14px 迟早跑偏）；
@@ -5139,10 +5183,23 @@ assert('V1.9.6：省略号是**三个点各自跳动**（错开 delay），且"�
   /\.lm-dots i:nth-child\(3\) \{ animation-delay:\.3s/.test(tpl) &&
   /@keyframes lmDotBounce/.test(tpl) &&
   /prefers-reduced-motion[\s\S]{0,200}\.lm-dots i \{ animation:none/.test(tpl));
-assert('V1.9.1（#9）：JS 起来后仍然接管（语言切换 / 真实历元替换）—— 两条路径都保留',
-  /function refreshMaskText\(\)/.test(appSrc) && !/setLoadEpoch/.test(appSrc) &&
-  /data-i18n="d_loading3"/.test(tpl) &&
-  /tx\.textContent = t\('d_updated'\)/.test(appSrc));
+// ★★ V1.9.9（N2）回归守卫：跳过 = abort + **把 BOOT 置空**。
+//   `fetchText` 开头有一句"BOOT 已 abort 就直接拒绝" —— 若跳过之后不清掉 BOOT，
+//   整场会话的后续取数（05 章换批次、词条计数、手动刷新）会**全部**立刻失败且没有提示。
+// ★★ V1.9.9（N2）回归守卫：跳过 = abort + **把 BOOT 置空**。
+//   `fetchText` 开头有一句"BOOT 已 abort 就直接拒绝" —— 若跳过之后不清掉 BOOT，
+//   整场会话的后续取数（05 章换批次、词条计数、手动刷新）会**全部**立刻失败且没有提示。
+assert('V1.9.9（N2）：跳过时先 abort 再置空 BOOT（否则整场会话的后续联网都被拒）',
+  /BOOT_SKIPPED = true;/.test(appSrc) &&
+  /if \(BOOT\) BOOT\.abort\(\);/.test(appSrc) && /BOOT = null;/.test(appSrc) &&
+  /if \(BOOT && BOOT\.signal && BOOT\.signal\.aborted\)/.test(appSrc));
+assert('V1.9.9（N3）：JS 起来后仍接管加载页（bootMaskText 双语写入；不再有 refreshMaskText 单语改写）',
+  /function bootMaskText\(\)/.test(appSrc) &&
+  /I18N\.d_loading/.test(appSrc) &&
+  /if \(t1\) t1\.textContent = p\[0\]/.test(appSrc) &&
+  /if \(t2\) t2\.textContent = p\[1\]/.test(appSrc) &&
+  !/function refreshMaskText\(\)/.test(appSrc) &&
+  /endLoadKey\('d_updated', true\)/.test(appSrc));
 
 // ================================================================ V1.9.1（#7）：非线性过场泛化
 // 清单 #7：`chartSwap` 泛化为 `cvSwap(cvId, apply)`；04/05 两章的四个控件（05 的「发射量 / 在轨数量」
@@ -5701,6 +5758,20 @@ try {
 assert('V1.9.5：仓库卫生扫描通过（根目录无过程类文件、子目录无调试件/临时产物、产物数量合规）',
   /✓ 通过：根目录与子目录均无过程类\/临时类文件/.test(hygiene),
   (hygiene.split('\n').filter(l => /✗|←/.test(l)).slice(0, 3).join(' | ')) || '扫描输出异常');
+
+// ---------------------------------------------------------------- ★ V1.9.9（P0）：引用完整性闸门
+// 为什么要加这一条（2026-10-19 真实事故）：
+//   V1.9.8 引入了可选的 `data/wiki_cards.json`（抓不到就不写），但**没在 audit_refs 的 OPTIONAL 里登记**。
+//   `audit_refs.mjs` 只在 CI 的第 1 步跑，smoke / visual / e2e 都不跑它 →
+//   本地一路全绿，CI 却从那一刻起每 12 h 失败一次（整条 TLE 刷新链路停摆、且不会自愈）。
+//   教训：凡是"CI 跑、本地不跑"的闸门，都必须并进 smoke —— 否则"只在本地跑过 = 没跑过"。
+let audit = '';
+try {
+  audit = execFileSync(process.execPath, [B + 'scripts/audit_refs.mjs'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+} catch (e) { audit = String(e.stdout || '') + String(e.stderr || ''); }
+assert('V1.9.9：引用完整性体检通过（源码里引用的本地文件都存在，或已在 OPTIONAL 里登记理由）',
+  /结论：通过/.test(audit),
+  audit.split('\n').filter(l => /✗|←/.test(l)).slice(0, 4).join(' | '));
 // 闸门自身不能被"悄悄改空"：三条判据缺一条就等于放行
 {
   const hg = fs.readFileSync(B + 'scripts/repo_hygiene.mjs', 'utf8');
@@ -6137,6 +6208,64 @@ assert('V1.9.3：e2e 的实跑挂在 CI 上（本地 smoke 不跑，避免闸门
       return keys.length >= 50 && keys.every(k => /^\d{5}$/.test(k)) &&
         keys.every(k => m[k] >= 100000) && m['00203'] === 100203;
     })());
+  // ★ V1.9.9（O30-9）：映射必须**覆盖每一颗 6 位号卫星**，且构建侧要有"映射不全即拒绝写出"的闸门。
+  //   旧行为是 `OMM_IDS[raw] || parseInt(raw,10)` —— 映射缺了就把 100203 显示成 203，且零告警。
+  assert('V1.9.9（O30-9）：6 位编目号映射**完整**（每颗 ≥100000 的星都能由 ommMap 反查回真号）',
+    (function () {
+      const SD = JSON.parse(fs.readFileSync(B + '/build/satdata.json', 'utf8'));
+      const m = SD.ommMap || {};
+      const vals = new Set(Object.values(m));
+      const six = [];
+      ['gw', 'qf'].forEach(k => (((SD[k] || {}).sats) || []).forEach(s => { if (s.id >= 100000) six.push(s); }));
+      // 逐颗双向核对：真号在映射值里，且 后5位 → 真号 这条键值对成立
+      return six.length > 0 && six.every(s => vals.has(s.id)) &&
+        six.every(s => m[String(s.id).slice(-5).padStart(5, '0')] === s.id);
+    })(), '6 位号卫星必须全部可由 ommMap 还原');
+  assert('V1.9.9（O30-9）：mkdata 对"占位号查不到真号"**拒绝写出**（旧行为是静默 parseInt 降级）',
+    /const OMM_MISSING = \[\];/.test(mkCode) &&
+    /if \(real === undefined && \/\^00\\d\{3\}\$\/\.test\(raw\)\) OMM_MISSING\.push/.test(mkCode) &&
+    /if \(OMM_MISSING\.length\)/.test(mkCode) && /process\.exitCode = 7;/.test(mkCode));
+  // ★★ V1.9.9（用户 2026-10-19 追加要求）：**新卫星只要有单独词条，就必须能被自动纳入** ★★
+  //   旧实现只认写死的 INCLUDE 名册 —— 新发一颗试验星（名字里没有"卫星互联网/千帆"关键字）
+  //   就永远进不来，得等人手工加一行 NORAD。现在改成"词条卡片点名"：卡片里有这个 NORAD
+  //   就算该星座成员。这条断言直接**跑一遍真实脚本**（`refresh.mjs --card-include`），
+  //   用两个真实数据文件（wiki_tables + wiki_cards）算出名单，不是读源码猜。
+  assert('V1.9.9：词条卡片点名（新星有单独词条即自动纳入）—— 真实跑一遍名单',
+    (function () {
+      let out = '';
+      try { out = execFileSync(process.execPath, [B + 'refresh.mjs', '--card-include'],
+        { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 60000 }); } catch (e) { return false; }
+      const m = /^gw\((\d+)\): ([\d,]+)$/m.exec(out);
+      const q = /^qf\((\d+)\): ([\d,]+)$/m.exec(out);
+      if (!m || !q) return false;
+      const gw = new Set(m[2].split(',').map(Number));
+      const qf = new Set(q[2].split(',').map(Number));
+      return gw.size >= 20 && qf.size >= 4 &&
+        // 6 位号（EUHT 100711）必须在 qf 名单里 —— 顺带守住"占位号经 sidecar 还原"这条路
+        qf.has(100711) && gw.has(59069) && qf.has(44785) &&
+        // 黑名单：2024-226A（62185）是搭车星，有词条也不能进
+        !gw.has(62185) && !qf.has(62185);
+    })(), '名单须来自 wiki_cards + wiki_tables（不是硬编码）');
+  assert('V1.9.9：`includedByCard` 同时挂在**两处过滤**与补拉排序上（只挂一处会"查到又丢掉"）',
+    (appSrc, function () {
+      const rf = fs.readFileSync(B + '/refresh.mjs', 'utf8');
+      return (rf.match(/includedByCard\(/g) || []).length >= 4 &&
+        /const byBatch = !byName && \(includedByBatch\(k, pre, norad\) \|\| includedByCard\(k, norad\)\)/.test(rf) &&
+        /const byBatch = !byName && \(includedByBatch\(key, lkOfCospar\(s\.cospar\), norad\) \|\| includedByCard\(key, norad\)\)/.test(rf) &&
+        /const CARD_EXCLUDE = new Set\(\[/.test(rf);
+    })());
+  // ★★ V1.9.9（P1-D）：卡片抓取曾经"api.php 拿不到 revid 就整体放弃"——
+  //   2026-10-19 实测 /api.php 被 Cloudflare 长期拦在挑战页（而 /wiki/ 页面能过），
+  //   于是 wiki_cards.json 永远是空的、D3 的英文名永远不生效。这里守住"有退路"。
+  assert('V1.9.9（P1-D）：卡片抓取在 api.php 不可用时**不放弃**，改走逐页内容哈希比对',
+    (function () {
+      const cs = fs.readFileSync(B + '/scripts/fetch_wiki_cards.mjs', 'utf8');
+      return /const NO_API = !Object\.keys\(revs\)\.length;/.test(cs) &&
+        /const todo = NO_API \? titles\.slice\(\)/.test(cs) &&
+        /const HASH = \(o\) => createHash\('sha1'\)/.test(cs) &&
+        /prev\.hash === hash/.test(cs) &&
+        !/revid 一个都没拿到/.test(cs);
+    })());
   assert('V1.9.3：页面端 `parseTleText` 走 `tleRealId()`（与 mkdata 同一套口径），且补齐 5 位再查表',
     /function tleRealId\(l1\) \{/.test(appCode) &&
     /var p5 = raw5\.padStart\(5, '0'\);/.test(appCode) &&
@@ -6325,6 +6454,7 @@ $('#themeBtn').dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
 
 await new Promise(r => setTimeout(r, 400));
 console.log('--- 汇总');
-console.log('错误数:', errors.length);
+console.log('PASS:', PASS_N, ' FAIL:', FAIL_N, ' 错误数:', errors.length);
+if (FAIL_N) console.log('  ⚠️ 有 ' + FAIL_N + ' 条断言未通过（退出码 1）；上面那行"错误数"只统计运行时异常，不代表断言全过');
 errors.slice(0, 8).forEach(e => console.log('  ! ' + e));
 dom.window.close();

@@ -7,7 +7,8 @@
 //   数据陈旧时提示去跑抓取器（本脚本**不联网** —— CI 与离线环境都能跑）。
 //
 // 用法：node mkmanufacturers.mjs [--cached]
-//   · 默认：单源超过 3 天 → 打印提示（不抓，只提醒；抓取由 update_wiki.bat 先跑 fetch_wiki_tables.mjs）；
+//   · 默认：单源超过 1 天 → 打印提示（不抓，只提醒；抓取由 update_wiki.bat 先跑 fetch_wiki_tables.mjs）；
+//     ★ V1.9.9（O30-11）：3 → 1 天，与 fetch_wiki_tables.mjs 的 MAX_AGE_DAYS 同口径。
 //   · --cached：连提示也不打（CI / 离线构建用）。
 import fs from 'node:fs';
 import path from 'node:path';
@@ -16,7 +17,7 @@ const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const WT = path.join(ROOT, 'data', 'wiki_tables.json');     // 单源（H9）
 const OUT = path.join(ROOT, 'data', 'manufacturers.json');  // 派生索引
 const QUIET = process.argv.includes('--cached');
-const MAX_AGE_DAYS = 3;
+const MAX_AGE_DAYS = 1;   // ★ V1.9.9（O30-11）：与 fetch_wiki_tables.mjs 同口径
 
 let WTJ = null;
 try {

@@ -51,6 +51,12 @@ const OPTIONAL = {
   'satcat.csv': 'CelesTrak 目录（6.7MB，.gitignore，由 refresh.mjs 下载）',
   'omm_norad.json': '6 位编目号映射（由 refresh.mjs 产出，缺了则 6 位号卫星算不出轨道）',
   'wiki.json': '词条统计（由 fetch_wiki.mjs 产出，缺了退回内置静态值）',
+  // ★ V1.9.9（P0 修复）：单星**词条卡片**（data/wiki_cards.json）。
+  //   它是**可选输入**：抓取受卫星百科 Cloudflare 挑战影响（实测通过耗时 2 s ~ >136 s 波动），
+  //   失败时脚本按设计"不写空、保留旧数据"→ 文件可能**长期不存在**。
+  //   mkdata 用 try/catch 读它（缺了退回批次名 + 内置 NORAD 兜底表），所以本就不该算"漏提交"。
+  //   ⚠️ 漏登记这条的后果（2026-10-19 实际发生）：CI 第一步就失败 → 整条 TLE 链路停摆 12 h+ 不会自愈。
+  'wiki_cards.json': '单星词条卡片（可选输入；WAF 抓取不稳定时可能长期不存在，缺了走批次名与内置 NORAD 表）',
   // 2026-10-15：`coast.txt` 是 mkcoast.mjs 顺带写出的**文本转写**（人看/比对用，构建只读
   //   `coast.js.txt`），已按"派生中间产物"列入 .gitignore → 全新 clone 里没有它。
   //   ⚠️ 这个条目是 CI 抓出来的：本地磁盘上有它所以体检通过，CI 的干净 checkout 直接失败 ——

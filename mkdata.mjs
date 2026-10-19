@@ -480,6 +480,12 @@ function pack(sats) {
 const OMM_IDS = (() => {
   try { return JSON.parse(fs.readFileSync(`${D}/omm_norad.json`, 'utf8')); } catch (e) { return {}; }
 })();
+// ★★ V1.9.9（O30-9）：映射缺失**不许静默降级** ★★
+//   旧行为：`OMM_IDS[raw] || parseInt(raw, 10)` —— 映射文件一旦缺失/不全，6 位号（CelesTrak 100000+）
+//   会被当成 5 位占位号解析，页面上就显示成 `203` 这种三位数，而且**没有任何告警**，打包照常通过。
+//   判据：真 5 位编目号不可能以 0 开头，所以 TLE 里出现 `00xxx` 却没在映射里 → 一定是占位号没还原。
+//   这里只**收集**，最终的"拒绝写出"闸门在文件末尾（与 MIN_SATS / 字段覆盖同一处，避免两套退出路径）。
+const OMM_MISSING = [];
 function parse(file) {
   const lines = fs.readFileSync(`${D}/${file}`, 'utf8').split('\n').map(l => l.trim()).filter(l => l);
   const out = [];
@@ -488,7 +494,9 @@ function parse(file) {
     const l1 = lines[i + 1], l2 = lines[i + 2];
     if (!l1.startsWith('1 ') || !l2.startsWith('2 ')) continue;
     const raw = l1.slice(2, 7);
-    out.push({ name, id: OMM_IDS[raw] || parseInt(raw, 10), c: l1.slice(9, 17).trim(), l1, l2 });
+    const real = OMM_IDS[raw];
+    if (real === undefined && /^00\d{3}$/.test(raw)) OMM_MISSING.push(file + ' · ' + name + ' · 占位号 ' + raw);
+    out.push({ name, id: real || parseInt(raw, 10), c: l1.slice(9, 17).trim(), l1, l2 });
   }
   return out;
 }
@@ -651,6 +659,24 @@ function cardNoradMap() {
   return out;
 }
 const CARD_NORAD = cardNoradMap();
+/** ★ V1.9.9（D3）：卡片标题 → **英文名**。数据源与 CARD_NORAD 同一份文件（data/wiki_cards.json）。 */
+const CARD_EN = (() => {
+  const out = {};
+  try {
+    const j = JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'wiki_cards.json'), 'utf8'));
+    Object.keys(j.cards || {}).forEach(t => {
+      const c = j.cards[t];
+      if (!c || !c.en) return;
+      const en = String(c.en).trim();
+      // ★ 两个键都登记：卡片键（词条标题）与卡片里的中文名**可能差一个字**
+      //   （例如标题「…08组B星」而 zh 写「…08组B卫星」）；只按其中一个登记会静默丢英文名。
+      const k1 = cleanTitle(t), k2 = cleanTitle(c.zh || t);
+      if (k1) out[k1] = en;
+      if (k2) out[k2] = en;
+    });
+  } catch (e) { /* 没有卡片文件就没有英文名 */ }
+  return out;
+})();
 
 function satWikiMap(sats, bk, tag) {
   const T = (WIKI_TABLES && WIKI_TABLES[bk]) || {};
@@ -670,6 +696,11 @@ function satWikiMap(sats, bk, tag) {
       const o = {};
       if (/[\u4e00-\u9fff]/.test(t)) o.wn = t;          // 纯拉丁词条名（如 "CX-26卫星"）不留作中文名
       o.wu = url ? wikiAbs(url) : wikiAbs('/wiki/' + encodeURIComponent(t));
+      // ★ V1.9.9（D3，用户裁决「英文名改用词条来源、与英文模式对齐」）：
+      //   卡片里的**英文名**（如 `WHJSW 08 B` / `EUHT Technology Test Satellite` / `KL-Alpha A`）
+      //   随 `wn` 一起带出，页面 `enOf()` 优先用它，缺了才退回 `WHJSW-编号` 规则。
+      const en = CARD_EN[t];
+      if (en) o.en = en;
       map[s.id] = o;
     };
     if (links.length === g.length) {
@@ -1297,7 +1328,7 @@ const ORBIT_ST = (() => {
     for (const rec of (bk === 'gw' ? gwPack : qfPack).sats) {
       // ★ V1.9.5（H13）：单星词条（在包里重建的记录上按 id 回填 —— 就地写在 pack() 里会丢）
       const w = (bk === 'gw' ? H13_GW : H13_QF)[rec.id];
-      if (w) { rec.wu = w.wu; if (w.wn) rec.wn = w.wn; nWiki++; }
+      if (w) { rec.wu = w.wu; if (w.wn) rec.wn = w.wn; if (w.en) rec.en = w.en; nWiki++; }
       const st = ORBIT_ST.get(rec.id);
       if (!st) {
         // ★ V1.9.3（CI 报错根因修复）：历史库里**没有这颗星**时的兜底。
@@ -1512,7 +1543,15 @@ const thin = [];
     if (c < COVER_MIN) thin.push(k + '.' + f + ' 覆盖 ' + (100 * c).toFixed(1) + '%');
   });
 });
-if (bad.length || thin.length) {
+if (OMM_MISSING.length) {
+  // ★ V1.9.9（O30-9）：映射不全 → 拒绝写出（否则 6 位号会在页面上退化成 3 位数 `203`）
+  console.error('[mkdata] 拒绝写出：6 位编目号映射不全 —— ' + OMM_MISSING.length +
+    ' 颗的占位号在 data/omm_norad.json 里查不到');
+  OMM_MISSING.slice(0, 10).forEach(t => console.error('[mkdata]   - ' + t));
+  console.error('[mkdata] 修法：先跑 `node refresh.mjs` 重写 data/omm_norad.json（它由 OMM→TLE 转换时同步产出），再重跑本脚本。');
+  console.error('[mkdata] 已**不写出** build/satdata.json —— 宁可失败，也不要带着错误编目号去打包。');
+  process.exitCode = 7;
+} else if (bad.length || thin.length) {
   bad.forEach(k => console.error('[mkdata] 拒绝写出：' + k + ' 只有 ' +
     ((DATA[k] && DATA[k].sats) || []).length + ' 颗（下限 ' + MIN_SATS[k] + '）'));
   if (thin.length) console.error('[mkdata] 拒绝写出：字段覆盖不足（阈值 ' + (COVER_MIN * 100) + '%）→ ' + thin.join('；'));

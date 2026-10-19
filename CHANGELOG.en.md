@@ -10,6 +10,76 @@ The version is written in the footer (`CISTrack · Vx.y.z`), and the bottom bar 
 
 ---
 
+## [V1.9.9] — 2026-10-19
+
+> A closing round for the **loading experience and chapter conventions**: the loading screen becomes
+> bilingual with a Skip button, network progress starts from the first visible curve, orbit-change text
+> uses consistent punctuation, the auto-filled badge leaves the launch table — plus a dead-code sweep and
+> two new gates for places that used to fail silently.
+
+### Loading screen (N1 / N2 / N3)
+
+- **Bilingual**: line 1 in Chinese (`正在获取最新轨道要素…`), line 2 its standard English translation
+  (its own line, smaller and dimmer), line 3 fixed to `加载中/Reloading` plus **six dots** bouncing in
+  sequence (1.5 s cycle, +0.15 s per dot; static under `prefers-reduced-motion`).
+  Why bilingual: **the language is only chosen after entering the page**, so the loading stage cannot know it.
+- **Scroll lock**: three layers — `touch-action:none` + `overscroll-behavior:contain` on `#loadMask`;
+  `html.loading` keeps the `overflow` lock; and a `touchmove` interceptor (`passive:false`) while loading.
+  The interceptor is **always removed** when the mask hides, and the page is reset to the top
+  (without the reset it measurably stopped at 557 px — the offset picked up during loading).
+- **New "跳过 / Skip" pill**: tapping it **aborts the current network update** (`AbortController` threaded
+  through `fetchText` and the per-satellite backfill), enters the page immediately and keeps the bundled /
+  cached elements. The caption becomes "Update skipped — using the current elements" and the red
+  "Network unavailable" toast is **suppressed** — a deliberate skip is not a network failure.
+
+### Network progress chart (N4)
+
+- When only the CSCN curve is shown, the x-axis starts at **the first CSCN launch in 2023** (~3.3 years);
+  with both curves or Qianfan alone it still uses the global earliest (the 2019-11-17 KL test satellite).
+
+### Orbit change (N5)
+
+- One separator everywhere: a **half-width comma** — `变轨中·点火（~2026-10-17, 1149km, +3.63km/天）`;
+  the rate is no longer wrapped in its own parentheses.
+
+### Launch table (N6)
+
+- The "auto-filled" badge is gone (including in exported images).
+- Batch names are **always** rendered as clickable `span[data-lk]`: clicking selects the batch. Auto rows
+  used to render an `<a>` without `data-lk`, so "click the batch name" behaved differently in the same table.
+- The batch article is not lost: `wikiOf()` still feeds the satellite table's name cell and the info panel.
+
+### New satellites are picked up automatically
+
+- **Before**: inclusion relied on a hard-coded `INCLUDE` roster (14 test/GEO/KL/DTC satellites whose
+  catalog names carry no constellation keyword). A newly launched test satellite with its own wiki
+  article would **never** enter the dataset until someone added its NORAD by hand.
+- **Now**: `refresh.mjs` adds **card-based inclusion** — if a NORAD appears in `data/wiki_cards.json`
+  (i.e. the wiki table links it and we fetched its card), it is treated as a member of that constellation
+  and pulled into the TLE pipeline (both filter points plus the backfill ordering).
+  "The satellite has its own article" is now the criterion — **no code change needed**.
+- Details: the card's COSPAR decides the constellation (range-expanded titles have no row of their own);
+  6-digit ids go through `data/omm_norad.json` first; a blacklist `CARD_EXCLUDE` keeps known rideshare
+  objects out (2024-226A = 62185) per the 2026-10-18 decision.
+- Self-check: `node refresh.mjs --card-include` prints the list (gw 30 / qf 6), and `smoke.mjs` runs it.
+
+### Data & build
+
+- Single-satellite **wiki card** fetching: reuses the warmed profile, 180 s window with randomised backoff;
+  on failure it **writes nothing** and exits 1 instead of saving an empty file.
+- When `api.php` is unreachable the card fetcher **no longer gives up**: it falls back to per-page content
+  hashing (first run: all 37 cards fetched).
+- Card English names now take priority in `mkdata` (rule-based derivation is only the fallback).
+- `wiki_tables.json` TTL: 3 days → **1 day** (wiki-sourced dates can lag at most one day).
+- New `mkdata` gate: **refuses to write when the 6-digit NORAD map is incomplete** (exit code 7). The old
+  behaviour fell back to `parseInt` silently, so 100203 could be displayed as `203` with no warning.
+
+### Cleanup & gates
+
+- Removed **16 unreferenced i18n keys** and the dead `.tag-auto` style.
+- The `smoke.mjs` summary now prints **PASS / FAIL counts**: it used to print only `错误数: 0`, which stayed
+  0 even when assertions failed (the exit code was 1, but the line people read said "0") — a classic false green.
+
 ## [V1.9.8] — 2026-10-18
 
 > The naming system is rebuilt in this version, plus a few long-standing data/display fixes.

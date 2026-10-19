@@ -22,7 +22,9 @@
  *   CI（数据中心 IP）过不了 WAF，所以本脚本只在**本地任务**跑（update_wiki.bat），产物进 git。
  *
  * 用法：node scripts/fetch_wiki_tables.mjs [--force]
- *   · 默认：数据新鲜（<=3 天）就跳过；加 --force 强制重抓。
+ *   · 默认：数据新鲜（<=1 天）就跳过；加 --force 强制重抓。
+ *     ★ V1.9.9（O30-11）：TTL 3 天 → **1 天**。"以百科为准"的日期/发射场最长只能滞后 1 天，
+ *       否则会出现"N6 删掉自动补录标签后，日期却还停在三天前"的口径裂缝。
  *   · 退出码：两个词条都失败 → 1（计划任务标红）；至少一个成功 → 写文件并返回 0。
  */
 import http from 'node:http';
@@ -38,7 +40,8 @@ const { WebSocket } = require('ws');
 const OUT = path.join(ROOT, 'data', 'wiki_tables.json');
 const PORT = 9484;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-const MAX_AGE_DAYS = 3;
+// ★ V1.9.9（O30-11）：3 天 → 1 天（见文件头说明）。本机任务每天跑一次，正常情况都会重抓。
+const MAX_AGE_DAYS = 1;
 
 // 新鲜度自判断（与 mkmanufacturers 同一口径：旧版"文件存在就跳过"导致缓存永不更新）
 if (fs.existsSync(OUT) && !process.argv.includes('--force')) {
