@@ -263,6 +263,20 @@ node visual.mjs         # 可选：真浏览器布局与交互实测（需要本
 > `mkmanufacturers.mjs` 需要过词条的 WAF 验证：脚本用真实浏览器打开，并轮询标题直到验证页自己过去
 > （实测 20–35 秒）。结果缓存在 `data/manufacturers.json`，日常重建不必重跑。
 
+**发布前/排障：先分清「平台坏了」还是「我坏了」（V1.9.9 补入）**
+
+```bash
+node scripts/check_gh_status.mjs            # 只看 GitHub 平台状态（Pages / Actions / API Requests）
+node scripts/check_gh_status.mjs --verify   # 平台正常时，顺带核对线上版本号（一次，不重试）
+node scripts/check_gh_status.mjs --json     # 机器可读
+```
+
+- **只读、单次、有硬超时**：状态接口 8 s、页面 10 s，**没有任何轮询或重试循环**；
+- 退出码直接当闸门用：`0` 正常 ｜ `7` 降级 ｜ `8` 中断 ｜ `2` 平台正常但线上仍是旧版 ｜ `9` 连不上状态接口；
+- 判定为 `DEGRADED` / `OUTAGE` 时，脚本会明确写「**别等**」——那一刻"线上没更新 / 构建失败"
+  大概率是平台侧（2026-10-19 就发生过一次：Pages 构建 `Page build failed`、duration 0，
+  实为 GitHub 的 `Degraded availability for GitHub Actions, GitHub Pages and Webhooks` 事件）。
+
 ## 🔄 数据从哪来 · 怎么更新
 
 **一句话结论**：轨道要素（TLE）由**访客自己的浏览器**在打开页面时现拉，所以在线访客看到的永远是最新；其余数据（卫星百科的统计与元数据、逐次发射的任务结果、海岸线、SGP4 实现）都在**构建时**抓取或打包进单文件。GitHub Pages 没有数据库，只能把仓库里的文件原样发出去，所以"网站数据更新"只有这两条路。

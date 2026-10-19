@@ -270,6 +270,20 @@ node visual.mjs         # optional: real-browser layout and interaction checks (
 
 > `mkmanufacturers.mjs` has to get past the article WAF: it opens a real browser and polls the title until the challenge page clears itself (20–35 s in practice). The result is cached in `data/manufacturers.json`, so routine rebuilds do not need it.
 
+
+**Before publishing / when troubleshooting: is the platform down, or is it us? (added in V1.9.9)**
+
+```bash
+node scripts/check_gh_status.mjs            # GitHub status for Pages / Actions / API Requests
+node scripts/check_gh_status.mjs --verify   # also compare the live version (one shot, no retries)
+node scripts/check_gh_status.mjs --json     # machine-readable
+```
+
+- **Read-only, single-shot, hard timeouts**: 8 s for the status API and 10 s for the page — **no polling loop**;
+- Exit codes double as a gate: `0` OK | `7` degraded | `8` outage | `2` platform OK but the site is stale | `9` status API unreachable;
+- On `DEGRADED` / `OUTAGE` the script says **do not wait**: at that moment "the site did not update / the build failed"
+  is most likely on GitHub's side (this happened on 2026-10-19: Pages reported `Page build failed` with duration 0
+  during the `Degraded availability for GitHub Actions, GitHub Pages and Webhooks` incident).
 ## 🔄 Where the data comes from · how it is updated
 
 **In one sentence**: the orbital elements (TLEs) are fetched by **the visitor's own browser** when the page opens, so anyone online always sees the newest data; everything else (the satellite wiki statistics and metadata, per-launch mission results, the coastline, the SGP4 implementation) is fetched or bundled at **build time**. GitHub Pages has no database and simply serves the repository as-is, so "updating the site" comes down to these two routes.

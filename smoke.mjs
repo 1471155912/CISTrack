@@ -5783,6 +5783,32 @@ assert('V1.9.9：引用完整性体检通过（源码里引用的本地文件都
     /--files-from/.test(hg));
 }
 
+// ---------------------------------------------------------------- ★ V1.9.9 补入：平台状态探针
+// 来历（2026-10-19）：v1.9.9 推送后 Pages 一直不更新，我把它当成自己的问题，反复查构建、
+//   反复整份下载线上 HTML（1.7 MB，单个 curl 还超时），看起来就像死循环。真相是 GitHub 平台事件
+//   （Pages degraded）。所以补一个**单次、有超时、不轮询**的探针，并在这里守住它的形态。
+{
+  const f = B + 'scripts/check_gh_status.mjs';
+  const gs = fs.existsSync(f) ? fs.readFileSync(f, 'utf8') : '';
+  assert('V1.9.9：平台状态探针存在，覆盖本项目真正依赖的三项（Pages / Actions / API Requests）',
+    /githubstatus\.com\/api\/v2\/summary\.json/.test(gs) &&
+    /\{ key: 'Pages'/.test(gs) && /\{ key: 'Actions'/.test(gs) && /\{ key: 'API Requests'/.test(gs) &&
+    // 事件接口用于"为什么降级"的可读解释（拿不到不阻塞判定）
+    /incidents\/unresolved\.json/.test(gs));
+  assert('V1.9.9：探针**不轮询**（无 while(true)/for(;;)/setInterval），且每次请求都有硬超时',
+    !/while\s*\(\s*true\s*\)/.test(gs) && !/for\s*\(\s*;\s*;\s*\)/.test(gs) &&
+    !/setInterval\s*\(/.test(gs) &&
+    /AbortController/.test(gs) && /setTimeout\(\(\) => ctl\.abort\(\), timeoutMs\)/.test(gs) &&
+    /getJson\(STATUS_URL, 8000\)/.test(gs));
+  assert('V1.9.9：探针退出码可当闸门（0 正常 / 7 降级 / 8 中断 / 2 线上仍旧版 / 9 连不上）',
+    /code: 8, verdict: 'OUTAGE'/.test(gs) && /code: 7, verdict: 'DEGRADED'/.test(gs) &&
+    /process\.exitCode = 9;/.test(gs) && /v\.code = 2;/.test(gs));
+  assert('V1.9.9：探针已注册为 npm 脚本（ghstatus / ghstatus:verify），且在 README 双语里可查',
+    /"ghstatus": "node scripts\/check_gh_status\.mjs"/.test(fs.readFileSync(B + 'package.json', 'utf8')) &&
+    /check_gh_status\.mjs/.test(fs.readFileSync(B + 'README.md', 'utf8')) &&
+    /check_gh_status\.mjs/.test(fs.readFileSync(B + 'README.en.md', 'utf8')));
+}
+
 // ---------------------------------------------------------------- ★ V1.9.5：四条新闸门（H33–H36）
 // 来历（2026-10-16 全项目审查）：这四类问题**都真实发生过**，但当时只能靠人发现。
 //   判据一律写"性质/双向对齐/一致性"，不写死会随数据演进过期的数字（本项目的反复教训）。

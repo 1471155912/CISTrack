@@ -8,6 +8,8 @@
     "manufacturers": "node mkmanufacturers.mjs",
     "data": "node mkdata.mjs",
     "build": "node build.mjs",
+    "ghstatus": "node scripts/check_gh_status.mjs",
+    "ghstatus:verify": "node scripts/check_gh_status.mjs --verify",
     "smoke": "node smoke.mjs",
     "test": "node smoke.mjs",
     "all": "node refresh.mjs && node mkdata.mjs && node build.mjs && node release.mjs"

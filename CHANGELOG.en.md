@@ -74,6 +74,19 @@ The version is written in the footer (`CISTrack · Vx.y.z`), and the bottom bar 
 - New `mkdata` gate: **refuses to write when the 6-digit NORAD map is incomplete** (exit code 7). The old
   behaviour fell back to `parseInt` silently, so 100203 could be displayed as `203` with no warning.
 
+### Added later (2026-10-20, no re-release): a release-pipeline status probe
+
+- New `scripts/check_gh_status.mjs` (`npm run ghstatus`): asks githubstatus.com about the three services
+  this project actually depends on — **Pages / Actions / API Requests** — so one command separates
+  "the platform is down" from "we broke something".
+- **Single-shot, read-only, hard timeouts** (8 s for status, 10 s for the page), **no polling or retry loop** —
+  which is exactly the mistake I made during the incident (repeated build checks plus repeated full
+  1.7 MB downloads of the live HTML).
+- Exit codes work as a gate: `0` OK | `7` degraded | `8` outage | `2` platform OK but the site is stale |
+  `9` status API unreachable.
+- `--verify` only compares the live version when the platform is healthy (skipped while degraded, so a
+  platform delay is never mistaken for a stale build).
+
 ### Cleanup & gates
 
 - Removed **16 unreferenced i18n keys** and the dead `.tag-auto` style.
