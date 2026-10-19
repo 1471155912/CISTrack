@@ -47,6 +47,12 @@ const ALLOW_ROOT_EXACT = new Set([
   'wiki.json', 'wiki_launches.json', 'package.json', 'package-lock.json',
   // 版本控制配置
   '.gitignore', '.gitattributes',
+  // ★ V1.9.9：`.nojekyll` —— GitHub Pages 的**部署开关**（空文件）。
+  //   为什么要它：本仓库的 Pages 是 legacy（Jekyll）构建，2026-10-19 那次发布
+  //   构建直接 `Page build failed`（duration 0），站点停在上一版。本项目的产物是**纯静态**、
+  //   不需要 Liquid/Jekyll 任何处理 —— 关掉它既绕开那类构建失败，也把部署时间从 ~40s 降下来。
+  //   （它不是过程文件，而是"发布链的一环"，所以属于白名单里"用户会用到/重建链"这一类。）
+  '.nojekyll',
 ]);
 // 带版本号的产物：`CISTrack_v<主>.<次>.<修>.html`（数量另有限制）
 const ALLOW_ROOT_RE = [/^CISTrack_v\d+\.\d+\.\d+\.html$/];
