@@ -92,6 +92,37 @@ The version is written in the footer (`CISTrack · Vx.y.z`), and the bottom bar 
 - **Perigee×Apogee precision**: 2 decimals in the panel vs 1 in the table (1148.79 vs 1148.8) → now 1.
 - **Chapter 05 "Element epoch"** was missing the `UTC` prefix → unified with 01/02/03.
 
+### Added later (2026-10-20, no re-release): **simplified** orbit-change node, panel narrowed 452px → 376px
+
+The previous round widened the panel to 452px so it could hold the full `date + altitude + rate` parenthesis.
+With that parenthesis gone, 452px is pure waste — **on a phone the panel width is exactly the screen area it covers**.
+So this round trims the content and the width together.
+
+- **Abbreviation rules (chapters 01/02/03 info panels only)**:
+  | State | Before | After |
+  |---|---|---|
+  | In orbit | `在轨（~2023-11-24, 1100km）` | `在轨` |
+  | Raising · coasting | `变轨中·间歇（~2026-10-18, 1111km）` | `变轨中·间歇` |
+  | Raising · burning | `变轨中·点火（~2026-10-17, 499km, +1.57km/天）` | `变轨中·点火(+1.57km/天)` |
+  | Re-entered | `已再入（~2025-10-16, 197 天）` | `已再入` |
+- **The parentheses are half-width ASCII `(` `)`**, as requested. They are deliberately separate i18n keys from
+  the existing full-width `）` (`st_close`) used by the status row — this is the only parenthesis in the short form.
+- **Colours unchanged**: `st-orbit` / `st-raising` / `st-gone` and `.st-rate.pos/neg` are untouched; colour follows
+  the state, never the amount of text.
+- **The chapter-06 satellite table is unaffected**: `orbitStatusHtml(r, brief)` gained a second parameter — the info
+  panel passes `true` (short form) while the table still calls `orbitStatusHtml(r)` (full text). The e2e assertion
+  `在轨（~2026-10-01, 1150km）` guards exactly this.
+- **How 376px was derived** (measured in a real browser via CDP, 1440px, `--fs-info=13px`):
+  - After the trim, **the longest row is no longer Chinese** — the longest Chinese row is
+    "近地点×远地点 35777.8 km×35795.7 km" = **269.5px**; the longest English one is
+    "Orbit change = Raising · burning(+X.XXkm/day)" = **337.7px**.
+  - Adding `.si-block` horizontal padding 14+14 and two 1px borders = **+30px** → English needs **367.7px**.
+  - A width sweep confirms it: **24 wrapped rows at 367px, zero from 368px upward**, matching 367.7.
+  - One more digit of headroom for "the rate never exceeds XX.XX" (+7.6px measured) → **376px**.
+  - Final check: **253 satellites × 2277 rows in each language, zero wraps and zero overflow**.
+- Four new smoke assertions guard against regressions such as the short form leaking into the table or the
+  parentheses turning full-width.
+
 ### Added later (2026-10-20, no re-release): a release-pipeline status probe
 
 - New `scripts/check_gh_status.mjs` (`npm run ghstatus`): asks githubstatus.com about the three services

@@ -236,6 +236,17 @@ var I18N = {
   st_raise_idle: ['变轨中·间歇（~', 'Raising · coasting (~'],
   st_kmday: ['km/天', 'km/day'],
   st_close: ['）', ')'],
+  // ★★ V1.9.9（2026-10-20 用户新需求）：**信息窗**里的简写形态（01/02/03 三章）。
+  //   为什么单独加键而不去截前缀字符串：中英前缀长度不同（`变轨中·点火（~` vs `Raising · burning (~`），
+  //   截字符串必然在某一语言下错位。这里给"裸状态名"与"英文括号"各一对键，拼出来就是用户要的形态：
+  //     在轨        → `在轨`
+  //     变轨中·间歇 → `变轨中·间歇`
+  //     变轨中·点火 → `变轨中·点火(+3.93km/天)`
+  //   ⚠️ 用户明确"括号为英文括号" → 用半角 `(` `)`，与状态行里既有的 st_close（全角 `）`）区分开。
+  st_raise_hot_b: ['变轨中·点火', 'Raising · burning'],
+  st_raise_idle_b: ['变轨中·间歇', 'Raising · coasting'],
+  st_paren_l: ['(', '('],
+  st_paren_r: [')', ')'],
   st_gone_tip: ['已再入，再入日期：', 'Re-entered on '],
   // V1.9.1（A10）：在轨状态列的**完整**文案「已再入（~YYYY-MM-DD，XXX 天）」——
   //   拆三段是为了中英各自成句（英文括号/逗号/单位都不同），避免在 JS 里硬编码语言分支。
@@ -2784,8 +2795,12 @@ function satStatusRow(s) {
   //   表格却是 `在轨（~2026-08-26, 1150km）`。同一颗星两个说法，看起来像数据错。
   //   `od` = 工作轨道生效日（mkdata 的 ORBIT_ST 产出），表格从 tableVals 里拿，这里有它就行。
   var cls = r.gone ? 'st-gone' : (r.orb === 1 ? 'st-raising' : 'st-orbit');
+  // ★★ V1.9.9（2026-10-20 用户新需求）：**信息窗里用简写**（`brief = true`）——
+  //   在轨 / 变轨中·间歇 → 只留状态名；变轨中·点火 → 只留 `（+X.XXkm/天）`。
+  //   ⚠️ 06 章卫星表格走的是 `orbitStatusHtml(r)`（不带第二参），**保持完整文案不变** ——
+  //   用户明确："卫星表格的内容与此次信息窗改动无关"。
   return '<div class="si-row ' + cls + '"><span>' + t('d_row_status') + '</span><span>' +
-    orbitStatusHtml(r) + '</span></div>';
+    orbitStatusHtml(r, true) + '</span></div>';
 }
 // ★ V1.9.7（§8）：`live` 参数给"会跳动"的那两行（星下点 / 瞬时高度）打标记，
 //   由 tickLiveInfo() 每秒就地改文本 —— 不重建整块 HTML（重建会打断选择、闪烁）。
@@ -3572,11 +3587,24 @@ function goneStatusText(deadOn, days) {
 //             · 速度片段**单独着色**（正绿 / 负黄 / 0 灰），不随整格染黄 —— 清单 A7 明文要求
 //             · 数据不足（历史池刚覆盖、点数 < 2）时没有 rr → 只显示日期与高度，不显示速度
 //   已再入 → 已再入（~2025-10-16，227天）
-function orbitStatusHtml(r) {
+//
+// ★★ V1.9.9（2026-10-20 用户新需求）：**信息窗**（01/02/03 章）里要"简化显示" ★★
+//   用户原话：「变轨中·间歇、在轨两种情况不需要后面括号的内容，变轨中·点火仅在后面的括号里
+//   写升轨速度项（如"（+3.93km/天）"，注意括号为英文括号）」。
+//   为什么：信息窗在手机上会盖掉大量屏幕，完整括号内容（日期+高度）把窗口撑得又宽又长。
+//   ⚠️ 范围**只限信息窗** —— 06 章卫星表格的「在轨状态」列**保持原样**（用户明确"无关"）。
+//   简写口径（`brief = true`）：
+//     · 在轨            → `在轨`                （去掉 `（~日期, 高度）`）
+//     · 变轨中·间歇     → `变轨中·间歇`          （去掉 `（~日期, 高度）`）
+//     · 变轨中·点火     → `变轨中·点火(+3.93km/天)`  ← 英文半角括号，只留速度项
+//     · 变轨中（无速率）→ `变轨中`               （没有速度项可写，同"间歇"处理）
+//     · 已再入          → `已再入`               （同上，去掉天数括号；本需求说的"在轨两种情况"涵盖它）
+//   颜色类不变：仍由调用方的 .st-orbit / .st-raising / .st-gone 与 .st-rate.pos/neg/zero 决定。
+function orbitStatusHtml(r, brief) {
   // ⚠️ 注意用 `r._s.launch`（卫星对象上挂的**发射记录对象**，含 dateMs），
   //   不能写 `r.launch` —— tableVals 里的 `launch` 字段是**批次名字符串**，
   //   拿它去取 dateMs 会得到 undefined，导致在轨日算不出来、只剩"已再入"三个字。
-  if (r.gone) return goneStatusText(r.deadOn, goneDays(r._s.launch, r.deadOn));
+  if (r.gone) return brief ? t('st_gone') : goneStatusText(r.deadOn, goneDays(r._s.launch, r.deadOn));
   if (r.orb === 1) {
     // ⚠️ `smaB` 在 build() 里**已经是离地高度**（`aBro - RE`），不要再减一次 RE ——
     //   减了会得到 -5890 这种负高度（smoke 的渲染层断言当场抓到）。
@@ -3588,6 +3616,16 @@ function orbitStatusHtml(r) {
     var _hasRR = (r.rr !== undefined && r.rr !== null && isFinite(r.rr));
     // 阈值与 mkdata 的 RATE_TH **必须同口径**（这里 0.5 km/day，源自 findrassvet §3.3–3.5；2026-10-17 由 0.8 下调）
     var _hot = _hasRR && Math.abs(r.rr) > 0.5;
+    // ★ V1.9.9：简写态的前缀**不带**左括号（`变轨中·点火（~` 的 `（~` 要去掉），
+    //   所以这里另取一组"裸"键，而不是去截字符串（截字符串会在中英之间错位）。
+    if (brief) {
+      if (!_hot) return _hasRR ? t('st_raise_idle_b') : t('st_raising');
+      var bcls = r.rr > 0 ? 'pos' : (r.rr < 0 ? 'neg' : 'zero');
+      // 用户指定的形态：`变轨中·点火(+3.93km/天)` —— **英文半角括号**，括号内只有速度项
+      return t('st_raise_hot_b') + t('st_paren_l') +
+        '<span class="st-rate ' + bcls + '">' +
+        (r.rr > 0 ? '+' : '') + r.rr.toFixed(2) + t('st_kmday') + '</span>' + t('st_paren_r');
+    }
     var _lead = !_hasRR ? t('st_raising_a') : (_hot ? t('st_raise_hot') : t('st_raise_idle'));
     var txt = _lead + ymd8(r.epoch) + t('st_gone_b') + h + 'km';
     if (_hot) {
@@ -3599,6 +3637,8 @@ function orbitStatusHtml(r) {
     }
     return txt + t('st_close');
   }
+  // ★ V1.9.9：简写态「在轨」不带任何括号内容
+  if (brief) return t('st_orbit');
   // ★ V1.9.7（P0-A 配套）：`wk` 可能缺失（在线新增、尚未经过 mkdata）——
   //   旧写法会拼出 `undefinedkm`。缺失时退回**当前半长轴高度**（`smaB` 已是离地高度）。
   var wk = (r.wk === 'GEO') ? 'GEO'

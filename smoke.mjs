@@ -919,16 +919,49 @@ assert('表格列开关与默认设置按钮已移除（恒为全部列）', tpl
 assert('全屏搜索框注册在绑定循环之前', appSrc.indexOf('fsTopSearch') < appSrc.indexOf("el.addEventListener('input', function () { applySearch(this); })"));
 assert('窄屏适配：全屏搜索框收窄 + × 字号放大', tpl.indexOf('@media (max-width: 640px)') >= 0 && tpl.indexOf('fs-exit-btn { font-size:22px; }') >= 0);
 assert('三章节信息窗外观统一（无 chart-info / #mapInfo 特例）', tpl.indexOf('.chart-info {') < 0 && tpl.indexOf('#mapInfo {') < 0);
-// ================================================================ ★ V1.9.9（用户 2026-10-20 报的 bug）
-// 用户原话：「变轨情况章节内的正常，但前几章的显示不完整…信息窗宽度不足且没有统一」。
-// 实测（真浏览器 1440px）：最长一行「变轨中·点火（~…, 1149km, +3.63km/天）」max-content = 396px，
-// 加 .si-block 左右 padding 与边框 = 426px；原先宽度由内容决定（在轨 347 / 变轨 445），
-// 一旦某行比"当前最宽行"更宽就会顶到边界，被 .si-body 的 overflow:hidden 切掉。
-// 现在钉成 **452px 固定宽**（426 + 26 余量），窄屏用 max-width(100vw) + 换行兜底。
-assert('V1.9.9：信息窗宽度**固定统一**（452px 变量；不再 max-content）',
-  /--si-w:\s*452px/.test(tpl) && /\.sat-info \{[^}]*width:var\(--si-w\)/.test(tpl) &&
+// ================================================================ ★ V1.9.9（用户 2026-10-20 报的 bug + 新需求）
+// 【第一轮】用户原话：「变轨情况章节内的正常，但前几章的显示不完整…信息窗宽度不足且没有统一」。
+//   当时最长一行是完整的「变轨中·点火（~…, 1149km, +3.63km/天）」max-content = 396px，
+//   加 .si-block 左右 padding 与边框 = 426px；原先宽度由内容决定（在轨 347 / 变轨 445），
+//   一旦某行比"当前最宽行"更宽就会顶到边界，被 .si-body 的 overflow:hidden 切掉。
+//   那时钉成 452px 固定宽。
+//
+// 【第二轮】用户要求**简化变轨节点**（在轨/间歇去掉括号内容、点火只留速度项），并要求
+//   "给一个刚好能容纳最长情况、不会换行的宽度"。简化后最长行变短（英文 337.7px + 30 = 367.7），
+//   实测折行阈值 **367px 折 / 368px 不折**，再按"升轨速度不会超过 XX.XX"留一个数字位 → **376px**。
+//   （实测记录见 template.html 里 .sat-info 的注释块。）
+assert('V1.9.9：信息窗宽度**固定统一**（376px 变量；不再 max-content）',
+  /--si-w:\s*376px/.test(tpl) && /\.sat-info \{[^}]*width:var\(--si-w\)/.test(tpl) &&
   // ⚠️ 先去掉注释再判「不再 max-content」—— 否则规则上方那句"不再 width:max-content"的说明会被当成违规
   !/\.sat-info \{[^}]*width:max-content/.test(tpl.replace(/\/\*[\s\S]*?\*\//g, '')));
+
+// ---------- ★ V1.9.9 第二轮：信息窗**简写**（01/02/03 章），表格保持完整 ----------
+// 用户原话：「变轨中·间歇、在轨两种情况不需要后面括号的内容，变轨中·点火仅在后面的括号里
+//   写升轨速度项（如"（+3.93km/天）"，注意括号为英文括号）」+「卫星表格的内容与此次信息窗改动无关」。
+assert('V1.9.9：`orbitStatusHtml` 支持**简写**第二参（brief），且信息窗走简写、表格走完整',
+  /function orbitStatusHtml\(r, brief\)/.test(appSrc) &&
+  // 信息窗：satStatusRow 里显式传 true
+  /orbitStatusHtml\(r, true\)/.test(appSrc) &&
+  // 表格：td 里**不传**第二参（保持完整文案）
+  /orbitStatusHtml\(r\) \+ '<\/td>'/.test(appSrc));
+assert('V1.9.9：简写形态的四个分支齐全（在轨 / 间歇 / 点火 / 已再入）',
+  // 已再入 → 只留 `已再入`
+  /if \(r\.gone\) return brief \? t\('st_gone'\)/.test(appSrc) &&
+  // 在轨 → 只留 `在轨`
+  /if \(brief\) return t\('st_orbit'\);/.test(appSrc) &&
+  // 点火 → 只留速度项，且用**半角括号**
+  /return t\('st_raise_hot_b'\) \+ t\('st_paren_l'\)/.test(appSrc) &&
+  // 间歇/无速率 → 只留状态名
+  /if \(!_hot\) return _hasRR \? t\('st_raise_idle_b'\) : t\('st_raising'\);/.test(appSrc));
+assert('V1.9.9：简写用的 i18n 键是**英文半角括号**（用户明确要求）',
+  // 源码形态：st_paren_l: ['(', '('],   /   st_paren_r: [')', ')'],
+  // ⚠️ 这里必须断言"两语言都是半角" —— 若哪天有人把中文侧改成全角 `（`，就会与
+  //    状态行既有的 st_close（全角 `）`）混用，括号宽度不一致；同时反向断言禁止全角。
+  /st_paren_l: \['\(', '\('\]/.test(appSrc) &&
+  /st_paren_r: \['\)', '\)'\]/.test(appSrc) &&
+  !/st_paren_l: \['（/.test(appSrc) && !/st_paren_r: \['）/.test(appSrc) &&
+  /st_raise_hot_b: \['变轨中·点火', 'Raising · burning'\]/.test(appSrc) &&
+  /st_raise_idle_b: \['变轨中·间歇', 'Raising · coasting'\]/.test(appSrc));
 assert('V1.9.9：窄屏用 **100vw** 收窄（父容器可能比视口宽，用 100% 会算出 ~700px → 窗口跑出屏幕）',
   /max-width:min\(var\(--si-w\), calc\(100vw - 32px\)\)/.test(tpl) &&
   /max-width:min\(var\(--si-w\), calc\(100vw - 20px\)\)/.test(tpl));
