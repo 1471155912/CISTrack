@@ -61,6 +61,15 @@ const OPTIONAL = {
   //   `coast.js.txt`），已按"派生中间产物"列入 .gitignore → 全新 clone 里没有它。
   //   ⚠️ 这个条目是 CI 抓出来的：本地磁盘上有它所以体检通过，CI 的干净 checkout 直接失败 ——
   //   又一次"只在本地跑过 = 没跑过"。以后凡是被引用、又是构建期生成的，都要在这里登记理由。
+  // ★★ V1.9.9.630：`missing_gw.json` / `missing_qf.json`（"尚未编目"待补池，由 refresh.mjs 产出，
+  //   正常内容是 `{}`，已在 .gitignore）。它们被我新写的 `scripts/e2e_adversarial.mjs` 当输入**列进了
+  //   复制清单** → 体检把这几个名字当成"必需引用" → **CI 第一步直接失败**（本地有文件，所以本机全绿）。
+  //   **这和上面 `coast.txt` 是同一个坑的第二次** —— 教训：e2e 脚本里"读某文件"的写法，
+  //   会让 audit_refs 把该文件算进引用面；凡 `.gitignore` 的东西，要么在脚本里显式标注可选，
+  //   要么在这里登记。本轮是后者。
+  //   （这两个文件只被 e2e 的 E 段用 `existsSync` 守卫式复制，缺了不影响任何断言。）
+  'missing_gw.json': '待补池（由 refresh.mjs 产出，.gitignore；e2e 以 existsSync 守卫式读取）',
+  'missing_qf.json': '同上（千帆）',
   'coast.txt': '海岸线文本转写（mkcoast.mjs 顺带产出，.gitignore；构建只用 data/coast.js.txt）',
   // 2026-10-16（V1.9.5 / H38）：开发与验证工具已**移出仓库**（用户点名：留在本地）。
   //   它们仍被"按设计可缺席"地引用：`build.mjs` 对 `clean.mjs` 是 `existsSync` 守卫 + 动态 import

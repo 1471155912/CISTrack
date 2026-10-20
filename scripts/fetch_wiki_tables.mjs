@@ -262,11 +262,18 @@ for (const [key, url] of PAGES) {
       //     qf 2019-077 → KL-Alpha A / KL-Alpha B / …（重复 6 遍）
       //     qf 2021-070 / qf 2026-211 同病。
       //   现按 ' / ' 拆开、逐项去重（保持首次出现顺序）后再拼回。
-      if (row.en) {
-        const parts = String(old.en || '').split(' / ').map(s => s.trim()).filter(Boolean);
-        const seen = new Set(parts);
-        String(row.en).split(' / ').map(s => s.trim()).filter(Boolean)
-          .forEach(e => { if (!seen.has(e)) { seen.add(e); parts.push(e); } });
+      // ★★ V1.9.9.630（第二次修，这才是治本）：上面的去重**只作用于"新加进来的项"**，
+      //   而 `out.gw = old.gw` 是**旧文件的直接引用** —— 已经写进磁盘的脏值（12 项 / 2 唯一）
+      //   在合并时被原样当作 `parts` 的起点，`seen` 里全是它自己，于是**永远原样保留**。
+      //   实测：重抓一次（`--force`）后 3 个批次依旧是 12 项 —— 说明"重跑就能清掉"是错的。
+      //   ⇒ 正确做法是让这段**幂等**：先对 `old.en` 自身去重，再加上新项。这样跑 N 次结果一致，
+      //   旧脏值也在第一次重抓时被就地洗干净（不需要手删文件、也不需要人工兜底）。
+      if (row.en || old.en) {
+        const parts = [];
+        const seen = new Set();
+        const push = (s) => { s.split(' / ').map(x => x.trim()).filter(Boolean).forEach(e => { if (!seen.has(e)) { seen.add(e); parts.push(e); } }); };
+        push(String(old.en || ''));      // ← 先洗旧值（幂等的关键）
+        push(String(row.en || ''));      // ← 再加本次抓到的
         old.en = parts.join(' / ');
       }
       n++;

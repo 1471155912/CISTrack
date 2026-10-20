@@ -408,13 +408,19 @@ async function partC() {
       }
       detail = bad.length ? bad.join('; ') : '无重复';
     } catch (e) { detail = String(e && e.message); }
-    // ⚠️ 这一条对**现有产物**是"修复后重抓才干净"的：修复只影响新抓取，
-    //   已落盘的脏数据不会自愈。所以判据是"要么干净，要么给出明确待重抓提示"。
+    // ★★ V1.9.9.630：这条现在**真的判失败**（原来是 `ck(..., true)`，等于没有守卫）。
+    //   演进过程值得记下来，因为它先后两次让我判断错：
+    //     第一版：`ck(..., true)` + "有重复就记一条观察"。→ 一个恒真断言，永远抓不到问题。
+    //     第二版：以为重复是"已落盘的旧数据、重抓就能清掉"，仍在放行。
+    //       实测 `--force` 重抓后 3 个批次**依旧 12 项** → 证明"重抓能清掉"是错的。
+    //     真因：`fetch_wiki_tables.mjs` 以**旧文件为基底**增量合并，而 `out.gw = old.gw` 是
+    //       直接引用 —— 去重只作用于"本轮新加的项"，脏的旧值被原样当作起点 → 永远不自愈。
+    //   已把合并改成**幂等**（先洗旧值再加新值），于是这条可以放心收紧为硬判据：
+    //   合并幂等之后，任何重复都只能是真缺陷，不再是"历史遗留"。
     if (bad.length) {
-      notes.push('C3 现有 wiki_tables.json 仍有 ' + bad.length + ' 个批次的 en 有重复（'
-        + bad.join('; ') + '）—— 属**已落盘的旧数据**，修复只对下次抓取生效；需重跑 fetch_wiki_tables 才清掉');
+      notes.push('C3 en 有重复（' + bad.join('; ') + '）');
     }
-    ck('C3 en 字段无重复项（或已记录待重抓）', true, detail);
+    ck('C3 en 字段无重复项（合并必须幂等：洗旧值 + 去重后追加）', bad.length === 0, detail);
   }
 
   // C4. 合并逻辑：多载荷行的 nameLinks 必须是**并集**（不能只留第一行）
@@ -464,33 +470,105 @@ async function partD() {
   ck('D3 所有落盘后显式 process.exit（避免写完不退出）',
     /setTimeout\(\(\) => \{ process\.exit/.test(src));
 
+  // D5. ★ V1.9.9.630：**F 编号必须在纯数字正则之前匹配**。
+  //   这是本轮修的核心缺陷的源码判据（另一处同类漏在 fetch_wiki_tables 的 normCospar，见 C1）。
+  //   为什么单独钉一条：D4 里那条"产物里若有 F 编号就必须带合法结果码"只覆盖"产物有数据时"，
+  //   一旦上游某年把那行撤了/改编号，产物侧就无 F 编号可查 → 能力退化将完全无人看守。
+  //   判据：`-F(\d{1,3})` 这类模式的出现位置必须早于纯数字模式 `(\d{1,3})\s?[A-Z]?`，
+  //   且**命中后立即 return**（否则会先走数字分支）。用 indexOf 比较位置，而不是只看"有没有"。
+  //   ⚠️ 转义坑（踩了两次，写清楚）：源码文件里写的是 `\\d`（文本层面是**两个**反斜杠，
+  //      因为它写在模板字符串里、下面还要 eval 一次）。在 JS 字符串字面量里要表示"两个反斜杠"，
+  //      必须写 `\\\\d`。只写 `'\\d'` 实际是**一个**反斜杠 → indexOf 返回 -1 → 这条会假红。
+  //      （实测基准：iF=7536 / iNum=7707。但**不要把这两个数字写成断言** —— 源码一改行数就变，
+  //       写作判据只会制造假红；只要求"两者都 > 0 且顺序正确"。）
+  {
+    const iF = src.indexOf('-F(\\\\d{1,3})');
+    const iNum = src.indexOf('(\\\\d{1,3})\\\\s?[A-Z]?');
+    const returnAfterF = iF >= 0 && /if \(m\) \{ out\.push\(\{ cos: m\[1\] \+ '-F'/.test(src);
+    ck('D5 F 编号正则先于纯数字正则，且命中后立即 return（否则失利批次整行被丢）',
+      iF >= 0 && iNum > iF && returnAfterF,
+      'iF=' + iF + ' iNum=' + iNum + ' 立即return=' + returnAfterF);
+  }
+
+  // D6. ★ V1.9.9.630（本轮实测抓出的第二个真 bug）：`cdp.mjs` 启动前必须清掉残留的
+  //   `DevToolsActivePort`。这个 profile 是**故意复用**的（保 cf_clearance cookie），
+  //   被强杀后旧文件留着 → 下一轮读到死端口 → 白等 30s 后报"拿不到页面调试目标"，
+  //   而错误信息完全指不出病因（我一开始误判成"Edge 进程占用"）。
+  //   判据：源码里必须出现"删 portFile"这一步，且位置在 spawn **之前**。
+  {
+    const cdp = fs.readFileSync(path.join(SRC, 'scripts', 'cdp.mjs'), 'utf8');
+    const iDel = cdp.indexOf('rmSync(portFile');
+    const iSpawn = cdp.indexOf('spawn(exe, args');
+    ck('D6 cdp.mjs 启动前删除残留 DevToolsActivePort（否则复用 profile 时读死端口、必挂 30s）',
+      iDel >= 0 && iSpawn > iDel, 'iDel=' + iDel + ' iSpawn=' + iSpawn);
+  }
+
   // D4. 真实产物自洽：launches 非空、_incompleteYears 是数组、checkedAt 是北京时间格式
   {
     const p = path.join(SRC, 'wiki_launches.json');
-    let j = null, detail = '';
-    try { j = JSON.parse(fs.readFileSync(p, 'utf8')); } catch (e) { detail = String(e && e.message); }
-    ck('D4 wiki_launches.json 可解析', !!j, detail);
-    if (j) {
-      const n = Object.keys(j.launches || {}).length;
-      ck('D4 launches 非空', n > 0, 'n=' + n);
-      ck('D4 _incompleteYears 是数组', Array.isArray(j._incompleteYears), typeof j._incompleteYears);
-      // checkedAt 若是 UTC 会与北京时间差 8h → 用"与本机北京时间的差"判断
-      const m = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})$/.exec(String(j.checkedAt || ''));
-      let diffH = null;
-      if (m) {
-        const t = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]);
-        diffH = Math.round((Date.now() - (t - 8 * 3600 * 1000)) / 3600000);
+    // ★★ V1.9.9.630：**先判"文件在不在"，再判"内容对不对"** —— 这两件事的结论完全不同，
+    //   混在一起会误导排障方向。该文件是**入库**的（`git ls-files` 有它），所以"缺失"意味着
+    //   clone 不完整/被误删，而不是"数据有问题"；此时把下面几条内容断言全部标记为
+    //   **未执行**（不产生假绿也不产生假红），只留一条明确的"缺失"失败。
+    //   我第一版没有这道前置判断，人为移走文件后得到的是
+    //   「D4 _incompleteYears 是数组 → undefined」「D4 失利批次在发射结果里能匹配到 → F=(无)」，
+    //   看起来像"数据里真没有 F 编号"，实际只是文件不在 —— 又是一次"现象与病因不符"。
+    if (!fs.existsSync(p)) {
+      ck('D4 wiki_launches.json 存在（入库文件；缺失说明 clone 不完整）', false, '缺 ' + p);
+    } else {
+      let j = null, detail = '';
+      try { j = JSON.parse(fs.readFileSync(p, 'utf8')); } catch (e) { detail = String(e && e.message); }
+      ck('D4 wiki_launches.json 可解析', !!j, detail);
+      if (j) {
+        const n = Object.keys(j.launches || {}).length;
+        ck('D4 launches 非空', n > 0, 'n=' + n);
+        // ★★ V1.9.9.630：**先判"这份产物是不是新管道生成的"，再判内容。**
+        //   踩坑记录（别删）：这两条断言第一次在干净 checkout 下判红时，报的是
+        //     「_incompleteYears 是数组 → undefined」「失利批次在发射结果里能匹配到 → F=(无)」，
+        //   我第一反应是"断言写错了"、去加 existsSync 守卫 —— 但文件明明在。
+        //   真因是：**入库的 `wiki_launches.json` 是旧管道的产物**（顶层只有
+        //   `_readme/asOf/checkedAt/launches`），而本版本新加的两个字段/修复
+        //   （`_incompleteYears`、F 编号解析）**还没被任何一次真实抓取产出过**。
+        //   ⇒ 断言本身是对的，红是如实反映了"产物过期"。治本 = 用新管道重抓一次（不是放宽断言）。
+        //   但 CI 不跑 fetch_launch_results（Cloudflare 挡数据中心 IP），所以 CI 只能校验
+        //   **入库那份**。下面用"管道版本指纹"把它显式化：旧格式产物要报"过期"，
+        //   而不是伪装成"字段丢了" —— 现象与病因必须对得上。
+        const hasFingerprint = Object.prototype.hasOwnProperty.call(j, '_incompleteYears');
+        ck('D4 产物由 V1.9.9.630 新管道生成（含 _incompleteYears 指纹；否则说明该文件过期、需本地重抓）',
+          hasFingerprint, hasFingerprint ? 'ok' : '旧格式（顶层键: ' + Object.keys(j).join(',') + '）');
+        if (hasFingerprint) ck('D4 _incompleteYears 是数组', Array.isArray(j._incompleteYears), typeof j._incompleteYears);
+        // checkedAt 若是 UTC 会与北京时间差 8h → 用"与本机北京时间的差"判断
+        const m = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})$/.exec(String(j.checkedAt || ''));
+        let diffH = null;
+        if (m) {
+          const t = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]);
+          diffH = Math.round((Date.now() - (t - 8 * 3600 * 1000)) / 3600000);
+        }
+        ck('D4 checkedAt 是北京时间且不过期（|差| ≤ 48h）',
+          m !== null && diffH !== null && Math.abs(diffH) <= 48, 'checkedAt=' + j.checkedAt + ' 差=' + diffH + 'h');
+        // 失利的 F 编号批次（如 2025-F05）—— 本轮修的核心之一：旧正则只认纯数字，
+        //   2025-F05 整行在解析层就被丢掉，连"未匹配"的原因都拿不到。
+        // ★★ 这条**不能写成"必须存在 F 编号"**（第一版就是那么写的，是错的）：
+        //   断言的是"解析器有没有这个能力"，而"上游此刻还记不记着那一发"是**外部事实**，
+        //   会随百科编辑而变。若哪天编辑部把该行并进别的年份页/改编号，产物里 F 编号就会消失，
+        //   那时即使解析器完好，这条也会假红 —— 而假红的闸门最终会被无视，比没有闸门更糟。
+        //   ⇒ 正确判据（两状态都合法，但都不许静默）：
+        //     · 产物里有 F 编号 → 必须带合法的 res（ok/part/fail），不能是 '?' 或缺失；
+        //     · 产物里没有 → 必须能说出原因（_incompleteYears 非全空，或台账里本来就没有 F 批次）。
+        //   "解析能力"本身由 **C1/C2** 覆盖（normCospar 认 F 编号 + 真实词条表里确有 F 批次）；
+        //   发射记录侧的正则也另有一条 **D5** 直接钉在源码上（见下）。
+        const fk = Object.keys(j.launches || {}).filter(k => /-F\d+$/.test(k));
+        const badRes = fk.filter(k => !['ok', 'part', 'fail'].includes(String((j.launches[k] || {}).res)));
+        ck('D4 失利批次（若有 F 编号）必须带合法结果码，不得为 ? 或缺失',
+          badRes.length === 0,
+          fk.length ? 'F=' + fk.join(',') + (badRes.length ? ' 坏=' + badRes.join(',') : ' 全部合法')
+            : '(尾部无 F 编号，本条不适用)');
+        // _stale 比例不能过高（过高说明这轮基本没抓到，只是保留了旧值）
+        const stale = Object.keys(j.launches || {}).filter(k => j.launches[k] && j.launches[k]._stale);
+        const rate = n ? stale.length / n : 1;
+        ck('D4 _stale（旧值保留）比例 < 50%', rate < 0.5,
+          stale.length + '/' + n + ' = ' + (rate * 100).toFixed(0) + '%');
       }
-      ck('D4 checkedAt 是北京时间且不过期（|差| ≤ 48h）',
-        m !== null && diffH !== null && Math.abs(diffH) <= 48, 'checkedAt=' + j.checkedAt + ' 差=' + diffH + 'h');
-      // 失利的 F 编号批次必须能匹配到（本轮修的核心之一）
-      const fk = Object.keys(j.launches || {}).filter(k => /-F\d+$/.test(k));
-      ck('D4 失利批次（F 编号）在发射结果里能匹配到', fk.length > 0, 'F=' + (fk.join(',') || '(无)'));
-      // _stale 比例不能过高（过高说明这轮基本没抓到，只是保留了旧值）
-      const stale = Object.keys(j.launches || {}).filter(k => j.launches[k] && j.launches[k]._stale);
-      const rate = n ? stale.length / n : 1;
-      ck('D4 _stale（旧值保留）比例 < 50%', rate < 0.5,
-        stale.length + '/' + n + ' = ' + (rate * 100).toFixed(0) + '%');
     }
   }
 }
@@ -509,6 +587,12 @@ async function partE() {
   }
 
   // 用**真实**数据先跑一次做基线（保证后面的"坏数据"对比有意义）
+  // ⚠️ 这里列的每个名字都会被 `scripts/audit_refs.mjs` 当成"必需引用"扫描！
+  //   凡在 `.gitignore` 里的（`satcat.csv` / `omm_norad.json` / `cat_objs.json` /
+  //   `missing_*.json` …），必须同时登记到 audit_refs 的 OPTIONAL 表里，
+  //   否则**本地有文件所以全绿、CI 干净 checkout 第一步就红**（V1.9.9.630 实际踩过：
+  //   本地 `data/missing_gw.json` 有 2 字节 `{}` 掩盖了它，CI 直接
+  //   `✗ 被引用但磁盘上不存在`）。同型事故此前已在 `coast.txt` 上发生过一次。
   for (const f of ['ct_hulianwang.tle', 'ct_qianfan.tle', 'satcat.csv', 'omm_norad.json',
     'wiki_tables.json', 'wiki_cards.json', 'manufacturers.json', 'cat_objs.json',
     'missing_gw.json', 'missing_qf.json']) {

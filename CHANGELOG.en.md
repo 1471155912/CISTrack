@@ -169,12 +169,19 @@ HTTP 200, a normal retirement) together with **real failures** (5xx / parse erro
 and printed both as "failed" — impossible to tell during triage whether to retry or ignore. Now split into
 `ommErr` / `ommMissing` and printed separately.
 
-**Also worth knowing (not changed; pre-existing exposure)**: three batches in `data/wiki_tables.json` have
-duplicates in their `en` field (`qf 2019-077` / `qf 2021-070` / `qf 2026-211`, 12 items / 2 unique each).
-The old accumulation logic only rejected "exactly equal" and could not stop `"A / B"` being appended again;
-`fetch_wiki_tables.mjs` now dedupes item by item, but that **only affects the next fetch** — the data
-already on disk needs that script re-run. **Checked: nothing in `mkdata.mjs` reads this field** (English
-names actually come from `CARD_EN` in `wiki_cards.json`), so it is data noise, not a page defect.
+**`en` duplicates — this note was WRONG on first publication, and is corrected here.** Three batches in
+`data/wiki_tables.json` had duplicates in their `en` field (`qf 2019-077` / `qf 2021-070` / `qf 2026-211`,
+12 items / 2 unique each). The old accumulation logic only rejected "exactly equal" and could not stop
+`"A / B"` being appended again. I first wrote here that "the fix only affects the next fetch, so just re-run
+the script" — **re-running it (`--force`) left all three batches at 12 items**, proving that claim false.
+
+Real cause: `fetch_wiki_tables.mjs` merges **on top of the existing file**, and `out.gw = old.gw` is a
+**direct reference**. The dedupe only applied to items added in the current run, while the already-dirty
+value was carried in as the starting point — so it could never heal. Fixed by making the merge
+**idempotent** (dedupe `old.en` itself first, then append). Verified: `12 items → "KL-Alpha A / KL-Alpha B"`;
+the C3 assertion is now a **hard** check instead of the permanently-true `ck(..., true)` it used to be.
+(The observation that nothing in `mkdata.mjs` reads this field still holds — English names come from
+`CARD_EN` in `wiki_cards.json` — so this was data noise, not a page defect.)
 
 ### 11. UI and copy (second batch of this version)
 
@@ -290,13 +297,81 @@ two in-page modals.
   "already current" (idempotent); injecting a dirty value turns both guards red; after restoring,
   smoke is **PASS 998 / FAIL 0**.
 
-### 12. Verification (V1.9.9.630 final)
+### 12. Post-release cleanup: 4 real defects caught by CI (added 2026-10-21)
+
+> Every defect in this section surfaced **only after CI went red** — locally `smoke`, `visual` and `e2e`
+> were all green, yet GitHub Actions failed outright on a clean `ubuntu-latest` checkout. The shared
+> lesson: **"only ever run locally" means "never run"**. Locally the `.gitignore`d files under `data/`
+> masked an entire class of defects.
+
+**① `audit_refs` reported "referenced but missing" (`missing_gw.json` / `missing_qf.json`)**
+
+- Cause: I listed two "pending pool" files (produced by `refresh.mjs`, normally just `{}`, **already in
+  `.gitignore`**) in the copy manifest of `e2e_adversarial.mjs`. `audit_refs.mjs` treats every name in that
+  manifest as a **required** reference → present locally (2 bytes of `{}`) so all green, but a clean CI
+  checkout went red **on the very first step**.
+- Not a new trap: `coast.txt` in `audit_refs.mjs`'s own comments is **the first instance of the same
+  mistake**. Repeating it means adding a name to that manifest **lacks a companion action** (registering it
+  in the `OPTIONAL` table).
+- Fix: registered both in `OPTIONAL`, and put a warning comment directly above the manifest so the next
+  person editing it sees it first.
+
+**② `wiki_launches.json` was a stale artifact → two D4 assertions correctly went red**
+
+- Symptoms on a clean checkout: `✗ D4 _incompleteYears is an array → undefined`,
+  `✗ D4 failed batch (F number) is matchable → F=(none)`.
+- **My first verdict was wrong**: I assumed a missing file and added an `existsSync` pre-guard — but the
+  file was there. The truth: **the committed artifact came from the old pipeline** (top-level keys were
+  only `_readme/asOf/checkedAt/launches`); the new `_incompleteYears` field and the F-number parsing
+  **had never been produced by any real fetch**.
+- ⇒ **The assertions were right; red honestly meant "artifact is stale."** The cure was to run a real
+  fetch with the new pipeline — **not to relax the assertion**. Afterwards: `_incompleteYears: []` (an
+  array), `2025-F05` matched with `res: fail`, `_stale: 0`, `launches` 60 → **61**. CI does not run
+  `fetch_launch_results` (Cloudflare blocks datacenter IPs), so it can only validate the committed copy —
+  hence a **pipeline fingerprint** assertion, so "stale artifact" and "field went missing" are
+  distinguishable straight from the failure message.
+
+**③ `en` dedupe only applied to newly added items → dirty values could never heal (idempotency defect)**
+
+- Symptom: three qianfan batches (`qf 2019-077` / `2021-070` / `2026-211`) had **12 items / 2 unique** in
+  `en` — exactly 6 repetitions, the classic "accumulated on every merge" signature.
+- Two wrong verdicts along the way: the first version of this check was `ck(..., true)` + a note → **a
+  permanently true assertion, i.e. no guard at all**; the second version assumed "old data on disk, a
+  re-fetch will clean it" → `--force` left it at 12 items, disproving that.
+- Real cause: `fetch_wiki_tables.mjs` merges **on top of the existing file**, and `out.gw = old.gw` is a
+  **direct reference**. Dedupe applied only to the current run's additions, while the dirty value was
+  carried in as the starting point.
+- Fix: make the merge **idempotent** — dedupe `old.en` itself, then append. N runs give the same result,
+  and the dirty value is cleaned in place on the first re-fetch (no manual file surgery, no human
+  fallback). Verified `12 items → "KL-Alpha A / KL-Alpha B"`; C3 tightened into a hard assertion.
+
+**④ `cdp.mjs` read a stale `DevToolsActivePort` when reusing a profile → guaranteed 30 s failure**
+
+- Symptom: `fetch_wiki_tables.mjs --force` reported `Error: 拿不到页面调试目标（端口 53308）`, while
+  `fetch_launch_results.mjs` succeeded first try.
+- **I misattributed this too** (assumed "Edge is holding the profile lock" and went looking at 22
+  `msedge.exe` processes) — in fact all 22 were the **user's own daily Edge** (from
+  `AppData\...\Edge\User Data`), unrelated to the tests.
+- Real cause: `DevToolsActivePort` is the port file written by the **previous** browser run (normally
+  deleted on clean exit, but left behind after `taskkill /F` or a crash). Both
+  `edge-profile-fetch-wiki-tables` and `visual.mjs`'s profile are **deliberately reused** (to keep the
+  `cf_clearance` cookie and skip a first-time challenge that can exceed 136 s) → the next run reads the
+  **dead port** → polls a port nobody listens on → waits out `bootMs` (30 s) and then errors, with a
+  message that **cannot point at the cause**. Evidence: the leftover file said `65215`; `netstat` showed
+  **zero listeners** on it.
+- Fix: `openBrowser()` now `rmSync(portFile, {force:true})` **before** `spawn` (idempotent). The same
+  command then passed in **8 s** (was a 30 s timeout).
+- Side effect worth knowing: the recurring `visual.mjs` symptom "viewport override not applied, must kill
+  all Edge first" that I had attributed to an Edge limitation was **this same defect**. Now pinned by
+  guard D6.
+
+### 13. Verification (V1.9.9.630 final)
 
 | Gate | Result |
 |---|---|
 | `smoke.mjs` | **PASS 998 / FAIL 0** (36 new guards in this version) |
 | `visual.mjs` (real Edge, 13 widths × 2 languages × 2 themes = 52-cell matrix) | **PASS 132 / FAIL 0** |
-| `e2e_adversarial.mjs` | **PASS 62 / FAIL 0** |
+| `e2e_adversarial.mjs` | **PASS 65 / FAIL 0** (six layers; also 65/0 under a simulated clean checkout) |
 | `e2e_omm_offline.mjs` / `e2e_include_offline.mjs` / `e2e_fake_sat.mjs` | all pass |
 | `audit_refs.mjs` / `audit_assertions.mjs` / `repo_hygiene.mjs` / `privacy_check.mjs` | all pass (0 hygiene violations / 0 privacy hits) |
 | `omm_check.mjs` / `search_pools.mjs` | all pass (12/12) |

@@ -246,13 +246,74 @@
 - **验证**：连跑 `release.mjs` 三次，徽章恒为 `1.9.9.630` 且日志三次都报"已是"（幂等成立）；
   手动注入脏值 → 两条守卫同时判红；恢复后 smoke **PASS 998 / FAIL 0**。
 
-### 十二、回归结果（V1.9.9.630 定版）
+### 十三、发布后收口：CI 抓出的 4 个真缺陷（2026-10-21 追加）
+
+> 这一节的全部缺陷都是 **CI 报红之后才暴露的** —— 本地全绿、`visual` 全绿、`e2e` 全绿，
+> 但 GitHub Actions 在干净的 `ubuntu-latest` checkout 上直接失败。
+> 共同教训：**"只在本地跑过"等于"没跑过"**。本地有 `data/` 下那些被 `.gitignore` 排除的文件，
+> 它们把一整类缺陷遮住了。
+
+**① `audit_refs` 报「被引用但磁盘上不存在」（`missing_gw.json` / `missing_qf.json`）**
+
+- 病根：我把两个"待补池"文件（由 `refresh.mjs` 产出、正常运行内容是 `{}`、**已在 `.gitignore`**）
+  写进了 `e2e_adversarial.mjs` 的复制清单。`audit_refs.mjs` 会把清单里的每个名字当作
+  "必需引用"去磁盘核对 → 本地有文件（2 字节 `{}`）所以全绿，CI 干净 checkout **第一步就红**。
+- 这不是新坑：`audit_refs.mjs` 的注释里 `coast.txt` 就是**同一个坑的第一次**。同一个错误犯两次，
+  说明"在清单里加名字"这个动作**缺少伴随动作**（忘了同步登记到 `OPTIONAL` 表）。
+- 修法：在 `OPTIONAL` 表登记两条；并在 `e2e_adversarial.mjs` 的清单上方写死一段警告注释，
+  让下一个改这里的人先看到。
+
+**② `wiki_launches.json` 是旧管道产物 → D4 两条断言如实判红**
+
+- 现象：干净 checkout 下
+  `✗ D4 _incompleteYears 是数组 → undefined`、`✗ D4 失利批次（F 编号）在发射结果里能匹配到 → F=(无)`。
+- **我第一次的判断是错的**：以为"文件缺失导致"，去加 `existsSync` 前置守卫 —— 但文件明明在。
+  真因是**入库的那份产物来自旧管道**（顶层只有 `_readme/asOf/checkedAt/launches`），
+  本版新加的 `_incompleteYears` 字段与 F 编号解析**从未被任何一次真实抓取产出过**。
+- ⇒ **断言是对的，红是如实反映"产物过期"**。治本 = 用新管道真抓一次，**不是放宽断言**。
+  重抓后：`_incompleteYears: []`（数组）、`2025-F05` 命中且 `res: fail`、`_stale: 0`、
+  `launches` 60 → **61** 条。CI 不跑 `fetch_launch_results`（Cloudflare 挡数据中心 IP），
+  所以 CI 只能校验入库那份 —— 为此加一条**管道版本指纹**断言，让"过期"与"字段丢了"
+  两种病因在报错信息里就能分开。
+
+**③ `en` 字段去重只对新加项生效 → 脏值永不自愈（幂等性缺陷）**
+
+- 现象：3 个千帆批次（`qf 2019-077` / `2021-070` / `2026-211`）的 `en` 是 **12 项 / 2 唯一**
+  —— 正好 6 遍重复，典型的"合并时反复累加"。
+- 演进过程（两次判断错，记下来）：
+  - 第一版把这条写成 `ck(..., true)` + 只记观察 → **一个恒真断言，等于没有守卫**；
+  - 第二版以为是"已落盘旧数据、重抓就能清掉"，继续放行 → 实测 `--force` 重抓后**依旧 12 项**，
+    证明"重抓能清掉"是错的。
+- 真因：`fetch_wiki_tables.mjs` 以**旧文件为基底**增量合并，而 `out.gw = old.gw` 是**直接引用**；
+  去重逻辑只作用于"本轮新加的项"，脏的旧值被原样当作起点 → 永远保留。
+- 修法：把合并改成**幂等** —— 先对 `old.en` 自身去重（洗旧值），再追加新抓到的项。
+  跑 N 次结果一致，旧脏值在第一次重抓时就地洗干净（不需要手删文件、不需要人工兜底）。
+  验证：`12 项 → "KL-Alpha A / KL-Alpha B"`（2 项）；C3 断言同时收紧为**硬判据**。
+
+**④ `cdp.mjs` 复用 profile 时读到残留 `DevToolsActivePort` → 必挂 30 秒**
+
+- 现象：`fetch_wiki_tables.mjs --force` 报
+  `Error: 拿不到页面调试目标（端口 53308）`，而同期 `fetch_launch_results.mjs` 一次就成功。
+- **我第一次又归因错了**（以为是"Edge 进程占用 profile"，还去查了 22 个 `msedge.exe`）——
+  实测那 22 个全是用户**自己日常在用的 Edge**（来自 `AppData\...\Edge\User Data`），与测试无关。
+- 真因：`DevToolsActivePort` 是 Chrome/Edge **上次运行**写下的端口文件（正常退出会删，
+  被 `taskkill /F` 强杀或崩溃会留下）。本仓的 `edge-profile-fetch-wiki-tables` 与
+  `visual.mjs` 的 profile 都是**故意固定复用**的（为保住 `cf_clearance` cookie，
+  省掉最长 >136s 的首次挑战）→ 下一轮启动读到**死端口** → 轮询无人监听的端口 →
+  白等 `bootMs`(30s) 后报错，而错误信息**完全指不出病因**。
+  实测证据：残留文件写的 `65215`，`netstat` 里该端口**零监听**。
+- 修法：`openBrowser()` 在 `spawn` **之前** `rmSync(portFile, {force:true})`（幂等）。
+  修复后同一条命令 **8s 通过**（原 30s 超时）。
+- 附带结论：此前 `visual.mjs` 反复出现的"视口覆盖不生效、必须先关掉所有 Edge 再跑"，
+  我当时归因成 Edge 自身限制 —— **实为本处缺陷**。现已加守卫 D6 钉住。
+
+### 十四、回归结果（V1.9.9.630 定版）
 
 | 闸门 | 结果 |
 |---|---|
 | `smoke.mjs` | **PASS 998 / FAIL 0**（本版新增 36 条守卫） |
 | `visual.mjs`（真 Edge，13 宽度 × 中英 × 明暗 = 52 组矩阵） | **PASS 132 / FAIL 0** |
-| `e2e_adversarial.mjs` | **PASS 62 / FAIL 0** |
+| `e2e_adversarial.mjs` | **PASS 65 / FAIL 0**（六层；干净 checkout 模拟下同样 65/0） |
 | `e2e_omm_offline.mjs` / `e2e_include_offline.mjs` / `e2e_fake_sat.mjs` | 全部通过 |
 | `audit_refs.mjs` / `audit_assertions.mjs` / `repo_hygiene.mjs` / `privacy_check.mjs` | 全部通过（卫生不合规 0 / 去敏命中 0） |
 | `omm_check.mjs` / `search_pools.mjs` | 全部通过（12/12） |

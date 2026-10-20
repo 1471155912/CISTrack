@@ -205,6 +205,23 @@ export async function openBrowser(opt = {}) {
   const portFile = udd.replace(/[\\/]+$/, '') + '/DevToolsActivePort';
   const useFixedPort = typeof opt.port === 'number' && opt.port > 0;
 
+  // ★★ V1.9.9.630（真 bug，本轮实测抓出）：**启动前必须删掉上一轮残留的 `DevToolsActivePort`。**
+  //   病根：该文件是 Chrome/Edge 在**上次运行**时写下的（第一行 = 调试端口，随后一行 = 浏览器级 WS 路径）。
+  //   正常退出会删掉它，但被 `taskkill /F` 强杀、或进程崩掉时**会留下来**。而这个仓里
+  //   `edge-profile-fetch-wiki-tables` / `visual.mjs` 的 profile 都是**故意固定复用**的（为了保住
+  //   `cf_clearance` cookie，省掉最长 >136s 的首次挑战）—— 于是下一轮启动时：
+  //     ① 我们 spawn 浏览器时传 `--remote-debugging-port=0`（由浏览器自己选空闲端口）；
+  //     ② 但下面读端口时**先读到的还是旧文件**里的死端口；
+  //     ③ 于是去轮询一个没人监听的端口 → 白等 bootMs(30s) → 报
+  //        「拿不到页面调试目标（端口 xxxxx）」——**错误信息完全看不出是"读到了旧文件"**。
+  //   实测证据：残留文件内容 `65215`，而 `netstat` 里该端口**零监听**；同期 `fetch_launch_results`
+  //   （临时 profile、每轮新建）一次就成功 —— 差异正好落在"profile 是否复用"上。
+  //   同一个病此前在 `visual.mjs` 上表现为"视口覆盖不生效，必须先关掉所有 Edge 再跑"，
+  //   我当时把它归因成 Edge 自身限制 —— 实为本处缺陷。删掉旧文件是**幂等**的治本做法：
+  //   删了之后浏览器启动会重新写一份，读到的必然是本轮真实端口。
+  //   （`force: true`：文件不存在不算错。）
+  try { fs.rmSync(portFile, { force: true }); } catch (e) {}
+
   const args = [
     '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
     '--disable-extensions', '--disable-background-networking', '--mute-audio',
