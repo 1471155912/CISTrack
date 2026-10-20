@@ -91,7 +91,11 @@ async function getJson(url, timeoutMs) {
   }
 }
 
-/** 只读线上页面的**前若干字节**，找 `var VERSION = 'Vx.y.z'`（一次请求，带 Range 与硬超时） */
+/** 只读线上页面的**前若干字节**，找 `var VERSION = 'Vx.y.z'`（一次请求，带 Range 与硬超时）
+ *  ★ 2026-10-20：窗口从 400 KB 提到 1500 KB。原因：构建产物里 `var VERSION` 在 app.js 中，
+ *    而 app.js 的注入点在 satdata（≈430 KB）+ 海岸线之后 —— 实测落在整份文件的 ≈860 KB 处，
+ *    400 KB 窗口**永远**找不到它，会把正常的线上页误报成"线上文件异常"（退出码 2）。
+ *    找到即停（reader.cancel），所以窗口加大不等于每次都拉 1.5 MB。 */
 async function readLiveVersion(url, maxBytes, timeoutMs) {
   const ctl = new AbortController();
   const to = setTimeout(() => ctl.abort(), timeoutMs);
@@ -170,7 +174,7 @@ function verdictOf(rows) {
     if (v.code !== 0) {
       live = { skipped: true, why: '平台状态 ' + v.verdict + '，跳过线上校验（避免把平台延迟误判成版本没更新）' };
     } else {
-      live = await readLiveVersion(PAGE_URL, 400 * 1024, 10000);
+      live = await readLiveVersion(PAGE_URL, 1500 * 1024, 15000);
       if (live.ok) {
         const local = localVersion();
         live.local = local;
