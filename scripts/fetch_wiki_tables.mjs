@@ -27,18 +27,13 @@
  *       否则会出现"N6 删掉自动补录标签后，日期却还停在三天前"的口径裂缝。
  *   · 退出码：两个词条都失败 → 1（计划任务标红）；至少一个成功 → 写文件并返回 0。
  */
-import http from 'node:http';
-import { spawn } from 'node:child_process';
-import { createRequire } from 'node:module';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmpRoot } from './tmproot.mjs';
+import { openBrowser, waitContent } from './cdp.mjs';
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-const require = createRequire(import.meta.url);
-const { WebSocket } = require('ws');
 const OUT = path.join(ROOT, 'data', 'wiki_tables.json');
-const PORT = 9484;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 // ★ V1.9.9（O30-11）：3 天 → 1 天（见文件头说明）。本机任务每天跑一次，正常情况都会重抓。
 const MAX_AGE_DAYS = 1;
@@ -55,48 +50,29 @@ if (fs.existsSync(OUT) && !process.argv.includes('--force')) {
   } catch (e) { /* 读失败就当没有，重抓 */ }
 }
 
-const EDGE = (function () {
-  const cands = [
-    process.env.CISTRACK_EDGE, process.env.EDGE_PATH,
-    'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
-    'C:/Program Files/Microsoft/Edge/Application/msedge.exe',
-    '/usr/bin/microsoft-edge', '/usr/bin/google-chrome',
-  ].filter(Boolean);
-  for (const c of cands) { try { if (fs.existsSync(c)) return c; } catch (e) {} }
-  return 'msedge.exe';
-})();
 const TMPROOT = tmpRoot();
 const PAGES = [
   ['gw', 'https://sat.huijiwiki.com/wiki/%E6%98%9F%E7%BD%91'],                 // 星网
   ['qf', 'https://sat.huijiwiki.com/wiki/%E5%8D%83%E5%B8%86%E6%98%9F%E5%BA%A7'],  // 千帆星座
 ];
-const ch = spawn(EDGE, ['--headless=new', '--disable-gpu', '--no-first-run',
-  '--disable-blink-features=AutomationControlled',
-  '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-  '--user-data-dir=' + path.join(TMPROOT, 'edge-profile-fetch-wiki-tables'),
-  '--remote-debugging-port=' + PORT, '--window-size=1600,1200', 'about:blank'], { stdio: 'ignore' });
-async function wsUrl() {
-  for (let i = 0; i < 60; i++) {
-    try {
-      const b = await new Promise((res, rej) => http.get({ host: '127.0.0.1', port: PORT, path: '/json/list' },
-        r => { let s = ''; r.on('data', d => s += d); r.on('end', () => res(s)); }).on('error', rej));
-      const p = JSON.parse(b).find(t => t.type === 'page' && t.webSocketDebuggerUrl);
-      if (p) return p.webSocketDebuggerUrl;
-    } catch (e) { } await sleep(400);
-  }
-  throw new Error('no cdp');
-}
-const ws = new WebSocket(await wsUrl(), { maxPayload: 4e8 });
-await new Promise(r => ws.on('open', r));
-let id = 0; const pend = new Map();
-ws.on('message', m => { const j = JSON.parse(m.toString()); if (j.id && pend.has(j.id)) { pend.get(j.id)(j); pend.delete(j.id); } });
-const send = (m, p) => new Promise(res => { const i = ++id; pend.set(i, res); ws.send(JSON.stringify({ id: i, method: m, params: p || {} })); });
-async function ev(e, aw) {
-  const r = await send('Runtime.evaluate', { expression: e, returnByValue: true, awaitPromise: !!aw });
-  if (r.result && r.result.exceptionDetails) return { err: (r.result.exceptionDetails.exception || {}).description };
-  return (r.result && r.result.result) ? r.result.result.value : null;
-}
-await send('Page.enable');
+// ★★ V1.9.9.630：浏览器/ CDP / 挑战页判据全部收进 scripts/cdp.mjs（详见该文件头的"为什么"）。
+//   本脚本原来的三处毛病一起消失：
+//     ① `require('ws')` —— ws 是 devDependency、node_modules 不入库 → 开源使用者 clone 后
+//        `ERR_MODULE_NOT_FOUND`。现在用 Node ≥22 内置 WebSocket（cdp.mjs 内部处理）。
+//     ② 挑战页判据只认中文 `请稍候` → Cloudflare 英文挑战页 `Just a moment...` 被判成"已通过"
+//        → 去解析 5.7KB 挑战页 → 0 行 → 以"上游没数据"的姿态**静默写空**。
+//        这次不用再靠人记住：判据在 cdp.mjs 里只有一份，而且**内容探针**（下面 EXTRACT 的
+//        表头特征）必须命中才算通过 —— 光标题正常不算数。
+//     ③ 自己找浏览器 + 自己拼 profile 路径 → 与其它三个脚本各写一份，修一处漏三处。
+//
+//   ⚠️ profile 目录**故意固定且复用**：实测全新 profile 的首次 Cloudflare 挑战耗时
+//      2s ~ >136s 剧烈波动；而这个目录里已存着 `cf_clearance` cookie，首屏 1.6~2.0s。
+//      `fetch_wiki_cards.mjs` 也**共用这同一个目录**（两个脚本串行跑，不抢锁）。
+const PROFILE = path.join(TMPROOT, 'edge-profile-fetch-wiki-tables');
+const BROWSER = await openBrowser({ profileDir: PROFILE, tmpRoot: TMPROOT, bootMs: 30000 });
+const { c } = BROWSER;
+const send = (m, p) => c.send(m, p);
+const ev = (e, aw) => c.ev(e, aw);
 
 // 表内提取（与 mkmanufacturers 原版同一套表头定位逻辑：按内容特征找列，不按下标硬取）
 const EXTRACT = `(function(){
@@ -148,10 +124,38 @@ const EXTRACT = `(function(){
   return JSON.stringify(out);
 })()`;
 
-/** COSPAR 归一：'2026-230' / '2026-230A' / '2026-230 B' → '2026-230' */
+/** COSPAR 归一：'2026-230' / '2026-230A' / '2026-230 B' → '2026-230'；'2025-F05' → '2025-F05'
+ *
+ *  ★★ V1.9.9.630（治本，本轮最重要的一处数据丢失）：
+ *    旧实现是 `match(/^(\d{4})-(\d{1,4})/)` —— **只认纯数字序号**。
+ *    而卫星百科对**发射失败/取消**的批次写的是 `2025-F05`（F = Fail，该年第 5 次失利，
+ *    没有国际编号），于是 `normCospar('2025-F05')` 返回**空串**，调用处 `if (!cos) continue;`
+ *    把它**静默丢掉**。
+ *
+ *    实测证据（2026-10-21 探针直读真实页面）：
+ *      星网词条表 #1 有 12 行，其中一行是 `2025-F05 | 卫星互联网技术试验卫星07组`；
+ *      而 `data/wiki_tables.json` 里 gw 只有 41 个键、**没有任何 F 编号** → 该行从未入库。
+ *    后果有两层：
+ *      ① 发射历史里缺这一发（`launches` 分母对不上：词条写 41/42，台账只有 41）；
+ *      ② mkdata 的 H9 日期权威**豁免**了失败批次（`res === 'fail'` 那条），
+ *         但豁免的前提是"词条不收失利发射" —— 这个词条**收了**，只是我们没抓进来。
+ *
+ *    为什么保留 F 形态而不是丢掉字母：F 编号就是该批次的**唯一标识**（它没有国际编号）。
+ *    与台账 key 的对应关系：台账写 `'25F05'`（5 位：YY + F + 序号），
+ *      mkdata 侧 `'20' + k.slice(0,2) + '-' + k.slice(2)` = `2025-F05` —— **天然对齐**，
+ *      所以这里只要原样返回就能被 applyWikiTables 认到（这也是修它的直接收益）。
+ *
+ *    返回空串只剩"真的解析不出年份/序号"的情况（例如整格是 `—` 或空）。
+ */
 function normCospar(c) {
-  const m = String(c || '').replace(/\s+/g, '').match(/^(\d{4})-(\d{1,4})/);
-  return m ? m[1] + '-' + m[2] : '';
+  const s = String(c || '').replace(/\s+/g, '');
+  // ① 常规：4 位年 + 纯数字序号（允许 1~4 位，统一**补零到 3 位**保证 key 唯一）
+  let m = s.match(/^(\d{4})-(\d{1,4})/);
+  if (m) return m[1] + '-' + String(+m[2]).padStart(3, '0');
+  // ② 失利/取消批次：4 位年 + 'F' + 1~3 位序号（'2025-F05' / '2025-F5' 都归一到 '2025-F05'）
+  m = s.match(/^(\d{4})-F(\d{1,3})/i);
+  if (m) return m[1] + '-F' + String(+m[2]).padStart(2, '0');
+  return '';
 }
 /** 词条日期（GMT+8 口径）：'2026年10月10日03:27' → { d8:'2026-10-10', t8:'03:27', ms8:<UTC ms> } */
 function parseDate8(raw) {
@@ -182,32 +186,51 @@ try {
   }
 } catch (e) { /* 没有旧文件就从空开始 */ }
 let okPages = 0;
+// ★ V1.9.9.630：**丢弃取证**。用户要求"抓取行为完整可重复、可追溯"——
+//   凡是"页面上有、但我们没入库"的行，必须留下理由，否则事后无法回答"这条为什么没有"。
+//   （2025-F05 就是这么丢的：无日志、无计数、只有 JSON 里"没有这个键"。）
+const DROPPED = [];   // { key, cospar, name, reason }
 for (const [key, url] of PAGES) {
-  await send('Page.navigate', { url: url });
-  // 过 Cloudflare 验证：轮询标题（中英文挑战页都算"没过"）；单页重试一次（WAF 是概率性的）
-  let ok = false;
-  for (let attempt = 0; attempt < 2 && !ok; attempt++) {
-    if (attempt) console.log(key + ' 第 1 次没过验证，60s 后重试…');
-    for (let i = 0; i < 40; i++) {
-      await sleep(1500);
-      const ti = await ev('document.title');
-      if (ti && !/请稍候|Just a moment/.test(ti)) { ok = true; break; }
-    }
+  // 过 Cloudflare：**标题 + 内容探针双判据**（详见 scripts/cdp.mjs 的 waitContent）。
+  //   内容探针 = 表头里出现 COSPAR 列 —— 这才是"表真的渲染出来了"。
+  //   旧写法只看标题，且只认中文 `请稍候` → 英文挑战页 `Just a moment...` 被当成通过 → 抓空。
+  const w = await waitContent(c, url, {
+    tries: 2,
+    // 原实现是 2 轮 × 40 次 × 1500ms = 60s/轮；这里保持同样的量级（waitMs 60000 + 60s 退避）
+    waitMs: 60000, pollMs: 1500,
+    contentProbe: '(()=>{var ts=[].slice.call(document.querySelectorAll("table"));'
+      + 'for(var i=0;i<ts.length;i++){var h=[].slice.call(ts[i].querySelectorAll("tr"));if(!h.length)continue;'
+      + 'var t=(h[0].innerText||"");if(/COSPAR/i.test(t)&&/发射日期|发射时间/.test(t))return true;}return false;})()',
+    backoffMs: () => 60000,
+    settleMs: 1500,
+  });
+  if (!w.ok) {
+    console.log('!! ' + key + ' 词条两次都没通过验证（title=' + JSON.stringify(w.title) + '）—— **保留旧数据**（不写空）');
+    DROPPED.push({ key: key, cospar: '', name: '', reason: '整页未过挑战（title=' + w.title + '）' });
+    continue;
   }
-  if (!ok) { console.log('!! ' + key + ' 词条两次都没通过验证 —— **保留旧数据**（不写空）'); continue; }
-  await sleep(1500);
   const got = await ev(EXTRACT, true);
-  if (got && got.err) { console.log(key + ' 提取失败：' + got.err); continue; }
   let arr = [];
   try { arr = JSON.parse(got || '[]'); } catch (e) { console.log(key + ' 结果解析失败'); continue; }
+  if (!arr.length) { console.log(key + ' 提取到 0 行（页面可能已改版）'); }
   okPages++;
   const map = out[key];
   fetchedAt[key] = Date.now();          // 这一星座刚抓成功 → 记新时间（失败的时间戳保持旧值）
   let n = 0;
   for (const r of arr) {
     const cos = normCospar(r.cospar);
-    if (!cos) continue;
+    if (!cos) {
+      // ★ 这里原来是一句光秃秃的 `continue`。现在**记账**：以后翻日志就能看到
+      //   "上游有这一行、COSPAR 长这样、我们没认出来"。
+      DROPPED.push({ key: key, cospar: String(r.cospar || ''), name: String(r.name || ''), reason: 'COSPAR 无法归一' });
+      continue;
+    }
     const dt = parseDate8(r.date);
+    if (!dt) {
+      // 日期解析不出来不阻止入库（有些行日期格是"—"），但要留痕 —— 因为 d8 空会让
+      // mkdata 的 H9 日期权威跳过这一条（表现为"日期没有以百科为准"）。
+      DROPPED.push({ key: key, cospar: cos, name: String(r.name || ''), reason: '日期无法解析（原文 ' + JSON.stringify(String(r.date || '').slice(0, 40)) + '）' });
+    }
     const row = {
       name: r.name || '',
       names: r.name ? [r.name] : [],
@@ -232,7 +255,20 @@ for (const [key, url] of PAGES) {
       if (!Array.isArray(old.nameLinks)) old.nameLinks = [];
       const have = new Set(old.nameLinks.map(x => x && x.u));
       row.nameLinks.forEach(x => { if (x && x.u && !have.has(x.u)) { old.nameLinks.push(x); have.add(x.u); } });
-      if (row.en && old.en !== row.en) old.en = old.en ? (old.en + ' / ' + row.en) : row.en;
+      // ★★ V1.9.9.630（对抗性测试抓出）：`en` 累加**必须去重**。
+      //   病根：多载荷批次（一句话里有 A/B 两颗）在千帆表里是**多行、每行都填同一个英文名对**
+      //   （`KL-Alpha A / KL-Alpha B`）。旧写法 `old.en !== row.en` 只挡住"完全相同"，
+      //   挡不住"A / B"与"A / B"再次相加 → 实测 3 个批次长出 12 项、其中只有 2 个唯一值：
+      //     qf 2019-077 → KL-Alpha A / KL-Alpha B / …（重复 6 遍）
+      //     qf 2021-070 / qf 2026-211 同病。
+      //   现按 ' / ' 拆开、逐项去重（保持首次出现顺序）后再拼回。
+      if (row.en) {
+        const parts = String(old.en || '').split(' / ').map(s => s.trim()).filter(Boolean);
+        const seen = new Set(parts);
+        String(row.en).split(' / ').map(s => s.trim()).filter(Boolean)
+          .forEach(e => { if (!seen.has(e)) { seen.add(e); parts.push(e); } });
+        old.en = parts.join(' / ');
+      }
       n++;
       continue;
     }
@@ -243,20 +279,36 @@ for (const [key, url] of PAGES) {
 }
 if (!okPages) {
   console.log('!! 两个词条都没抓到 —— 保留原文件不动（不写坏数据）');
-  try { ws.close(); } catch (e) {}
-  try { spawn('taskkill', ['/PID', String(ch.pid), '/T', '/F'], { stdio: 'ignore' }); } catch (e) {}
+  BROWSER.cleanup();
   process.exit(1);
 }
 const ts = [fetchedAt.gw, fetchedAt.qf].filter(t => t != null);
 out._fetched = new Date(Math.min.apply(null, ts.length ? ts : [Date.now()])).toISOString();
 if (fetchedAt.gw) out._fetched_gw = new Date(fetchedAt.gw).toISOString();
 if (fetchedAt.qf) out._fetched_qf = new Date(fetchedAt.qf).toISOString();
+// ★ V1.9.9.630：丢弃明细随数据一起落盘（`_dropped`），并打印一行摘要。
+//   为什么不只写日志：日志会被计划任务覆盖/轮转，而"这条数据为什么没有"是**长期**问题；
+//   与数据放在同一份文件里，任何时候打开都能对照。
+//   形状：[{ key:'gw'|'qf', cospar:'2025-F05', name:'…', reason:'…' }]
+if (DROPPED.length) {
+  out._dropped = DROPPED;
+  console.log('丢弃取证：' + DROPPED.length + ' 条（明细见 _dropped）');
+  DROPPED.slice(0, 10).forEach(d => console.log('   · [' + d.key + '] ' + (d.cospar || '(空)') + ' ' + d.name + ' → ' + d.reason));
+  if (DROPPED.length > 10) console.log('   …（其余 ' + (DROPPED.length - 10) + ' 条同类）');
+} else {
+  delete out._dropped;
+  console.log('丢弃取证：0 条（全部行都已入库）');
+}
 fs.writeFileSync(OUT, JSON.stringify(out, null, 1), 'utf8');
 console.log('写入', OUT, fs.statSync(OUT).size, 'bytes');
 console.log('抓取时间：gw ' + (out._fetched_gw || '?') + '｜qf ' + (out._fetched_qf || '?'));
+// ★ V1.9.9.630：失利批次（F 编号）单独打一行 —— 它们是**最容易再次静默消失**的一类。
+for (const k of ['gw', 'qf']) {
+  const fs_ = Object.keys(out[k] || {}).filter(x => /-F\d+$/.test(x));
+  if (fs_.length) console.log(k + ' 失利批次：' + fs_.join(', ') + '（来源：词条表；无国际编号，key 形如 2025-F05）');
+}
 // 抽样打印，人工核对用
 const sample = Object.keys(out.gw).slice(-3).map(k => k + '=' + out.gw[k].d8 + (out.gw[k].t8 ? ' ' + out.gw[k].t8 : '') + '/' + (out.gw[k].mk ? out.gw[k].mk.m : '(无制造商)'));
 console.log('gw 抽样:', sample.join(' | '));
-try { ws.close(); } catch (e) {}
-try { spawn('taskkill', ['/PID', String(ch.pid), '/T', '/F'], { stdio: 'ignore' }); } catch (e) {}
+BROWSER.cleanup();
 process.exit(0);

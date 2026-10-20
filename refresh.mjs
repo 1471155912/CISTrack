@@ -222,6 +222,76 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
  *   ⚠️ 用 AbortSignal.timeout（Node 18+ 原生支持），不引入依赖。
  */
 const FETCH_TIMEOUT_MS = 20000;
+// ============================================================ ★★ V1.9.9.630：主机熔断 + 全局时间预算
+// 为什么必须加（2026-10-21 实测暴露的真缺陷，不是理论问题）：
+//   当到 CelesTrak 的网络层**完全不通**时（连接直接失败，拿不到任何响应），实测结果是：
+//     ① 每颗星 2 次 × 20s 超时 + 800ms 退避 ≈ 41s；
+//     ② S3 最多 60 颗、S4 最多 40 颗、S5 最多 400 颗 —— 光 S3+S4 就 **4100s**；
+//     ③ 实测 `timeout 600 node refresh.mjs` 在 600s 被外部**强杀**（EXIT=124），
+//        日志停在 `gw S2 NAME → 新增 0 颗`，**根本没跑到写盘那一步**。
+//   三个后果都很糟：
+//     · **时间白烧**：明知道 celestrak 不通，还一颗颗重试几百次；
+//     · **备源被饿死**：S4（ivanstanojevic.me，本机实测可用）排在 S3 之后，
+//       而 S3 把时间全吃掉了 —— 真正能救数据的通路**没机会执行**；
+//     · **被外部强杀的姿态最差**：拿不到 report、不知道卡在哪、给不出建议，
+//       而且 CI 的 job timeout（25min）也会同样地硬砍一刀。
+// 治法（两条，都**只看失败、不看慢**，不能误伤正常的慢上游）：
+//   ① **主机级熔断**：同一个主机连续 `HOST_FAIL_N` 次"连不上"（status === 0，即网络层
+//      DNS/连接失败/超时，**不含** HTTP 4xx/5xx）→ 本进程内对该主机**短路**
+//      （后续请求立即返回 status 0，不烧时间）。这样一个"整片死掉"的上游只花
+//      N×41s 就被判定，而不是几百次。
+//      ⚠️ 只对 status === 0 熔断：5xx/404 是**上游活着但拒答**，性质不同，
+//        且已回答了（走 SOFT/NET 账本），不需要短路；这样也不会把"偶发抖动"当"整体故障"。
+//   ② **全局时间预算**：`REFRESH_BUDGET_MS`（默认 20min，CI job 上限 25min 之内）——
+//      每颗循环前检查一次，超预算就**停止逐颗补拉**（已拿到的数据照样落盘），
+//      并明确打印"因预算停止"，而不是被 `timeout`/job 超时**无声砍掉**。
+//      ⇒ 关键差别：**有预算 = 优雅降级并写盘**；没预算 = 被强杀，连 report 都没有。
+//   ③ 两者都写进 report：熔断的主机、预算是否耗尽 —— 排障时一眼看出"这轮为什么补得少"。
+const HOST_FAIL_N = 3;                       // 同一主机连续连不上几次 → 熔断
+const REFRESH_BUDGET_MS = (() => {
+  const v = Number(process.env.CISTRACK_BUDGET_MIN);
+  return (isFinite(v) && v > 0 ? v : 20) * 60000;      // 默认 20 分钟
+})();
+const T0 = Date.now();
+const HOST_DOWN = new Map();                  // host → { fails, firstAt, tripped }
+const BUDGET = { stopped: false, at: '' };
+/** 距启动已用毫秒 */
+const elapsedMs = () => Date.now() - T0;
+/** 预算是否已耗尽（耗尽后不再发起新的逐颗补拉） */
+function budgetOut() {
+  if (!BUDGET.stopped && elapsedMs() > REFRESH_BUDGET_MS) {
+    BUDGET.stopped = true;
+    BUDGET.at = Math.round(elapsedMs() / 1000) + 's';
+    console.warn('\n⏱️ **已用满时间预算**（' + Math.round(REFRESH_BUDGET_MS / 1000) + 's）—— 停止逐颗补拉，已拿到的数据照常落盘。');
+    console.warn('   为什么这样定：与其被 CI 的 job 超时/外部 timeout 无声强杀（拿不到 report、不知道卡在哪），');
+    console.warn('   不如在预算内优雅停下并写盘。下轮会继续补剩下的。（预算可用 CISTRACK_BUDGET_MIN 调整）');
+  }
+  return BUDGET.stopped;
+}
+/** 取 URL 的主机名（解析失败返回空串） */
+function hostOf(url) {
+  try { return new URL(url).host; } catch (e) { return ''; }
+}
+/** 该主机是否已熔断 */
+function hostTripped(host) {
+  const h = HOST_DOWN.get(host);
+  return !!(h && h.tripped);
+}
+/** 记一次结果：status===0 表示网络层没连上（唯一会推进熔断计数的情形） */
+function noteHost(host, ok, status) {
+  if (!host) return;
+  if (ok) { HOST_DOWN.delete(host); return; }              // 一旦通了就清零（半开恢复）
+  if (status !== 0) return;                                // 4xx/5xx = 上游活着，不推进熔断
+  const h = HOST_DOWN.get(host) || { fails: 0, tripped: false };
+  h.fails++;
+  if (!h.firstAt) h.firstAt = new Date().toISOString();
+  if (h.fails >= HOST_FAIL_N && !h.tripped) {
+    h.tripped = true;
+    console.warn('\n🔌 **主机熔断**：' + host + ' 连续 ' + h.fails + ' 次连不上 → 本进程内不再请求该主机。');
+    console.warn('   （只对"网络层失败"熔断；HTTP 4xx/5xx 属上游活着但拒答，不短路。通了会自动恢复。）');
+  }
+  HOST_DOWN.set(host, h);
+}
 /**
  * @param {string} url
  * @param {number} [tries]   重试次数（默认 2）
@@ -231,6 +301,13 @@ const FETCH_TIMEOUT_MS = 20000;
  *     但网络差的 day 会远超 20s，用同一个常量就是把大文件往死里掐。
  */
 async function get(url, tries, timeoutMs) {
+  // ★★ V1.9.9.630：**主机已熔断 → 立即空回，不烧时间**。
+  //   返回形态与"连不上"完全一致（status 0 / ok false），所以所有调用方的现有逻辑
+  //   （记账、跳过、统计缺口）都不用改；区别只是**不再等 41s**。
+  const host = hostOf(url);
+  if (hostTripped(host)) {
+    return { ok: false, status: 0, text: '', err: '主机已熔断（连续 ' + HOST_FAIL_N + ' 次连不上，本进程内短路）' };
+  }
   for (let i = 0; i < (tries || 2); i++) {
     try {
       const r = await fetch(url, {
@@ -238,6 +315,8 @@ async function get(url, tries, timeoutMs) {
         signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout)
           ? AbortSignal.timeout(timeoutMs || FETCH_TIMEOUT_MS) : undefined
       });
+      noteHost(host, r.ok, r.status);          // ★ 通了/有应答 → 清零熔断计数
+      if (r.ok) NET_OK_N++;                    // ★ 成功应答计数（用于区分"偶发超时"与"整条上游挂了"）
       // ★ V1.9.5（H42）：非 200 **记账、不重试、最后统一失败**。但**要按查询类型分类**——
       //   ⚠️ 第一版判据过宽（"任何非 200 都报警"）在**上线当天的 CI 上就误报**：
       //     2026-10-16 15:44 UTC 实测 6 次 404 全是 `NAME=GUOWANG / GW- / SPACESAIL / G60` 与
@@ -300,7 +379,16 @@ async function get(url, tries, timeoutMs) {
         return { ok: false, status: r.status, text: '' };
       }
       return { ok: true, status: r.status, text: (await r.text()).replace(/\r/g, '') };
-    } catch (e) { if (i === (tries || 2) - 1) return { ok: false, status: 0, text: '', err: e.message }; await sleep(800); }
+    } catch (e) {
+      // ★★ V1.9.9.630：网络层失败（DNS/连接/超时）→ 推进该主机的熔断计数。
+      //   注意只有这里的 status 是 0；上面 4xx/5xx 的 return 已经 noteHost 过了。
+      noteHost(host, false, 0);
+      if (i === (tries || 2) - 1) {
+        NET_DOWN_N++;                          // ★ 计入"根本没连上"账本（见 NET_DOWN_N 定义处）
+        return { ok: false, status: 0, text: '', err: e.message };
+      }
+      await sleep(800);
+    }
   }
   return { ok: false, status: 0, text: '' };
 }
@@ -324,6 +412,21 @@ const SOFT_ISSUES = [];
 //   说明我们在一批批查**上游根本没有的对象**（例如目录里的编号错位），那是该被看见的信号。
 //   ⇒ 只记一个数，在汇总里打一行（不进 report.netSoft，不逐条打印）。
 let SOFT_404_N = 0;
+// ★★ V1.9.9.630：**"根本没连上"（status 0）单独一档** —— 这是本轮实测补上的最后一个静默失败。
+//   病根：`get()` 的网络层失败（DNS 失败 / 连接重置 / 超时，status 恒为 0）**从来没进过任何账本**：
+//     · NET_ISSUES 只在 `!r.ok && r.status !== 0` 的分支里 push（4xx/5xx）；
+//     · SOFT_ISSUES 同理。
+//   ⇒ 于是"整条上游不可达"在日志上只剩 `S1 GROUP 失败 0`（0 是 status！
+//     不是"失败 0 次"，而是"失败且状态码 0"——这个措辞本身就会误读），
+//     而 S2/S3/S4/S5 各自"补到 0 颗"看着像"上游今天没新增"，任务仍以 **exit 0 成功**
+//   实测（2026-10-21，本机 celestrak 完全不通）：熔断生效、54s 跑完、**EXIT=0**
+//     —— 数据一颗没更新，任务却报成功。这正是用户反复强调要消灭的那类静默失败。
+//   判据：**只有一次都没连通过**才算硬失败（status 0 计数 > 0 且成功应答数为 0）。
+//     为什么要加"成功应答数为 0"这个限定：单个请求偶发超时是完全正常的
+//     （S3/S4/S5 一轮几十个）；若把它也算失败，CI 会像 V1.9.5 那次 404 误报一样永远红。
+//     而"一个都没连上"绝无可能是正常业务状态。
+let NET_DOWN_N = 0;      // status === 0 的累计次数（网络层失败，非 HTTP 错误）
+let NET_OK_N = 0;        // 成功（ok）应答的累计次数
 const FORMAT_ALARM = [];
 /** 包一层 parseTLE：200 但内容不像 TLE → 记一笔格式告警（返回 0 条，不抛）
  *  判据在 `scripts/format_guard.mjs`（纯函数 → smoke 可直接 import 测，含 8 例样本自测） */
@@ -530,7 +633,13 @@ for (const key of ['gw', 'qf']) {
 
   // S1 分组（V1.9.5·H42：格式走 GP_FORMAT，默认 OMM JSON）
   let r = await get(`https://celestrak.org/NORAD/elements/gp.php?GROUP=${GROUPS[key]}&FORMAT=${GP_FORMAT}`);
-  if (r.ok) from.group = parseGPGuarded(r.text, merged, 'S1 GROUP'); else console.log('  S1 GROUP 失败', r.status);
+  if (r.ok) from.group = parseGPGuarded(r.text, merged, 'S1 GROUP');
+  else console.log('  S1 GROUP 失败（status ' + r.status + '）' +
+    (r.err ? '，原因：' + r.err : '') +
+    // ★ V1.9.9.630：status 0 是**网络层没连上**，与"HTTP 报错"完全不同。
+    //   旧日志只打 `S1 GROUP 失败 0` —— 那个 "0" 是状态码，读起来却像"失败 0 次"，
+    //   属"日志本身在制造误读"，本轮一并改掉。
+    (r.status === 0 ? ' ← **没连上**（DNS/连接/超时），不是 HTTP 错误' : ''));
   console.log(key, 'S1 GROUP  →', from.group, '份');
 
   // S2 名称模糊
@@ -586,6 +695,7 @@ for (const key of ['gw', 'qf']) {
     return ia - ib;
   });
   for (const o of todo.slice(0, 60)) {
+    if (budgetOut()) break;                   // ★ V1.9.9.630：预算耗尽 → 优雅停（已拿到的照常落盘）
     r = await get(`https://celestrak.org/NORAD/elements/gp.php?CATNR=${o.norad}&FORMAT=${GP_FORMAT}`);
     // ★ V1.9.1（1.4）修的真 bug：这里原本是 `/^1 /.test(r.text)` —— **没有 `m` 标志**。
     //   CelesTrak 的 FORMAT=tle 返回是「卫星名行 + 1 行 + 2 行」三行，文本**以名字开头**，
@@ -627,6 +737,7 @@ for (const key of ['gw', 'qf']) {
     });
   });
   for (const o of still.slice(0, 40)) {
+    if (budgetOut()) break;                   // ★ V1.9.9.630：预算耗尽 → 优雅停
     r = await get(`https://tle.ivanstanojevic.me/api/tle/${o.norad}`);
     if (r.ok) {
       try {
@@ -702,8 +813,11 @@ for (const key of ['gw', 'qf']) {
   });
   // ★ 静默 catch 是"补到 0 颗"却看不出原因的元凶（V1.9.0 起一直没发现）→ 现在累计错误并打印。
   let ommErr = 0; const ommErrMsg = [];
+  // ★ V1.9.9.630：与 `ommErr` 分开 —— 「上游查无此星」不是故障（见下方记账处的长注释）
+  let ommMissing = 0; const ommMissMsg = [];
   const OMM_CAP = 400;                                   // 上限（正常规模 ~55；留足余量并防失控）
   for (const o of ommTodo.slice(0, OMM_CAP)) {
+    if (budgetOut()) break;                   // ★ V1.9.9.630：预算耗尽 → 优雅停（S5 是最长的一段）
     // ★ 2026-10-20（故障 C 配套，用户要求"信息要全"）：S5 的点名补拉**加一次尝试**。
     //   实测依据（run 39437803662）：45 个补拉里 2 个撞 500（100794/100974），
     //   而默认只试 2 次、间隔 800ms —— 上游瞬时 5xx 往往几百毫秒就恢复，
@@ -718,7 +832,17 @@ for (const key of ['gw', 'qf']) {
       try {
         const arr = JSON.parse(r.text);
         const om = Array.isArray(arr) ? arr[0] : arr;
-        if (om && om.MEAN_MOTION) {
+        // ★★ V1.9.9.630（对抗性测试配套）：把**「查无此星」与「真失败」分开记账**。
+        //   病根：旧版只有一个 `ommErr` 计数器，两种情况都 +1、都打印成"失败"，
+        //   于是排查时会看到"失败 2 颗"却分不清是**网络/上游出问题**（该重试、该告警）
+        //   还是**这颗星在 CelesTrak 已经不存在**（已再入/目录未更新，属正常）。
+        //   实测依据：CelesTrak 对不存在的 CATNR 返回 `[]` 或 `[{}]`（HTTP 200），
+        //   旧版落到 `else` 分支记成 "响应无 MEAN_MOTION"，与真的 5xx 混在同一条日志里。
+        //   现在：空响应 → ommMissing（只报数，不告警网络）；解析/校验抛错 → ommErr（真失败）。
+        if (!om || om.MEAN_MOTION === undefined) {
+          ommMissing++;
+          if (ommMissMsg.length < 3) ommMissMsg.push(o.norad + '（上游无此星 / 已再入？）');
+        } else {
           const ph = PH(o.norad);
           const t = fromCelesTrakOmm(om);
           const [l1s, l2s] = tleFromOmm(t, ph);
@@ -739,17 +863,24 @@ for (const key of ['gw', 'qf']) {
           //   判据直接用「真号位数 > 5」（= 需要占位号的那种），比比较字符串更直白。
           if (String(o.norad).length > 5) OMM_IDS[ph] = o.norad;
           from.omm = (from.omm || 0) + 1;
-        } else { ommErr++; if (ommErrMsg.length < 3) ommErrMsg.push(o.norad + ': 响应无 MEAN_MOTION（' + r.text.slice(0, 60).replace(/\s+/g, ' ') + '）'); }
+        }
       } catch (e) {
+        // ★ V1.9.9.630：`tleFromOmm` 现在会为**坏历元**抛错（以前会产出一条 70 列的 L1）。
+        //   这里必须仍然把它算作"真失败"并记账 —— 否则那颗星会**静默缺失**，
+        //   而"缺失"在页面上表现为"少一颗星"，比报警难查得多。
         ommErr++;
-        if (ommErrMsg.length < 3) ommErrMsg.push(o.norad + ': JSON 解析失败 — ' + (e && e.message));
+        if (ommErrMsg.length < 3) ommErrMsg.push(o.norad + ': ' + ((e && e.message) || '转换/解析失败'));
       }
     }
     await sleep(120);
   }
   if (ommTodo.length) {
-    console.log(key, 'S5 OMM    → 待补', ommTodo.length, '颗（处理', Math.min(ommTodo.length, OMM_CAP), '），补到', from.omm || 0, '颗，失败', ommErr);
+    console.log(key, 'S5 OMM    → 待补', ommTodo.length, '颗（处理', Math.min(ommTodo.length, OMM_CAP) + '）' +
+      '，补到', from.omm || 0, '颗，真失败', ommErr,
+      // 「查无此星」单独列出来（它会随星座退役自然增长，不该触发网络告警）
+      ommMissing ? '，上游查无此星 ' + ommMissing + ' 颗' : '');
     ommErrMsg.forEach(m => console.log('             · ' + m));
+    ommMissMsg.forEach(m => console.log('             · 无此星 ' + m));
     // ★ 全失败时**必须显式告警**（旧版静默 → 数据静默缺失，是最难查的一类问题）
     if ((from.omm || 0) === 0 && ommErr > 0) console.log('             ⚠️ 全部失败：疑似网络/上游不可达 —— 请检查到 celestrak.org 的连通性');
     if (ommTodo.length > OMM_CAP) console.log('             ⚠️ 超过处理上限 ' + OMM_CAP + '，本次有 ' + (ommTodo.length - OMM_CAP) + ' 颗未处理');
@@ -869,6 +1000,20 @@ for (const key of ['gw', 'qf']) {
     report[key].hist = { err: String(e && e.message || e) };
   }
 }
+// ★★ V1.9.9.630：把"这轮为什么可能补得少"的**原因**写进报告。
+//   排障时最痛的不是"数据少了"，而是"不知道少了是因为上游挂了、还是我们提前停了"。
+//   ⇒ 熔断的主机 + 预算是否耗尽 + 实际耗时，三样一起落盘。
+report.health = {
+  elapsedSec: Math.round(elapsedMs() / 1000),
+  budgetMin: Math.round(REFRESH_BUDGET_MS / 60000),
+  budgetExhausted: BUDGET.stopped,
+  budgetStoppedAt: BUDGET.at || '',
+  netDown: NET_DOWN_N,          // status 0 次数（网络层失败）
+  netOk: NET_OK_N,              // 成功应答次数
+  hostsTripped: [...HOST_DOWN.entries()]
+    .filter(([, h]) => h.tripped)
+    .map(([host, h]) => ({ host, fails: h.fails, firstAt: h.firstAt || '' })),
+};
 fs.writeFileSync(path.join(D, 'refresh_report.json'), JSON.stringify(report, null, 1), 'utf8');
 // V1.9.0：把「占位号 → 真号」的映射落盘，供 mkdata.mjs 把真号写回前端 id（前端代码零改动）
 fs.writeFileSync(OMM_IDS_PATH, JSON.stringify(OMM_IDS, null, 1), 'utf8');
@@ -942,6 +1087,25 @@ if (SOFT_ISSUES.length) {
   console.log('通告：点名探测/补拉有 ' + SOFT_404_N + ' 次 404（查无此项，属正常空回执；含 S4 备源逐颗查）—— 不入告警账本。');
 }
 report.netSoft = { count: SOFT_ISSUES.length, items: SOFT_ISSUES.slice(0, 40), notFound: SOFT_404_N };
+// ★★ V1.9.9.630：**"整条上游不可达"必须响亮失败**（本轮最关键的静默失败修复）。
+//   判据刻意取得很窄：`NET_DOWN_N > 0 && NET_OK_N === 0` —— 只有"一次都没连上"才判死。
+//   · 单个请求偶发超时（S3/S4/S5 一轮几十个）**不算**：那属该端点正常噪声，
+//     把它算进去就会重演 V1.9.5 那次 404 误报（数据健康、CI 永远红）。
+//   · 但"一个成功应答都没有"绝不可能是正常业务状态：那时数据一颗没更新，
+//     若仍报 exit 0，"任务成功但数据停更"就会继续骗人。
+//   为什么放在 NET_ISSUES 之前：先报"整条都死了"这个更严重、更有解释力的结论，
+//   再报零散的 4xx/5xx（后者在有应答的情况下才谈得上"个别端点有问题"）。
+if (NET_DOWN_N > 0 && NET_OK_N === 0) {
+  console.error('❌ **上游整体不可达**：' + NET_DOWN_N + ' 次请求全部在网络层失败（status 0），'
+    + '**没有任何一次成功应答**。');
+  const trips = [...HOST_DOWN.entries()].filter(([, h]) => h.tripped).map(([hh, h]) => hh + '（' + h.fails + ' 次）');
+  if (trips.length) console.error('   已熔断的主机：' + trips.join('、') + '（熔断只为省时间，不代表问题已解决）');
+  console.error('   后果：本轮**一颗数据都没更新**，.tle 与上轮完全相同（不会写坏，但也没有进展）。');
+  console.error('   排查：1) `curl -sSI "https://celestrak.org/NORAD/elements/gp.php?GROUP=hulianwang"` 看连通性；');
+  console.error('         2) 本机是否需代理/上游是否故障；3) 备源 tle.ivanstanojevic.me 是否也一起挂了。');
+  console.error('   已以非零码（8）结束 —— **不允许"零数据但任务成功"**。');
+  if (!process.exitCode) process.exitCode = 8;
+}
 if (NET_ISSUES.length) {
   console.error('❌ CelesTrak 返回**非 200**（' + NET_ISSUES.length + ' 次）—— 按使用政策必须立即停下交人排查：');
   NET_ISSUES.slice(0, 8).forEach(it => console.error('   · ' + it.status + ' ← ' + it.url));

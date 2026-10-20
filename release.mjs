@@ -46,12 +46,18 @@ console.log('产物 ' + before + ' B → ' + ARTIFACT + '（固定链接 CISTrac
 //   只处理本目录里形如 `CISTrack_v<主>.<次>.<修>.html` 的文件，按版本号倒序保留最新 2 份；
 //   其它文件（CISTrack.html / index.html / assets/ …）一律不碰，避免误删。
 //   ⚠️ 版本比较必须按分段数字，不能靠字典序 —— 否则 v1.10.0 会被判成小于 v1.9.9。
+//   ★★ V1.9.9.630：版本号可能是**三段或四段**（四段式用来标记"某基座之上的修复批次"，
+//   如 `V1.9.9.630`）。旧正则只认三段 → 四段式产物**根本不进候选**，
+//   于是"只留两份"的裁剪对它完全失效（旧的三段式反而因为排在前面被一直保留）。
+//   ⇒ 正则放宽为可选的第四段，排序键补上第四段（缺省按 0 处理）。
 {
-  const re = /^CISTrack_v(\d+)\.(\d+)\.(\d+)\.html$/;
+  const re = /^CISTrack_v(\d+)\.(\d+)\.(\d+)(?:\.(\d+))?\.html$/;
   const cand = fs.readdirSync(ROOT).filter(function (f) { return re.test(f); }).map(function (f) {
     const m = f.match(re);
-    return { f: f, k: [+m[1], +m[2], +m[3]] };
-  }).sort(function (a, b) { return (b.k[0] - a.k[0]) || (b.k[1] - a.k[1]) || (b.k[2] - a.k[2]); });
+    return { f: f, k: [+m[1], +m[2], +m[3], +(m[4] || 0)] };
+  }).sort(function (a, b) {
+    return (b.k[0] - a.k[0]) || (b.k[1] - a.k[1]) || (b.k[2] - a.k[2]) || (b.k[3] - a.k[3]);
+  });
   const drop = cand.slice(2);
   drop.forEach(function (d) {
     try { fs.unlinkSync(path.join(ROOT, d.f)); console.log('裁剪旧产物：' + d.f); }
@@ -85,8 +91,21 @@ console.log('产物 ' + before + ' B → ' + ARTIFACT + '（固定链接 CISTrac
 //   V1.9.3/V1.9.4 就漏过徽章（停在 1.9.2）。现在 release.mjs 统一改写：
 //   只匹配 shields.io 的 version 徽章 URL 里的数字段，不动其余任何内容；
 //   smoke 另有一条"徽章版本 == app.js VERSION"的断言兜底（漏跑 release 也会红）。
+//
+// ★★ V1.9.9.630 修（真事故，已污染过仓库）：正则原先只认**三段** `X.Y.Z`，
+//   而本项目从 V1.9.9.630 起用**四段** `X.Y.Z.NNN`。于是每次跑 release.mjs：
+//     · `[0-9]+\.[0-9]+\.[0-9]+` 只吃掉 `1.9.9`，剩下 `.630` 原地不动 →
+//       `version-1.9.9` → `version-1.9.9.630`（第一次，看起来正确）；
+//     · 第二次：又从 `1.9.9.630` 里匹配到 `1.9.9`，`1.9.9 !== 1.9.9.630` →
+//       替换成 `1.9.9.630`，尾巴 `.630` 还在 → `1.9.9.630.630`；
+//     · 每跑一次多叠一段。本轮反复构建十几次 → README 徽章被写成
+//       `1.9.9.630.630.…`（18 段）。
+//   **为什么没被 smoke 抓到**：那条断言是"徽章版本 == app.js VERSION"，而它大概是
+//   用 `includes()` 或前缀比较写的，脏值里**包含**正确值 → 假绿。幂等性缺陷只有"跑两次"
+//   才能暴露，所以下面同时补了 release.mjs 自己的幂等自检 + smoke 的"段数合法"断言。
+//   修法：允许**可选第四段**，且整段必须整体匹配（不能只吃前三段留尾巴）。
 {
-  const BADGE_RE = /(img\.shields\.io\/badge\/version-)([0-9]+\.[0-9]+\.[0-9]+)/g;
+  const BADGE_RE = /(img\.shields\.io\/badge\/version-)([0-9]+\.[0-9]+\.[0-9]+(?:\.[0-9]+)?)/g;
   ['README.md', 'README.en.md'].forEach(function (f) {
     const p = path.join(ROOT, f);
     try {

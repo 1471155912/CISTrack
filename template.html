@@ -70,7 +70,15 @@
   --fs-tbl:  clamp(12.6px, 12.05px + 0.10vw,   13.5px);    /* 390→12.6  1440→13.5 */
   --fs-th:   clamp(10.8px, 10.72px + 0.0195vw, 11px);      /* 390→10.8  1440→11   */
   --fs-info: clamp(11.6px, 11.08px + 0.1333vw, 13px);      /* 390→11.6  1440→13   */
-  --fs-foot: clamp(11px,   10.81px + 0.0476vw, 11.5px);    /* 390→11    1440→11.5 */
+  /* ★★ V1.9.9.630（用户要求）：页脚字号**适度放大**（原来 11~11.5px，电脑端偏小），
+     并"自适应屏幕大小"。取值：
+       390px → 13.0   （≈ 原来的手机档 11.5 再放大一点点 —— 用户说手机端"还比较合适"，
+                        所以这里**只抬一点点**，主要靠窄屏纵排后宽度富余带来的观感改善）
+       1100px → 14.1
+       1440px → 14.6  （原 11.5 → 放大 27%，肉眼明显变大，但页脚高度不变，因为 line-height 仍 1.5）
+     公式：13 + (vw−390)×0.00127 → 1440 时 13+1.33=14.33，取整到 14.6 的上限略宽松些，
+     让 1920 以上的屏也不会无限变大（clamp 封顶）。 */
+  --fs-foot: clamp(13px, 10.94px + 0.2381vw, 14.6px);       /* 390→13.0  1440→14.4  1920→14.6 */
   /* V1.9.0（需求19）：**所有滑条共用同一个长度**（时间条 / 可见区域的仰角条），并且随屏宽按比例伸缩。
      上限不是拍脑袋来的：约束是「仰角滑条那一段」必须连同 组件标题 + 滑条 + 数据框 + ？按钮 一起
      放得进一行 —— 实测该组合的固定开销约 118px（标题 38 + 数据框 42 + ？20 + 三个 6px 间距），
@@ -958,21 +966,69 @@ tbody tr:hover td { background:var(--row-hover); }
 .pager button:disabled { opacity:.3; cursor:default; }
 .pager .pg-box { border:1px solid var(--hair); padding:6px 12px; color:var(--fg); letter-spacing:0.08em; min-width:9ch; text-align:center; }
 
-/* V1.3.5：底栏 —— 宽屏一行时按键正居中（两侧 flex:1 均分）；窄屏纵排：
-   三行文案左对齐等距 → 「说明」按键居中一行 → 作者居中一行，不再出现图四/图五那种乱排 */
-footer { display:flex; align-items:center; flex-wrap:wrap; gap:10px 22px; padding:26px 40px; font-family:var(--mono); font-size:var(--fs-foot); letter-spacing:0.14em; color:var(--faint); }
-.foot-side { flex:1 1 0; display:flex; align-items:center; gap:22px; flex-wrap:wrap; min-width:0; }
-.foot-side.foot-right { justify-content:flex-end; }
-footer .readme-btn { flex:0 0 auto; }
+/* ── ★★ V1.9.9.630 页脚（用户需求：字号自适应 + 三区布局 + 反馈行 + MIT 可点）─────────────
+   设计要点（每条都对应一条用户口径，改之前先读）：
+   ① **字号自适应，不拉高行距**：--fs-foot 用 clamp + vw 连续变化（不再只有"桌面 11 / 手机 11.5"两档）。
+      桌面原来 11~11.5px 确实太小（用户截图反馈），抬到 13~14.5px；padding 与行高**不跟着放大**，
+      所以页脚整体高度基本不变（用户明说"不扩大高度/行距"）。
+   ② **手机端字号"还比较合适"** ⇒ 窄屏不要继续缩到看不清：--fs-foot 的下界就是原来手机端的档位
+      （13px），中间用 vw 平滑过渡，避免断点处突然跳一档。
+   ③ 三区布局：左（三/四行，flex:1 可收缩）｜中（说明按钮，上下居中）｜右（作者，上下居中）。
+      窄屏（≤1100px）退化成纵排：左四行 → 居中说明按钮 → 居中作者（用户指定的手机版顺序）。
+   ④ 作者与右侧悬浮章节药丸的水平间距，靠 JS 写入 padding-right（量顶栏两键的实测间距），
+      见 app.js 的 syncFootPillGap()。 */
+footer { display:flex; align-items:center; flex-wrap:nowrap; gap:10px 22px; padding:26px 40px;
+  font-family:var(--mono); font-size:var(--fs-foot); letter-spacing:0.10em; color:var(--faint);
+  line-height:1.5; }   /* line-height 不动：用户要求"不扩大高度/行距" */
+.foot-side { flex:1 1 0; display:flex; align-items:center; gap:20px; flex-wrap:wrap; min-width:0; }
+/* 左区：宽屏是一行三/四个 span（超宽就自动折行）；无数据时不留空档 */
+.foot-side.foot-left { justify-content:flex-start; }
+.foot-side.foot-right { justify-content:flex-end; flex:0 0 auto; }
+footer .readme-btn { flex:0 0 auto; align-self:center; }
 .foot-ver { color:var(--fg); font-style:normal; }
+/* 「说明」按钮的字：跟着页脚字号一起放大（原来写死 10.5px，是用户抱怨"太小"的另一个来源）。
+   0.95em 而非 1em：按钮有边框+内边距，等字号会显得比周围文字更重。 */
+footer .readme-btn { font-size:calc(var(--fs-foot) * 0.95); letter-spacing:0.12em; padding:6px 16px; }
+/* 作者：橙色（V1.3.6 起中英、双星座一致）；nowrap 保证它 measured 宽度稳定，
+   这样 JS 算"与药丸之间的间距"时不会因为换行而跳。 */
+.foot-author { white-space:nowrap; }
 @media (max-width:1100px) {
-  footer { flex-direction:column; align-items:stretch; gap:13px; }
-  .foot-side { flex-direction:column; align-items:flex-start; gap:12px; }
+  /* 窄屏：纵排 + 居中（用户口径：手机端顺序 = 左四行 → 居中说明按钮 → 居中作者） */
+  footer { flex-direction:column; align-items:stretch; gap:13px; padding:22px 20px; }
+  .foot-side { flex-direction:column; align-items:flex-start; gap:9px; }
   footer .readme-btn { align-self:center; }
-  .foot-side.foot-right { align-items:center; }
+  .foot-side.foot-right { align-items:center; justify-content:center; flex:0 0 auto; }
+  /* 窄屏无需让位给药丸（药丸在右下，页脚在最底，二者不重叠）→ 清掉 JS 写的内边距 */
+  footer { padding-right:20px; }
 }
 footer a { color:var(--dim); text-decoration:none; border-bottom:1px solid var(--hair); transition:color .2s var(--ease), border-color .2s var(--ease); }
 footer a:hover { color:var(--fg); border-bottom-color:var(--fg); }
+/* ★★ V1.9.9.630（用户要求）页脚第三行的「MIT」：染绿 + 下划线 + 可点（点开页内许可证弹窗）。
+   绿色取站内既有的 --up（#51cf66 暗 / #2f9e44 亮），与"在轨"状态同色 —— 用户没指定具体绿，
+   但这一档在深浅两个主题上对比度都够（不像 #3ddc84 在白底上偏亮）。
+   做成 <button> 而不是 <a>：它不导航，只是打开页内弹窗；并且 button 自带键盘/读屏语义。
+   按钮外观要**完全像一行文字**：清掉背景、边框、内边距，font 全继承，只留颜色与下划线。 */
+.foot-mit { display:inline; background:none; border:0; padding:0; margin:0; cursor:pointer;
+  font:inherit; letter-spacing:inherit; color:var(--up);
+  text-decoration:underline; text-underline-offset:2px; border-bottom:0;
+  -webkit-tap-highlight-color:transparent; transition:filter .2s var(--ease); }
+.foot-mit:hover { filter:brightness(1.18); }
+.foot-mit:focus-visible { outline:1px dashed var(--up); outline-offset:2px; }
+/* ★★ V1.9.9.630（用户要求）页脚第四行三个人名的配色：
+   · B站粉 —— B 站 LOGO 的官方粉 #FB7299（用户给的参考图就是这个粉），压深底/白底都够亮；
+   · GitHub Issue —— 千帆蓝（--c-qf，暗 #4dabf7 / 亮…）。⚠️ 亮色主题下 #4dabf7 压白底偏虚，
+     所以亮色档统一换成站内既有的深蓝 --accent（#1971c2），色相一致、只降一档明度（与 #repoPill 同一处理）；
+   · Gitee Issue —— 橙黄，与页脚作者「小橙子的宇宙」同款色值（#ff8c1a），保持"同一个人、同一种颜色"。
+   三者都带下划线（用户明确要求），hover 时加粗下划线。 */
+footer .fb-bili, footer .fb-gh, footer .fb-gee { text-decoration:underline; text-underline-offset:2px; font-weight:600; }
+footer .fb-bili { color:#fb7299; border-bottom-color:rgba(251,114,153,0.45); }
+footer .fb-gh   { color:var(--c-qf); border-bottom-color:rgba(77,171,247,0.45); }
+footer .fb-gee  { color:#ff8c1a; border-bottom-color:rgba(255,140,26,0.45); }
+:root[data-theme="light"] footer .fb-gh { color:#1971c2; border-bottom-color:rgba(25,113,194,0.45); }
+footer .fb-bili:hover, footer .fb-gh:hover, footer .fb-gee:hover { text-decoration-thickness:2px; }
+footer .fb-bili:hover { color:#ff8fb1; }
+footer .fb-gh:hover { color:var(--accent); }
+footer .fb-gee:hover { color:#ffa94d; }
 /* V1.9.0（需求10）：页脚数据来源后的「（CelesTrak）」—— 加粗 + 下划线（下划线沿用 footer a 的 border-bottom）+ 跳链 */
 /* ★ V1.9.5（H16）：`.foot-celes` 样式已删 —— 用户要求页脚不再出现"CelesTrak"字样
    （数据来源与许可统一由页内「说明」的合规章节承担，页脚只留"轨道数据来自 NORAD 空间目标目录"）。 */
@@ -1007,6 +1063,39 @@ footer a:hover { color:var(--fg); border-bottom-color:var(--fg); }
 /* V1.3.6：页脚作者（B 站 ID）用橙色 —— 中英文两版、星网千帆两页都一样 */
 #footLink { color:#ff8c1a; border-bottom-color:rgba(255,140,26,0.45); }
 #footLink:hover { color:#ffa94d; border-bottom-color:#ffa94d; }
+/* ── ★ V1.9.9.630（用户要求）顶栏 CISTrack 标志的「访问项目仓库主页」药丸 ─────────────
+   行为：点标志**不再直接跳 GitHub**，而是弹出这个药丸，让用户选 GitHub / Gitee。
+   外观：「已选择」药丸（#selToast）的同款 —— 同一套 padding / 圆角 / 字号 / 阴影，
+        并且**取反色**（暗色模式 = 白底黑字，亮色模式 = 黑底白字），与 #selToast.inv 一致。
+   与 #selToast 的区别（必须分开写，不能直接复用那个 id）：本药丸**可交互**（里面是链接），
+       所以 pointer-events 必须是 auto；#selToast 是纯提示、故意设成 pointer-events:none。
+   定位：固定在顶栏标志的正下方、左边缘与标志对齐（读 --repo-pill-left 由 JS 按标志实测写入），
+       这样"从哪儿点出来的"一眼可见；不走 #selToast 的"屏幕水平居中"（标志在最左侧，居中就离得太远）。 */
+#repoPill {
+  position:fixed; z-index:150; opacity:0; pointer-events:none;
+  transform:translateY(-6px);
+  padding:7px 16px; border-radius:999px;
+  font-family:var(--sans); font-size:13px; letter-spacing:0.04em; white-space:nowrap;
+  text-align:center;
+  /* 反色：暗色模式白底黑字 */
+  background:#ffffff; color:#000000; border:1px solid #ffffff;
+  box-shadow:0 6px 20px rgba(0,0,0,0.35);
+  transition:opacity .26s var(--ease), transform .26s var(--ease);
+}
+/* 亮色模式黑底白字（与 #selToast.inv 同一口径） */
+:root[data-theme="light"] #repoPill { background:#000000; color:#ffffff; border-color:#000000; }
+#repoPill.show { opacity:1; pointer-events:auto; transform:translateY(0); }
+/* 药丸里的两个仓库链接：**填充字体 + 下划线**（用户指定：Github 千帆蓝、Gitee 星网红）。
+   为什么白底那一档要加深（#1971c2 / #e03131）：#4dabf7 与 #ff6b6b 压在**白底**上对比度只有
+   2.2:1 / 2.9:1，13px 字号读起来会发虚。这两个深色值都是站内既有色（亮色主题的 --accent 与
+   --down），色相与品牌色一致，只是同色相降一档明度 —— 与 --satcat 分深浅两档是同一套做法。 */
+#repoPill a { text-decoration:underline; text-underline-offset:2px; font-weight:600; border-bottom:none; }
+#repoPill .rp-gh  { color:#1971c2; }     /* 千帆蓝（白底档） */
+#repoPill .rp-gee { color:#e03131; }     /* 星网红（白底档） */
+:root[data-theme="light"] #repoPill .rp-gh  { color:#4dabf7; }   /* 黑底档用原色 */
+:root[data-theme="light"] #repoPill .rp-gee { color:#ff6b6b; }
+#repoPill a:hover { text-decoration-thickness:2px; }
+#repoPill .rp-sep { opacity:.45; padding:0 4px; }
 /* README 按键 / 弹窗内的链接与引用线：都跟星座主题色（星网红 / 千帆蓝） */
 .readme-btn { background:transparent; border:1px solid var(--row-sel); color:var(--row-sel); font-family:var(--mono); font-size:10.5px; letter-spacing:0.16em; padding:7px 18px; cursor:pointer; transition:background .2s var(--ease), color .2s var(--ease); }
 .readme-btn:hover { background:var(--row-sel); color:var(--bg); }
@@ -1021,7 +1110,21 @@ footer a:hover { color:var(--fg); border-bottom-color:var(--fg); }
 .modal-x:hover { color:var(--fg); border-color:var(--fg); }
 /* V1.9.0（需求13）：关闭键挂在 .modal-mask 上（在模态框之外）→ 贴视口右上角；
    加粗放大，并给它一块不透明底以便压在遮罩上仍然清晰。 */
-.modal-mask .modal-x { top:14px; right:18px; width:40px; height:40px; font-size:24px; font-weight:800; color:var(--fg); border:1.5px solid var(--dim); background:var(--info-bg); z-index:6; }
+/* ★★ V1.9.9.630（用户要求，修一个小 bug）：「×」**略微向上移动**。
+   用户给的判据（原文）：使之「**下沿到弹出窗口上沿的距离 = 其上沿到显示屏幕顶部的距离**」。
+   为什么会有这个 bug：× 高 40px、top 14px ⇒ 它的下沿在 54px 处；而弹窗高度是 88vh 且**上下居中**，
+   视口越矮，弹窗上沿越靠上（例如 640px 高的手机视口：3vh 内边距 + (88vh−72vh)/2 …… 上沿约在 51px），
+   于是 × 的底部那一小条就压在弹窗上沿上 —— 用户看到的"底部有一点点面积与弹出窗口重合"。
+   ⚠️ 不要用固定数字修（14px → 8px 之类）：弹窗上沿随 vh 变，固定值只能对一档视口有效。
+      ⇒ 用 CSS 变量 --mx-h 表达"上沿到屏顶 = 下沿到弹窗上沿"这个**等式**：
+          上沿到屏顶 = H + top
+          下沿到弹窗上沿 = modalTop − (top + H)
+        两者相等 ⇒ top = (modalTop − 2H) / 2 = modalTop/2 − H
+      modalTop 由 JS 实测写入 --mx-top（见 app.js 的 placeModalX()），这里只做兜底：
+      量不到时退回 14px（旧值，至少不会更差）。 */
+.modal-mask .modal-x {
+  top:var(--mx-top, 14px); right:18px; width:40px; height:40px; font-size:24px; font-weight:800;
+  color:var(--fg); border:1.5px solid var(--dim); background:var(--info-bg); z-index:6; }
 .modal-mask .modal-x:hover { border-color:var(--fg); }
 .modal-body { overflow:auto; max-height:88vh; padding:30px 34px; }
 /* V1.4.5：手机上把说明弹窗压低一些 —— 88vh 在竖屏里几乎顶天立地，反而更闷 */
@@ -1073,10 +1176,16 @@ html.loading, html.loading body { overflow:hidden; touch-action:none; }
 /* ★ V1.9.9（N3）：第一行的英文副行 —— 略小一档、更淡，单开一行 */
 .lm-txt2 { font-family:var(--mono); font-size:calc(var(--lm-fs) - 2px); letter-spacing:0.12em; color:var(--faint); text-align:center; padding:0 24px; margin-top:-6px; }
 /* ★ V1.9.9（N2）：跳过按钮 —— 药丸形状，与页面其它药丸同一套语汇 */
+/* ★ V1.9.9.630（用户要求）：这一行**必须有可见边框**。
+   真因（不是"颜色太淡"）：原来的 `border:1px solid var(--row-sec)` 里 `--row-sec`
+   **从未定义** —— 自定义属性解析失败时，整条 border 声明在"计算值阶段"变成无效 →
+   border-style 回落成 none，于是药丸根本**没有边框**（截图里看到的只是底色边缘）。
+   ⇒ 改用站内既有的琥珀黄 #f59f00（与「未编目发射记录」标签 / 冻结时间药丸同色），
+     并把悬停色一并钉死，避免以后又被一个不存在的变量吃掉。 */
 .lm-skip { margin-top:2px; padding:7px 18px; font-family:var(--mono); font-size:12px; letter-spacing:0.08em;
-  color:var(--fg); background:var(--nav-bg); border:1px solid var(--row-sec); border-radius:999px;
-  cursor:pointer; -webkit-tap-highlight-color:transparent; transition:border-color .2s var(--ease), color .2s var(--ease); }
-.lm-skip:hover { border-color:var(--accent); color:var(--accent); }
+  color:var(--fg); background:var(--nav-bg); border:1px solid #f59f00; border-radius:999px;
+  cursor:pointer; -webkit-tap-highlight-color:transparent; transition:border-color .2s var(--ease), color .2s var(--ease), background .2s var(--ease); }
+.lm-skip:hover { border-color:#ffb52e; color:#ffb52e; background:rgba(245,159,0,0.10); }
 .lm-skip:active { transform:translateY(1px); }
 #loadMask.hide .lm-skip { pointer-events:none; }
 /* 白色圆环加载器（取代原来的细长进度条） */
@@ -2077,7 +2186,10 @@ html[data-theme="light"] .res-fail { color:#c72929; }
 
 <nav class="topnav">
   <div class="brand-box">
-    <div class="brand"><a class="brand-link" href="https://github.com/1471155912/CISTrack" target="_blank" rel="noopener" data-i18n-title="t_repo"><span class="brand-name"><span class="bn-a">CISTrack</span><span class="bn-b" aria-hidden="true">CISTrack</span></span></a></div>
+    <!-- ★★ V1.9.9.630（用户要求）：点标志**不再直接跳 GitHub**，改为弹出「访问项目仓库主页」药丸，
+         让用户在 GitHub / Gitee 两个仓库主页之间选。因此 href 改成锚点占位（无 JS 时才退化成直跳 GitHub），
+         点击行为在 app.js 的 wireBrandLink() 里接管（preventDefault → 定位 → 显示药丸）。 -->
+    <div class="brand"><a class="brand-link" id="brandLink" href="https://github.com/1471155912/CISTrack" target="_blank" rel="noopener" data-i18n-title="t_repo" role="button" aria-haspopup="true" aria-expanded="false" aria-controls="repoPill"><span class="brand-name"><span class="bn-a">CISTrack</span><span class="bn-b" aria-hidden="true">CISTrack</span></span></a></div>
     <div class="brand-note" id="brandNote" data-i18n="brandNote">非官方项目 · 数据来自 NORAD 空间目标目录公开轨道要素</div>
   </div>
   <!-- V1.7.2 第七轮（需求2）：这里原来的两样东西都删了 ——
@@ -2497,19 +2609,39 @@ html[data-theme="light"] .res-fail { color:#c72929; }
   </div>
 </section>
 
+<!-- ★★ V1.9.9.630（用户要求）页脚重做。结构上有三条硬约束，写在这里免得以后被"顺手简化"破坏：
+     ① 宽屏是「左三行 + 中间上下居中的说明按钮 + 右上下居中的作者」，窄屏变成
+        「左四行 → 居中的说明按钮 → 居中的作者」—— 两种版式靠 footer 的 flex 方向 + 断点切换，
+        不是两套 DOM（两套 DOM 会各漏改一处）。
+     ② 左侧四行**必须是四个独立的块**，不能拼成一句话：它们要在窄屏逐行换行、且各自带内联标签。
+     ③ MIT 那个词是**可点的按钮**（不是 a）：点了打开页内 MIT 许可证弹窗；
+        另外新结果里"MIT"前后不留空格（用户明确要求），所以文案拆成 "本项目为" + [MIT] + "开源项目…"。
+     ④ 作者那一行要给 JS 一个可量的锚点（.foot-author），因为它与右侧悬浮章节药丸的水平间距
+        必须精确等于「顶栏语言键右边 → 主题键左边」的实测像素（用户给的判据）。 -->
 <footer>
-  <div class="foot-side">
+  <div class="foot-side foot-left">
     <span id="footCopy"></span>
     <span id="footData" data-i18n="foot_data">轨道数据来自 NORAD 空间目标目录</span>
-    <span id="footUse" data-i18n="foot_use">本项目为 MIT 开源项目，可自由使用、修改与分发（保留版权与许可声明即可）</span>
+    <span id="footUse"></span>
+    <span id="footFb"></span>
   </div>
   <button class="readme-btn btn-accent" id="readmeBtn" type="button" data-i18n="b_readme">说明</button>
   <div class="foot-side foot-right">
-    <a id="footLink" href="https://space.bilibili.com/455972735" target="_blank" rel="noopener"></a>
+    <a id="footLink" class="foot-author" href="https://space.bilibili.com/455972735" target="_blank" rel="noopener"></a>
   </div>
 </footer>
 
 <div id="jumpPill"></div>
+
+<!-- ★ V1.9.9.630（用户要求）：顶栏标志的「访问项目仓库主页」药丸。
+     写成**静态 DOM**（不在 JS 里 createElement）的两个理由：
+     ① 无障碍 —— 里面是真的 <a>，读屏与键盘 Tab 都能识别；② 文案中英双语随 LANG 切换，
+        由 applyRepoPillLang() 改 textContent，不重建节点（重建会丢焦点）。
+     内容：「访问项目仓库主页：Github / Gitee」；英文：「Repository home: GitHub / Gitee」。
+     两处链接的颜色（Github 蓝 / Gitee 红）由 .rp-gh / .rp-gee 控制，见 style 里的说明。 -->
+<div id="repoPill" role="dialog" aria-modal="false">
+  <span class="rp-lead" id="repoPillLead">访问项目仓库主页：</span><a class="rp-gh" id="repoPillGh" href="https://github.com/1471155912/CISTrack" target="_blank" rel="noopener">Github</a><span class="rp-sep"> / </span><a class="rp-gee" id="repoPillGee" href="https://gitee.com/Jackoraniverse/CISTrack" target="_blank" rel="noopener">Gitee</a>
+</div>
 
 <div id="loadMask">
   <!-- V1.9.1（#9）：两行字**写死进 HTML**。
@@ -2524,8 +2656,11 @@ html[data-theme="light"] .res-fail { color:#c72929; }
        ⚠️ 因此这三行**都不能挂 `data-i18n`**：`applyStaticLang()` 执行的是
          `el.innerHTML = t(key)`，会把双语布局整体替换成单语（这个坑必须先避开）。
        第二行是第三行那句"加载中"的标准英文，与中文**同一行**（`加载中/Reloading`）。 -->
-  <div class="lm-txt" id="lmTxt">正在获取最新轨道要素…</div>
-  <div class="lm-txt2" id="lmTxt2">Fetching the latest orbital elements…</div>
+  <!-- ★ V1.9.9.630（用户要求）：前两行**末尾不带省略号** ——
+       跳动的省略号只在下面「加载中/Reloading」后面那一处（用户口径：那一处就够了，
+       前两行再各带一个会显得啰嗦，而且三行点会互相打架）。 -->
+  <div class="lm-txt" id="lmTxt">正在获取最新轨道要素</div>
+  <div class="lm-txt2" id="lmTxt2">Fetching the latest orbital elements</div>
   <div class="lm-ring"></div>
   <!-- ★ V1.9.6（用户要求）：第三行字号与第一行一致，末尾省略号**循环跳动**；V1.9.9 起改为**六个点**。 -->
   <div class="lm-epoch" id="lmThird"><span id="lmThirdMain">加载中/Reloading</span><span class="lm-dots" aria-hidden="true"><i>.</i><i>.</i><i>.</i><i>.</i><i>.</i><i>.</i></span></div>
@@ -2540,6 +2675,19 @@ html[data-theme="light"] .res-fail { color:#c72929; }
   <!-- V1.9.0（需求13）：关闭键移到**模态框之外**（挂在遮罩上 → 贴视口右上角，和章节信息窗的 × 一样），
        并加粗放大。旧版那个 13px 的灰 × 太不显眼。 -->
   <button class="modal-x" id="readmeX" type="button" aria-label="关闭" data-i18n-aria="d_err_close">×</button>
+</div>
+
+<!-- ★★ V1.9.9.630（用户要求）：页脚「MIT」点击后弹出的**页内 MIT 许可证**窗口。
+     用户口径：「形式、规格和点击说明/readme按钮弹出的页面内带X按钮的窗口完全一样」。
+     ⇒ 直接复用同一套 .modal-mask / .modal / .modal-body / .modal-x 结构（不是另写一套样式），
+       所以遮罩浓度、圆角、阴影、× 的位置与尺寸、"点遮罩关闭"、"Esc 关闭"全部自动一致；
+       唯一差别是 body 里放的是 <pre> 许可证原文（.modal-body pre 已有样式）。
+     ⚠️ id 前缀用 lic 与 readme 分开：两套开关函数各管各的，互不干扰。 -->
+<div id="licMask" class="modal-mask hide">
+  <div class="modal" role="dialog" aria-modal="true">
+    <div class="modal-body md" id="licBody"></div>
+  </div>
+  <button class="modal-x" id="licX" type="button" aria-label="关闭" data-i18n-aria="d_err_close">×</button>
 </div>
 
 <!--INJECT_SGP4-->

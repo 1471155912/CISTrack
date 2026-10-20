@@ -152,9 +152,21 @@ export const PH = (norad) => String(norad).slice(-5).padStart(5, '0');
  */
 export function tleEpochMs(l1) {
   const s = String(l1 || '').slice(18, 32).trim();
-  const yy = parseInt(s.slice(0, 2), 10);
-  const doy = parseFloat(s.slice(2));
-  if (!isFinite(yy) || !isFinite(doy)) return 0;
+  // ★★ V1.9.9.630（对抗性测试抓出）：**历元列必须严格匹配 `YYDDD.DDDDDDDD`**，
+  //   不能只 `parseFloat` 了事。病根（实测）：
+  //     `parseInt('9X', 10)` → 9（静默吃掉后缀的 X）→ yy=2009；
+  //     `parseFloat('289.19093506')` → 289.19 → 得到一个**看起来完全正常的毫秒值**。
+  //   后果：坏历元不会返回 0，而是变成一个"2009 年的合法时间戳"——于是
+  //     · refresh 的"N 天落后"闸门读到 6000+ 天，却仍能算出有限数，判据照样"通过计算"；
+  //     · 排障时看到的是一个像模像样的日期，**根本看不出历元列本身是坏的**。
+  //   这类"坏输入产出貌似合理的输出"正是本项目反复踩的静默失败形态。
+  //   取舍：宁可返回 0（下游有 `em <= 0` 判据会把它抓出来），也不要编一个假日期。
+  //   实测 515 行真实 TLE 全部严格匹配本正则（见 V1.9.9.630 的验证记录），零误报。
+  const m = /^(\d{2})(\d{3}\.\d{8})$/.exec(s);
+  if (!m) return 0;
+  const yy = parseInt(m[1], 10);
+  const doy = parseFloat(m[2]);
+  if (!isFinite(yy) || !isFinite(doy) || !(doy >= 1)) return 0;
   const year = yy < 57 ? 2000 + yy : 1900 + yy;
   return Date.UTC(year, 0, 1) + (doy - 1) * 86400000;
 }
@@ -167,11 +179,44 @@ export function tleEpochMs(l1) {
 //     所以坏行**永久滞留**（刷新一百次也不会自愈）。
 //   因此这个函数被用在三处：refresh 的入口体检（剔坏行 → 促自愈）、出口体检（写盘后复查）、
 //     omm_check / e2e 的断言（防复发）。
+// ★ V1.9.9.630（对抗性测试抓出）：**L2 六个倾角/轨道要素的物理区间**抽成**单一真理源**。
+//   为什么必须共用一份：`tleHealth()` 是"体检"、`tleFromOmm()` 是"生成"。若两边各写一套区间，
+//   迟早出现"生成时放过、体检时判坏"（或反过来）的自相矛盾 —— 那时排障会被自己的工具带偏。
+//   现在两处都调 `l2InRange()`：**生成的必然能过体检，体检不过的必然生成不出来**。
+//   区间口径（下限侧有意保守，宁宽不严，避免误剔）：
+//     · 倾角 [0,180]             —— >180 无物理意义（逆行用 180-x 表示，不会 >180）
+//     · 升交点赤经 / 近地点幅角 / 平近点角 ∈ [0,360)
+//     · 偏心率 [0,1)             —— 必须 <1，否则轨道不闭合（本项目踩过 e=0.96 把高度算成几千 km）
+//     · 平均运动 (0,20] rev/day  —— 0 = "没有轨道"（SGP4 除零 → Infinity/NaN）；>20 超出任何地球轨道
+//   实测依据：当前 515 行真实 TLE（gw 253 / qf 262）逐列全部落在区间内，**误报 0**：
+//     gw: inc[0.075,86.51] raan[1.54,358.61] ecc[1e-6,1.7e-3] argp[2.87,357.35] ma[2.74,357.22] mm[1.00,15.43]
+//     qf: inc[54.99,89.02] raan[1.89,349.06] ecc[1.2e-4,3.3e-3] argp[2.16,323.61] ma[36.43,357.97] mm[13.47,15.52]
+export function l2InRange(inc, raan, ecc, argp, ma, mm) {
+  if (!(inc >= 0 && inc <= 180)) return false;
+  if (!(raan >= 0 && raan < 360)) return false;
+  if (!(ecc >= 0 && ecc < 1)) return false;
+  if (!(argp >= 0 && argp < 360)) return false;
+  if (!(ma >= 0 && ma < 360)) return false;
+  if (!(mm > 0 && mm <= 20)) return false;
+  return true;
+}
 export function tleHealth(l2) {
   const s = String(l2 || '');
   if (s.length < 63) return false;
   const cols = [s.slice(8, 16), s.slice(17, 25), s.slice(26, 33), s.slice(34, 42), s.slice(43, 51), s.slice(52, 63)];
-  return cols.every(f => isFinite(parseFloat(f)));
+  // 第一关：必须是有限数（"NaN" 能撑满定宽列，长度/正则全都拦不住）
+  if (!cols.every(f => isFinite(parseFloat(f)))) return false;
+  // 第二关：必须是物理可能的（见 l2InRange 上方注释）
+  //   病根：`isFinite` 能放过 `倾角 999°`、`平均运动 0`、`偏心率 1.5` 这类"数值合法但物理不可能"的值，
+  //   它们不会被任何闸门抓住，却会让 satellite.js 算出 NaN/无穷轨道 —— 与"NaN 写进 TLE"
+  //   是同一种静默污染，只是更难发现（字段看起来是数字，日志里一切正常）。
+  return l2InRange(
+    parseFloat(cols[0]),
+    parseFloat(cols[1]),
+    parseInt(cols[2], 10) / 1e7,      // 偏心率在 TLE 里是**假定小数点的 7 位整数**
+    parseFloat(cols[3]),
+    parseFloat(cols[4]),
+    parseFloat(cols[5]));
 }
 // COSPAR 字段归一化（V1.9.1 修的真 bug）：
 //   经典 TLE 的 COSPAR 列只有 **6 列**（YYNNNAA…，如 "26176A"），而现代 OMM 的 OBJECT_ID 是
@@ -194,9 +239,41 @@ export function tleFromOmm(o, placeholder) {
   for (const k of req) {
     if (!isFinite(Number(o[k]))) throw new Error('tleFromOmm: 字段 ' + k + ' 非有限数（' + o[k] + '）—— 检查上游 OMM 的字段名');
   }
+  // ★★ V1.9.9.630（对抗性测试抓出的**真缺陷**，与 cosparField 是同一种病）：**历元也是必填的**。
+  //   病根（实测）：`fromCelesTrakOmm()` 对坏 `EPOCH` 会算出 `Y2=NaN / DOY=NaN`，
+  //   而本函数旧版把历元写成 `String(o.EPOCH_Y2 != null ? ... : 0).padStart(2,'0')`
+  //   —— `String(NaN)` 是 **"NaN"（3 个字符）**，`padStart(2,'0')` 只补不截 → 输出 **"NaN"**；
+  //   同理 `(NaN).toFixed(8)` → `"NaN"`（3 字符），`padStart(12,'0')` → **12 字符**。
+  //   实测产出：
+  //     `1 12345U 24001A   NaN000000000NaN  .00000000  00000+0  00000+0 0    03`   ← **70 列**！
+  //   为什么极其危险：TLE 是**定宽**格式，下游全部按 `slice(a,b)` 取值 ——
+  //     L1 多 1 列会让**该行之后的所有列整体错位**（历元、ndot、BSTAR、元素号全歪），
+  //     而且 `tleHealth()` 只看 L2，**L1 完全没人查**；`tleEpochMs()` 旧版又会把它
+  //     `parseFloat` 成一个 2009 年的合法时间戳 → 全线"看起来正常"。
+  //   这与 V1.9.1 修过的 `cosparField` 长出第 70 列是同一类事故，只是触发源不同（历元 vs COSPAR）。
+  //   修法：历元进 `req` 闸门（非有限数 → 抛错，让上游把这颗算作失败并记账），
+  //   再补一道**定宽形状闸门**兜住"以后任何一列又长出第 70 列"的整类问题。
+  if (!isFinite(Number(o.EPOCH_Y2)) || !isFinite(Number(o.EPOCH_DOY)) || !(Number(o.EPOCH_DOY) >= 1)) {
+    throw new Error('tleFromOmm: 历元非有限数或非法（Y2=' + o.EPOCH_Y2 + ' DOY=' + o.EPOCH_DOY +
+      '）—— 上游 EPOCH 字段可能是空/垃圾值；历元缺失会让 L1 变成 70 列并整体错位');
+  }
+  // ★★ V1.9.9.630：**生成侧也过同一套物理区间**（与 tleHealth 共用 `l2InRange`）。
+  //   病根（实测）：旧版只查 `isFinite` → `MEAN_MOTION: 0` 能顺利生成
+  //     `2 12345  53.0000 100.0000 0010000  90.0000 180.0000  0.00000000  ...`
+  //   这条行**长度 69、校验位正确、全部是数字**，看起来完全正常；
+  //   但平均运动为 0 = 轨道周期无穷 = SGP4 直接除零得到 Infinity/NaN。
+  //   它与"NaN 写进 TLE"是同一种静默污染，只是更隐蔽（日志里一切都是数字）。
+  //   取舍：在**生成时**就拒绝（抛错 → 上游把这颗算作失败并记账），
+  //     而不是等 tleHealth 事后剔行 —— 早失败能保住"这颗星为什么没了"的因果链。
+  if (!l2InRange(Number(o.INCLINATION), Number(o.RAAN), Number(o.ECCENTRICITY),
+    Number(o.ARG_OF_PERICENTER), Number(o.MEAN_ANOMALY), Number(o.MEAN_MOTION))) {
+    throw new Error('tleFromOmm: 轨道要素超出物理区间（inc=' + o.INCLINATION + ' raan=' + o.RAAN +
+      ' ecc=' + o.ECCENTRICITY + ' argp=' + o.ARG_OF_PERICENTER + ' ma=' + o.MEAN_ANOMALY +
+      ' mm=' + o.MEAN_MOTION + '）—— 见 l2InRange 的区间说明');
+  }
   const cn = placeholder || '00000';
-  const yy = String(o.EPOCH_Y2 != null ? o.EPOCH_Y2 : 0).padStart(2, '0');
-  const doy = (o.EPOCH_DOY != null ? o.EPOCH_DOY : 0).toFixed(8).padStart(12, '0');
+  const yy = String(o.EPOCH_Y2).padStart(2, '0');
+  const doy = Number(o.EPOCH_DOY).toFixed(8).padStart(12, '0');
   const l1 = '1 ' + cn + 'U ' + cosparField(o.OBJECT_ID) + ' ' + yy + doy + ' ' +
     toTleNdot(o.MEAN_MOTION_DOT) + ' ' +
     toTleExp(o.MEAN_MOTION_DDOT, 5) + ' ' +
@@ -211,7 +288,24 @@ export function tleFromOmm(o, placeholder) {
     o.MEAN_ANOMALY.toFixed(4).padStart(8) + ' ' +
     o.MEAN_MOTION.toFixed(8).padStart(11) +
     String(o.REV_AT_EPOCH || 0).padStart(5);
-  return [l1 + tleChecksum(l1), l2 + tleChecksum(l2)];   // 末位补上真正的校验位
+  // ★★ V1.9.9.630：**定宽形状闸门**（兜住整类"某列长出第 70 列"的事故）。
+  //   为什么放在最后统一查、而不是逐列写长度：本模块已经出过两次同源事故 ——
+  //     ① V1.9.1 的 `cosparField` 对 9 字符 OBJECT_ID 直接 padEnd(8) → L1 变 70 列；
+  //     ② V1.9.9.630 的历元 NaN → L1 变 70 列（见上方注释）。
+  //   两次都是"某一列的格式化函数产出比列宽更长/更短的字符串"，而 `padStart/padEnd`
+  //   **只补不截**，多出来的部分就顶到下一列去。逐列写长度只能防住已知的那几列；
+  //   这里统一断言"整行必须正好 69 列且末位校验位自洽"，将来再加列也躲不过去。
+  //   同时排除字面 "NaN"/"undefined" 落进正文（`String(NaN)` 的经典陷阱）。
+  const l1Out = l1 + tleChecksum(l1);
+  const l2Out = l2 + tleChecksum(l2);
+  if (l1Out.length !== 69 || l2Out.length !== 69) {
+    throw new Error('tleFromOmm: 产出的行不是 69 列（L1=' + l1Out.length + ' L2=' + l2Out.length +
+      '）—— 某列格式化后长度越界会让后续所有列错位。L1=' + JSON.stringify(l1Out));
+  }
+  if (/NaN|undefined|null/.test(l1Out) || /NaN|undefined|null/.test(l2Out)) {
+    throw new Error('tleFromOmm: 产出含字面 NaN/undefined —— 拒绝让它落盘（会静默污染数据源）');
+  }
+  return [l1Out, l2Out];   // 末位已是真正的校验位
 }
 // ---- 往返自检：用真实的 TLE 做 TLE → OMM → TLE，逐字段比对 ----
 //   V1.9.1：抽成**可导入函数**（原先只写在 CLI 里）—— 测试（smoke.mjs）直接 import 调用，

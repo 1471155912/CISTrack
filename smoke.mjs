@@ -186,7 +186,10 @@ assert('页面无脚本错误', errors.length === 0, errors.slice(0, 3).join(' |
 assert('卫星表已渲染 9~10 行（按行单元分页）', rows() >= 9 && rows() <= 10, rows());
 // V1.9.1：这两条曾长期停留在 V1.8.0（V1.9.0 发布时漏改）→ 改为**与 app.js 的实际 VERSION 对齐**，
 //   以后升版本只改 app.js 一处，断言自动跟随，不会再出现"版本升级后断言过期"的假 FAIL。
-const _VER = (/var VERSION = '(V\d+\.\d+\.\d+)'/.exec(appSrc) || [])[1];
+// ★ V1.9.9.630：版本号可以是**三段或四段**（本轮起用 `V1.9.9.630` 这种四段式来标记"某一基线之上的
+//   修复批次"）。原正则写死三段 → 四段式会**整条读不出来**，于是这条断言连同下面"页脚含版本号"、
+//   "README 徽章与 app.js 一致"一起假 FAIL（实测 3 条）。这里放宽为 `(?:\.\d+){2,3}`。
+const _VER = (/var VERSION = '(V\d+\.\d+\.\d+(?:\.\d+)?)'/.exec(appSrc) || [])[1];
 assert('版本号可从 app.js 读出（形如 V1.9.0）', !!_VER, _VER);
 assert('页脚显示 CISTrack + 版本号', /CISTrack/.test($('#footCopy').textContent) && $('#footCopy').textContent.includes(_VER), $('#footCopy').textContent);
 assert('页脚 B 站链接是橙色主题', /#footLink/.test(tpl) && /#ff8c1a/.test(tpl));
@@ -450,6 +453,98 @@ await new Promise(r => setTimeout(r, 200));
 assert('切回中文：历元行回到 TLE更新时间', /TLE更新时间/.test(d.querySelector('#pageEpoch').textContent),
   d.querySelector('#pageEpoch').textContent);
 
+console.log('--- V1.9.9.630 页脚 / 弹窗 × / 仓库药丸 ---');
+// ★★ V1.9.9.630（用户要求）页脚第三行：MIT 前后不留空格、染绿下划线、可点开页内许可证弹窗。
+//   判据都打在**渲染结果**上（不是源码字面量）—— 这行是 JS 拼的，只查源码等于没查。
+{
+  const useTxt = d.querySelector('#footUse') ? d.querySelector('#footUse').textContent : '';
+  assert('V1.9.9.630：页脚「MIT」前后**不留空格**（本项目为MIT开源项目…）',
+    /本项目为MIT开源项目，/.test(useTxt), useTxt);
+  const mitBtn = d.querySelector('#footMit');
+  assert('V1.9.9.630：页脚 MIT 是**可点的按钮**（不是纯文字），且文案就是 MIT',
+    !!mitBtn && mitBtn.tagName === 'BUTTON' && mitBtn.textContent === 'MIT',
+    mitBtn ? mitBtn.tagName + '|' + mitBtn.textContent : '缺 #footMit');
+  assert('V1.9.9.630：页脚 MIT 染绿 + 下划线（.foot-mit 用 --up 色）',
+    /\.foot-mit \{[^}]*color:var\(--up\)/.test(tpl) && /\.foot-mit \{[^}]*text-decoration:underline/.test(tpl));
+  assert('V1.9.9.630：页内 MIT 许可证弹窗存在，且**复用**说明弹窗那一套 .modal-mask/.modal/.modal-x',
+    /id="licMask" class="modal-mask hide"/.test(tpl) && /id="licBody"/.test(tpl) &&
+    /id="licX"/.test(tpl) && /function openLic\(\)/.test(appSrc) && /function closeLic\(\)/.test(appSrc) &&
+    // 复用而非另写一套：licMask 里必须是 .modal + .modal-body.md
+    /id="licMask"[\s\S]{0,300}class="modal"[\s\S]{0,200}class="modal-body md" id="licBody"/.test(tpl));
+  assert('V1.9.9.630：MIT 按钮的点击已接线（renderChrome 里重建后重新 addEventListener）',
+    /mit\.addEventListener\('click', openLic\)/.test(appSrc));
+}
+// ★★ V1.9.9.630（用户要求）页脚第四行：欢迎反馈，三个人名各自染色 + 下划线 + 正确链接。
+{
+  const fb = d.querySelector('#footFb');
+  const txt = fb ? fb.textContent : '';
+  const links = fb ? [...fb.querySelectorAll('a')] : [];
+  assert('V1.9.9.630：页脚新增「欢迎在…提意见」一行（文案完整）',
+    /^欢迎在B站动态页、GitHub Issue和Gitee Issue上为本项目提出更多宝贵的意见和建议！$/.test(txt), txt);
+  assert('V1.9.9.630：三处链接的地址与顺序都对（B站动态 / GitHub Issue / Gitee Issue）',
+    links.length === 3 &&
+    links[0].getAttribute('href') === 'https://www.bilibili.com/opus/1261335859431473175' &&
+    links[1].getAttribute('href') === 'https://github.com/1471155912/CISTrack/issues' &&
+    links[2].getAttribute('href') === 'https://gitee.com/Jackoraniverse/CISTrack/issues',
+    links.map(a => a.getAttribute('href')).join(' | '));
+  assert('V1.9.9.630：三个链接各自染色（B站粉 / GitHub 千帆蓝 / Gitee 橙黄）且都带下划线',
+    /footer \.fb-bili \{[^}]*color:#fb7299/.test(tpl) &&
+    /footer \.fb-gh\s+\{[^}]*color:var\(--c-qf\)/.test(tpl) &&
+    /footer \.fb-gee\s+\{[^}]*color:#ff8c1a/.test(tpl) &&
+    /footer \.fb-bili, footer \.fb-gh, footer \.fb-gee \{[^}]*text-decoration:underline/.test(tpl));
+  // 英文那两条**段首要带空格**（a + 链接 + b 直接拼接，中文不能带、英文必须带）
+  assert('V1.9.9.630：页脚反馈行的英文分段自带空格（避免 "onBilibili" 这种粘字）',
+    /foot_fb_a: \['欢迎在', 'Suggestions and feedback are welcome on '\]/.test(appSrc) &&
+    /foot_use_a: \['本项目为', 'This project is '\]/.test(appSrc));
+}
+// ★★ V1.9.9.630（用户要求）页脚字号：电脑端放大 + 自适应；**行高/高度不放大**。
+{
+  const fsFoot = (tpl.match(/--fs-foot:\s*clamp\([^)]*\)/) || [''])[0];
+  assert('V1.9.9.630：页脚字号自适应屏幕（clamp + vw），且下限 ≥13px（旧 11px 太小）',
+    /clamp\(13px, [\d.]+px \+ [\d.]+vw, 14\.6px\)/.test(fsFoot), fsFoot);
+  assert('V1.9.9.630：页脚**行高/内边距未跟着放大**（用户明确要求不扩大高度）',
+    /footer \{[^}]*line-height:1\.5/.test(tpl) && /footer \{[^}]*padding:26px 40px/.test(tpl));
+  assert('V1.9.9.630：「说明」按钮的字也一起放大（原来写死 10.5px）',
+    /footer \.readme-btn \{[^}]*font-size:calc\(var\(--fs-foot\) \* 0\.95\)/.test(tpl));
+}
+// ★★ V1.9.9.630（用户要求）页脚三区布局：宽屏「左多行 + 中间说明按钮 + 右作者」；窄屏纵排居中。
+{
+  assert('V1.9.9.630：页脚三区结构（.foot-left / #readmeBtn / .foot-right）在模板里成型',
+    /class="foot-side foot-left"/.test(tpl) &&
+    /id="readmeBtn"/.test(tpl) && /class="foot-side foot-right"/.test(tpl) &&
+    /footer \{[^}]*flex-wrap:nowrap/.test(tpl) &&
+    /footer \.readme-btn \{[^}]*align-self:center/.test(tpl));
+  assert('V1.9.9.630：窄屏（≤1100px）退化为纵排 + 说明按钮居中 + 作者居中',
+    /@media \(max-width:1100px\) \{[\s\S]{0,400}footer \{ flex-direction:column/.test(tpl) &&
+    /@media \(max-width:1100px\) \{[\s\S]{0,700}footer \.readme-btn \{ align-self:center/.test(tpl) &&
+    /\.foot-side\.foot-right \{ align-items:center; justify-content:center/.test(tpl));
+  // 作者与章节药丸的水平间距 = 顶栏「语言键右边 → 主题键左边」的实测像素
+  assert('V1.9.9.630：作者与右侧章节药丸的间距按顶栏两键**实测**写入（不写死像素）',
+    /function syncFootPillGap\(\)/.test(appSrc) &&
+    /rt\.left - rl\.right/.test(appSrc) &&
+    /foot\.style\.paddingRight = want \+ 'px'/.test(appSrc) &&
+    /window\.innerWidth <= 1100/.test(appSrc) &&
+    /syncFootPillGap\(\)/.test(appSrc));
+}
+// ★★ V1.9.9.630（用户要求）弹窗 × 的位置：下沿到弹窗上沿 = 上沿到屏顶
+//   ⇒ t = (m − H)/2（m = 弹窗上沿距屏顶，H = × 高度）。这条代数关系必须与实现一字不差，
+//     否则就是"注释里推对了、代码里写错了"（初版我确实先写成了 m/2 − H）。
+{
+  assert('V1.9.9.630：弹窗 × 的 top 用 --mx-top 变量（量不到时退回 14px）',
+    /\.modal-mask \.modal-x \{[\s\S]{0,120}top:var\(--mx-top, 14px\)/.test(tpl));
+  assert('V1.9.9.630：placeModalX 按 **t = (弹窗上沿 − × 高) / 2** 求解（不是 m/2 − H 那种写法）',
+    /function placeModalX\(\)/.test(appSrc) &&
+    /Math\.round\(\(mr\.top - H\) \/ 2\)/.test(appSrc) &&
+    /setProperty\('--mx-top', t \+ 'px'\)/.test(appSrc));
+  assert('V1.9.9.630：两套弹窗（说明 / MIT）打开时都调 placeModalX，窗口缩放时也重算',
+    (appSrc.match(/placeModalX\(\);/g) || []).length >= 2 &&
+    /window\.addEventListener\('resize', placeModalX\)/.test(appSrc));
+}
+// ★★ V1.9.9.630（用户要求）页脚文案改成拆分式后，`foot_use` 这个旧键应当退场
+//   （留着会让人以为还有地方在用；i18n 审计也会把它当成孤立键）。
+assert('V1.9.9.630：旧的单段 foot_use 键已退场（改由 foot_use_a/b 拼装）',
+  !/foot_use: \[/.test(appSrc) && /foot_use_a:/.test(appSrc) && /foot_use_b:/.test(appSrc));
+
 console.log('--- V1.4.1 ---');
 assert('导出弹窗有「含全部列」开关且默认勾选',
   /id="shotAllColsSat"/.test(tpl) && /id="shotAllColsLaunch"/.test(tpl) &&
@@ -483,14 +578,43 @@ assert('仓库 README 同步用新表述', /\*\*地图仅为粗略的地球大�
 //   徽章都停在 1.9.2 —— release.mjs 现在会自动改写徽章（与 package.json 同一趟），
 //   这条断言是"漏跑 release 也想推"时的兜底闸门。
 {
-  const ver = (fs.readFileSync(B + '/app.js', 'utf8').match(/var VERSION\s*=\s*'V?([0-9]+\.[0-9]+\.[0-9]+)'/) || [])[1];
+  // ★ V1.9.9.630：版本号允许三段或四段（见上面 _VER 处的说明），三处正则一起放宽。
+  const VM = '([0-9]+\\.[0-9]+\\.[0-9]+(?:\\.[0-9]+)?)';
+  const ver = (fs.readFileSync(B + '/app.js', 'utf8').match(new RegExp('var VERSION\\s*=\\s*\'V?' + VM + '\'')) || [])[1];
   const rdZh = fs.readFileSync(B + '/README.md', 'utf8');
   const rdEn = fs.readFileSync(B + '/README.en.md', 'utf8');
+  // ★★ V1.9.9.630：这里**必须断言"后面不能再跟 `.数字`"** —— 这是一条真实事故的补丁。
+  //   起因：release.mjs 的徽章正则只认三段 `X.Y.Z`（没算四段 `X.Y.Z.NNN` 的尾巴），
+  //   于是每跑一次 release.mjs 就在末尾多叠一个 `.630`，本轮反复构建后徽章被写成
+  //   `1.9.9.630.630.…`（18 段）。
+  //   为什么当时这条断言没拦住：`VM` 里的第四段是**可选**的，正则遇到
+  //   `1.9.9.630.630.630…` 只吃到 `1.9.9.630` 就满意了，剩下的脏尾巴不算数 →
+  //   捕获组恰好等于 `ver` → **假绿**。
+  //   ⇒ 修法：负向断言"版本号后面不能紧跟 `.<数字>`"。脏尾巴会立刻显形。
+  const badgeRe = new RegExp('badge\\/version-' + VM + '(?!\\.[0-9])');
   assert('README（双语）顶部 version 徽章与 app.js VERSION 一致（升版走 release.mjs，别手改漏）',
-    !!ver && (rdZh.match(/badge\/version-([0-9]+\.[0-9]+\.[0-9]+)/) || [])[1] === ver &&
-    (rdEn.match(/badge\/version-([0-9]+\.[0-9]+\.[0-9]+)/) || [])[1] === ver,
-    'app.js=' + ver + ' README=' + ((rdZh.match(/badge\/version-([0-9]+\.[0-9]+\.[0-9]+)/) || [])[1] || '无') +
-    ' README.en=' + ((rdEn.match(/badge\/version-([0-9]+\.[0-9]+\.[0-9]+)/) || [])[1] || '无'));
+    !!ver && (rdZh.match(badgeRe) || [])[1] === ver &&
+    (rdEn.match(badgeRe) || [])[1] === ver,
+    'app.js=' + ver + ' README=' + ((rdZh.match(badgeRe) || [])[1] || '无') +
+    ' README.en=' + ((rdEn.match(badgeRe) || [])[1] || '无'));
+  // ★★ V1.9.9.630：另加一条**幂等性**守卫 —— 不管上面那条怎么写，
+  //   徽章 URL 里的版本号**段数**必须 ≤ 4。幂等性缺陷只有"跑两次"才暴露，
+  //   而发布流程恰恰就是反复跑 build/release，所以形状检查比"值相等"更接近要害。
+  //   ⚠️ 第一版我还想加"相邻段不得相同"来抓叠段 —— **那是错的**：
+  //   `1.9.9.630` 里 `9` 与 `9` 相邻是正常的（次版本号与修订号恰好相等），
+  //   于是这条判据在每个正常版本上都会报红（假红）。脏值 `1.9.9.630.630.630` 的
+  //   可靠特征是**段数超过 4**，只留这一条。
+  const segCheck = (rd) => {
+    const m = /badge\/version-([0-9][0-9.]*)-/.exec(rd);
+    if (!m) return { ok: false, why: '无徽章' };
+    const segs = m[1].split('.');
+    return { ok: segs.length <= 4, why: m[1] + '（' + segs.length + ' 段）' };
+  };
+  {
+    const a = segCheck(rdZh), b2 = segCheck(rdEn);
+    assert('README（双语）版本徽章**段数 ≤ 4**（防 release.mjs 每跑一次叠一段的幂等性事故）',
+      a.ok && b2.ok, 'zh=' + a.why + '｜en=' + b2.why);
+  }
   // 徽章排版：三行居中（version 一行、星座两个一行、license 一行）—— V1.9.4+ 用户要求的版式
   // ★ 2026-10-17（用户要求改版式）：四枚徽章（版本号 / 星网 / 千帆 / MIT）改为
   //   **排在 CISTrack 大 logo 之后、中英文切换之前的"一整行、均匀居中"**（原为三行）。
@@ -584,11 +708,16 @@ assert('Manufacturer数据已注入（星网 ≥38 批 / 千帆 ≥18 批）',
 //   失利发射（res=fail，词条不收）+ 自动补录的新批次（窗口期，等本地任务刷新）。
 {
   const WT = JSON.parse(fs.readFileSync(B + '/data/wiki_tables.json', 'utf8'));
+  // ★ V1.9.9.630：key 形态必须**也认 F 编号**。旧正则 `^\d{4}-\d{1,4}$` 只认纯数字序号，
+  //   而本轮修好 normCospar 之后 `2025-F05`（发射失利批次，无国际编号）已经真的入库 →
+  //   旧断言会把它判成非法 key。这是"守卫自己过窄"而不是数据有问题
+  //   （教训同一类：修好上游后，过窄的守卫会反过来报假 FAIL）。
+  const KEY_RE = /^\d{4}-(\d{1,4}|F\d{1,3})$/;
   assert('V1.9.5（H9）：单源 wiki_tables.json 结构合法（gw/qf 映射、条目带 GMT+8 日期）',
     !!WT && !!WT.gw && !!WT.qf &&
     Object.keys(WT.gw).length >= 38 && Object.keys(WT.qf).length >= 15 &&
-    Object.keys(WT.gw).every(k => /^\d{4}-\d{1,4}$/.test(k) && /^\d{4}-\d{2}-\d{2}$/.test(WT.gw[k].d8 || '')) &&
-    Object.keys(WT.qf).every(k => /^\d{4}-\d{1,4}$/.test(k) && /^\d{4}-\d{2}-\d{2}$/.test(WT.qf[k].d8 || '')),
+    Object.keys(WT.gw).every(k => KEY_RE.test(k) && /^\d{4}-\d{2}-\d{2}$/.test(WT.gw[k].d8 || '')) &&
+    Object.keys(WT.qf).every(k => KEY_RE.test(k) && /^\d{4}-\d{2}-\d{2}$/.test(WT.qf[k].d8 || '')),
     'gw ' + Object.keys(WT.gw).length + ' / qf ' + Object.keys(WT.qf).length + ' 项');
   const r230 = WT.gw['2026-230'];
   assert('V1.9.5（H9）：2026-230 日期 = 2026-10-10 03:27（GMT+8）、制造商非空',
@@ -1149,7 +1278,8 @@ assert('需求11：title 提示气泡全部走 i18n（模板里不再有硬编�
   /\[data-i18n-title\]/.test(appSrc) && /t_selinfo:/.test(appSrc) && /t_zoomin:/.test(appSrc));
 assert('需求11：加载遮罩接入 i18n + 试验星译名 Test Satellite + KL 批次有规则',
   // ★ V1.9.9（O30-2）：`d_loading_tle` 与 `d_loading` 文案完全相同，已合并成后者
-  /d_loading: \['正在获取最新轨道要素…', 'Fetching the latest orbital elements…'\]/.test(appSrc) &&
+  // ★ V1.9.9.630（用户要求）：前两行末尾的省略号已去掉（跳动的点只留给第三行）
+  /d_loading: \['正在获取最新轨道要素', 'Fetching the latest orbital elements'\]/.test(appSrc) &&
   !/d_loading_tle:/.test(appSrc) && /Test Satellite \$1/.test(appSrc) &&
   /KL-\[A-Za-z0-9\]\+/.test(appSrc) && !/'Test Sat \$1'/.test(appSrc));
 assert('需求11：帮助按钮视觉放大到 22px 且用右边距补偿（整行排布不变）',
@@ -2138,6 +2268,72 @@ assert('V1.9.0（R17）：升轨速率算法在页面端与构建期**同一口�
     /export function tleHealth/.test(ommCode) &&
     /if \(!tleHealth\(s\.l2 \|\| ''\)\) \{ merged\.delete/.test(refreshCode) &&
     /filter\(s => !tleHealth\(s\.l2 \|\| ''\)\)/.test(refreshCode));
+
+  // ===== V1.9.9.630：对抗性测试抓出的 3 个真缺陷的回归守卫 =====
+  // 这三条都**打真实函数**，不只看源码文本 —— 源码里"看起来加了检查"但判据写反，是最容易复发的情形。
+  // ⚠️ `asUrl` 在本文件后面才定义（Windows 上动态 import 必须用 file:/// URL，
+  //   绝对路径会 ERR_UNSUPPORTED_ESM_URL_SCHEME）→ 这里先本地定义一份，别往后挪着用。
+  {
+    const _asUrl = (p) => 'file:///' + String(p).replace(/\\/g, '/');
+    const _m = await import(_asUrl(B + '/scripts/omm.mjs'));
+    // ① tleHealth 必须查**物理区间**，不能只查 isFinite。
+    //    来历：`倾角 999°` / `平均运动 0` / `偏心率 1.5` 都是"合法数字但物理不可能"，
+    //    旧版全部放过 → SGP4 除零/算不出轨道，而且日志里一切正常（静默污染）。
+    const _mk = (cols) => '2 12345 ' + cols.join(' ') + '   100';
+    const _r = (inc, raan, ecc, argp, ma, mm) => _m.l2InRange(inc, raan, ecc, argp, ma, mm);
+    assert('V1.9.9.630：tleHealth 查**物理区间**（不只 isFinite）—— 倾角 999° 判为不健康',
+      _m.tleHealth(_mk(['999.0000', '120.5678', '0001234', ' 90.1234', '180.4321', '15.12345678'])) === false);
+    assert('V1.9.9.630：平均运动 0 判为不健康（SGP4 会除零得到 Infinity，旧版放过）',
+      _m.tleHealth(_mk([' 53.1234', '120.5678', '0001234', ' 90.1234', '180.4321', ' 0.00000000'])) === false);
+    assert('V1.9.9.630：偏心率 1.5 判为不健康（轨道不闭合，本项目踩过 e=0.96 把高度算成几千 km）',
+      _r(53, 120, 1.5, 90, 180, 15) === false);
+    // 反向：健康值必须仍然判为健康（否则闸门会把自己变成故障源 —— 这是本项目反复强调的红线）
+    assert('V1.9.9.630：**健康值仍判为健康**（闸门不能反过来误报）—— 515 行真实 TLE 全部通过',
+      _r(53.1234, 120.5678, 0.0001234, 90.1234, 180.4321, 15.12345678) === true &&
+      // `rt` 在下方才定义 → 这里直接再跑一遍往返自检（代价 ~0.2s，换来这条断言能独立成立）
+      _m.ommRoundTrip([B + '/data/ct_hulianwang.tle', B + '/data/ct_qianfan.tle']).badN === 0);
+    // ② 生成侧与体检侧必须共用同一套区间 —— 否则迟早"生成时放过、体检时判坏"自相矛盾
+    assert('V1.9.9.630：`tleFromOmm` 与 `tleHealth` **共用 `l2InRange`**（单一真理源，不再各写一套）',
+      /l2InRange/.test(ommCode) &&
+      (ommCode.match(/l2InRange/g) || []).length >= 3);   // 定义 1 + 两处调用
+    assert('V1.9.9.630：`tleFromOmm` 对**物理越界**抛错（MEAN_MOTION=0 生成不出 TLE）',
+      (() => {
+        try {
+          _m.tleFromOmm({ EPOCH_Y2: 26, EPOCH_DOY: 100.5, INCLINATION: 53, RAAN: 100,
+            ECCENTRICITY: 0.001, ARG_OF_PERICENTER: 90, MEAN_ANOMALY: 180,
+            MEAN_MOTION: 0 }, '12345');
+          return false;
+        } catch (e) { return /物理区间/.test(String(e && e.message)); }
+      })());
+    // ③ 历元为 NaN 时绝不能产出 70 列的 L1（padStart 只补不截 → "NaN" 撑出 1 列 → 全线错位）
+    assert('V1.9.9.630：历元非法时 `tleFromOmm` **抛错**（旧版产出 70 列、含字面 NaN 的 L1）',
+      (() => {
+        try {
+          _m.tleFromOmm({ EPOCH_Y2: NaN, EPOCH_DOY: NaN, INCLINATION: 53, RAAN: 100,
+            ECCENTRICITY: 0.001, ARG_OF_PERICENTER: 90, MEAN_ANOMALY: 180,
+            MEAN_MOTION: 15 }, '12345');
+          return false;
+        } catch (e) { return true; }
+      })());
+    assert('V1.9.9.630：`tleFromOmm` 有**定宽形状闸门**（整行必须正好 69 列且无字面 NaN）'
+      + ' —— 兜住"任何一列又长出第 70 列"的整类事故（V1.9.1 的 cosparField 也是这一类）',
+      /不是 69 列/.test(ommCode) && /含字面 NaN/.test(ommCode));
+    // ④ tleEpochMs 不能被坏历元骗出一个"看似正常"的时间戳
+    assert('V1.9.9.630：`tleEpochMs` 对**坏历元**返回 0（旧版 parseInt("9X")→2009 年，看着完全正常）',
+      _m.tleEpochMs('1 12345U 24001A   9X289.19093506  .00001234  00000+0  12345-3 0  9994') === 0 &&
+      _m.tleEpochMs('1 12345U 24001A   NOT-A-EPOCH-X  .00001234  00000+0  12345-3 0  9994') === 0);
+    // 反向：正常历元仍要正确（世纪约定那两条在下面另有断言）
+    assert('V1.9.9.630：`tleEpochMs` 的正常历元解析未被加严破坏',
+      _m.tleEpochMs('1 57288U 23095A   26282.76458782  .00000061  00000+0  85656-4 0  9996') ===
+      Date.UTC(2026, 0, 1) + (282.76458782 - 1) * 86400000);
+  }
+  assert('V1.9.9.630：refresh 的 S5 把「上游查无此星」与「真失败」**分开记账**'
+    + '（混在一个计数器里 → 排查时分不清该重试还是该忽略）',
+    /ommMissing/.test(refreshCode) && /ommErr/.test(refreshCode) &&
+    /上游查无此星/.test(refreshCode));
+  assert('V1.9.9.630：`scripts/e2e_adversarial.mjs` 存在并已挂进 CI（喂坏数据的第三种测试）',
+    fs.existsSync(B + '/scripts/e2e_adversarial.mjs') &&
+    /e2e_adversarial\.mjs/.test(fs.readFileSync(B + '/.github/workflows/update-tle.yml', 'utf8')));
   assert('V1.9.1：>5 位编目号**每轮都重取**（否则落盘后历元永不更新、坏行永不修）',
     /merged\.has\(Number\(PH\(o\.norad\)\)\) && String\(o\.norad\)\.length <= 5/.test(refreshCode));
   assert('V1.9.1：出口仍有坏行时 refresh 以非零码结束（CI 就不会提交坏数据）',
@@ -3442,6 +3638,38 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
   assert('A3：反色变体 .inv —— 暗色=白底黑字、亮色=黑底白字（两条规则都要在）',
     /#selToast\.inv \{ background:#ffffff; color:#000000; border-color:#ffffff; \}/.test(tpl) &&
     /:root\[data-theme="light"\] #selToast\.inv \{ background:#000000; color:#ffffff; border-color:#000000; \}/.test(tpl));
+
+  // ★★ V1.9.9.630（用户要求）：顶栏标志点击 → 弹「访问项目仓库主页：Github / Gitee」药丸，**不再直接跳 GitHub**。
+  //   必须守住的四件事（少一条就会退回旧行为或出现半成品）：
+  //   ① 标志上**还有** href（无 JS 时仍是可用的直跳），但点击被 preventDefault 接管 → 弹药丸；
+  //   ② 药丸是**独立节点**，不能复用 #selToast（那是 pointer-events:none 的纯提示，点不到链接）；
+  //   ③ 反色两条规则成对在（暗色白底黑字 / 亮色黑底白字），与 .inv 同口径；
+  //   ④ Github 蓝 / Gitee 红两个类都在，且都带下划线；文案中英成对（i18n 审计会查漏译）。
+  assert('V1.9.9.630：顶栏标志点击改为弹仓库选择药丸（不再直接跳 GitHub）',
+    /id="brandLink"/.test(tpl) && /id="repoPill"/.test(tpl) &&
+    // 标志仍保留 href 作为无 JS 兜底，但 JS 接管了普通左键
+    /id="brandLink"[\s\S]{0,200}href="https:\/\/github\.com\/1471155912\/CISTrack"/.test(tpl) &&
+    /e\.preventDefault\(\);\s*\n\s*toggleRepoPill\(\);/.test(appSrc) &&
+    /function toggleRepoPill\(\)/.test(appSrc) && /function showRepoPill\(\)/.test(appSrc) &&
+    /function hideRepoPill\(\)/.test(appSrc) &&
+    // 组合键（Ctrl/Cmd/Shift/中键）必须放行原生"新标签打开"，不能被拦
+    /e\.button !== 0 \|\| e\.ctrlKey \|\| e\.metaKey \|\| e\.shiftKey \|\| e\.altKey/.test(appSrc));
+  assert('V1.9.9.630：仓库药丸与 #selToast 分离（可交互 + 贴标志定位 + 夹回视口）',
+    // 药丸要能点里头的链接 → pointer-events 在 .show 时必须是 auto
+    /#repoPill\.show \{ opacity:1; pointer-events:auto/.test(tpl) &&
+    // 定位读标志实测矩形（顶栏四档字号，不能写死像素）
+    /getElementById\('brandLink'\)/.test(appSrc) && /\.getBoundingClientRect\(\)/.test(appSrc) &&
+    /window\.innerWidth - w - 8/.test(appSrc));
+  assert('V1.9.9.630：仓库药丸是**反色**（暗=白底黑字 / 亮=黑底白字），Github 蓝 / Gitee 红且带下划线',
+    /#repoPill \{[\s\S]{0,400}background:#ffffff; color:#000000/.test(tpl) &&
+    /:root\[data-theme="light"\] #repoPill \{ background:#000000; color:#ffffff/.test(tpl) &&
+    /#repoPill a \{[^}]*text-decoration:underline/.test(tpl) &&
+    /\.rp-gh\b/.test(tpl) && /\.rp-gee\b/.test(tpl) &&
+    // 白底档要加深（#4dabf7 压白底对比度不足，见 CSS 注释）
+    /#repoPill \.rp-gh\s+\{ color:#1971c2/.test(tpl) &&
+    /#repoPill \.rp-gee \{ color:#e03131/.test(tpl) &&
+    // 中英成对
+    /d_repopill_lead: \['访问项目仓库主页：', 'Repository home: '\]/.test(appSrc));
   // ⑥ Q12：单颗提示**收口在 afterSelection**（图上点选/表里点选/搜索选中/选择框选单星四条路径共用）
   assert('A3/Q12：单颗「已选择」收口在 afterSelection（四入口共用，漏一个就少一路）',
     /if \(S\.sel\.length === 1\) showToast\(t\('d_sel_one'\), false\);/.test(appSrc));
@@ -4647,6 +4875,244 @@ assert('A9（V1.9.7 §6）：圈的来源 = 工作轨道层（orbLayerDefs），
       '前量=' + /const szBeforeS2 = merged\.size;/.test(refreshCode) +
         ' / 后量=' + /const szAfterS2 = merged\.size;/.test(refreshCode) +
         ' / 旧公式已移除=' + !/merged\.size - before - from\.group/.test(refreshCode));
+    // ==================== ★★ V1.9.9.630（数据抓取管道治本）回归守卫 ====================
+    // 本轮把「整个数据抓取部分」按用户要求做了一遍治本审计，共修 8 处缺陷。
+    // 这些缺陷的共同特征是**失败是静默的**：抓取脚本照常退出 0、文件照常写出、
+    // 页面照常显示，只是数据悄悄少了一块/日期悄悄退了一天/提示悄悄报错。
+    // ⇒ 所以守卫都必须钉在**源码形态**上（不是"数据里有没有"），且统一跑 codeOnly 去注释后的源码
+    //   （教训见故障 D：注释里引用旧写法原文会让"已移除"类断言匹配到自己的注释）。
+    //
+    // ① 享 CDP 模块必须存在且**只有一份挑战判据**。
+    //   病根：四个抓取脚本各自实现「找浏览器 / 起 CDP / 判挑战页」，判据强弱不一
+    //   （fetch_wiki.mjs 在 V1.9.3 修过英文挑战页，fetch_launch_results.mjs 至今仍是只认「请稍候」），
+    //   于是同一类 bug 反复复发：修一个文件、漏三个文件。
+    {
+      const cdpSrc = fs.existsSync(B + '/scripts/cdp.mjs')
+        ? codeOnly(fs.readFileSync(B + '/scripts/cdp.mjs', 'utf8')) : '';
+      const fetchers = ['fetch_wiki.mjs', 'fetch_wiki_tables.mjs', 'fetch_wiki_cards.mjs', 'fetch_launch_results.mjs'];
+      const notMigrated = [], ownChallenge = [], ownBrowser = [];
+      for (const f of fetchers) {
+        const s = codeOnly(fs.readFileSync(B + '/scripts/' + f, 'utf8'));
+        if (!/from '\.\/cdp\.mjs'/.test(s)) notMigrated.push(f);
+        // 自己又写了一份挑战判据（含「请稍候」字面量）→ 判据分叉，迟早再次不同步
+        if (/请稍候|just a moment|checking your browser/i.test(s)) ownChallenge.push(f);
+        // 自己 spawn 浏览器（应该只由 cdp.mjs 负责）
+        if (/spawn\(/.test(s) && /--remote-debugging-port/.test(s)) ownBrowser.push(f);
+      }
+      assert('V1.9.9.630：四个抓取脚本**统一走 scripts/cdp.mjs**（挑战判据全仓库只有一份）',
+        !!cdpSrc && /CHALLENGE_RE/.test(cdpSrc) && /export function isChallengeTitle/.test(cdpSrc) &&
+        notMigrated.length === 0 && ownChallenge.length === 0 && ownBrowser.length === 0,
+        'cdp.mjs=' + (!!cdpSrc) + ' / 未迁移=[' + notMigrated.join(',') + ']' +
+          ' / 自带判据=[' + ownChallenge.join(',') + '] / 自起浏览器=[' + ownBrowser.join(',') + ']');
+      // 挑战判据必须**同时**覆盖中英文（只认中文 = 把英文挑战页当成正常页去解析 → 静默 0 行）
+      assert('V1.9.9.630：挑战页判据**中英文都认**（只认「请稍候」会把 `Just a moment...` 判成已通过）',
+        /请稍候/.test(cdpSrc) && /just a moment/i.test(cdpSrc) && /attention required|checking your browser/i.test(cdpSrc),
+        '中文=' + /请稍候/.test(cdpSrc) + ' / 英文=' + /just a moment/i.test(cdpSrc));
+      // 光看标题不够：必须强制内容探针（标题正常 ≠ 正文渲染完了）
+      assert('V1.9.9.630：WaitContent 是**标题 + 内容探针双判据**（只看标题会在白屏/半渲染时误判通过）',
+        /export async function waitContent/.test(cdpSrc) &&
+        /isChallengeTitle\(/.test(cdpSrc) && /contentProbe/.test(cdpSrc),
+        'waitContent=' + /export async function waitContent/.test(cdpSrc) + ' / 内容探针=' + /contentProbe/.test(cdpSrc));
+    }
+    // ② 不许有 `require('ws')` —— ws 是 devDependency、node_modules 不入库
+    //    → 开源使用者 clone 后必 `ERR_MODULE_NOT_FOUND`（这个 bug 在 fetch_wiki_cards.mjs 里躺了很久）。
+    {
+      const bad = [];
+      for (const f of ['fetch_wiki.mjs', 'fetch_wiki_tables.mjs', 'fetch_wiki_cards.mjs', 'fetch_launch_results.mjs']) {
+        const s = codeOnly(fs.readFileSync(B + '/scripts/' + f, 'utf8'));
+        if (/require\('ws'\)/.test(s) || /new WebSocket\(/.test(s)) bad.push(f);
+      }
+      assert('V1.9.9.630：抓取脚本**不依赖 ws**（用 Node ≥22 内置 WebSocket；ws 是 devDependency，clone 后必崩）',
+        bad.length === 0, bad.length ? bad.join(' / ') : '四个脚本均走 cdp.mjs，无 ws 引用');
+    }
+    // ③ 不许硬编码浏览器路径（换机器/换成 Chrome 就废）
+    {
+      const bad = [];
+      for (const f of ['fetch_wiki.mjs', 'fetch_wiki_tables.mjs', 'fetch_wiki_cards.mjs', 'fetch_launch_results.mjs']) {
+        const s = codeOnly(fs.readFileSync(B + '/scripts/' + f, 'utf8'));
+        if (/msedge\.exe|chrome\.exe/i.test(s)) bad.push(f);
+      }
+      assert('V1.9.9.630：抓取脚本**不硬编码浏览器路径**（统一 findBrowser()，Windows/macOS/Linux 都覆盖）',
+        bad.length === 0, bad.length ? bad.join(' / ') : '四个脚本均无 exe 路径字面量');
+    }
+    // ④ normCospar 必须认 F 编号（发射失利/取消批次）。
+    //   事故：`match(/^(\d{4})-(\d{1,4})/)` 只认纯数字 → `2025-F05` 归一成空串 → 调用处 `if (!cos) continue`
+    //   **静默丢弃**。实测后果：星网词条 41 行只入库 41 个键、**不含任何 F 编号**，
+    //   而词条自己写的是 41/42（分母差的正是这一发）。
+    {
+      const s = codeOnly(fs.readFileSync(B + '/scripts/fetch_wiki_tables.mjs', 'utf8'));
+      assert('V1.9.9.630：normCospar 认 **F 编号**（`2025-F05` = 该年第 5 次失利；否则整行被静默丢弃）',
+        /m = s\.match\(\/\^\(\\d\{4\}\)-F\(\\d\{1,3\}\)\/i\)/.test(s) &&
+        /return m\[1\] \+ '-F' \+ String\(\+m\[2\]\)\.padStart\(2, '0'\)/.test(s),
+        'F分支=' + /-F\(\\d\{1,3\}\)/i.test(s));
+      // 下游两处 key 判据也必须认 5 位里含 F 的形态（'25F05'），否则 → 永远"失利发射豁免"
+      const mk = codeOnly(fs.readFileSync(B + '/mkdata.mjs', 'utf8'));
+      const badOld = [/\/\^\\d\{5\}\$\/\.test\(k\)/.test(mk) ? '仍用 /^\\d{5}$/' : ''];
+      assert('V1.9.9.630：mkdata 的台账 key 判据认 **含 F 的 5 位形态**（25F05），不再永远走"失利发射豁免"',
+        /\/\^\\d\{2\}\[0-9F\]\\d\{2\}\$\//.test(mk) && badOld.join('') === '',
+        '新判据=' + /\/\^\\d\{2\}\[0-9F\]\\d\{2\}\$\//.test(mk) + ' / 旧判据残留=' + (badOld.join('') || '无'));
+      // 数据层实测：gw 必须至少有一个 F 编号的键（否则 §④ 的两处修复等于没生效）
+      let fKeys = [];
+      try {
+        const T = JSON.parse(fs.readFileSync(B + '/data/wiki_tables.json', 'utf8'));
+        fKeys = Object.keys(T.gw || {}).filter(k => /-F\d+$/.test(k));
+      } catch (e) {}
+      assert('V1.9.9.630：wiki_tables.json 里**确有 F 编号批次入库**（`2025-F05` = 卫星互联网技术试验卫星07组）',
+        fKeys.length >= 1, fKeys.length ? 'gw 失利批次：' + fKeys.join(', ') : 'gw 无任何 F 编号键 —— ④ 的两处修复未生效');
+    }
+    // ⑤ asOf 必须按**北京时间**算，且顶层取 gw/qf 的**较晚者**。
+    //   事故链：fetch_wiki.mjs 用 `new Date().toISOString().slice(0,10)`（UTC）写 gw.asOf，
+    //   而北京 00:00 抓取时 UTC 还是前一天 → gw.asOf 落后一天 → mkdata 顶层照抄 gw.asOf
+    //   → 页面「卫星百科更新」**日期倒退**（commit 382957d 真实发生过）。
+    {
+      const fw = codeOnly(fs.readFileSync(B + '/scripts/fetch_wiki.mjs', 'utf8'));
+      const bj = /Date\.now\(\) \+ 8 \* 3600 \* 1000/.test(fw) && /bjDay/.test(fw);
+      const badUtc = /asOf: new Date\(\)\.toISOString\(\)\.slice\(0, 10\)/.test(fw);
+      assert('V1.9.9.630：fetch_wiki 的 per-星座 asOf 用**北京时间**（UTC 口径会让北京 00:00 那轮倒退一天）',
+        bj && !badUtc, '北京日期=' + bj + ' / 旧UTC写法残留=' + badUtc);
+      const mk2 = codeOnly(fs.readFileSync(B + '/mkdata.mjs', 'utf8'));
+      assert('V1.9.9.630：mkdata 顶层 asOf 取 gw/qf 的**较晚者**（直接抄 gw 会把上一处缺陷放大成页面日期倒退）',
+        /WIKI_STAT\.gw && WIKI_STAT\.gw\.asOf, WIKI_STAT\.qf && WIKI_STAT\.qf\.asOf/.test(mk2) &&
+        /\.sort\(\)\[a\.length - 1\]/.test(mk2),
+        '取max=' + /\.sort\(\)\[a\.length - 1\]/.test(mk2));
+    }
+    // ⑥ 部分成功**不得写残文件**。
+    //   事故：gw 成功、qf 失败时旧实现"整块重建再写"，写出的 wiki.json 缺 qf；
+    //   而 mkdata 的判据是 `w && w.gw && w.qf && …` → 整份被丢弃、退回 WIKI_STATIC，
+    //   **连抓成功的 gw 也一起作废**（用户可见的"抓到了也不更新"）。
+    {
+      const fw = codeOnly(fs.readFileSync(B + '/scripts/fetch_wiki.mjs', 'utf8'));
+      assert('V1.9.9.630：fetch_wiki 部分成功时**以旧文件为基底**覆盖（一个星座失败不许把另一个写空）',
+        /const base = Object\.assign\(\{\}, old\)/.test(fw) &&
+        /\['gw', 'qf'\]\.forEach\(k => \{ if \(stats\[k\]\) base\[k\] = stats\[k\]; \}\)/.test(fw),
+        '基线复制=' + /const base = Object\.assign\(\{\}, old\)/.test(fw) +
+          ' / 按星座覆盖=' + /\['gw', 'qf'\]\.forEach/.test(fw));
+    }
+    // ⑦ 丢弃取证账本必须存在（"完整可重复 + 可追溯"：丢了什么、为什么丢，要能查）。
+    {
+      const s = codeOnly(fs.readFileSync(B + '/scripts/fetch_wiki_tables.mjs', 'utf8'));
+      assert('V1.9.9.630：词条表抓取有**丢弃取证账本**（`_dropped` 记 key/COSPAR/名称/原因）',
+        /const DROPPED = \[\]/.test(s) && /out\._dropped = DROPPED/.test(s) &&
+        /reason: 'COSPAR 无法归一'/.test(s) && /reason: '日期无法解析/.test(s),
+        '账本=' + /const DROPPED = \[\]/.test(s) + ' / 落盘=' + /out\._dropped = DROPPED/.test(s));
+      const c = codeOnly(fs.readFileSync(B + '/scripts/fetch_wiki_cards.mjs', 'utf8'));
+      assert('V1.9.9.630：卡片抓取有**逐条失败取证**（`_fails`），且 revid 批量 API 失败**不计入** failed',
+        /const FAILS = \[\]/.test(c) && /_fails: FAILS\.length \? FAILS : undefined/.test(c) &&
+        /apiBatchFail\+\+/.test(c),
+        'FAILS=' + /const FAILS = \[\]/.test(c) + ' / 落盘=' + /_fails: FAILS\.length/.test(c) +
+          ' / apiBatchFail独立计数=' + /apiBatchFail\+\+/.test(c));
+    }
+    // ⑧ 发射记录脚本的 WAF 判据必须换成 waitContent + 内容探针。
+    //   事故：旧判据 `if (title && !/请稍候/.test(title)) ok = true;` —— Cloudflare 英文挑战页
+    //   标题是 `Just a moment...` → 判成"已通过" → 去解析挑战页 → 0 行 →
+    //   `if (!got.rows.length) failedYears.push(y);` 只当"未读全"提示 → **整年发射结果静默丢失**，
+    //   下次运行还用 `_stale` 保留旧值，看起来一切正常。
+    {
+      const s = codeOnly(fs.readFileSync(B + '/scripts/fetch_launch_results.mjs', 'utf8'));
+      assert('V1.9.9.630：发射记录页用**内容探针**判通过（含至少 3 行像发射记录的行），不再只看标题',
+        /const HAS_LAUNCH_TABLE =/.test(s) && /contentProbe: HAS_LAUNCH_TABLE/.test(s) &&
+        /n >= 3/.test(s),
+        '探针=' + /const HAS_LAUNCH_TABLE =/.test(s) + ' / 已接上=' + /contentProbe: HAS_LAUNCH_TABLE/.test(s));
+      assert('V1.9.9.630：发射记录页**不再**用"标题不含「请稍候」就算通过"的旧判据',
+        !/if \(title && !\/请稍候\/\.test\(title\)\) \{ ok = true; break; \}/.test(s),
+        '旧判据已移除=' + !/ok = true; break;[\s\S]{0,40}?\/请稍候/.test(s));
+      // ⑨ 发射记录**行解析**也必须认 F 编号（与 ④ 是同源缺陷的另一处）。
+      //   事故：`txt.match(/\b(\d{4})-(\d{1,3})\s?[A-Z]?\b/)` 只认纯数字 →
+      //   `2025-F05` 这一行在解析层就被 `return` 掉，连"台账未匹配"的提示都拿不到原因。
+      //   实测（2026-10-21 真机）：修前 `未匹配到结果的台账条目(1)：2025-F05`。
+      assert('V1.9.9.630：发射记录行解析认 **F 编号**（否则失利批次在解析层就被丢掉，且不给原因）',
+        /txt\.match\(\/\\\\b\(\\\\d\{4\}\)-F\(\\\\d\{1,3\}\)\\\\b\/i\)/.test(s) &&
+        /'-F' \+ String\(\+m\[2\]\)\.padStart\(2, '0'\)/.test(s),
+        'F正则=' + /-F\(\\\\d\{1,3\}\)\\\\b\/i/.test(s));
+      // ⑩ 未匹配必须**带原因**（本轮就是靠人工读源码才发现 F 编号漏了）
+      assert('V1.9.9.630：台账未匹配条目**带原因提示**（区分失利批次 / 常规批次，不再只报 key）',
+        /const fMiss = miss\.filter\(k => \/F\\d\+\$\/\.test\(k\)\)/.test(s) &&
+        /属上游未收录（不是抓取失败）/.test(s),
+        '分类=' + /const fMiss = miss\.filter/.test(s));
+      // ⑪ 发射结果的 asOf/checkedAt 也必须是北京时间（与 fetch_wiki 同口径）
+      assert('V1.9.9.630：发射结果 asOf/checkedAt 用**北京时间**（UTC 会让北京 00:00 那轮看起来落后一天）',
+        /const bjNow = new Date\(now\.getTime\(\) \+ 8 \* 3600 \* 1000\)/.test(s) &&
+        /asOf: bjNow\.toISOString\(\)\.slice\(0, 10\)/.test(s) &&
+        !/asOf: now\.toISOString\(\)\.slice\(0, 10\)/.test(s),
+        'bjNow=' + /const bjNow =/.test(s) + ' / 旧UTC残留=' + /asOf: now\.toISOString/.test(s));
+    }
+    // ⑫ **主机熔断 + 全局时间预算**（本轮实测暴露的真缺陷，属"抗干扰性"的根本保障）。
+    //   实测（2026-10-21，在到 CelesTrak 网络层完全不通的环境下）：S3（≤60 颗）+ S4（≤40 颗）
+    //   各要 n×41s → `timeout 600 node refresh.mjs` 在 600s 被**外部强杀**（EXIT=124），
+    //   日志停在 S2、**连写盘都没跑到**。三个恶果：时间白烧 / 真正能用的备源(S4)被饿死 /
+    //   被强杀时拿不到 report（排障全瞎）。
+    //   ⇒ 守卫必须同时覆盖：熔断计数只认 status===0（不许把 5xx 当网络死）、
+    //     熔断后短路、三处逐颗循环都查预算、health 落盘。
+    {
+      const rc = refreshCode;
+      assert('V1.9.9.630：上游整体不可达时**主机级熔断**（连续 N 次连不上 → 本进程内短路，不再逐颗烧 41s）',
+        /const HOST_FAIL_N = 3;/.test(rc) &&
+        /function noteHost\(host, ok, status\)/.test(rc) &&
+        /if \(status !== 0\) return;/.test(rc) &&                    // 只对网络层失败计数
+        /if \(hostTripped\(host\)\) \{/.test(rc) &&                   // get() 入口短路
+        /noteHost\(host, false, 0\)/.test(rc),                        // catch 里推进计数
+        'HOST_FAIL_N=' + /const HOST_FAIL_N = 3;/.test(rc) +
+          ' / 只认status0=' + /if \(status !== 0\) return;/.test(rc) +
+          ' / 短路=' + /if \(hostTripped\(host\)\) \{/.test(rc));
+      assert('V1.9.9.630：**全局时间预算**内优雅降级（超预算停逐颗补拉并写盘，不被 CI job 超时无声强杀）',
+        /const REFRESH_BUDGET_MS =/.test(rc) &&
+        /function budgetOut\(\)/.test(rc) &&
+        // 三处逐颗循环（S3 / S4 / S5）都必须查预算 —— 少查一处就等于少了一道闸门
+        (rc.match(/if \(budgetOut\(\)\) break;/g) || []).length === 3,
+        '预算常量=' + /const REFRESH_BUDGET_MS =/.test(rc) +
+          ' / 检查点=' + (rc.match(/if \(budgetOut\(\)\) break;/g) || []).length + '/3');
+      assert('V1.9.9.630：熔断/预算**写进报告**（否则"这轮为什么补得少"只能靠猜）',
+        /report\.health = \{/.test(rc) &&
+        /hostsTripped:/.test(rc) && /budgetExhausted: BUDGET\.stopped/.test(rc) &&
+        /elapsedSec: Math\.round\(elapsedMs\(\) \/ 1000\)/.test(rc),
+        'health=' + /report\.health = \{/.test(rc) +
+          ' / 熔断主机=' + /hostsTripped:/.test(rc) + ' / 预算标记=' + /budgetExhausted:/.test(rc));
+      // ★★ 最关键的静默失败：**整条上游不可达却 exit 0**。
+      //   病根：`get()` 的网络层失败（status 恒为 0）从来没进过任何账本 ——
+      //     NET_ISSUES 只在 `r.status !== 0` 的分支 push，SOFT_ISSUES 同理。
+      //   于是"一个成功应答都没有"时日志只剩 `S1 GROUP 失败 0`（0 是状态码，读起来像"失败 0 次"），
+      //   S2–S5 各自"补到 0 颗"看着像"上游今天没新增"，**任务以 exit 0 报成功**。
+      //   实测（2026-10-21 本机 celestrak 全不通）：熔断生效、54s 跑完、EXIT=0 —— 数据一颗没更新却报成功。
+      //   ⇒ 守卫要钉住三件事：① 有独立计数；② 判据同时要求"一次都没连上"（防偶发超时误报）；
+      //     ③ 出口码存在（8）。
+      assert('V1.9.9.630：**整条上游不可达时响亮失败**（网络层全失败 + 零成功应答 → 非零码，' +
+        '不允许"零数据但任务成功"）',
+        /let NET_DOWN_N = 0;/.test(rc) && /let NET_OK_N = 0;/.test(rc) &&
+        /if \(r\.ok\) NET_OK_N\+\+;/.test(rc) && /NET_DOWN_N\+\+;/.test(rc) &&
+        /if \(NET_DOWN_N > 0 && NET_OK_N === 0\) \{/.test(rc) &&
+        /process\.exitCode = 8;/.test(rc),
+        '计数器=' + /let NET_DOWN_N = 0;/.test(rc) +
+          ' / 判据(含零成功限定)=' + /if \(NET_DOWN_N > 0 && NET_OK_N === 0\) \{/.test(rc) +
+          ' / exit8=' + /process\.exitCode = 8;/.test(rc));
+      // status 0 的日志措辞不许再是"失败 0"（那个 0 是状态码，会读成"失败 0 次"）
+      assert('V1.9.9.630：status 0 的日志**显式说明"没连上"**（旧日志「S1 GROUP 失败 0」会被读成"失败 0 次"）',
+        /没连上/.test(rc) && !/'  S1 GROUP 失败', r\.status\)/.test(rc),
+        '没连上说明=' + /没连上/.test(rc));
+      // ★★ V1.9.9.630：**版本号解析正则必须是四段式** —— 这类"测试自身过期"本轮已复发 4 次
+      //   （smoke 3 处 + visual 1 处），每次症状都是"期望 V0.0.0 / 断言恒假"，
+      //   看起来像产品缺陷、实际是测试跟不上版本号。设成硬守卫，逼以后所有
+      //   `var VERSION = '(...)'` 的解析都带可选第四段。
+      var _verReBad = (function () {
+        const bad = [];
+        const scan = (file) => {
+          let src = '';
+          try { src = fs.readFileSync(path.join(B, file), 'utf8'); } catch (e) { return; }
+          src.split('\n').forEach((ln, i) => {
+            if (!/var VERSION/.test(ln)) return;
+            if (/^\s*(\/\/|\*)/.test(ln)) return;                 // 注释不算
+            // 该行确实在**解析**版本号（有捕获组），却没允许第四段 → 记为不合规
+            if (/\[[\s\S]*\]/.test(ln) && /\\\.\\d\+/.test(ln) && !/\(\?:\\\.\\d\+\)\?/.test(ln)) {
+              bad.push(file + ':' + (i + 1));
+            }
+          });
+        };
+        ['smoke.mjs', 'visual.mjs', 'scripts/check_gh_status.mjs'].forEach(scan);
+        return bad;
+      })();
+      assert('V1.9.9.630：版本号解析正则**均允许第四段**（四段式如 V1.9.9.630；旧写法只认三段 → 期望值退化成 V0.0.0）',
+        _verReBad.length === 0,
+        _verReBad.length ? ('不合规：' + _verReBad.join(', ')) : '全部允许第四段');
+    }
     // ★ V1.9.5（H29 前哨）：**探针键不得重复** —— 字符串手术留下过 `chartDraw`×3 / `climbDraw`×2，
     //   重复键在对象字面量里会被后者静默覆盖（同名探针行为悄悄变了，很难查）。这里设成硬守卫。
     assert('探针键唯一（重复键会被静默覆盖，属"改坏了也看不出来"的那类）',
@@ -5393,14 +5859,16 @@ assert('V1.9.1：wiki.json 与 build/wiki.json 当前同步（若不同步=守�
 //   关键判据 —— 三行**都不能挂 data-i18n**：applyStaticLang 执行的是 `el.innerHTML = t(key)`，
 //   一挂上就会把双语布局整体替换成单语（这条坑必须被守住）。
 assert('V1.9.9（N3）：加载页双语三行写死在模板与产物里，且都不挂 data-i18n（否则被 i18n 冲成单语）',
-  /<div class="lm-txt" id="lmTxt">正在获取最新轨道要素…<\/div>/.test(tpl) &&
-  /<div class="lm-txt2" id="lmTxt2">Fetching the latest orbital elements…<\/div>/.test(tpl) &&
+  // ★ V1.9.9.630（用户要求）：前两行末尾**不带省略号**，因此这里同时断言"结尾没有 …"，
+  //   防止以后有人顺手把省略号加回去（跳动的点只属于第三行）。
+  /<div class="lm-txt" id="lmTxt">正在获取最新轨道要素<\/div>/.test(tpl) &&
+  /<div class="lm-txt2" id="lmTxt2">Fetching the latest orbital elements<\/div>/.test(tpl) &&
   /<div class="lm-epoch" id="lmThird"><span id="lmThirdMain">加载中\/Reloading<\/span><span class="lm-dots"/.test(tpl) &&
   !/id="lmTxt"[^>]*data-i18n/.test(tpl) && !/id="lmTxt2"[^>]*data-i18n/.test(tpl) &&
   !/id="lmThirdMain"[^>]*data-i18n/.test(tpl) &&
   // 产物里同样在（模板 → 产物的注入过程不能把它冲掉）
-  /id="lmTxt"[^>]*>正在获取最新轨道要素…</.test(html) &&
-  /id="lmTxt2"[^>]*>Fetching the latest orbital elements…</.test(html) &&
+  /id="lmTxt"[^>]*>正在获取最新轨道要素</.test(html) &&
+  /id="lmTxt2"[^>]*>Fetching the latest orbital elements</.test(html) &&
   /id="lmThird"><span id="lmThirdMain">加载中\/Reloading</.test(html), '');
 // ★ V1.9.6（用户 2026-10-17 要求）：加载页第三行「加载中」**字号与第一行一致**，
 //   且末尾三个省略号**循环跳动**（不是静态 …，也不是整体一起跳）。
@@ -5435,6 +5903,20 @@ assert('V1.9.9（N3）：JS 起来后仍接管加载页（bootMaskText 双语写
   /if \(t2\) t2\.textContent = p\[1\]/.test(appSrc) &&
   !/function refreshMaskText\(\)/.test(appSrc) &&
   /endLoadKey\('d_updated', true\)/.test(appSrc));
+
+// ★★ V1.9.9.630（用户要求）：加载页最后一行「跳过 / Skip」药丸**必须有可见边框**。
+//   真因值得记住：原来写 `border:1px solid var(--row-sec)`，而 `--row-sec` **从未定义** ——
+//   自定义属性解析失败会让整条 border 声明在"计算值阶段"变成无效 → border-style 回落 none
+//   → 药丸**根本没有边框**。这类"变量名不存在 → 静默丢样式"的坑，断言必须同时守住两件事：
+//   ① 药丸确实带实色边框；② 它引用的自定义属性**在 :root 里真的有定义**（不再出现幽灵变量）。
+assert('V1.9.9.630：加载页「跳过 / Skip」药丸有**实色**黄边框（不再是未定义变量静默丢样式）',
+  /\.lm-skip \{[^}]*border:1px solid #f59f00/.test(tpl) &&
+  !/\.lm-skip \{[^}]*var\(--row-sec\)/.test(tpl) &&
+  // 顺带扫一遍：**CSS 规则里**不该再引用幽灵自定义属性。
+  //   ⚠️ 必须先剥掉注释再扫 —— 说明这件事的注释本身就要写到 `var(--row-sec)`，
+  //   不剥注释的话这条断言会被自己的注释判红（第一版就是这样假红的）。
+  !/var\(--row-sec\)/.test(tpl.replace(/\/\*[\s\S]*?\*\//g, '')),
+  '--row-sec 引用数（剥注释后）= ' + (tpl.replace(/\/\*[\s\S]*?\*\//g, '').match(/var\(--row-sec\)/g) || []).length);
 
 // ================================================================ V1.9.1（#7）：非线性过场泛化
 // 清单 #7：`chartSwap` 泛化为 `cvSwap(cvId, apply)`；04/05 两章的四个控件（05 的「发射量 / 在轨数量」
@@ -6333,17 +6815,57 @@ assert('V1.9.3：两个 e2e 脚本都设了 `CISTRACK_SKIP_STALE_CHECK`（否则
   //   旧判据只查中文「请稍候」，而 Cloudflare 挑战页标题是**英文** "Just a moment..."
   //   → 挑战页一出现就被判成"已通过"，读到 5.7KB 挑战页 → 解析失败（~50/50 的玄学故障）。
   {
+    // ★★ V1.9.9.630：这三条原先直接断言 `fetch_wiki.mjs` 的**内联**实现。
+    //   本轮把「找浏览器 / 起 CDP / 判挑战页」抽进 scripts/cdp.mjs（治本：原来四个脚本各写一份，
+    //   判据强弱不一 → 同一类 bug 反复复发），于是原断言从"验行为"退化成"验实现位置"而假 FAIL。
+    //   ⇒ 改成断言**判据仍在且只有一份**：能力不丢，位置变了。这是迁移时必须同步更新的守卫，
+    //     不能直接删（删了就等于"抽模块顺手把守卫也抽掉了"）。
     const fw = fs.readFileSync(B + '/scripts/fetch_wiki.mjs', 'utf8');
-    assert('V1.9.3：WAF 判据**同时认中英文挑战页标题**（旧版只查「请稍候」→ 英文 "Just a moment..." 被误判为已通过）',
-      /just a moment/i.test(fw) && /请稍候/.test(fw) &&
-      /isChallenge/.test(fw));
-    assert('V1.9.3：WAF 判据还要求**内容真的出现**（infobox-label），不只靠标题',
-      /infobox-label/.test(fw) && /!isChallenge && hasBox/.test(fw));
-    assert('V1.9.3：Chrome 启动带 `--no-sandbox` / `--disable-dev-shm-usage`（CI/容器里起不来的经典原因）',
-      /--no-sandbox/.test(fw) && /--disable-dev-shm-usage/.test(fw));
+    const cdp = fs.readFileSync(B + '/scripts/cdp.mjs', 'utf8');
+    assert('V1.9.3→V1.9.9.630：WAF 判据**同时认中英文挑战页标题**（旧版只查「请稍候」→ "Just a moment..." 被误判已通过）',
+      /just a moment/i.test(cdp) && /请稍候/.test(cdp) &&
+      /isChallengeTitle/.test(cdp) &&
+      // fetch_wiki 必须真的**用它**（不迁移就等于判据还有第二份）
+      /isChallengeTitle|waitContent/.test(fw));
+    assert('V1.9.3→V1.9.9.630：WAF 判据还要求**内容真的出现**（不只靠标题）—— 已统一为 waitContent 的内容探针',
+      /contentProbe/.test(cdp) && /infobox-label/.test(fw));
+    assert('V1.9.3→V1.9.9.630：Chrome 启动带 `--no-sandbox` / `--disable-dev-shm-usage`（CI/容器里起不来的经典原因）',
+      /--no-sandbox/.test(cdp) && /--disable-dev-shm-usage/.test(cdp) &&
+      // 且四个脚本自己**不再**各写一份 spawn（否则又会长出第二、三份启动参数）
+      !/--remote-debugging-port/.test(fw));
     assert('V1.9.3：读旧 wiki.json **有容错**（文件不在时不能崩，要按"无旧数据"继续）',
       /try \{ old = JSON\.parse\(fs\.readFileSync\(OUT, 'utf8'\)\)/.test(fw) &&
       /按"无旧数据"继续/.test(fw));
+    assert('V1.9.9.630：findBrowser **会去 Playwright/Puppeteer 缓存里找**'
+      + '（CI 用 `npx playwright install chromium` 装的浏览器只在那里 → 否则"装了却报没装"）',
+      /ms-playwright/.test(cdp) && /PLAYWRIGHT_BROWSERS_PATH/.test(cdp) &&
+      /chrome-linux\/chrome/.test(cdp) && /chrome-win\/chrome\.exe/.test(cdp) &&
+      /chrome-mac\/Chromium\.app/.test(cdp));
+    assert('V1.9.9.630：findBrowser 的**报错文案**说明查过哪些位置'
+      + '（只说"请装一个"会把排查方向带偏）',
+      /已查：/.test(cdp) && /CISTRACK_EDGE/.test(cdp));
+    // wiki 工作流：装了 playwright 的 chromium，必须**显式**把路径喂给抓取脚本。
+    //   （只靠缓存探测是"现在能中、布局一改就废"的侥幸，见 findBrowser 注释。）
+    (function () {
+      let wy = '';
+      try { wy = fs.readFileSync(B + '/.github/workflows/update-wiki.yml', 'utf8'); } catch (e) {}
+      assert('V1.9.9.630：update-wiki.yml 把 playwright 的 chromium 路径**显式注入** CISTRACK_EDGE'
+        + '（ubuntu-latest 不预装 Edge/Chrome）',
+        /chromium\.executablePath\(\)/.test(wy) && /CISTRACK_EDGE=/.test(wy) &&
+        /GITHUB_ENV/.test(wy));
+    })();
+    // 发射记录抓取的**全局时间预算**：每年前 3 次重试 × 90s 超时 × 6 年 = 最坏 27 分钟，
+    //   而 CI 的 job 是 timeout-minutes:15 → 会被**无声强杀**（无日志、无退出码、没写盘）。
+    (function () {
+      let flr = '';
+      try { flr = fs.readFileSync(B + '/scripts/fetch_launch_results.mjs', 'utf8'); } catch (e) {}
+      assert('V1.9.9.630：发射记录抓取有**全局时间预算**（6 年 × 3 次 × 90s = 最坏 27 分钟，'
+        + '超 CI 的 15 分钟上限 → 会被无声强杀）',
+        /CISTRACK_LAUNCH_BUDGET_MIN/.test(flr) && /elapsedMs\(\) > BUDGET_MS/.test(flr) &&
+        /skippedYears/.test(flr));
+      assert('V1.9.9.630：超预算的年份**不伪装成"抓取失败"或"该年没发射"**（写进 _incompleteYears + 日志分开措辞）',
+        /_incompleteYears/.test(flr) && /超出时间预算/.test(flr) && /超预算跳过/.test(flr));
+    })();
     assert('V1.9.3：诊断 workflow 已删除（一次性探针不留仓库垃圾）',
       !fs.existsSync(B + '/.github/workflows/diag-wiki-reach.yml'));
   }

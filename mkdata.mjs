@@ -11,6 +11,25 @@ import { climbPhases } from './scripts/climb.mjs';
 const ROOT = path.dirname(fileURLToPath(import.meta.url));   // 脚本所在目录（发布包内任意位置可用）
 const D = path.join(ROOT, 'data');
 
+// ---------------------------------------------------------------- V1.9.9.630：产物目录可重定向
+// 为什么需要：`build/` 下有 **62 个 history 分片**，本脚本每次运行都要先 `rmSync(build/history)`
+// 清空再重写（见下方 HIST_OUT）。而本机的**批量删除守护**按"单轮累计删除量"计数
+// （阈值 50，`scope:"turn"`，报 `[safe-delete][SAFE_DELETE_BULK_CONFIRM_REQUIRED]`）：
+// 一个进程里删 62 个文件没事（实测连跑 5 轮、共 310 个也放行），
+// 但**同一轮里跨进程累计**就会触顶 —— 对抗性测试 scripts/e2e_adversarial.mjs 的 E 段
+// 要在同一个 turn 里连跑 4 次 mkdata（E1 基线 / E2 坏表 / E3 空表 / E4 坏台账），
+// 于是 E2 之后必然被判红。那 3 条 FAIL 报的是**环境限制**，不是产品缺陷，
+// 但长期让闸门挂红会训练出"这条反正是红的"的麻木 —— 比 bug 本身更危险。
+//
+// 治法：允许用环境变量 `CISTRACK_BUILD_DIR` 把产物目录整体挪走。
+// 测试侧每个用例给一个**独立且不存在的**目录：
+//   · 目标不存在 → `rmSync` 无事可做，**不产生任何删除**，自然不计数；
+//   · 用例之间目录不同 → 不会互相踩产物（原本 E2/E3/E4 都在同一目录覆盖写）。
+// 生产构建不设这个变量 → 行为与改动前**逐字节一致**（默认仍是 `<ROOT>/build`）。
+const BUILD = process.env.CISTRACK_BUILD_DIR
+  ? path.resolve(process.env.CISTRACK_BUILD_DIR)
+  : path.join(ROOT, 'build');
+
 // ---------------------------------------------------------------- V1.9.1：satcat 缺失必须"喊出来"
 // `data/satcat.csv` 是 .gitignore 的（6.7 MB，由 refresh.mjs 下载），但它支撑**三处功能**：
 //   ① 已再入标记 `st:'r'` / `dt`（1.4-D）  ② 台账"已再入"扣减 `goneCount`（1.7）  ③ 搜索补池 dead/pend（A19）
@@ -527,7 +546,15 @@ function applyWikiTables(ledger, bk, tag) {
   const miss = [];
   for (const k in ledger) {
     const v = ledger[k];
-    const row = /^\d{5}$/.test(k) ? T['20' + k.slice(0, 2) + '-' + k.slice(2)] : null;
+    // ★★ V1.9.9.630（治本，第二处）：**台账 key 不止"5 位纯数字"一种形态。**
+    //   失利批次（发射失败/取消）的台账 key 是 `'25F05'` —— 含字母 F，`/^\d{5}$/` 直接不匹配
+    //   → `row` 恒为 null → 走进下面的 `else if (res === 'fail') nFail++`（"失利发射豁免"）。
+    //   于是词典条表**明明收录了**这一发（`2025-F05`），本函数却永远拿不到它的日期。
+    //   实测（2026-10-21）：把 fetch_wiki_tables 的 normCospar 修好、2025-F05 已进表之后，
+    //   这里仍然打印「失利发射豁免 1 条」—— 就是这个判据没跟上。
+    //   ⇒ 判据放宽为「2 位年 + 3 位序号，允许中间有 F」：'26230' 与 '25F05' 都认，
+    //     映射到词条表的 key 分别为 '2026-230' / '2025-F05'（与 normCospar 的输出格式一致）。
+    const row = /^\d{2}[0-9F]\d{2}$/.test(k) ? T['20' + k.slice(0, 2) + '-' + k.slice(2)] : null;
     if (!row || !row.d8) {
       const flags = String(v[8] || '');
       if (flags.indexOf('auto') >= 0) nAuto++;                    // 新批次：词条未收录（窗口期）
@@ -574,8 +601,11 @@ function wikiAbs(u) {
   if (!u) return '';
   return /^https?:/i.test(u) ? u : (WIKI_HOST + (u.charAt(0) === '/' ? u : '/' + u));
 }
-/** 台账 key（'26230'）→ wiki_launches 的 key（'2026-230'） */
-function launchFull(k) { return /^\d{5}$/.test(k) ? ('20' + k.slice(0, 2) + '-' + k.slice(2)) : ''; }
+/** 台账 key（'26230' 常规 / '25F05' 失利批次）→ wiki_launches / wiki_tables 的 key（'2026-230' / '2025-F05'）
+ *  ★ V1.9.9.630：原判据 `/^\d{5}$/` 不认含 F 的失利批次 key → 那条永远拿不到批次词条链接。 */
+function launchFull(k) {
+  return /^\d{2}[0-9F]\d{2}$/.test(k) ? ('20' + k.slice(0, 2) + '-' + k.slice(2)) : '';
+}
 
 function fillLedgerWikiUrls(ledger, tag) {
   let n = 0, have = 0, nAbs = 0;
@@ -1019,7 +1049,7 @@ const DATA = {
   urls: URLS,
 };
 
-fs.mkdirSync(path.join(ROOT, 'build'), { recursive: true });
+fs.mkdirSync(BUILD, { recursive: true });
 
 // ---------------------------------------------------------------- V1.9.0（R17）：历史轨道要素
 // data/history/<批次key>.json 里是 [norad, 历元ms, 半长轴km] 三元组（由 scripts/import_history.mjs 写入）。
@@ -1513,7 +1543,7 @@ function bundleLite(hist) {
 //   ⚠️ 规模重估（V1.9.0）：不做分片的话，10 万颗 × 20 年会是 2.26 GB —— 单文件超 GitHub 100MB 硬限，
 //   页面更不可能一次加载。分片后：页面只取选中的那一个批次（几十 KB），总量再大也不影响速度。
 //   编码与采样策略见 scripts/histpack.mjs（变化驱动 + 分层 + 稳定期配额，10 万颗×20 年 ≈ 42 MB）。
-const HIST_OUT = path.join(ROOT, 'build', 'history');
+const HIST_OUT = path.join(BUILD, 'history');
 fs.rmSync(HIST_OUT, { recursive: true, force: true });
 fs.mkdirSync(HIST_OUT, { recursive: true });
 let packTotal = { before: 0, after: 0, bytes: 0, batches: 0 };
@@ -1609,8 +1639,8 @@ if (OMM_MISSING.length) {
     '请检查 refresh.mjs 的 INCLUDE 与 satcat 是否已变）');
   process.exitCode = 6;
 } else {
-  fs.writeFileSync(path.join(ROOT, 'build', 'satdata.json'), JSON.stringify(DATA), 'utf8');
-  console.log('satdata.json bytes=', fs.statSync(path.join(ROOT, 'build', 'satdata.json')).size);
+  fs.writeFileSync(path.join(BUILD, 'satdata.json'), JSON.stringify(DATA), 'utf8');
+  console.log('satdata.json bytes=', fs.statSync(path.join(BUILD, 'satdata.json')).size);
 }
 
 // V1.4.0：单独导出一份 wiki.json —— 它跟 HTML 放在同一个目录时，页面打开会自动读它并覆盖内置的词条计数。
@@ -1624,7 +1654,24 @@ const WIKI_JSON = {
   //   打开就先看到数字）；mkdata 若按自己的顺序输出，每次构建都会产生"只挪了三行"的**无意义 diff**，
   //   真实变更反而被噪音淹没。以仓库为准 → mkdata 跟随。
   _readme: '改这里就能更新网页顶部的词条计数（launched=已发射, inOrbit=在轨, launches=发射成功/总）。改完保存，访客刷新即可看到。',
-  asOf: WIKI_STAT.gw.asOf,
+  // ★★ V1.9.9.630（治本）：**顶层 asOf 必须取 gw/qf 里更晚的那个，而不是直接抄 gw。**
+  //   事故链（实测提交 382957d 已经真实发生）：
+  //     ① `scripts/fetch_wiki.mjs` 的 `gw.asOf` 曾用 **UTC** 日期（`toISOString()`），
+  //        而顶层 `asOf` 用**北京**日期 → 北京 00:00 那一轮，`gw.asOf` 落后一天；
+  //     ② 本行原来写 `asOf: WIKI_STAT.gw.asOf` → 于是每次 CI（恰在北京 00:00 跑）
+  //        都把页面日期**改回前一天**：`- "asOf": "2026-10-21"` / `+ "asOf": "2026-10-20"`；
+  //     ③ 页面读的正是**顶层** `asOf`（app.js 的 `wiki.asOf`），所以用户在页面上
+  //        看到「卫星百科更新」倒退 —— 这是纯用户可见的 bug。
+  //   修法两层（缺一不可，因为两侧都可能被单独回退）：
+  //     · fetch_wiki.mjs 已改用北京时间日期（根因）；
+  //     · 这里取 `gw` / `qf` 的**最大值** —— 即使某天只有一侧成功刷新，顶层也不会退。
+  //   为什么不取 "今天"：顶层 asOf 的语义是"**词条数据截至哪一天**"，不是"我们哪天核对的"
+  //   （后者是 checkedAt）。抓不到新数据时它本就该停着不动，而不是假装更新。
+  asOf: (() => {
+    const a = [WIKI_STAT.gw && WIKI_STAT.gw.asOf, WIKI_STAT.qf && WIKI_STAT.qf.asOf]
+      .filter(x => typeof x === 'string' && /^\d{4}-\d{2}-\d{2}/.test(x));
+    return a.length ? a.sort()[a.length - 1] : '';
+  })(),
   checkedAt: WIKI_CHECKED_AT,
   // ★ O30-12（V1.9.9 收尾）：卡片抓取状态（fetch_wiki_cards.mjs 补丁进来的同源键）。
   //   页面「卫星百科更新」行附显；老部署没有该键时页面只显示核对时间，行为不变。
@@ -1632,5 +1679,5 @@ const WIKI_JSON = {
 };
 // ★ V1.9.1：末尾补一个换行 —— `JSON.stringify` 不产出行尾换行，而仓库里的 wiki.json 是
 //   带换行的（编辑器保存的正常产物）→ 不加就会永远留下"最后一行少了 \n"的 diff。
-fs.writeFileSync(path.join(ROOT, 'build', 'wiki.json'), JSON.stringify(WIKI_JSON, null, 1) + '\n', 'utf8');
-console.log('wiki.json bytes=', fs.statSync(path.join(ROOT, 'build', 'wiki.json')).size);
+fs.writeFileSync(path.join(BUILD, 'wiki.json'), JSON.stringify(WIKI_JSON, null, 1) + '\n', 'utf8');
+console.log('wiki.json bytes=', fs.statSync(path.join(BUILD, 'wiki.json')).size);

@@ -14,11 +14,10 @@
 //   · 可用环境变量 EDGE_PATH 指定浏览器可执行文件；不设则自动在常见路径里找。
 //   · 抓不到（WAF 不过 / 解析失败）时以非零退出码结束，方便计划任务与 CI 标红。
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { tmpRoot } from './tmproot.mjs';
+import { openBrowser, waitContent } from './cdp.mjs';
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const OUT = path.join(ROOT, 'wiki.json');
@@ -34,106 +33,21 @@ const PAGES = [
   ['gw', 'https://sat.huijiwiki.com/wiki/%E6%98%9F%E7%BD%91', '星网'],
   ['qf', 'https://sat.huijiwiki.com/wiki/%E5%8D%83%E5%B8%86%E6%98%9F%E5%BA%A7', '千帆星座'],
 ];
-const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 
-// ---------------------------------------------------------------- 浏览器定位
-function findBrowser() {
-  const cands = [
-    process.env.CISTRACK_EDGE,
-    process.env.EDGE_PATH,
-    process.env.CHROME_PATH,
-    'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
-    'C:/Program Files/Microsoft/Edge/Application/msedge.exe',
-    '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
-    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-    '/usr/bin/microsoft-edge',
-    '/usr/bin/google-chrome',
-    '/usr/bin/chromium-browser',
-    '/usr/bin/chromium',
-  ].filter(Boolean);
-  for (const c of cands) { try { if (fs.existsSync(c)) return c; } catch (e) {} }
-  return null;
-}
-
-// ---------------------------------------------------------------- 最小 CDP 客户端
-function cdp(wsUrl) {
-  const ws = new WebSocket(wsUrl);
-  let id = 0; const pend = new Map();
-  const ready = new Promise((res, rej) => { ws.onopen = () => res(); ws.onerror = (e) => rej(new Error('WS 连接失败')); });
-  ws.onmessage = (m) => {
-    let d; try { d = JSON.parse(m.data); } catch (e) { return; }
-    if (d.id && pend.has(d.id)) { pend.get(d.id)(d); pend.delete(d.id); }
-  };
-  const send = (method, params = {}) => new Promise((res, rej) => {
-    const i = ++id;
-    pend.set(i, (d) => d.error ? rej(new Error(method + ': ' + (d.error.message || JSON.stringify(d.error)))) : res(d.result || {}));
-    ws.send(JSON.stringify({ id: i, method, params }));
-  });
-  const evalJs = async (expr) => {
-    const r = await send('Runtime.evaluate', { expression: expr, returnByValue: true, awaitPromise: true });
-    if (r.exceptionDetails) throw new Error('页面内报错: ' + (r.exceptionDetails.exception && r.exceptionDetails.exception.description || ''));
-    return r.result ? r.result.value : undefined;
-  };
-  return { ready, send, evalJs, close: () => { try { ws.close(); } catch (e) {} } };
-}
-
+// ★★ V1.9.9.630：浏览器定位 / CDP / 挑战页判据已抽到 scripts/cdp.mjs（唯一权威实现）。
+//   本文件原来那份 `findBrowser` / `cdp` / 挑战判据是四个脚本里**最完整**的一份
+//   （V1.9.3 修过"漏英文挑战页"），但它修好后另外三个脚本并没有跟上 ——
+//   这就是"同一类 bug 反复复发"的结构性原因。现在四份合一，本文件只是调用方。
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // ---------------------------------------------------------------- 一次抓取
 async function fetchArticle(url, { timeoutMs = 90000, pollMs = 2000 } = {}) {
-  const exe = findBrowser();
-  if (!exe) throw new Error('找不到 Edge/Chrome，请用 EDGE_PATH 环境变量指定可执行文件');
-  const udd = fs.mkdtempSync(path.join(TMPROOT, 'cistrack-wiki-'));
-  const portFile = path.join(udd, 'DevToolsActivePort');
-  const child = spawn(exe, [
-    '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
-    '--disable-extensions', '--disable-background-networking', '--mute-audio',
-    // ★ V1.9.3（2026-10-14 CI 实测）：**容器/CI 里 Chrome 起不来就是因为缺这两条**。
-    //   `--no-sandbox`：CI runner 上 Chrome 的 setuid sandbox 用不了（无 CAP_SYS_ADMIN /
-    //     seccomp 限制），不加它 Chrome 直接静默退出、DevToolsActivePort 永远不出现。
-    //   `--disable-dev-shm-usage`：runner 的 /dev/shm 只有 64MB，Chrome 默认往那儿写
-    //     共享内存，满了会崩。这两条在 Windows 上都是无害的（Chrome 接受但不改变行为），
-    //     所以本地任务不受影响。
-    //   实测证据：诊断 run 38529951399 —— Chrome 明明在 /usr/bin/google-chrome，
-    //     却报「浏览器没能在 10s 内启动调试端口」。加上后同一环境成功。
-    '--no-sandbox', '--disable-dev-shm-usage',
-    '--remote-debugging-port=0', '--user-data-dir=' + udd, '--user-agent=' + UA, 'about:blank',
-    // stderr 不再 ignore：CI 上浏览器起不来时，把它的抱怨带出来（否则只有一句
-    // "没能在 10s 内启动调试端口"，什么都看不出来）。\r 去掉是为了日志干净。
-  ], { stdio: ['ignore', 'ignore', 'pipe'] });
-  let chromeErr = '';
-  try { child.stderr.on('data', (b) => { chromeErr += String(b).replace(/\r/g, ''); }); } catch (e) {}
-  let c = null;
+  const h = await openBrowser({ tmpRoot: TMPROOT, bootMs: 30000 });
   try {
-    // 等 Edge 把实际端口写进 DevToolsActivePort（第一行 = 端口）
-    // ★ V1.9.3：等待从 10s 放宽到 30s —— CI runner 比本机慢，冷启动 Chrome 经常要 5~15s。
-    let port = 0;
-    for (let i = 0; i < 300; i++) {
-      await sleep(100);
-      try { port = parseInt(String(fs.readFileSync(portFile, 'utf8')).split(/\r?\n/)[0], 10) || 0; } catch (e) {}
-      if (port) break;
-    }
-    if (!port) throw new Error('浏览器没能在 30s 内启动调试端口' +
-      (chromeErr ? '；浏览器 stderr: ' + chromeErr.slice(0, 500) : '（无 stderr 输出）'));
-    // 注意：/json/version 给的是**浏览器级** WebSocket（只支持 Browser.* 域），
-    // 要操作页面必须连 /json/list 里的 **page** 目标（否则报 "Page.enable wasn't found"）。
-    let page = null;
-    for (let i = 0; i < 50; i++) {
-      try {
-        const list = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
-        page = list.find((t) => t.type === 'page') || list[0];
-      } catch (e) {}
-      if (page && page.webSocketDebuggerUrl) break;
-      await sleep(100);
-    }
-    if (!page || !page.webSocketDebuggerUrl) throw new Error('拿不到页面调试目标');
-    c = cdp(page.webSocketDebuggerUrl);
-    await c.ready;
-    await c.send('Page.enable'); await c.send('Runtime.enable');
-    await c.send('Page.navigate', { url });
-
-    // 过 WAF：轮询，直到**既不是挑战页、内容也真的出来了**
-    // ★★★ V1.9.3（CI 诊断 38530602731 / 38531482688 实测抓到真因）
+    const { c } = h;
+    // 过 WAF：**标题 + 内容探针双判据**（判据细节见 scripts/cdp.mjs `waitContent`）。
+    //   ★★★ V1.9.3（CI 诊断 38530602731 / 38531482688 实测抓到真因）—— 这段历史保留在此，
+    //     因为它是本仓库最重要的一次"静默失败"教训，且现在成了 cdp.mjs 的固有条文：
     //   旧判据只有一句：
     //       if (title && !/请稍候/.test(title)) { ok = true; break; }
     //   而 Cloudflare 挑战页的标题是**英文** `Just a moment...`（诊断2 的裸 fetch
@@ -142,32 +56,22 @@ async function fetchArticle(url, { timeoutMs = 90000, pollMs = 2000 } = {}) {
     //     `body.innerHTML` —— 拿到的是那 5.7KB 的挑战页 → `infobox-label` 找不到 → 解析失败。
     //   这就是"两个星座各一半概率失败"的真因：不是限流，是**判据漏了英文标题**，
     //   每次能不能成取决于 Cloudflare 那一次要不要先甩个挑战页。
-    //   新判据（两条都要满足，缺一不可）：
-    //     ① 标题不像挑战页（中英文都查，外加几个常见变体）；
-    //     ② 页面里**真的出现了 infobox-label**（我们要的内容本身）。
-    const t0 = Date.now(); let ok = false;
-    while (Date.now() - t0 < timeoutMs) {
-      await sleep(pollMs);
-      const title = await c.evalJs('document.title').catch(() => '');
-      const hasBox = await c.evalJs(
-        'document.body && document.body.innerHTML.indexOf("infobox-label") >= 0').catch(() => false);
-      const isChallenge = !title ||
-        /请稍候|just a moment|checking your browser|verify(ing)? you are|cf-challenge|attention required/i.test(title);
-      if (!isChallenge && hasBox) { ok = true; break; }
+    //   新判据（两条都要满足，缺一不可）：① 标题不像挑战页；② 页面里**真的出现了
+    //   infobox-label**（我们要的内容本身）。
+    const w = await waitContent(c, url, {
+      tries: 1,                                  // 重试由本文件的逐星座循环负责（它有自己的 8s 间隔）
+      waitMs: timeoutMs, pollMs: pollMs,
+      contentProbe: 'document.body && document.body.innerHTML.indexOf("infobox-label") >= 0',
+      settleMs: 800,
+    });
+    if (!w.ok) {
+      const len = await c.ev('document.body ? document.body.innerHTML.length : 0').catch(() => 0);
+      throw new Error('词条未通过 WAF 验证或内容未渲染（title=' + JSON.stringify(w.title) + '，html 长度 ' + len + '）');
     }
-    if (!ok) {
-      const t = await c.evalJs('document.title').catch(() => '');
-      const len = await c.evalJs('document.body ? document.body.innerHTML.length : 0').catch(() => 0);
-      throw new Error('词条未通过 WAF 验证或内容未渲染（title=' + JSON.stringify(t) + '，html 长度 ' + len + '）');
-    }
-    await sleep(800);
-    const html = await c.evalJs('document.body.innerHTML');
-    return { html, title: await c.evalJs('document.title').catch(() => '') };
+    const html = await c.ev('document.body.innerHTML');
+    return { html, title: w.title };
   } finally {
-    // 页面级 CDP 端点没有 Browser.close，直接结束进程树即可
-    try { c && c.close(); } catch (e) {}
-    try { child.kill(); } catch (e) {}
-    setTimeout(() => { try { fs.rmSync(udd, { recursive: true, force: true }); } catch (e) {} }, 400);
+    h.cleanup();
   }
 }
 
@@ -233,7 +137,22 @@ for (const [key, url, article] of PAGES) {
     failed.push(key);
     continue;
   }
-  stats[key] = Object.assign({ asOf: new Date().toISOString().slice(0, 10), article }, st);
+  // ★★ V1.9.9.630（治本）：**`asOf` 必须是北京时间日期，且与下面顶层的 `today` 同源。**
+  //   旧写法是 `new Date().toISOString().slice(0,10)` —— 那是 **UTC** 日期。
+  //   而下面的顶层 `asOf` / `checkedAt` 用的是 `bj`（北京，V1.9.8 为修"12:00 显示成 04:00"改的）。
+  //   两条口径并存 → 每天**北京 00:00 那一轮必然差一天**：
+  //     北京 10-21 00:00 抓取 → UTC 还是 10-20 → `gw.asOf = 2026-10-20`，
+  //     而同一次运行写了 `asOf: 2026-10-21`。于是同一个文件里两个"截至日"互相矛盾。
+  //   为什么这会变成**页面上看得见的回退**（实测 382957d）：
+  //     mkdata.mjs 的顶层 `asOf` 取的是 `WIKI_STAT.gw.asOf`（= 这个 UTC 值）→
+  //     CI 在北京 00:00 那一轮每次产出 `asOf: 2026-10-20`，把上一轮本机任务写的
+  //     `2026-10-21` **改回旧日期**。build.mjs 的防回退守卫也拦不住
+  //     （它只在"计数相同且日期更旧"时拦，而这里计数没变、日期确实更旧 —— 本该拦住，
+  //      但它是拿 build 副本与仓库副本比，mkdata 已经把旧值写进 build 了，两侧一致 → 放过）。
+  //   ⇒ 一处口径错误，污染了"抓取 → mkdata → build → 页面"整条链。**只改一处不够**，
+  //     所以本轮同时改了 mkdata.mjs 的顶层取值（那里改成取 gw/qf 的 max，双向兜住）。
+  const bjDay = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);   // 北京时间日期
+  stats[key] = Object.assign({ asOf: bjDay, article }, st);
   console.log(key, '→', JSON.stringify(stats[key]));
 }
 
@@ -271,22 +190,45 @@ const bj = new Date(now.getTime() + 8 * 3600 * 1000);
 const today = bj.toISOString().slice(0, 10);
 const checkedAt = bj.toISOString().slice(0, 16).replace('T', ' ');   // YYYY-MM-DD HH:MM (UTC+8)
 const oldAsOf = old.asOf || '';
+
+// ★★ V1.9.9.630（治本）：**必须先把 base 补全再比"有没有变"。**
+//   旧写法的分母是"这一次抓到的 stats"，而 `stats` 里**只有成功的那几个星座**
+//   （失败的 key 被 `continue` 跳过了）。于是：
+//     · qf 抓失败 → `numbersSame` 里的 `old.qf`、`stats.qf` 至少一个为空 → **恒 false**
+//       → 判"有变化" → 写文件；
+//     · 但写出去的是 `stats`（只有 gw）→ **qf 整块被抹掉**。
+//   炸点在下一步：mkdata 读 wiki.json 的判据是
+//       `if (w && w.gw && w.qf && w.gw.launched && w.qf.launched) WIKI_FETCHED = w;`
+//   → 缺 qf ⇒ **整份 wiki.json 被丢弃** ⇒ 连"这一轮抓成功的 gw"也一起作废，
+//   退回写死的 WIKI_STATIC（`asOf:''`、计数是几个版本前的老值）。
+//   所以"一个星座失败"的代价不是"少一半"，而是**退到内置静态兜底**。
+//   ⇒ 正确做法：以**旧文件为基底**，成功的星座覆盖上去（与 fetch_wiki_tables.mjs 的
+//     `out.gw = old.gw || {}` 完全同一套口径 —— 那个脚本早就这么做，这个没跟上）。
+const base = Object.assign({}, old);
+['gw', 'qf'].forEach(k => { if (stats[k]) base[k] = stats[k]; });
+// 比"有没有变"要用**补全后**的 base，不是只用本次抓到的
 const numbersSame = ['gw', 'qf'].every(k =>
-  stats[k] && old[k] && old[k].launched.n === stats[k].launched.n &&
-  old[k].inOrbit.n === stats[k].inOrbit.n && old[k].launches === stats[k].launches);
+  base[k] && old[k] && old[k].launched && base[k].launched &&
+  old[k].launched.n === base[k].launched.n &&
+  old[k].inOrbit && base[k].inOrbit && old[k].inOrbit.n === base[k].inOrbit.n &&
+  old[k].launches === base[k].launches);
 const fullyRead = failed.length === 0;            // 两个星座都成功读到
 if (numbersSame && !(fullyRead && oldAsOf !== today)) {
   console.log('统计无变化' + (fullyRead ? '且今日已核对过' : '（本次未读全，核对时间不前进）') + '，跳过更新');
   process.exit(0);
 }
+if (!fullyRead) {
+  console.log('⚠️ 本次未读全（' + failed.join(',') + ' 失败）—— 该星座**沿用上一轮数据**，不写空。'
+    + '（写空会让 mkdata 退回内置静态值，连抓成功的那一半也一起作废。）');
+}
 
-stats._readme = old._readme;
-stats.asOf = today;
-stats.checkedAt = fullyRead ? checkedAt : (old.checkedAt || '');
+base._readme = old._readme;
+base.asOf = today;
+base.checkedAt = fullyRead ? checkedAt : (old.checkedAt || '');
 // ★ O30-12（V1.9.9 收尾）：保留卡片抓取状态键 —— 本脚本不抓卡片，补丁由 fetch_wiki_cards.mjs 写；
 //   这里若不保留，一次"统计无变化也要写核对时间"的更新就会把 `cards` 键抹掉（页面状态行空白）。
-if (old.cards) stats.cards = old.cards;
-fs.writeFileSync(OUT, JSON.stringify(stats, null, 1) + '\n', 'utf8');
+if (old.cards) base.cards = old.cards;
+fs.writeFileSync(OUT, JSON.stringify(base, null, 1) + '\n', 'utf8');
 console.log('wiki.json 已更新'
   + (numbersSame ? '（数字未变，仅更新核对时间）' : '')
   + (fullyRead ? '' : '；**未读全**（' + failed.join(',') + '），核对时间保持原值')
