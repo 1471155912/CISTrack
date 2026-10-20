@@ -248,9 +248,31 @@ async function get(url, tries, timeoutMs) {
       //     · `GROUP=`（分组名写死）/ `pub/satcat.csv`（固定 URL）的 404 = **真异常**（上游改版/分组消失）→ 进账本；
       //     · 5xx / 其他非 200 → 进账本（上游过载或被防火墙拦）。
       //   覆盖面没丢：若 gp.php 整个被换掉，GROUP= 那条必然先 404 ✓。
+      //
+      // ★★ 2026-10-20（故障 C 修复，用户裁决"方案一"）：**5xx 也要按同样的两类分开**。
+      //   事故：run 39437803662（c596dab）在"刷新 TLE"步骤 exit 7 —— 日志原文
+      //     `gw S5 OMM → 待补 45 颗，补到 43 颗，失败 2`（100794 / 100974 各 HTTP 500）
+      //     而同一份日志里"数据新鲜度：最新历元落后 0.27 天 ✓"、"253 颗 / 仍缺轨道要素 0 颗"
+      //     → **数据完全健康，却因为 2/45 的偶发 500 判整条任务失败**。
+      //   后果与上面那次 404 误报**完全同构**：数据正常但 CI 永远红、仓库永不更新、
+      //   也让人错以为链路坏了（真正该排查的信号被噪声淹没）。
+      //   为什么给 5xx 也开口子：`CATNR=` / `NAME=` 是**点名探测/补拉**，本来就是"逐颗重试"的
+      //   批量请求（S5 一轮几十个），上游偶发 500 是**该端点的正常噪声**；单颗失败只影响
+      //   "这一颗的历元能否刷新到最新"，不影响其余几十颗，且 miss 统计会如实报出真缺口。
+      //   而 `GROUP=` / `satcat.csv` 是**固定端点、每轮只请求一两次** —— 它们若 5xx，
+      //   说明上游整体不可用或把我们拦了，那才是必须立刻交人排查的真异常。
+      //   ⇒ 分级后仍保留"响亮失败"的覆盖面：整体故障必然打在 GROUP= 或 satcat 上。
+      //   ⚠️ 降级不等于忽略：5xx 一律记进 SOFT_ISSUES 并写进 report.netSoft，
+      //     日志里逐条打印，CI 摘要可见 —— 做到"不拦构建，但绝不静默"。
       if (!r.ok) {
-        const probeQuery = /[?&](NAME|CATNR)=/i.test(url);
-        if (!(r.status === 404 && probeQuery)) NET_ISSUES.push({ url: url, status: r.status });
+        const probeQuery = /[?&](NAME|CATNR)=/i.test(url.trim());
+        const is5xx = r.status >= 500 && r.status < 600;
+        if (is5xx && probeQuery) {
+          // 点名探测/补拉偶发 5xx：降级为软告警（不拦构建）
+          SOFT_ISSUES.push({ url: url, status: r.status });
+        } else if (!(r.status === 404 && probeQuery)) {
+          NET_ISSUES.push({ url: url, status: r.status });
+        }
         return { ok: false, status: r.status, text: '' };
       }
       return { ok: true, status: r.status, text: (await r.text()).replace(/\r/g, '') };
@@ -268,6 +290,11 @@ async function get(url, tries, timeoutMs) {
 // 为什么必须响亮失败：`parseTLE` 对陌生文本只会返回 0 条，而 0 条在下游与"上游没更新"无法区分
 //   → 任务会"成功"、数据静默停更。这正是 2026-10 那次"最新星网批次无制造商"的同一类病。
 const NET_ISSUES = [];
+// ★ 2026-10-20（故障 C）：**软告警账本** —— 点名探测（CATNR=/NAME=）偶发 5xx 记这里。
+//   与 NET_ISSUES 的区别：NET_ISSUES 一票否决（exit 7），SOFT_ISSUES **只告警不拦构建**。
+//   为什么必须分成两个账本而不是"不入账"：不入账就变成静默（用户排障时看不到"上游刚才抖过"）；
+//   入 NET_ISSUES 又会让 CI 永远红。⇒ 第三个账本，逐条打印 + 写进 report.netSoft。
+const SOFT_ISSUES = [];
 const FORMAT_ALARM = [];
 /** 包一层 parseTLE：200 但内容不像 TLE → 记一笔格式告警（返回 0 条，不抛）
  *  判据在 `scripts/format_guard.mjs`（纯函数 → smoke 可直接 import 测，含 8 例样本自测） */
@@ -634,7 +661,13 @@ for (const key of ['gw', 'qf']) {
   let ommErr = 0; const ommErrMsg = [];
   const OMM_CAP = 400;                                   // 上限（正常规模 ~55；留足余量并防失控）
   for (const o of ommTodo.slice(0, OMM_CAP)) {
-    r = await get(`https://celestrak.org/NORAD/elements/gp.php?CATNR=${o.norad}&FORMAT=json`);
+    // ★ 2026-10-20（故障 C 配套，用户要求"信息要全"）：S5 的点名补拉**加一次尝试**。
+    //   实测依据（run 39437803662）：45 个补拉里 2 个撞 500（100794/100974），
+    //   而默认只试 2 次、间隔 800ms —— 上游瞬时 5xx 往往几百毫秒就恢复，
+    //   多给一次机会能实打实把这 2 颗的历元刷到最新（而不是沿用上一轮）。
+    //   只对**这一处**加，不全局调高：S5 是唯一"逐颗批量"的通道（一轮几十个），
+    //   失败代价是"该颗历元陈旧"；而 GROUP= 是单次固定请求，加次数意义不大。
+    r = await get(`https://celestrak.org/NORAD/elements/gp.php?CATNR=${o.norad}&FORMAT=json`, 3);
     if (!r.ok) {
       ommErr++;
       if (ommErrMsg.length < 3) ommErrMsg.push(o.norad + ': HTTP ' + r.status + (r.err ? ' ' + r.err : ''));
@@ -848,10 +881,25 @@ if (FORMAT_ALARM.length) {
   console.error('   已以非零码（6）结束 —— 不允许"0 条数据但任务成功"。');
   process.exitCode = 6;
 }
+// ★ 2026-10-20（故障 C）：**软告警** —— 点名探测（CATNR=/NAME=）偶发 5xx，**只告警不拦构建**。
+//   为什么放在 NET_ISSUES 之前打印：让读者先看到"严重到什么程度"，再看"被降级的有哪些"。
+//   ⚠️ 这一档**绝不静默**：逐条打印 + 写进 report.netSoft + 在日志里给出明确解读，
+//     只是不再一票否决。若上游真的整体挂了，GROUP=/satcat 会在下面的 NET_ISSUES 里硬失败。
+if (SOFT_ISSUES.length) {
+  console.warn('⚠️ CelesTrak 对**点名探测/补拉**返回非 200（' + SOFT_ISSUES.length + ' 次）—— 已降级为告警，不拦构建：');
+  SOFT_ISSUES.slice(0, 8).forEach(it => console.warn('   · ' + it.status + ' ← ' + it.url));
+  if (SOFT_ISSUES.length > 8) console.warn('   …（其余 ' + (SOFT_ISSUES.length - 8) + ' 条同类，略）');
+  console.warn('   解读：这些是逐颗补拉（S5）或名字探测（S2）的批量请求，上游偶发 5xx 属该端点噪声。');
+  console.warn('   影响：仅"该颗星的历元可能停在上一轮"，不影响其余卫星；真缺口由「仍缺轨道要素」统计兜住。');
+  console.warn('   若这条告警**每轮都出现且数量很大**（例如 >10 条），说明上游在限流/降级，需人工介入。');
+}
+report.netSoft = { count: SOFT_ISSUES.length, items: SOFT_ISSUES.slice(0, 40) };
 if (NET_ISSUES.length) {
   console.error('❌ CelesTrak 返回**非 200**（' + NET_ISSUES.length + ' 次）—— 按使用政策必须立即停下交人排查：');
   NET_ISSUES.slice(0, 8).forEach(it => console.error('   · ' + it.status + ' ← ' + it.url));
   console.error('   解读：301/404 = 用了旧 URL（上游改版）；50x = 上游过载/被防火墙拦（反复无视会被拉黑）。');
+  console.error('   注意：本档只收**固定端点**（GROUP= / satcat.csv）与 404/301 类真异常；');
+  console.error('        点名探测（CATNR=/NAME=）的 5xx 已降级为上面的告警，不计入此处（2026-10-20 起）。');
   console.error('   已以非零码（7）结束。排查：`curl -sSI "<上面的 URL>"`。');
   if (process.exitCode !== 6) process.exitCode = 7;
 }

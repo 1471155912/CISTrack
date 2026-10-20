@@ -4541,11 +4541,51 @@ assert('A9（V1.9.7 §6）：圈的来源 = 工作轨道层（orbLayerDefs），
       /\['OBJECT_ID', 'cospar'\]/.test(fs.readFileSync(B + '/scripts/ab_gp_format.mjs', 'utf8')));
     assert('H42：**非 200 记账 + 显式失败**（政策：立即停下交人排查；旧写法只 log 一行就继续跑 = 静默降级）'
       + '｜且**按查询类型分类**（NAME=/CATNR= 的 404 = 查无此项，不能当异常 —— 上线当天就被 CI 抓到过误报）',
-      /const probeQuery = \/\[\?&\]\(NAME\|CATNR\)=\/i\.test\(url\);/.test(refreshSrc) &&
-      /if \(!\(r\.status === 404 && probeQuery\)\) NET_ISSUES\.push\(/.test(refreshSrc) &&
+      /const probeQuery = \/\[\?&\]\(NAME\|CATNR\)=\/i\.test\(url\.trim\(\)\);/.test(refreshSrc) &&
+      /if \(!\(r\.status === 404 && probeQuery\)\) NET_ISSUES\.push\(|else if \(!\(r\.status === 404 && probeQuery\)\) \{/.test(refreshSrc) &&
       /const NET_ISSUES = \[\];/.test(refreshSrc) && /const FORMAT_ALARM = \[\];/.test(refreshSrc) &&
       /if \(NET_ISSUES\.length\) \{[\s\S]{0,700}?process\.exitCode = 7;/.test(refreshSrc) &&
       /if \(FORMAT_ALARM\.length\) \{[\s\S]{0,800}?process\.exitCode = 6;/.test(refreshSrc));
+    // ★★ 2026-10-20 回归守卫（故障 C）：**点名探测的 5xx 必须降级为软告警，不能一票否决**。
+    //   事故：run 39437803662 里 `S5 OMM 待补 45 / 失败 2`（100794、100974 各 HTTP 500），
+    //   而同日志"数据新鲜度落后 0.27 天 ✓"、"仍缺轨道要素 0 颗" → 数据健康却 exit 7，
+    //   仓库永不更新、每轮给作者发失败邮件。病根与 2026-10-16 那次 404 误报同源：
+    //   当时给 404 开了口子，**5xx 这档没开**，于是换了个状态码又栽一次。
+    //   这里断言**源码形态**（三个条件同时成立才算修好）：
+    //     ① 存在独立的 SOFT_ISSUES 账本（软告警不能混进 NET_ISSUES）；
+    //     ② 5xx + 点名探测 这一组合确实走 SOFT_ISSUES 分支；
+    //     ③ 固定端点（GROUP= / satcat）的 5xx **仍然**进 NET_ISSUES —— 覆盖面不许丢。
+    //   ⚠️ 只断言"有 SOFT_ISSUES 常量"是不够的（EPS_GEO 就曾定义了却只在降级分支生效），
+    //     所以必须断言它出现在那个 if 分支里、且 NET_ISSUES 的硬失败还在。
+    assert('故障C回归：点名探测（CATNR=/NAME=）的 5xx 降级为**软告警**（不拦构建），'
+      + '但固定端点（GROUP=/satcat）的 5xx **仍硬失败** —— 覆盖面不许丢',
+      /const SOFT_ISSUES = \[\];/.test(refreshSrc) &&
+      /const is5xx = r\.status >= 500 && r\.status < 600;/.test(refreshSrc) &&
+      /if \(is5xx && probeQuery\) \{[\s\S]{0,200}?SOFT_ISSUES\.push\(/.test(refreshSrc) &&
+      // ② 软告警**不得**写进 NET_ISSUES；③ 硬失败路径仍在
+      /else if \(!\(r\.status === 404 && probeQuery\)\) \{[\s\S]{0,120}?NET_ISSUES\.push\(/.test(refreshSrc) &&
+      /if \(NET_ISSUES\.length\) \{[\s\S]{0,900}?process\.exitCode = 7;/.test(refreshSrc) &&
+      // ④ 软告警必须**可见**：写进 report 且打印（"降级"不等于"静默"）
+      /report\.netSoft = \{ count: SOFT_ISSUES\.length/.test(refreshSrc) &&
+      /if \(SOFT_ISSUES\.length\) \{[\s\S]{0,300}?console\.warn\(/.test(refreshSrc),
+      'SOFT_ISSUES 账本=' + /const SOFT_ISSUES = \[\];/.test(refreshSrc) +
+        ' / 5xx分支接上=' + /if \(is5xx && probeQuery\) \{[\s\S]{0,200}?SOFT_ISSUES\.push\(/.test(refreshSrc) +
+        ' / 硬失败仍在=' + /if \(NET_ISSUES\.length\) \{[\s\S]{0,900}?process\.exitCode = 7;/.test(refreshSrc) +
+        ' / 可见性=' + /report\.netSoft = \{ count: SOFT_ISSUES\.length/.test(refreshSrc));
+    // ★ 2026-10-20（cron 口径）：定时点必须落在**北京时间 00:00 / 12:00**。
+    //   GitHub cron 按 UTC 解释 → 必须写 `0 16`（北京 00:00）与 `0 4`（北京 12:00）。
+    //   曾错写成 `0 8` / `0 20`（实际落在北京 16:00 / 次日 04:00），与用户"每天两次、
+    //   00:00 与 12:00"的要求不符 —— 这条守卫防的就是"看着是 0 和 12 就以为对了"。
+    {
+      const wfSrc = fs.readFileSync(B + '/.github/workflows/update-tle.yml', 'utf8');
+      const crons = [...wfSrc.matchAll(/-\s*cron:\s*'([^']+)'/g)].map(m => m[1]);
+      const utcHours = crons.map(c => parseInt(c.split(' ')[1], 10)).sort((a, b) => a - b);
+      // 北京 = UTC+8，换算后应为 0 与 12
+      const bjHours = utcHours.map(h => (h + 8) % 24).sort((a, b) => a - b);
+      assert('cron 定时点 = **北京时间 00:00 与 12:00 各一次**（GitHub 按 UTC 解释，须写 16/4 而非 0/12）',
+        crons.length === 2 && bjHours.length === 2 && bjHours[0] === 0 && bjHours[1] === 12,
+        '原始 cron=[' + crons.join(' | ') + '] → 折算北京时刻=[' + bjHours.join(', ') + ']');
+    }
     // ★ V1.9.5（H29 前哨）：**探针键不得重复** —— 字符串手术留下过 `chartDraw`×3 / `climbDraw`×2，
     //   重复键在对象字面量里会被后者静默覆盖（同名探针行为悄悄变了，很难查）。这里设成硬守卫。
     assert('探针键唯一（重复键会被静默覆盖，属"改坏了也看不出来"的那类）',
@@ -6618,3 +6658,14 @@ console.log('PASS:', PASS_N, ' FAIL:', FAIL_N, ' 错误数:', errors.length);
 if (FAIL_N) console.log('  ⚠️ 有 ' + FAIL_N + ' 条断言未通过（退出码 1）；上面那行"错误数"只统计运行时异常，不代表断言全过');
 errors.slice(0, 8).forEach(e => console.log('  ! ' + e));
 dom.window.close();
+// ★★ 2026-10-20（真实缺陷，本轮测试发现）：**本脚本此前从未设置过退出码**。
+//   全文件搜 `process.exit` / `process.exitCode` 一处都没有 —— 于是"CI 里 smoke 是否通过"
+//   完全取决于**进程自然结束时的偶然值**：jsdom 关闭后残留的定时器/异步句柄会让 node 以 1 退出，
+//   与断言结果无关。实测对照：
+//     · HEAD 版（未改）：927 PASS / 1 FAIL → exit 1   （碰巧对）
+//     · 本轮修正版　　：930 PASS / 0 FAIL → **exit 1**（错的！全绿却判失败）
+//   后果比"偶尔报错"更糟：它让"冒烟测试"这道闸门**既可能假红、也可能假绿**，
+//   而 CI 的后续步骤（仓库卫生、提交推送）全靠它把关 —— 闸门本身不可信，等于没有闸门。
+//   修法：显式按 FAIL_N 与运行时错误数置退出码，并把结果钉死在进程退出时，不受句柄影响。
+process.exitCode = (FAIL_N || errors.length) ? 1 : 0;
+console.log('退出码已置为 ' + process.exitCode + '（依据：FAIL=' + FAIL_N + '，运行时错误=' + errors.length + '）');
