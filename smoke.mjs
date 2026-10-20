@@ -4557,21 +4557,32 @@ assert('A9（V1.9.7 §6）：圈的来源 = 工作轨道层（orbLayerDefs），
     //     ③ 固定端点（GROUP= / satcat）的 5xx **仍然**进 NET_ISSUES —— 覆盖面不许丢。
     //   ⚠️ 只断言"有 SOFT_ISSUES 常量"是不够的（EPS_GEO 就曾定义了却只在降级分支生效），
     //     所以必须断言它出现在那个 if 分支里、且 NET_ISSUES 的硬失败还在。
+    //   ★★ 2026-10-20（教训）：守卫**必须跑在"去注释后的源码"上**。
+    //     本轮我新增的注释里引用了旧写法原文（`process.exit(fails.length ? 1 : 0)`、
+    //     `merged.size - before - from.group`）—— 于是"旧写法已移除"类断言**匹配到自己的注释**，
+    //     把已经修好的代码判成没修（4 条假 FAIL）。守卫自己变误报源，正是本项目反复踩的坑
+    //     （"看到全量报错先怀疑量法"）。⇒ 统一用 codeOnly() 去掉 // 与 /* */ 注释再断言。
+    const codeOnly = (s) => s
+      .replace(/\/\*[\s\S]*?\*\//g, '')      // 块注释
+      .replace(/^\s*\/\/.*$/gm, '')          // 整行行注释
+      .replace(/([^:'"`])\/\/[^\n'"]*$/gm, '$1');  // 行尾注释（避开 http:// 与字符串里的 //）
+    const refreshCode = codeOnly(refreshSrc);
     assert('故障C回归：点名探测（CATNR=/NAME=）的 5xx 降级为**软告警**（不拦构建），'
       + '但固定端点（GROUP=/satcat）的 5xx **仍硬失败** —— 覆盖面不许丢',
-      /const SOFT_ISSUES = \[\];/.test(refreshSrc) &&
-      /const is5xx = r\.status >= 500 && r\.status < 600;/.test(refreshSrc) &&
-      /if \(is5xx && probeQuery\) \{[\s\S]{0,200}?SOFT_ISSUES\.push\(/.test(refreshSrc) &&
-      // ② 软告警**不得**写进 NET_ISSUES；③ 硬失败路径仍在
-      /else if \(!\(r\.status === 404 && probeQuery\)\) \{[\s\S]{0,120}?NET_ISSUES\.push\(/.test(refreshSrc) &&
-      /if \(NET_ISSUES\.length\) \{[\s\S]{0,900}?process\.exitCode = 7;/.test(refreshSrc) &&
-      // ④ 软告警必须**可见**：写进 report 且打印（"降级"不等于"静默"）
-      /report\.netSoft = \{ count: SOFT_ISSUES\.length/.test(refreshSrc) &&
-      /if \(SOFT_ISSUES\.length\) \{[\s\S]{0,300}?console\.warn\(/.test(refreshSrc),
-      'SOFT_ISSUES 账本=' + /const SOFT_ISSUES = \[\];/.test(refreshSrc) +
-        ' / 5xx分支接上=' + /if \(is5xx && probeQuery\) \{[\s\S]{0,200}?SOFT_ISSUES\.push\(/.test(refreshSrc) +
-        ' / 硬失败仍在=' + /if \(NET_ISSUES\.length\) \{[\s\S]{0,900}?process\.exitCode = 7;/.test(refreshSrc) +
-        ' / 可见性=' + /report\.netSoft = \{ count: SOFT_ISSUES\.length/.test(refreshSrc));
+      /const SOFT_ISSUES = \[\];/.test(refreshCode) &&
+      /const is5xx = r\.status >= 500 && r\.status < 600;/.test(refreshCode) &&
+      // ② 点名探测的 5xx 确实进 SOFT_ISSUES（2026-10-20 起合并为 isProbe 两级判定）
+      /else if \(isProbe\) \{[\s\S]{0,240}?SOFT_ISSUES\.push\(/.test(refreshCode) &&
+      // ③ 软告警**不得**写进 NET_ISSUES；④ 硬失败路径仍在
+      /else if \(!\(r\.status === 404 && probeQuery\)\) \{[\s\S]{0,120}?NET_ISSUES\.push\(/.test(refreshCode) &&
+      /if \(NET_ISSUES\.length\) \{[\s\S]{0,900}?process\.exitCode = 7;/.test(refreshCode) &&
+      // ⑤ 软告警必须**可见**：写进 report 且打印（"降级"不等于"静默"）
+      /report\.netSoft = \{ count: SOFT_ISSUES\.length/.test(refreshCode) &&
+      /if \(SOFT_ISSUES\.length\) \{[\s\S]{0,300}?console\.warn\(/.test(refreshCode),
+      'SOFT_ISSUES 账本=' + /const SOFT_ISSUES = \[\];/.test(refreshCode) +
+        ' / 5xx分支接上=' + /else if \(isProbe\) \{[\s\S]{0,240}?SOFT_ISSUES\.push\(/.test(refreshCode) +
+        ' / 硬失败仍在=' + /if \(NET_ISSUES\.length\) \{[\s\S]{0,900}?process\.exitCode = 7;/.test(refreshCode) +
+        ' / 可见性=' + /report\.netSoft = \{ count: SOFT_ISSUES\.length/.test(refreshCode));
     // ★ 2026-10-20（cron 口径）：定时点必须落在**北京时间 00:00 / 12:00**。
     //   GitHub cron 按 UTC 解释 → 必须写 `0 16`（北京 00:00）与 `0 4`（北京 12:00）。
     //   曾错写成 `0 8` / `0 20`（实际落在北京 16:00 / 次日 04:00），与用户"每天两次、
@@ -4586,6 +4597,56 @@ assert('A9（V1.9.7 §6）：圈的来源 = 工作轨道层（orbLayerDefs），
         crons.length === 2 && bjHours.length === 2 && bjHours[0] === 0 && bjHours[1] === 12,
         '原始 cron=[' + crons.join(' | ') + '] → 折算北京时刻=[' + bjHours.join(', ') + ']');
     }
+    // ★★ 2026-10-20（故障 D 守卫）：**e2e 不得抹掉它测的那个脚本的退出码。**
+    //   事故：`e2e_*_offline.mjs` 用**同进程 import** 跑真 refresh，refresh 里那些
+    //   `process.exitCode = 5/6/7` 写的是同一个进程；而两个 e2e 末尾原来都是
+    //   `process.exit(fails.length ? 1 : 0)` —— `process.exit()` 的实参**直接覆盖** exitCode
+    //   （实测：先设 7 再 exit(0) → 退出码 0）。于是 refresh 的三道闸门**在 CI 里等于不存在**：
+    //   S4 备源 80 次 404 明明触发了 exit 7、日志都打了"已以非零码（7）结束"，run 仍是 success。
+    //   这条守卫要求：① 接住 import 后的 exitCode；② 末尾按"更严重者"交出，不得硬写 0。
+    {
+      const bad = [];
+      for (const f of ['e2e_include_offline.mjs', 'e2e_omm_offline.mjs']) {
+        const s = codeOnly(fs.readFileSync(B + '/scripts/' + f, 'utf8'));
+        const pickup = /REFRESH_EXITCODE\s*=\s*Number\(process\.exitCode\)/.test(s);
+        const carry = /process\.exit\(fails\.length\s*\?\s*1\s*:\s*REFRESH_EXITCODE\)/.test(s);
+        const hardZero = /process\.exit\(fails\.length\s*\?\s*1\s*:\s*0\)/.test(s);
+        if (!pickup) bad.push(f + ':未接住');
+        if (!carry) bad.push(f + ':未带出');
+        if (hardZero) bad.push(f + ':仍硬写0');
+      }
+      assert('故障D回归：两个 e2e **接住并带出** refresh 的退出码（`process.exit(0)` 会覆盖它 → ' +
+        '闸门在 CI 里形同不存在）',
+        bad.length === 0, bad.length ? bad.join(' / ') : '两个 e2e 均为 接住+带出+无硬写0');
+    }
+    // ★★ 2026-10-20（故障 E 守卫）：**S4 备源（按 NORAD 的路径式 URL）也必须算"点名补拉"。**
+    //   事故：`probeQuery` 只认 `?NAME=`/`?CATNR=` 查询串写法，而备源把编号放在路径里
+    //   （`tle.ivanstanojevic.me/api/tle/65046`）→ 被判成固定端点 → 80 次 404 全进 NET_ISSUES。
+    //   这条守卫要求判据里出现**备源专用识别**，且走"404 不入账 / 其余软告警"的口径。
+    {
+      const probe4 = /tle\.ivanstanojevic\.me\/api\/tle/.test(refreshCode);
+      const isProbe = /const isProbe = probeQuery \|\| isBackupProbe;/.test(refreshCode);
+      const notFoundSkip = /if \(isProbe && r\.status === 404\) \{[\s\S]{0,220}?SOFT_404_N\+\+;/.test(refreshCode);
+      const softElse = /\} else if \(isProbe\) \{[\s\S]{0,220}?SOFT_ISSUES\.push\(/.test(refreshCode);
+      assert('故障E回归：S4 备源按 NORAD 的**路径式 URL** 也算点名补拉（404 不入账 / 5xx 软告警），' +
+        '但固定端点仍硬失败',
+        probe4 && isProbe && notFoundSkip && softElse &&
+        /if \(NET_ISSUES\.length\) \{[\s\S]{0,900}?process\.exitCode = 7;/.test(refreshCode),
+        '备源识别=' + probe4 + ' / isProbe合并=' + isProbe +
+          ' / 404不计=' + notFoundSkip + ' / 5xx软告警=' + softElse);
+    }
+    // ★★ 2026-10-20（故障 F 守卫）：**S2 的"新增"不得用 `merged.size - before - from.group`。**
+    //   事故：日志打出 `S2 NAME → 新增 -226 颗` —— 负数。根因把"集合净增"与"S1 写入+更新份数"
+    //   混在一个减法里：S1 多为更新已有星（集合大小不变），相减必为负。
+    //   负数是**假信号**，会让人误读成"数据在减少"，排障时顺着它往下查（本轮差点如此）。
+    assert('故障F回归：S2 的"新增"取**本段前后集合差**（不是拿 S1 的份数去减，那会打出负数）',
+      /const szBeforeS2 = merged\.size;/.test(refreshCode) &&
+      /const szAfterS2 = merged\.size;/.test(refreshCode) &&
+      /szAfterS2 - szBeforeS2/.test(refreshCode) &&
+      !/merged\.size - before - from\.group/.test(refreshCode),
+      '前量=' + /const szBeforeS2 = merged\.size;/.test(refreshCode) +
+        ' / 后量=' + /const szAfterS2 = merged\.size;/.test(refreshCode) +
+        ' / 旧公式已移除=' + !/merged\.size - before - from\.group/.test(refreshCode));
     // ★ V1.9.5（H29 前哨）：**探针键不得重复** —— 字符串手术留下过 `chartDraw`×3 / `climbDraw`×2，
     //   重复键在对象字面量里会被后者静默覆盖（同名探针行为悄悄变了，很难查）。这里设成硬守卫。
     assert('探针键唯一（重复键会被静默覆盖，属"改坏了也看不出来"的那类）',

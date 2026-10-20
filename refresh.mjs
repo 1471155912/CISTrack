@@ -265,11 +265,35 @@ async function get(url, tries, timeoutMs) {
       //   ⚠️ 降级不等于忽略：5xx 一律记进 SOFT_ISSUES 并写进 report.netSoft，
       //     日志里逐条打印，CI 摘要可见 —— 做到"不拦构建，但绝不静默"。
       if (!r.ok) {
+        // ★★ 2026-10-20（故障 E）：**"点名补拉"不止 gp.php 一种写法** —— 上一次判据漏掉了 S4 备源。
+        //   事故（run 39448830311 / 39447864423，两次都是绿的，但日志里躺着一条 ❌）：
+        //     `❌ CelesTrak 返回非 200（80 次）`，逐条看全是
+        //     `404 ← https://tle.ivanstanojevic.me/api/tle/65046`（S4 备源，按 NORAD 逐颗查）。
+        //   为什么它当时没让 run 变红：`probeQuery` 只认 `?NAME=` / `?CATNR=` 这种**查询串**写法，
+        //   而备源把编号放在**路径**里（`/api/tle/<norad>`）→ 判成"固定端点"→ 进 NET_ISSUES(exit 7)。
+        //   于是形成一个极危险的组合：**refresh 判了硬失败，却被 e2e 的退出码覆盖吞掉**（见故障 D），
+        //   结果"日志说 7、run 却绿"—— 闸门既没生效也没人发现。
+        //   性质认定：S4 与 S5/S3 完全同构 —— **一轮几十个逐颗请求**，上游对"这颗没有/已再入"
+        //   回 404 属正常回执，偶发 5xx 属该端点噪声；单颗失败只影响"这一颗的历元是否刷新到最新"，
+        //   真缺口由「仍缺轨道要素」统计兜住。
+        //   ⇒ 与点位探测**完全同一套两级口径**（不要因为"顺手"就给它另立规矩）：
+        //     · 404 → **查无此项，合法空结果**，不入任何账本（S2 的 NAME=GW- 404 同理，一直如此）；
+        //     · 5xx/301 等 → 软告警 SOFT_ISSUES（不拦构建）；
+        //     · 固定端点（GROUP= / satcat.csv）→ 任何非 200 一律硬失败 NET_ISSUES。
+        //   ⚠️ 覆盖面没丢：真正该硬失败的仍是**每轮只请求一两次的固定端点**。
+        //   ⚠️ S4 通路"整体失效"这件事仍然可见 —— 它有自己的统计行
+        //     `S4 备源 → 待补 N 颗，补到 0 颗`，不靠这 80 条 404 来暴露。
         const probeQuery = /[?&](NAME|CATNR)=/i.test(url.trim());
+        // 备源按 NORAD 逐颗查：主机 + 路径形态一起认（只用主机名太宽，只用路径又怕别的站撞名）
+        const isBackupProbe = /^https?:\/\/tle\.ivanstanojevic\.me\/api\/tle\/\d+\/?$/i.test(url.trim());
+        const isProbe = probeQuery || isBackupProbe;
         const is5xx = r.status >= 500 && r.status < 600;
-        if (is5xx && probeQuery) {
-          // 点名探测/补拉偶发 5xx：降级为软告警（不拦构建）
-          SOFT_ISSUES.push({ url: url, status: r.status });
+        if (isProbe && r.status === 404) {
+          // 查无此项：合法空结果，不入账（与 V1.9.5 起的既有口径一致）
+          SOFT_404_N++;
+        } else if (isProbe) {
+          // 点名探测/补拉的 5xx 等：降级为软告警（不拦构建）
+          SOFT_ISSUES.push({ url: url, status: r.status, kind: isBackupProbe ? 'S4 备源' : '点名探测' });
         } else if (!(r.status === 404 && probeQuery)) {
           NET_ISSUES.push({ url: url, status: r.status });
         }
@@ -295,6 +319,11 @@ const NET_ISSUES = [];
 //   为什么必须分成两个账本而不是"不入账"：不入账就变成静默（用户排障时看不到"上游刚才抖过"）；
 //   入 NET_ISSUES 又会让 CI 永远红。⇒ 第三个账本，逐条打印 + 写进 report.netSoft。
 const SOFT_ISSUES = [];
+// ★ 2026-10-20（故障 E）：**"查无此项"的计数** —— 点名探测/补拉的 404 是合法空回执，
+//   既不拦构建也不该当告警刷屏。但完全不统计就变成"看不见"：若某轮它突然从 80 涨到 800，
+//   说明我们在一批批查**上游根本没有的对象**（例如目录里的编号错位），那是该被看见的信号。
+//   ⇒ 只记一个数，在汇总里打一行（不进 report.netSoft，不逐条打印）。
+let SOFT_404_N = 0;
 const FORMAT_ALARM = [];
 /** 包一层 parseTLE：200 但内容不像 TLE → 记一笔格式告警（返回 0 条，不抛）
  *  判据在 `scripts/format_guard.mjs`（纯函数 → smoke 可直接 import 测，含 8 例样本自测） */
@@ -505,11 +534,25 @@ for (const key of ['gw', 'qf']) {
   console.log(key, 'S1 GROUP  →', from.group, '份');
 
   // S2 名称模糊
+  const szBeforeS2 = merged.size;                          // 只量 S2 这一段的前后差，量的是"净增"
   for (const nm of NAMES[key]) {
     r = await get(`https://celestrak.org/NORAD/elements/gp.php?NAME=${encodeURIComponent(nm)}&FORMAT=${GP_FORMAT}`);
     if (r.ok) from.name += parseGPGuarded(r.text, merged, 'S2 NAME=' + nm); else console.log('  S2 NAME=' + nm, r.status);
   }
-  console.log(key, 'S2 NAME   → 新增', merged.size - before - from.group, '颗（累计', merged.size, '）');
+  // ★★ 2026-10-20（故障 F）：这行**曾经打印过负数**（实测 `S2 NAME → 新增 -226 颗`）。
+  //   旧公式 = `merged.size - before - from.group`，把两件不同性质的事混在一个减法里：
+  //     · `merged.size - before` 是**净增颗数**（去重后的集合大小变化）；
+  //     · `from.group` 是 S1 **写入+更新**的条数（`parseOMM/parseTLE` 的返回值）。
+  //   S1 的绝大多数动作是"更新已有星的历元"，集合大小**一点没变**，
+  //   但返回值照样计入 → 相减必为负。CI 上真实出现：`S1 226 份 / S2 新增 -226 颗`（S2 其实 404、新增 0）。
+  //   为什么必须修：负数会让人误读成"数据在减少"，而这一行恰恰是用来观察采集效果的；
+  //   口径一错，排障时就会顺着假信号往下查（我本轮就差点这么干）。
+  //   修法：S2 只报**它自己的**净增 —— 用 S2 段前后 `merged.size` 的差（`parseGPGuarded`
+  //   的返回值是"写入+更新"条数，仍不等于净增，所以两处都不能直接当"新增"用）。
+  //   同时保留 `from.name`（写入+更新条数）在报告里，两个口径都可见、不再互相污染。
+  const szAfterS2 = merged.size;
+  console.log(key, 'S2 NAME   → 新增', szAfterS2 - szBeforeS2, '颗（累计', merged.size,
+    '；本轮写入/更新', from.name, '份）');
 
   // S3 目录里查得到编号、但上面没拿到的（跳过已再入的）
   //   ⚠️ 编目号 **超过 5 位**的对象**不在这里处理** —— 经典 TLE 的编目号字段只有 5 列，
@@ -886,20 +929,26 @@ if (FORMAT_ALARM.length) {
 //   ⚠️ 这一档**绝不静默**：逐条打印 + 写进 report.netSoft + 在日志里给出明确解读，
 //     只是不再一票否决。若上游真的整体挂了，GROUP=/satcat 会在下面的 NET_ISSUES 里硬失败。
 if (SOFT_ISSUES.length) {
+  const nS4 = SOFT_ISSUES.filter(x => x.kind === 'S4 备源').length;
   console.warn('⚠️ CelesTrak 对**点名探测/补拉**返回非 200（' + SOFT_ISSUES.length + ' 次）—— 已降级为告警，不拦构建：');
   SOFT_ISSUES.slice(0, 8).forEach(it => console.warn('   · ' + it.status + ' ← ' + it.url));
   if (SOFT_ISSUES.length > 8) console.warn('   …（其余 ' + (SOFT_ISSUES.length - 8) + ' 条同类，略）');
-  console.warn('   解读：这些是逐颗补拉（S5）或名字探测（S2）的批量请求，上游偶发 5xx 属该端点噪声。');
+  console.warn('   解读：这些是逐颗补拉（S3/S5）或名字探测（S2）的批量请求，上游偶发 5xx 属该端点噪声。' +
+    (nS4 ? '（其中 S4 备源 ' + nS4 + ' 条）' : ''));
   console.warn('   影响：仅"该颗星的历元可能停在上一轮"，不影响其余卫星；真缺口由「仍缺轨道要素」统计兜住。');
   console.warn('   若这条告警**每轮都出现且数量很大**（例如 >10 条），说明上游在限流/降级，需人工介入。');
+} else if (SOFT_404_N) {
+  // 全是 404（查无此项）时打一行摘要就够 —— 既不拦构建，也不刷屏。
+  console.log('通告：点名探测/补拉有 ' + SOFT_404_N + ' 次 404（查无此项，属正常空回执；含 S4 备源逐颗查）—— 不入告警账本。');
 }
-report.netSoft = { count: SOFT_ISSUES.length, items: SOFT_ISSUES.slice(0, 40) };
+report.netSoft = { count: SOFT_ISSUES.length, items: SOFT_ISSUES.slice(0, 40), notFound: SOFT_404_N };
 if (NET_ISSUES.length) {
   console.error('❌ CelesTrak 返回**非 200**（' + NET_ISSUES.length + ' 次）—— 按使用政策必须立即停下交人排查：');
   NET_ISSUES.slice(0, 8).forEach(it => console.error('   · ' + it.status + ' ← ' + it.url));
   console.error('   解读：301/404 = 用了旧 URL（上游改版）；50x = 上游过载/被防火墙拦（反复无视会被拉黑）。');
   console.error('   注意：本档只收**固定端点**（GROUP= / satcat.csv）与 404/301 类真异常；');
-  console.error('        点名探测（CATNR=/NAME=）的 5xx 已降级为上面的告警，不计入此处（2026-10-20 起）。');
+  console.error('        点名探测（CATNR=/NAME=、S4 备源 /api/tle/<norad>）的 5xx 已降级为上面的告警，');
+  console.error('        其 404 视为"查无此项"不入账（2026-10-20 起）。');
   console.error('   已以非零码（7）结束。排查：`curl -sSI "<上面的 URL>"`。');
   if (process.exitCode !== 6) process.exitCode = 7;
 }

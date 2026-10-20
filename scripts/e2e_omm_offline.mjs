@@ -98,6 +98,9 @@ function synthOmm(norad) {
 }
 const realFetch = globalThis.fetch;
 let log = '';
+// ★ 2026-10-20（故障 D）：refresh.mjs 在同进程里设下的退出码（0 = 它没判失败）。
+//   必须在 import 之后立刻接住，末尾与自身断言结果取更严重者 —— 详见 import 处的长注释。
+let REFRESH_EXITCODE = 0;
 {
   const ol = console.log;
   console.log = (...a) => { log += a.join(' ') + '\n'; ol(...a); };
@@ -142,6 +145,9 @@ let log = '';
     delete process.env.CISTRACK_SKIP_STALE_CHECK;
     globalThis.fetch = realFetch;
     console.log = ol;
+    // ★★ 2026-10-20（故障 D）：接住 refresh 在同进程里设下的退出码（详见末尾注释）。
+    REFRESH_EXITCODE = Number(process.exitCode) || 0;
+    process.exitCode = REFRESH_EXITCODE;
   }
 }
 
@@ -231,5 +237,13 @@ ok('⑤ 历史库里出现 ≥100000 的**真号**（确认没有把占位号入
   withSix.length + ' 个分片含真号，例如 ' + withSix.slice(0, 3).join(','));
 
 console.log('\n端到端结论：' + (fails.length ? '失败 ' + fails.length + ' 项' : '全部通过'));
+// ★★ 2026-10-20（故障 D）：**不要用 `process.exit(0)` 抹掉 refresh 的失败。**
+//   旧写法 `process.exit(fails.length ? 1 : 0)` 的实参会覆盖 exitCode —— refresh 在同进程里
+//   设的 5/6/7 全被吞掉（实测：先 `process.exitCode=7` 再 `process.exit(0)` → 退出码 0）。
+//   现在：本脚本自身断言失败 → 1；否则把 refresh 留下的码原样带出去（让 CI 看得见真失败）。
+if (REFRESH_EXITCODE) {
+  console.error('⚠️ 注意：被测试的 refresh.mjs 自身判了失败（退出码 ' + REFRESH_EXITCODE +
+    '）—— 本测试的断言全过，但链路本身不健康，故把该码原样交出。');
+}
 try { fs.rmSync(TMP, { recursive: true, force: true }); } catch (e) {}
-process.exit(fails.length ? 1 : 0);
+process.exit(fails.length ? 1 : REFRESH_EXITCODE);

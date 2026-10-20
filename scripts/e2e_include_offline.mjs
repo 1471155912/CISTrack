@@ -88,6 +88,9 @@ function synthOmm(norad) {
 const realFetch = globalThis.fetch;
 let log = '';
 let catHits = 0;   // 桩被"点名"查询的白名单 NORAD 集合
+// ★ 2026-10-20（故障 D）：refresh.mjs 在同进程里设下的退出码（0 = 它没判失败）。
+//   必须在 import 之后立刻接住，末尾与自身断言结果取更严重者 —— 详见 import 处的长注释。
+let REFRESH_EXITCODE = 0;
 const asked = new Set();
 {
   const ol = console.log;
@@ -118,7 +121,20 @@ const asked = new Set();
   } catch (e) {
     console.error('refresh 执行失败：' + (e && e.stack || e));
     process.exit(1);
-  } finally { delete process.env.CISTRACK_SKIP_STALE_CHECK; globalThis.fetch = realFetch; console.log = ol; }
+  } finally {
+    delete process.env.CISTRACK_SKIP_STALE_CHECK; globalThis.fetch = realFetch; console.log = ol;
+    // ★★ 2026-10-20（故障 D）：**把 refresh 设的退出码接住，别在末尾抹掉。**
+    //   同一进程 import ⇒ refresh.mjs 里那些 `process.exitCode = 5/6/7`（数据陈旧 / 格式变更 /
+    //   上游非 200）写的是**本进程**的退出码。而本脚本末尾原来无条件 `process.exit(fails ? 1 : 0)`，
+    //   `process.exit()` 的实参**直接覆盖** exitCode（实测：先设 7 再 exit(0) → 得到 0）。
+    //   ⇒ 于是 refresh 判定的任何硬失败都会被静默吞掉：本测试"全绿通过"，CI 也绿。
+    //   后果远比"偶尔漏报"严重：它让 refresh 那三道闸门**在 CI 里形同不存在**
+    //   （本轮就是这样：S4 备源 80 次 404 触发了 exit 7，日志都打了"已以非零码（7）结束"，
+    //     run 却仍然 success —— 我一开始还以为是别处打印的）。
+    //   修法：把 refresh 留下的码先存下来，末尾与自身断言结果**取更严重者**一起交出去。
+    REFRESH_EXITCODE = Number(process.exitCode) || 0;
+    process.exitCode = REFRESH_EXITCODE ? REFRESH_EXITCODE : process.exitCode;
+  }
 }
 
 // ---------- 断言 ----------
@@ -217,5 +233,15 @@ for (const who of ['gw', 'qf']) {
 }
 
 console.log('\n端到端结论：' + (fails.length ? '失败 ' + fails.length + ' 项' : '全部通过'));
+// ★★ 2026-10-20（故障 D）：**不要用 `process.exit(0)` 抹掉 refresh 的失败。**
+//   旧写法 `process.exit(fails.length ? 1 : 0)` 的实参会覆盖 exitCode —— refresh 在同进程里
+//   设的 5/6/7 全被吞掉（实测：先 `process.exitCode=7` 再 `process.exit(0)` → 退出码 0）。
+//   现在：本脚本自身断言失败 → 1；否则把 refresh 留下的码原样带出去（让 CI 看得见真失败）。
+//   为什么要带出去而不是忽略：本脚本跑的是**真 refresh 代码路径**，它判失败说明链路真有问题，
+//   测试说"断言都对"并不代表"链路健康" —— 两者必须同时成立才算通过。
+if (REFRESH_EXITCODE) {
+  console.error('⚠️ 注意：被测试的 refresh.mjs 自身判了失败（退出码 ' + REFRESH_EXITCODE +
+    '）—— 本测试的断言全过，但链路本身不健康，故把该码原样交出。');
+}
 try { fs.rmSync(TMP, { recursive: true, force: true }); } catch (e) {}
-process.exit(fails.length ? 1 : 0);
+process.exit(fails.length ? 1 : REFRESH_EXITCODE);
