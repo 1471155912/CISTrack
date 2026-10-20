@@ -3597,6 +3597,20 @@ assert('V1.9.2：右侧留白按"要标几条"动态加宽（否则名称会被�
     assert('A7/Q46：GEO 的工作高度写 `GEO` 而非数字（周期≈1436 min，等价于半长轴 ≥42000 km）',
       geoS.length === 3 && geoS.every(r => r.orb === 0),
       geoS.length + ' 颗：' + geoS.map(r => r.id).join('/'));
+    // ★★ 2026-10-20 回归守卫：GEO 的"是否在推"**必须**用独立阈值，不能套 LEO 的 RATE_TH。
+    //   事故：V1.9.7（0d80190）把 RATE_TH 0.8→0.5 后，GEO 三星的位置保持机动
+    //   （实测 2 天 LSQ 速率最高 1.90 km/day）被误判成"变轨中"→ 上面那条 A7/Q46 失败 →
+    //   定时 CI 自 10-18 12:27 起连续 4 次红、每次给作者发失败邮件。
+    //   这里断言**源码形态**：moving 的主路径里 GEO 分支必须引用 RATE_TH_GEO。
+    //   ⚠️ 只断言"存在 RATE_TH_GEO 常量"是不够的 —— 上一版 EPS_GEO 就是定义了却只用于
+    //     降级分支（rate===null），等于没生效。所以要断言它出现在 ternary 的那个位置上。
+    assert('A7/Q46 回归：GEO 的速率判定用**独立阈值** `RATE_TH_GEO`（不能套 LEO 的 0.5）',
+      /const RATE_TH_GEO = 3\.0;/.test(mkCode) &&
+      /Math\.abs\(rate\) > \(geo \? RATE_TH_GEO : RATE_TH\)/.test(mkCode) &&
+      // 反向断言：不许再写成"对所有星一律 RATE_TH"
+      !/Math\.abs\(rate\) > RATE_TH\s*\n/.test(mkCode),
+      'RATE_TH_GEO=' + ((/const RATE_TH_GEO = ([0-9.]+);/.exec(mkCode) || [])[1] || '缺失') +
+        ' / 主路径已接上=' + /Math\.abs\(rate\) > \(geo \? RATE_TH_GEO : RATE_TH\)/.test(mkCode));
     assert('A7：工作轨道高度是 **10 km 档位**（Q26a）',
       liveS.filter(r => r.wk !== 'GEO').every(r => r.wk % 10 === 0),
       // ★ V1.9.3：输出改为「列出**违规**的 wk」，而不是"前 8 个档位值" ——

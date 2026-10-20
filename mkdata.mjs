@@ -1119,6 +1119,21 @@ const ORBIT_ST = (() => {
   const WIN = 30;        // 漂移窗口（天）
   const EPS_LEO = 1.0;   // LEO 净漂移阈值（km）：轨道维持只在 ±1 km 内浮动
   const EPS_GEO = 3.0;   // GEO 位置保持的浮动更大，阈值放宽
+  // ★ 2026-10-20 修复（CI 连续 4 次失败的真因）：**GEO 必须用独立的速率阈值**。
+  //   事故链：V1.9.7（0d80190，10-17）把 RATE_TH 从 0.8 降到 0.5 后，GEO 三星（59069/60327/61503）
+  //   开始被误判成「变轨中」→ smoke A7/Q46（要求 GEO 的 orb===0）失败 → 定时任务自 10-18 12:27 起
+  //   连续 4 次红、每次给作者发失败邮件。
+  //   实测（history/gw-24040|24135|24181.json，逐日滚动算 2 天 LSQ）：
+  //     · 59069 |rate| 最大 1.30 km/day，60327 最大 1.40，61503 最大 **1.90**
+  //     · 阈值 0.5 时它们分别有 8% / 24% / 20% 的日期会被判"在推"
+  //   为什么这不是数据噪声：GEO 卫星做**位置保持（station-keeping / 东西向位保机动）**时，
+  //   半长轴本就会在几十公里量级内来回摆动，2 天窗口足以捕捉到 ±2 km/day 的表观速率。
+  //   它和 LEO 的「持续点火爬升」在物理上是两件事，不能共用一个阈值。
+  //   ⇒ GEO 取 3.0：比实测最大 1.90 留 1.6 倍余量，仍能抓住真正的 GEO 转移（真抬轨≥数百 km、
+  //     速率动辄十几 km/day）。
+  //   ⚠️ EPS_GEO 此前**只在 rate===null 的降级分支**里生效（几乎走不到），主路径对所有星一律用
+  //     RATE_TH —— 这就是「常量定义了却没用上」的典型，注释写着"阈值放宽"但实际没放宽。
+  const RATE_TH_GEO = 3.0; // km/day：GEO 位置保持的速率阈值（见上）
   const NEAR = 30;       // 「已到该批工作高度」的容差（km）
   const CLUSTER_GAP = 30;// 工作高度聚类：相邻高度差 <= 它算同一簇
   const MIN_PTS = 4;     // 点数少于它 → 数据不足，改按"是否近期首现"判
@@ -1187,7 +1202,9 @@ const ORBIT_ST = (() => {
           key: key, norad: n, pts: pts, sma: sma, geo: geo, drift: d, hmax: hmax - RE, rate: rate,
           thin: thin,                      // ★ V1.9.7：层/判据要用（点数不足的星不参与建层）
           moving: thin ? (now - pts[0][0] <= WIN * DAY)
-                       : (rate !== null ? Math.abs(rate) > RATE_TH
+                       // ★ 2026-10-20：GEO 用自己的阈值（RATE_TH_GEO=3.0），
+                       //   不能套 LEO 的 0.5 —— 否则位置保持机动会被当成"在推"，判成变轨中。
+                       : (rate !== null ? Math.abs(rate) > (geo ? RATE_TH_GEO : RATE_TH)
                                         : (d === null || Math.abs(d) > (geo ? EPS_GEO : EPS_LEO)))
         });
       }
