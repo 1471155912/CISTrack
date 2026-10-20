@@ -1211,6 +1211,38 @@ try {
   assert('需求11：wiki.json 的 en 字段零中文（"理论值" 已在源头与数据里都修掉）', _bad.length === 0, _bad.join(','));
 } catch (e) {}
 
+// ★ O30-12（V1.9.9 收尾）：词条卡片抓取状态上页面 —— 四段链路各有守卫
+//   ① fetch_wiki_cards.mjs 写 cardsAsOf/cardsError 并补丁 wiki.json（不写空、失败也补丁）
+assert('O30-12①：fetch_wiki_cards.mjs 写 cardsAsOf/cardsError，并补丁 wiki.json 的 cards 键',
+  (function () {
+    try {
+      const s = lf(fs.readFileSync(B + '/scripts/fetch_wiki_cards.mjs', 'utf8'));
+      return /cardsAsOf: checkedAt/.test(s) && /cardsError/.test(s)
+        && /function patchWikiCards\(/.test(s) && /wj\.cards = \{/.test(s)
+        && /patchWikiCards\(checkedAt, cardsError, Object\.keys\(oldCards\)\.length\)/.test(s);
+    } catch (e) { return false; }
+  })(), 'scripts/fetch_wiki_cards.mjs');
+//   ② mkdata 把 cards 带进 build/wiki.json（与页面运行时读的那份同源）
+assert('O30-12②：mkdata 把卡片状态带进 wiki.json（CARDS_STATUS，含从卡片文件现推的退路）',
+  (function () {
+    try {
+      const s = lf(fs.readFileSync(B + '/mkdata.mjs', 'utf8'));
+      return /const CARDS_STATUS = /.test(s) && /cards: CARDS_STATUS \|\| undefined/.test(s)
+        && /WIKI_FETCHED && WIKI_FETCHED\.cards/.test(s);
+    } catch (e) { return false; }
+  })(), 'mkdata.mjs');
+//   ③ applyWikiJson 把 j.cards 带进 RAW[k].wiki（运行时覆盖不丢状态）
+assert('O30-12③：applyWikiJson 携带 cards 键（wiki.json → RAW[k].wiki，旧数据没有时回落 null）',
+  /cards: j\.cards \|\| old\.cards \|\| null/.test(appSrc), 'app.js applyWikiJson');
+//   ④ build/wiki.json 的 cards 块形状（有该键时才验：asOf/error 为串、n 为有限数）
+try {
+  var _wj = JSON.parse(fs.readFileSync(B + '/build/wiki.json', 'utf8'));
+  var _c = _wj.cards;
+  assert('O30-12④：build/wiki.json 的 cards 块形状正确（asOf/error 串 + n 有限数；无该键则跳过）',
+    !_c || (typeof _c.asOf === 'string' && typeof _c.error === 'string' && isFinite(_c.n)),
+    _c ? JSON.stringify(_c) : '（无 cards 键 —— 本地任务跑过一轮后就会出现）');
+} catch (e) {}
+
 // 需求1（第三轮末追加守卫）：控件必须能按星座回写，否则两个星座的设置看起来是同步的
 assert('设置分离：状态→控件 的回写函数存在且切星座后被调用',
   /function syncControlsFromS/.test(appSrc) &&
@@ -1319,10 +1351,17 @@ assert('V1.7.2r7（新需求A）：导出图底栏不再拼「数据更新」，
   /var rest = \[VERSION, cs\.both \? t\('shot_both'\) : t\('shot_' \+ cs\.key\), title, timePart\]\.join\(' \| '\);/.test(appSrc) &&
   /\[' \+ t\('d_row_epoch_sat'\) \+ ' ' \+ fmtUTC\(s\.epochMs\) \+ '\]'/.test(appSrc));
 // 需求2：卫星百科更新行
-assert('需求2：第0章概况「首发发射」下新增「卫星百科更新 / Satwiki info update」，格式与上一行一致',
+// ★ O30-12（V1.9.9 收尾）：该行现在附显词条卡片抓取状态（d_cards_ok / d_cards_err），
+//   旧守卫里"wu.textContent = (wiki && wiki.asOf) ? …"的精确匹配已随改写失效，改为形态守卫。
+assert('需求2+O30-12：第0章概况「卫星百科更新」行存在，且附显卡片抓取状态（checkedAt + cards 后缀）',
   /kv_wiki: \['卫星百科更新', 'Satwiki info update'\]/.test(appSrc) &&
   /data-i18n="kv_wiki">卫星百科更新<\/span><span class="v" id="mWikiUpd">/.test(tpl) &&
-  /wu\.textContent = \(wiki && wiki\.asOf\) \? wiki\.asOf \+ t\('d_bjtime'\) : \u2018\u2014\u2019/.test(appSrc) === false ? true : /mWikiUpd/.test(appSrc));
+  /d_cards_ok: \['词条卡片 \{n\} 张/.test(appSrc) &&
+  /d_cards_err: \['词条卡片更新失败/.test(appSrc) &&
+  /cardTxt = t\('d_cards_ok'\)/.test(appSrc) &&
+  /cardTxt = t\('d_cards_err'\)/.test(appSrc) &&
+  /wu\.textContent = \(wTxt \? wTxt \+ t\('d_bjtime'\)/.test(appSrc),
+  'mWikiUpd=' + (/mWikiUpd/.test(appSrc) ? 'ok' : 'missing'));
 // 需求3：倾角分布限位
 assert('需求3+V1.7.2（需求8）+V1.9.5（H39）：倾角边界 0\u2013180\u00b0 / 等效高度 0\u20132200 + clampChartView 全路径',
   /var CHART_X_MIN = 0, CHART_X_MAX = 180;/.test(appSrc) &&
@@ -3908,6 +3947,21 @@ assert('V1.9.2：右侧留白按"要标几条"动态加宽（否则名称会被�
       new Date(cutGw).toISOString().slice(0, 10) === '2024-02-29' &&
       new Date(cutQf).toISOString().slice(0, 10) === '2024-08-06',
       new Date(cutGw).toISOString().slice(0, 10) + ' / ' + new Date(cutQf).toISOString().slice(0, 10));
+    // ★ O30-5（V1.9.9 收尾）：NET_SOLID_FALLBACK 是**写死的兜底常量**，只在台账缺批次时生效。
+    //   悄悄失真风险：将来台账日期被修正（错别字/时区/发射结果变更），兜底常量不会跟着变 ——
+    //   台账缺那一批的瞬间，页面会用一个**过期的分界日**画虚/实线，且没有任何告警。
+    //   断言：台账里必须有 24040 / 24140 两批，且日期与 NET_SOLID_FALLBACK **逐字一致**。
+    {
+      const fbM = /var NET_SOLID_FALLBACK\s*=\s*\{\s*gw:\s*'([^']+)',\s*qf:\s*'([^']+)'\s*\};/.exec(appSrc);
+      let sd5 = null;
+      try { sd5 = JSON.parse(rawSrc); } catch (e) {}
+      const g5 = sd5 && sd5.gw && sd5.gw.launches && sd5.gw.launches['24040'];
+      const q5 = sd5 && sd5.qf && sd5.qf.launches && sd5.qf.launches['24140'];
+      assert('O30-5：台账含 24040 / 24140 两批，且日期与 NET_SOLID_FALLBACK 逐字一致（兜底常量不会悄悄失真）',
+        !!fbM && !!g5 && !!q5 && g5[1] === fbM[1] && q5[1] === fbM[2],
+        'fallback=' + (fbM ? fbM[1] + ' / ' + fbM[2] : 'app.js 里没找到') +
+        '，台账=' + (g5 ? g5[1] : '缺 24040') + ' / ' + (q5 ? q5[1] : '缺 24140'));
+    }
     // 分界周：星网应在 2024-02-29 所在周（约第 224 周）、千帆在其后（约第 247 周）
     const sGw = k3.netSplit('gw'), sQf = k3.netSplit('qf');
     assert('A8：分界周落在正确的相对位置（星网早于千帆；两者都远小于总周数的一半之后）',

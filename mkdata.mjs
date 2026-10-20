@@ -913,6 +913,33 @@ const WIKI_STATIC = {
   }
 };
 const WIKI_CHECKED_AT = (WIKI_FETCHED && WIKI_FETCHED.checkedAt) || '';
+/** ★ O30-12（V1.9.9 收尾）：**卡片抓取状态**随 wiki.json 发布（页面「卫星百科更新」行附显）。
+ *  来源优先级：① 仓库 wiki.json 的 `cards` 键（本地任务每轮抓取后由 fetch_wiki_cards.mjs 补丁，
+ *    与页面运行时读的那份**同源**，构建产物与它一致最重要）；② 没有该键时从
+ *    data/wiki_cards.json 现推（CI 全新 checkout、或 wiki.json 还没有该键）。
+ *  形状：{ asOf:'YYYY-MM-DD HH:MM'（北京时间）, error:''|'原因…', n:卡片张数 }；两张都没有 → null。
+ *  ⚠️ 必须放在 WIKI_FETCHED 定义**之后** —— 它是个 `let`，提前访问会 TDZ 抛 ReferenceError。 */
+const CARDS_STATUS = (() => {
+  const fromWiki = WIKI_FETCHED && WIKI_FETCHED.cards;
+  if (fromWiki && (fromWiki.asOf || fromWiki.n)) return fromWiki;
+  try {
+    const j = JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'wiki_cards.json'), 'utf8'));
+    // 旧版卡片文件没有 cardsError 平铺字段 —— 用 _counts.failed 做失败证据，
+    // 没有记录就明说"状态未知"，**不把未知谎报成正常**。
+    const failedN = (j._counts && isFinite(j._counts.failed)) ? j._counts.failed : null;
+    return {
+      asOf: j.cardsAsOf || j._checkedAt || '',
+      error: j.cardsError || (failedN ? '上次抓取有 ' + failedN + ' 个词条未过挑战（旧版记录，无详细状态）' : ''),
+      n: Object.keys(j.cards || {}).length
+    };
+  } catch (e) { return null; }
+})();
+if (CARDS_STATUS) {
+  console.log('卡片状态：n=' + CARDS_STATUS.n + '，asOf=' + (CARDS_STATUS.asOf || '未记') +
+    (CARDS_STATUS.error ? '，**有失败**：' + CARDS_STATUS.error : ''));
+} else {
+  console.log('卡片状态：无（wiki.json 与 data/wiki_cards.json 都没有）—— 页面只显示核对时间');
+}
 if (WIKI_FETCHED) console.log('词条统计：用抓取到的最新值（asOf ' + WIKI_FETCHED.asOf + '，核对 ' + (WIKI_CHECKED_AT || '未记') + '）');
 else console.warn('词条统计：没读到工作区 wiki.json，退回内置静态值（asOf ' + WIKI_STATIC.gw.asOf + '）');
 // 页面/产物统一读这份（抓取值优先，逐字段覆盖静态兜底）
@@ -1581,7 +1608,10 @@ const WIKI_JSON = {
   //   真实变更反而被噪音淹没。以仓库为准 → mkdata 跟随。
   _readme: '改这里就能更新网页顶部的词条计数（launched=已发射, inOrbit=在轨, launches=发射成功/总）。改完保存，访客刷新即可看到。',
   asOf: WIKI_STAT.gw.asOf,
-  checkedAt: WIKI_CHECKED_AT
+  checkedAt: WIKI_CHECKED_AT,
+  // ★ O30-12（V1.9.9 收尾）：卡片抓取状态（fetch_wiki_cards.mjs 补丁进来的同源键）。
+  //   页面「卫星百科更新」行附显；老部署没有该键时页面只显示核对时间，行为不变。
+  cards: CARDS_STATUS || undefined
 };
 // ★ V1.9.1：末尾补一个换行 —— `JSON.stringify` 不产出行尾换行，而仓库里的 wiki.json 是
 //   带换行的（编辑器保存的正常产物）→ 不加就会永远留下"最后一行少了 \n"的 diff。

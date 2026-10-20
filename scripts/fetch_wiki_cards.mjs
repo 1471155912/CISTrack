@@ -18,6 +18,10 @@
  *   revid 未变 → 复用旧卡片（**不打开页面**）；变了/新词条 → 才进抓取队列。
  *   无论有没有变化，只要本轮**全部成功**，就把 `_checkedAt` 前进（页面的"卫星百科更新时间"）。
  *
+ * ★ O30-12（V1.9.9 收尾）：抓取状态同时写进**仓库根目录的 wiki.json** 的 `cards` 键
+ *   （{asOf, error, n}）—— 页面「卫星百科更新」那一行附显，失败不再只藏在日志里。
+ *   data/wiki_cards.json 里同步写 `cardsAsOf` / `cardsError` 两个平铺字段（mkdata 现推用）。
+ *
  * 链路：Cloudflare 会拦普通 HTTP（curl 实测 403），所以统一用 Edge 无头 + 真实 UA 过挑战，
  *   与 fetch_wiki_tables.mjs / fetch_wiki.mjs 同一套做法（CI 跑不了，只在本机定时任务里跑）。
  *
@@ -38,11 +42,28 @@ const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const require = createRequire(import.meta.url);
 const { WebSocket } = require('ws');
 const OUT = path.join(ROOT, 'data', 'wiki_cards.json');
+const WIKI_JSON = path.join(ROOT, 'wiki.json');
 const TABLES = path.join(ROOT, 'data', 'wiki_tables.json');
 const EDGE = 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe';
 const PORT = 9491;
 const HOST = 'https://sat.huijiwiki.com';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+/** ★ O30-12（V1.9.9 收尾）：把卡片抓取状态补丁进仓库根目录的 wiki.json（只动 `cards` 一个键）。
+ *  页面运行时读 wiki.json（同目录 ./wiki.json → 官方 Pages 兜底 → 内置值，三级），
+ *  所以状态写在这里，本地任务提交后访客刷新即可见 —— 不必等下一次 HTML 构建。
+ *  形状：cards = { asOf: 'YYYY-MM-DD HH:MM'（北京时间）, error: '' | '原因…', n: 卡片张数 }
+ *  任何失败都只警告不抛出：卡片是增强项，不能因为它让整个任务失败（2026-10-19 的教训）。 */
+function patchWikiCards(asOf, error, n) {
+  try {
+    if (!fs.existsSync(WIKI_JSON)) { console.log('（wiki.json 不存在，跳过卡片状态补丁）'); return; }
+    const wj = JSON.parse(fs.readFileSync(WIKI_JSON, 'utf8'));
+    wj.cards = { asOf: asOf, error: error || '', n: n };
+    fs.writeFileSync(WIKI_JSON, JSON.stringify(wj, null, 1) + '\n', 'utf8');
+    console.log('卡片状态已补进 wiki.json（n=' + n + (error ? '，有失败：' + error : '') + '）');
+  } catch (e) {
+    console.log('（wiki.json 补卡片状态跳过：' + (e && e.message || e) + '）');
+  }
+}
 /** 卡片内容的指纹（用于"逐页内容比对"这条退路；revid 拿不到时靠它判断有没有变） */
 const HASH = (o) => createHash('sha1').update(JSON.stringify(o)).digest('hex').slice(0, 16);
 const FORCE = process.argv.includes('--force');
@@ -311,13 +332,20 @@ const EXTRACT = `(function () {
     // ④ 落盘
     const bj = new Date(Date.now() + 8 * 3600 * 1000);
     const checkedAt = bj.toISOString().slice(0, 16).replace('T', ' ');   // 北京时间
+    // ★ O30-12（V1.9.9 收尾）：卡片抓取状态**机器可读** —— 页面「卫星百科更新」行直接附显，
+    //   不再只有日志里能看到（WAF 挑战页节拍不稳，失败是常态而非例外）。
+    const cardsError = failed
+      ? ('本轮 ' + failed + ' 个词条未过挑战/解析失败，相关卡片沿用上次数据')
+      : (!Object.keys(cards).length ? '本轮一张卡片都没抓到，全部沿用上次数据' : '');
     if (!Object.keys(cards).length) {
       console.log('!! 本次一张卡片都没拿到 —— **不写文件**（保留旧数据）');
+      patchWikiCards(checkedAt, cardsError, Object.keys(oldCards).length);
       process.exitCode = 1;
       return;
     }
     const out = {
       _src: HOST, _checkedAt: checkedAt, _force: FORCE,
+      cardsAsOf: checkedAt, cardsError,
       _counts: { titles: titles.length, fetched: todo.length, failed },
       cards
     };
@@ -325,6 +353,7 @@ const EXTRACT = `(function () {
     const n = Object.keys(cards).length;
     console.log('已写 ' + OUT + '（' + n + ' 张卡片，本次抓 ' + todo.length + '，失败 ' + failed + '）');
     console.log('核对时间：' + checkedAt + '（北京时间）');
+    patchWikiCards(checkedAt, cardsError, n);
     process.exitCode = failed ? 1 : 0;
   } finally {
     try { ws && ws.close(); } catch (e) {}

@@ -109,6 +109,11 @@ var I18N = {
   kv_first: ['首发​发射', 'First launch'],
   // V1.7.0 第四轮（需求2）：页面除 TLE 外还用了卫星百科口径的数据 —— 在「首批发射」下如实标注数据截至日
   kv_wiki: ['卫星百科更新', 'Satwiki info update'],
+  // ★ O30-12（V1.9.9 收尾）：词条**卡片**抓取状态 —— wiki.json 的 `cards` 键（{asOf, error, n}）。
+  //   为什么单独两键：卡片抓取受卫星百科 WAF 节拍影响，失败时以前只有日志里看得见；
+  //   现在「卫星百科更新」行直接附显，访客也能看出卡片数据新不新。
+  d_cards_ok: ['词条卡片 {n} 张（截至 {d}）', '{n} article cards (as of {d})'],
+  d_cards_err: ['词条卡片更新失败（沿用 {d} 的数据）', 'article-card update failed (keeping data from {d})'],
   // V1.3.6：章节改名与重排 —— 01 地图 / 02 轨道 / 03 轨道分布 / 04 卫星表格 / 05 发射历史
   // V1.4.0：英文标题一律 Title Case（每个实词首字母大写）——这组键顶栏标签与页面章节标题共用
   h_map: ['地图', 'Map'], h_orbits: ['轨道', 'Orbits'], h_dist: ['倾角分布', 'Inclination Distribution'],
@@ -5521,7 +5526,13 @@ function renderHeader() {
   if (wu) {
     var wTxt = (wiki && wiki.checkedAt) ? wiki.checkedAt
              : (wiki && wiki.asOf) ? wiki.asOf : '';
-    wu.textContent = wTxt ? wTxt + t('d_bjtime') : '—';
+    // ★ O30-12（V1.9.9 收尾）：附显词条卡片抓取状态 —— 以前卡片失败只有日志里看得见。
+    //   正常 → 「词条卡片 37 张（截至 2026-10-19 11:58）」；有失败 → 「词条卡片更新失败（沿用 … 的数据）」。
+    var cd = wiki && wiki.cards;
+    var cardTxt = '';
+    if (cd && cd.error) cardTxt = t('d_cards_err').replace('{d}', cd.asOf || '\u2014');
+    else if (cd && cd.n) cardTxt = t('d_cards_ok').replace('{n}', cd.n).replace('{d}', cd.asOf || '');
+    wu.textContent = (wTxt ? wTxt + t('d_bjtime') : '\u2014') + (cardTxt ? ' \u00b7 ' + cardTxt : '');
   }
   // V1.7.2 第七轮（需求2/6）：顶栏那行历元已整体删除（连同五个章节链接）。
   //   现在**页面上唯一**显示「TLE 更新时间」的地方，就是主标题「中国低轨互联网卫星在轨态势」
@@ -10453,8 +10464,12 @@ function applyWikiJson(j) {
     var old = RAW[k].wiki || {};
     RAW[k].wiki = {
       asOf: j.asOf || old.asOf || '',
+      // ★ O30-12 顺带修：checkedAt（精确到时分）以前在这里被丢掉，运行时就退化成只有日期
+      checkedAt: j.checkedAt || old.checkedAt || '',
       article: old.article || (k === 'gw' ? '星网' : '千帆星座'),
-      launched: w.launched, inOrbit: w.inOrbit, launches: w.launches || old.launches
+      launched: w.launched, inOrbit: w.inOrbit, launches: w.launches || old.launches,
+      // ★ O30-12：卡片抓取状态（全局键，两个星座同值；旧版 wiki.json 没有该键 → null）
+      cards: j.cards || old.cards || null
     };
     hit = true;
   });

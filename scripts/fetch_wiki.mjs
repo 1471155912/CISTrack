@@ -283,6 +283,9 @@ if (numbersSame && !(fullyRead && oldAsOf !== today)) {
 stats._readme = old._readme;
 stats.asOf = today;
 stats.checkedAt = fullyRead ? checkedAt : (old.checkedAt || '');
+// ★ O30-12（V1.9.9 收尾）：保留卡片抓取状态键 —— 本脚本不抓卡片，补丁由 fetch_wiki_cards.mjs 写；
+//   这里若不保留，一次"统计无变化也要写核对时间"的更新就会把 `cards` 键抹掉（页面状态行空白）。
+if (old.cards) stats.cards = old.cards;
 fs.writeFileSync(OUT, JSON.stringify(stats, null, 1) + '\n', 'utf8');
 console.log('wiki.json 已更新'
   + (numbersSame ? '（数字未变，仅更新核对时间）' : '')
