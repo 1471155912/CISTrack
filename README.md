@@ -147,7 +147,7 @@
 两种方式任选：
 
 - **下载 Release 的 zip**（[最新 Release](https://github.com/1471155912/CISTrack/releases/latest) 的
-  `CISTrack_v1.9.8_local-deploy.zip`）→ 解压即用，**这是给本地部署准备的完整包**；
+  `CISTrack_v1.9.9_local-deploy.zip`）→ 解压即用，**这是给本地部署准备的完整包**；
 - 或 `git clone https://github.com/1471155912/CISTrack.git`
 
 ### 第二步：按需要选一种用法
@@ -447,7 +447,7 @@ CISTrack.html           ★ 唯一产物名（不带版本号）—— 固定链
                           https://1471155912.github.io/CISTrack/CISTrack.html
                           （V1.9.5 起 build.mjs 直接写这个名字；原先那份同内容的中文名产物已取消）
 CISTrack_v1.9.9.html    当前版本快照
-CISTrack_v1.9.4.html    上一版快照（回滚 / 对照用）
+CISTrack_v1.9.8.html    上一版快照（回滚 / 对照用）
                         ↑ 更早的版本由 `release.mjs` **自动裁剪**（只留当前版 + 上一版）
 index.html              入口页（811 字节的跳转页，自动跳到 CISTrack.html）
 assets/                 README 用到的素材（顶栏字标动图 cistrack-logo.gif）

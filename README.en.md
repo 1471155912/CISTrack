@@ -157,7 +157,7 @@ data always current without manually downloading anything.
 
 Either way works:
 
-- **Download the Release zip** (`CISTrack_v1.9.8_local-deploy.zip` from the [latest Release](https://github.com/1471155912/CISTrack/releases/latest)) — unzip and go; **this is the complete package for local deployment**;
+- **Download the Release zip** (`CISTrack_v1.9.9_local-deploy.zip` from the [latest Release](https://github.com/1471155912/CISTrack/releases/latest)) — unzip and go; **this is the complete package for local deployment**;
 - or `git clone https://github.com/1471155912/CISTrack.git`
 
 ### Step 2: pick the usage that fits
@@ -448,7 +448,7 @@ with 0 requests. Run `--prune` afterwards for capacity governance.
 CISTrack.html           ★ latest build (no version in the name) — use it for the stable link:
                           https://1471155912.github.io/CISTrack/CISTrack.html
 CISTrack_v1.9.9.html    snapshot of the current version
-CISTrack_v1.9.4.html    snapshot of the previous version (for rollback / comparison)
+CISTrack_v1.9.8.html    snapshot of the previous version (for rollback / comparison)
                         ↑ older ones are **trimmed automatically** by `release.mjs` (current + previous only)
 index.html              entry page (an 811-byte redirect to CISTrack.html)
 assets/                 assets used by the READMEs (the wordmark animation cistrack-logo.gif)
