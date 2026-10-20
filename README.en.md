@@ -19,8 +19,15 @@
 
 > 🌐 [中文](README.md) | **English**
 
-> **Project home**: https://github.com/1471155912/CISTrack
+> **Project home (GitHub)**: https://github.com/1471155912/CISTrack
 > **Online page**: https://1471155912.github.io/CISTrack/CISTrack.html
+> **Mirror in mainland China (Gitee)**: https://gitee.com/Jackoraniverse/CISTrack
+>
+> ⚠️ **How the two repos relate**: GitHub is the primary repository and Gitee is a **content-identical mirror**;
+> every commit is **pushed to both** (same commit hash, byte-for-byte identical content).
+> Because Gitee Pages was officially shut down in 2024–2025 ([official notice](https://gitee.com/help/articles/4228), issue #IK5SM4 "no plan to bring it back"),
+> **Gitee hosts code only and serves no web preview**; the online page is served exclusively by GitHub Pages.
+> The Gitee mirror exists for **faster cloning/downloading from mainland China** and as an off-site backup of the primary repo.
 > Clicking the **CISTrack** wordmark at the top-left of the page opens the project home.
 
 

@@ -19,9 +19,15 @@
 
 > 🌐 **中文** | [English](README.en.md)
 
-> **本项目主页**：https://github.com/1471155912/CISTrack
+> **本项目主页（GitHub）**：https://github.com/1471155912/CISTrack
 > **在线版页面**：https://1471155912.github.io/CISTrack/CISTrack.html
+> **国内镜像（Gitee）**：https://gitee.com/Jackoraniverse/CISTrack
 > 点击网页顶栏左上角的 **CISTrack** 标志可直接跳转到本项目主页。
+>
+> ⚠️ **两个仓库的关系**：GitHub 为主仓库、Gitee 为**同内容镜像**，每次提交**双向同步推送**（同一个 commit 哈希，内容逐字节一致）。
+> 由于 Gitee Pages 已于 2024–2025 年官方下线（[官方说明](https://gitee.com/help/articles/4228)、issue #IK5SM4「暂无上线计划」），
+> **Gitee 侧只提供代码托管，不提供网页预览**；在线版页面仍以 GitHub Pages 为唯一来源。
+> Gitee 镜像的用途是**国内 clone / 下载更快**，以及作为主仓库的异地备份。
 
 
 一个**纯前端、无服务端**的中国低轨互联网星座追踪页，用真实的公开轨道数据（NORAD 目录 / TLE）在浏览器里实时推算并可视化：
