@@ -22,7 +22,8 @@ if (!fs.existsSync(`${R}/satcat.csv`) && !process.env.CISTRACK_ALLOW_NO_SATCAT) 
 if (!process.env.CISTRACK_NO_CLEAN && fs.existsSync(B + '/clean.mjs')) {
   try {
     // 注意：这里必须**模块内调用**而不是 execFileSync 派生子进程 ——
-    // 本机 spawn 同一个 node.exe 会稳定报 EBUSY（clean.mjs 因此导出了 scan/applyMove）。
+    // 在同一台机器上再 spawn 一个 node.exe 去读同一份文件，Windows 上会稳定报
+    // EBUSY（文件被占用），而模块内 import 不会（clean.mjs 因此导出了 scan/applyMove）。
     const { scan, applyMove } = await import('./clean.mjs');
     const plan = scan(B, { deep: false, noProfiles: false });
     if (plan.move.length) {
