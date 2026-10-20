@@ -55,7 +55,11 @@ const ALLOW_ROOT_EXACT = new Set([
   '.nojekyll',
 ]);
 // 带版本号的产物：`CISTrack_v<主>.<次>.<修>.html`（数量另有限制）
-const ALLOW_ROOT_RE = [/^CISTrack_v\d+\.\d+\.\d+\.html$/];
+// ★ V1.9.9.630：允许多一段（`CISTrack_v1.9.9.630.html`）—— 四段式用来标记"某基座之上的修复批次"。
+//   旧正则只认三段 → 四段式产物被判定"不在白名单"→ 卫生扫描假 FAIL
+//   （release.mjs 的裁剪处有**同一个**过窄正则，已一并放宽；两处必须同时改，
+//    否则"能生成却不许存在"或"存在却不裁剪"）。
+const ALLOW_ROOT_RE = [/^CISTrack_v\d+\.\d+\.\d+(?:\.\d+)?\.html$/];
 const MAX_VERSIONED_HTML = 2;   // 既有约定：只留「当前版 + 上一版」，更早的靠 git 历史回滚
 // ★ V1.9.6：新增 deploy/ —— 给"下载 Release 的 zip 本地部署"用的一键更新/定时任务脚本。
 //   里面只有 .bat / .sh（零依赖，Node 即可跑），不含任何过程文件。

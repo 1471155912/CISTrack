@@ -31,21 +31,16 @@
  *   node scripts/fetch_wiki_cards.mjs --dry      # 只打印"会抓哪些"，不联网
  * 退出码：全部成功 0；有词条失败 1（保留旧数据，不写空）。
  */
-import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createRequire } from 'node:module';
 import { tmpRoot } from './tmproot.mjs';   // ★ V1.9.9（B1）：与 tables 脚本共用同一个**预热过的** profile
+import { openBrowser, waitContent } from './cdp.mjs';
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-const require = createRequire(import.meta.url);
-const { WebSocket } = require('ws');
 const OUT = path.join(ROOT, 'data', 'wiki_cards.json');
 const WIKI_JSON = path.join(ROOT, 'wiki.json');
 const TABLES = path.join(ROOT, 'data', 'wiki_tables.json');
-const EDGE = 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe';
-const PORT = 9491;
 const HOST = 'https://sat.huijiwiki.com';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 /** ★ O30-12（V1.9.9 收尾）：把卡片抓取状态补丁进仓库根目录的 wiki.json（只动 `cards` 一个键）。
@@ -122,74 +117,43 @@ function collectTitles() {
 }
 
 // ---------------------------------------------------------------- 浏览器
-let ws = null, msgId = 0;
-const waits = new Map();
-function send(method, params) {
-  const mid = ++msgId;
-  return new Promise((res, rej) => {
-    waits.set(mid, (m) => (m.error ? rej(new Error(method + ': ' + JSON.stringify(m.error))) : res(m.result)));
-    ws.send(JSON.stringify({ id: mid, method, params: params || {} }));
-  });
-}
-async function ev(expr) {
-  const r = await send('Runtime.evaluate', { expression: expr, returnByValue: true, awaitPromise: true });
-  if (r.exceptionDetails) throw new Error(JSON.stringify(r.exceptionDetails).slice(0, 300));
-  return r.result.value;
-}
+// ★★ V1.9.9.630：三处一起治 ——
+//   ① `require('ws')` → **Node ≥22 内置 WebSocket**（ws 是 devDependency、node_modules 不入库，
+//      开源使用者 clone 后必 `ERR_MODULE_NOT_FOUND`；`fetch_wiki.mjs` 早就改了，这个没跟上）。
+//   ② `const EDGE = 'C:\\Program Files (x86)\\...msedge.exe'` 写死路径 → 换台机器/换成 Chrome 就废。
+//      现在统一走 cdp.mjs 的 `findBrowser()`（环境变量 CISTRACK_EDGE / EDGE_PATH / CHROME_PATH 优先，
+//      然后才是各处常见安装路径，Windows/macOS/Linux 都覆盖）。
+//   ③ 挑战判据只有三四个英文词 → 统一到 cdp.mjs 的 `CHALLENGE_RE`（唯一权威）。
+//
+//   ★ 保留了本脚本**自己**的节奏参数（这是它的取舍，不能因为"统一"就抹掉）：
+//     · 窗口 180s（实测出现过 71s 与 >136s 才通过的情形）；
+//     · 重试退避 30~60s **随机**（不要固定节奏，避免与挑战的风控节拍重合）；
+//     · 复用 `fetch_wiki_tables.mjs` 那个**已预热**的 profile —— 实测全新 profile 的首次挑战
+//       耗时 2s~>136s 剧烈波动，而预热过（已存 `cf_clearance`）的首屏 1.6~2.0s。
+//       （profile 在临时目录、不进仓库；两个脚本串行执行，不会抢锁。）
+const PROFILE = path.join(tmpRoot(), 'edge-profile-fetch-wiki-tables');
+let BROWSER = null;      // { c, cleanup }
+const send = (m, p) => BROWSER.c.send(m, p);
+const ev = (expr, aw) => BROWSER.c.ev(expr, aw);
 async function connect() {
-  const ch = spawn(EDGE, ['--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
-    '--disable-blink-features=AutomationControlled',
-    '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-    // ★★ V1.9.9（B1，用户裁决：不拆独立任务、与现有 wiki 任务一起跑、复用预热 profile）：
-    //   **必须复用 `fetch_wiki_tables.mjs` 那个已预热过的 profile**。
-    //   实测（2026-10-19）：全新 profile 的第一次导航，Cloudflare 挑战耗时 2 s ~ >136 s 剧烈波动，
-    //   而脚本原来只等 60 s → 每次都在"快过的时候"放弃；而 tables 脚本用的这个 profile 里
-    //   已经存着 `cf_clearance` cookie，首屏就是"已通过"，耗时 1.6~2.0 s。
-    //   （profile 在临时目录、不进仓库；两个脚本串行执行，不会抢锁。）
-    '--user-data-dir=' + path.join(tmpRoot(), 'edge-profile-fetch-wiki-tables'),
-    '--remote-debugging-port=' + PORT, '--window-size=1600,1200', 'about:blank'], { stdio: 'ignore' });
-  let target = null;
-  for (let i = 0; i < 80 && !target; i++) {
-    try {
-      const r = await fetch('http://127.0.0.1:' + PORT + '/json/list');
-      const j = await r.json();
-      target = j.find((t) => t.type === 'page' && t.webSocketDebuggerUrl);
-    } catch (e) { /* 还没起来 */ }
-    if (!target) await sleep(250);
-  }
-  if (!target) throw new Error('Edge 调试端口没起来（' + PORT + '）');
-  ws = new WebSocket(target.webSocketDebuggerUrl, { perMessageDeflate: false, maxPayload: 1 << 28 });
-  await new Promise((res, rej) => { ws.once('open', res); ws.once('error', rej); });
-  ws.on('message', (buf) => {
-    let m; try { m = JSON.parse(buf.toString()); } catch (e) { return; }
-    if (m.id && waits.has(m.id)) { const w = waits.get(m.id); waits.delete(m.id); w(m); }
-  });
-  await send('Page.enable'); await send('Runtime.enable');
-  return ch;
+  BROWSER = await openBrowser({ profileDir: PROFILE, tmpRoot: tmpRoot(), bootMs: 20000 });
+  return BROWSER;
 }
-/** 打开一个 URL 并等 Cloudflare 挑战过去（中英文挑战页都算"没过"） */
-async function goto(url, tries, waitSec) {
-  var n = tries || 3;
-  // ★ V1.9.9（P1-D）：窗口可调 —— api.php 只需要**确认能不能用**，
-  //   给它 180s 是白等（实测它就不会过）；页面才需要长窗口。
-  var rounds = Math.max(1, Math.round((waitSec || 180) / 1.5));
-  for (let attempt = 0; attempt < n; attempt++) {
-    await send('Page.navigate', { url });
-    // ★ V1.9.9（B2）：窗口 60 s → **180 s**（实测出现过 71 s 与 >136 s 才通过的情形），
-    //   且每次重试之间随机退避 30~60 s（不要固定节奏，避免与挑战的风控节拍重合）。
-    for (let i = 0; i < rounds; i++) {
-      await sleep(1500);
-      let ti = '';
-      try { ti = await ev('document.title'); } catch (e) { ti = ''; }
-      if (ti && !/请稍候|Just a moment|Attention Required/i.test(String(ti))) { await sleep(800); return true; }
-    }
-    if (attempt < n - 1) {
-      var back = 30000 + Math.round(Math.random() * 30000);
-      console.log('   …挑战页未过（已等 ' + (waitSec || 180) + 's），' + Math.round(back / 1000) + 's 后重试');
-      await sleep(back);
-    }
+/** 打开一个 URL 并等 Cloudflare 挑战过去（标题 + 内容双判据，见 cdp.mjs） */
+async function goto(url, tries, waitSec, contentProbe) {
+  const w = await waitContent(BROWSER.c, url, {
+    tries: tries || 3,
+    waitMs: (waitSec || 180) * 1000,
+    pollMs: 1500,
+    contentProbe: contentProbe || '',
+    // ★ V1.9.9（B2）：每次重试之间**随机**退避 30~60s（不要固定节奏，避免与挑战的风控节拍重合）
+    backoffMs: () => 30000 + Math.round(Math.random() * 30000),
+    settleMs: 800,
+  });
+  if (!w.ok && (tries || 3) > 1) {
+    console.log('   …挑战页未过（已等 ' + (waitSec || 180) + 's，title=' + JSON.stringify(w.title) + '）');
   }
-  return false;
+  return w.ok;
 }
 
 // ---------------------------------------------------------------- 解析
@@ -256,21 +220,28 @@ const EXTRACT = `(function () {
   try { old = JSON.parse(fs.readFileSync(OUT, 'utf8')) || { cards: {} }; } catch (e) { /* 首次 */ }
   const oldCards = old.cards || {};
 
-  const ch = await connect();
+  await connect();
   let failed = 0;
+  // ★ V1.9.9.630：**逐条失败取证** —— 用户要求"抓取行为完整可重复、可追溯"。
+  //   原来只有一个计数 `failed`，事后无法回答"哪几个词条没抓到、为什么"。
+  const FAILS = [];   // { title, reason }
   try {
     // ① 批量查 revid（一次 50 个）
     const revs = {};
+    let apiBatchFail = 0;
     for (let i = 0; i < titles.length; i += 50) {
       const batch = titles.slice(i, i + 50).map((x) => x.t);
       const api = HOST + '/api.php?action=query&prop=revisions&rvprop=ids%7Ctimestamp&formatversion=2&format=json&titles=' +
         encodeURIComponent(batch.join('|'));
       // API 只给一次机会 + 45s 窗口：过不去就说明这条路被特别保护了（见下面 NO_API 分支）
-      const ok = await goto(api, 1, 45);
-      if (!ok) { console.log('!! revid 批次 ' + (i / 50 + 1) + ' 没抓到'); failed++; continue; }
+      // ★ 内容探针：`document.body.innerText` 必须以 `{` 开头 —— 挑战页/错误页都过不了这一关。
+      //   旧写法只看标题 → 挑战页 200 但正文是 HTML，`JSON.parse` 失败 → 记成"解析失败"，
+      //   与"API 被拦"混在一起，看不出到底哪种情况。
+      const ok = await goto(api, 1, 45, '(document.body.innerText||"").trim().slice(0,1)==="{"');
+      if (!ok) { console.log('!! revid 批次 ' + (i / 50 + 1) + ' 没抓到'); apiBatchFail++; continue; }
       let j = null;
       try { j = JSON.parse(await ev('document.body.innerText')); } catch (e) { j = null; }
-      if (!j || !j.query || !j.query.pages) { console.log('!! revid 批次解析失败'); failed++; continue; }
+      if (!j || !j.query || !j.query.pages) { console.log('!! revid 批次解析失败'); apiBatchFail++; continue; }
       j.query.pages.forEach((p) => {
         if (p.missing) return;
         const r = (p.revisions || [])[0] || {};
@@ -278,7 +249,13 @@ const EXTRACT = `(function () {
       });
       await sleep(600);
     }
-    console.log('revid 拿到 ' + Object.keys(revs).length + ' / ' + titles.length);
+    console.log('revid 拿到 ' + Object.keys(revs).length + ' / ' + titles.length +
+      (apiBatchFail ? '（' + apiBatchFail + ' 个批次请求失败 —— 见下面 NO_API 判断）' : ''));
+    // ★ V1.9.9.630：批量 API 失败**不再计入 `failed`**。
+    //   为什么：`failed` 的语义是"**有词条没抓到卡片**"，而 API 不通时下面的 NO_API 分支
+    //   会逐页抓、照样拿得到卡片 —— 把它计进 failed 会让 `cardsError` 谎报"有词条失败"，
+    //   页面就长期挂着一条假的失败提示（实测现状正是如此：37/37 全成功却报"1 个词条未过挑战"）。
+    //   真正的失败只由逐条抓取那一步决定。
 
     // ★★ V1.9.9（P1-D）：**api.php 走不通就退回「逐页内容比对」** ★★
     //   实测（2026-10-19）：同一套预热 profile 下，`/wiki/<词条>` 页面能过 Cloudflare（fetch_wiki_tables 正常），
@@ -303,13 +280,18 @@ const EXTRACT = `(function () {
     // ③ 抓卡片
     const cards = {};
     Object.keys(oldCards).forEach((k) => { cards[k] = oldCards[k]; });   // 先拷贝旧数据
+    // 卡片页的内容探针 = infobox 里至少攒到 3 个字段（与下面 EXTRACT 的 `parsed` 同口径）。
+    //   光标题正常不算过 —— 这正是 V1.9.3 那次"挑战页被当成功"的教训。
+    const CARD_PROBE = '(()=>{var b=document.querySelector(".infobox, table.infobox, .portable-infobox")'
+      + '||document.querySelector(".mw-parser-output table");if(!b)return false;var n=0;'
+      + 'b.querySelectorAll("tr").forEach(function(tr){if(tr.children.length===2)n++;});return n>=3;})()';
     for (const x of todo) {
       const url = HOST + '/wiki/' + encodeURIComponent(x.t);
-      const ok = await goto(url, 2);
-      if (!ok) { console.log('   !! ' + x.t + ' 没过挑战，保留旧数据'); failed++; continue; }
+      const ok = await goto(url, 2, 180, CARD_PROBE);
+      if (!ok) { console.log('   !! ' + x.t + ' 没过挑战', ); failed++; FAILS.push({ title: x.t, reason: '未过挑战/无 infobox' }); continue; }
       let got = null;
       try { got = await ev(EXTRACT); } catch (e) { got = null; }
-      if (!got || !got.zh) { console.log('   !! ' + x.t + ' 解析失败'); failed++; continue; }
+      if (!got || !got.zh) { console.log('   !! ' + x.t + ' 解析失败'); failed++; FAILS.push({ title: x.t, reason: '解析失败（无中文名）' }); continue; }
       const rev = revs[x.t] || {};
       const payload = {
         zh: got.zh, en: got.en || '', norad: got.norad ? parseInt(got.norad, 10) : 0,
@@ -347,16 +329,18 @@ const EXTRACT = `(function () {
       _src: HOST, _checkedAt: checkedAt, _force: FORCE,
       cardsAsOf: checkedAt, cardsError,
       _counts: { titles: titles.length, fetched: todo.length, failed },
+      // ★ V1.9.9.630：逐条失败明细（可追溯）。旧版只有计数，事后无法回答"哪几个、为什么"。
+      _fails: FAILS.length ? FAILS : undefined,
       cards
     };
     fs.writeFileSync(OUT, JSON.stringify(out, null, 1) + '\n', 'utf8');
     const n = Object.keys(cards).length;
     console.log('已写 ' + OUT + '（' + n + ' 张卡片，本次抓 ' + todo.length + '，失败 ' + failed + '）');
+    if (FAILS.length) FAILS.forEach(f => console.log('   ✗ ' + f.title + ' → ' + f.reason));
     console.log('核对时间：' + checkedAt + '（北京时间）');
     patchWikiCards(checkedAt, cardsError, n);
     process.exitCode = failed ? 1 : 0;
   } finally {
-    try { ws && ws.close(); } catch (e) {}
-    try { spawn('taskkill', ['/PID', String(ch.pid), '/T', '/F'], { stdio: 'ignore' }); } catch (e) {}
+    try { BROWSER && BROWSER.cleanup(); } catch (e) {}
   }
 })().catch((e) => { console.error('抓取失败：' + (e && e.stack || e)); process.exit(1); });

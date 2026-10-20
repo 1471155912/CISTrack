@@ -1,5 +1,5 @@
 {
- "_fetched": "2026-10-20T16:01:24.558Z",
+ "_fetched": "2026-10-20T17:00:49.931Z",
  "_src": [
   "https://sat.huijiwiki.com/wiki/%E6%98%9F%E7%BD%91",
   "https://sat.huijiwiki.com/wiki/%E5%8D%83%E5%B8%86%E6%98%9F%E5%BA%A7"
@@ -1079,6 +1079,20 @@
     "卫星互联网低轨27组"
    ],
    "nameLinks": []
+  },
+  "2025-F05": {
+   "name": "卫星互联网技术试验卫星07组",
+   "names": [
+    "卫星互联网技术试验卫星07组"
+   ],
+   "nameLinks": [],
+   "en": "",
+   "d8": "2025-08-15",
+   "t8": "09:17",
+   "ms8": 1755220620000,
+   "site": "酒泉 LC-43/96A",
+   "siteUrl": "/wiki/%E9%85%92%E6%B3%89%E5%8D%AB%E6%98%9F%E5%8F%91%E5%B0%84%E4%B8%AD%E5%BF%83",
+   "mk": null
   }
  },
  "qf": {
@@ -1115,7 +1129,7 @@
      "t": "全球多媒体卫星系统α阶段B卫星"
     }
    ],
-   "en": "KL-Alpha A / KL-Alpha B / KL-Alpha A / KL-Alpha B / KL-Alpha A / KL-Alpha B / KL-Alpha A / KL-Alpha B"
+   "en": "KL-Alpha A / KL-Alpha B / KL-Alpha A / KL-Alpha B / KL-Alpha A / KL-Alpha B / KL-Alpha A / KL-Alpha B / KL-Alpha A / KL-Alpha B / KL-Alpha A / KL-Alpha B"
   },
   "2021-070": {
    "name": "全球多媒体卫星系统β阶段A卫星",
@@ -1150,7 +1164,7 @@
      "t": "全球多媒体卫星系统β阶段B卫星"
     }
    ],
-   "en": "KL-Beta A / KL-Beta B / KL-Beta A / KL-Beta B / KL-Beta A / KL-Beta B / KL-Beta A / KL-Beta B"
+   "en": "KL-Beta A / KL-Beta B / KL-Beta A / KL-Beta B / KL-Beta A / KL-Beta B / KL-Beta A / KL-Beta B / KL-Beta A / KL-Beta B / KL-Beta A / KL-Beta B"
   },
   "2026-128": {
    "name": "千帆DTC 01星",
@@ -1209,7 +1223,7 @@
      "t": "EUHT技术试验卫星"
     }
    ],
-   "en": "EUHT technology test satellite / G60 Polar Group 26 / EUHT technology test satellite / G60 Polar Group 26 / EUHT technology test satellite / G60 Polar Group 26 / EUHT technology test satellite / G60 Polar Group 26"
+   "en": "EUHT technology test satellite / G60 Polar Group 26 / EUHT technology test satellite / G60 Polar Group 26 / EUHT technology test satellite / G60 Polar Group 26 / EUHT technology test satellite / G60 Polar Group 26 / EUHT technology test satellite / G60 Polar Group 26 / EUHT technology test satellite / G60 Polar Group 26"
   },
   "2024-140": {
    "name": "千帆极轨01组卫星（共18颗）",
@@ -1557,6 +1571,6 @@
    "en": "G60 Polar Group 19"
   }
  },
- "_fetched_gw": "2026-10-20T16:01:24.558Z",
- "_fetched_qf": "2026-10-20T16:01:27.737Z"
+ "_fetched_gw": "2026-10-20T17:00:49.931Z",
+ "_fetched_qf": "2026-10-20T17:00:53.076Z"
 }

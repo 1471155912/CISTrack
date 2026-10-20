@@ -11,7 +11,7 @@ var DAY = 86400000;
 var SGP4 = window.satellite;
 var RAW = window.SATDATA;
 var COAST = window.COAST_DATA || [];
-var VERSION = 'V1.9.9';          // 页脚版本号，后续更新在此改动
+var VERSION = 'V1.9.9.630';          // 页脚版本号，后续更新在此改动
 
 // ---------------------------------------------------------------- V1.3.7：TLE 分组差分解码
 // 构建脚本按发射批次（COSPAR 前缀）把「名称+两行要素」压成公共模板 + 每颗星的差异串，
@@ -55,6 +55,12 @@ var WIKI = {
   qf: 'https://sat.huijiwiki.com/wiki/%E5%8D%83%E5%B8%86%E6%98%9F%E5%BA%A7'
 };
 var BILI = 'https://space.bilibili.com/455972735';
+// V1.9.9.630：页脚「欢迎在 B站动态页 / GitHub Issue / Gitee Issue 提意见」一行与 README 致谢
+//   共用这三个地址（原先只有 BILI 一个常量，Issue 链接散落在文案里，容易改一处漏一处）。
+var REPO_ISSUES = 'https://github.com/1471155912/CISTrack/issues';
+var GITEE_ISSUES = 'https://gitee.com/Jackoraniverse/CISTrack/issues';
+// ★ V1.9.9.630：页脚「B站动态页」指向的**具体动态**（不是主页）—— 用户指定的那条征集意见的帖子。
+var BILI_OPUS = 'https://www.bilibili.com/opus/1261335859431473175';
 
 // ---------------------------------------------------------------- 中英文
 // V1.3.6：语言不落盘 —— 每次打开都是中文页（要英文请点顶栏的 EN）。
@@ -157,7 +163,11 @@ var I18N = {
     'The live catalog has {n} more satellite(s) than the set bundled with this page (newest NORAD {id}) — likely a new launch. The article-based counts do not update themselves; refresh after updating wiki.json.'],
   notice_ok: ['知道了', 'Got it'],
   // V1.7.0 第三轮（需求11）：全部 title 提示气泡接入 i18n（此前是硬编码中文，英文界面会漏出中文）
-  t_repo: ['CISTrack 项目主页（GitHub）', 'CISTrack project home (GitHub)'],
+  // ★ V1.9.9.630：标志不再直接跳 GitHub，改弹「访问项目仓库主页」药丸 —— title 文案随之改。
+  t_repo: ['CISTrack 项目主页（GitHub / Gitee）', 'CISTrack repository home (GitHub / Gitee)'],
+  // ★ V1.9.9.630：仓库选择药丸的引导语（药丸内容见 index 里的 #repoPill：
+  //   「访问项目仓库主页：Github / Gitee」—— GitHub/Gitee 是**两个链接**，不放进 i18n，是专有名词）。
+  d_repopill_lead: ['访问项目仓库主页：', 'Repository home: '],
   t_lang: ['切换中英文', 'Switch language'],
   t_theme: ['切换深浅色主题', 'Toggle light / dark theme'],
   t_fstime: ['点击切换 GMT / 本地时间', 'Click to switch between GMT and local time'],
@@ -310,10 +320,34 @@ var I18N = {
   d_net_span: ['数据跨度', 'Data span'],
   t_age: ['在轨日, 天', 'Days in orbit'],
   foot_data: ['轨道数据来自 NORAD 空间目标目录', 'Orbit data from the NORAD satellite catalog'],
-  // ★ V1.9.5（H17）：页脚文案改为正式的 MIT 表述（原句"本页素材可自由使用，注明来源即可"偏口语）。
+  // ★ V1.9.9（H17）：页脚文案改为正式的 MIT 表述（原句"本页素材可自由使用，注明来源即可"偏口语）。
   //   与 README/LICENSE 的口径一致：MIT 允许自由使用/修改/分发，**条件**是保留版权与许可声明。
-  foot_use: ['本项目为 MIT 开源项目，可自由使用、修改与分发（保留版权与许可声明即可）',
-             'MIT-licensed open source: free to use, modify and redistribute (keep the copyright and license notice)'],
+  // ★★ V1.9.9.630（用户要求）：这句拆成 **a + [MIT 按钮] + b** 三段 ——
+  //   ① 「MIT」前后**不留空格**（用户明确要求删掉原句两边的空格）；
+  //   ② MIT 染绿 + 下划线且**可点**（点开页内 MIT 许可证弹窗）；
+  //   ③ 拆段的代价是不能再挂 data-i18n（会 innerHTML 覆盖掉中间那个按钮），
+  //      所以改由 renderChrome() 用 t('foot_use_a') / t('foot_use_b') 拼装 —— 中英各自通顺，不是直译拼贴。
+  //   ⚠️ 英文那两段的**段首要/段尾要带空格**（`is MIT` / `on Bilibili`），中文**绝不带**
+  //     （用户明确要求"MIT 前后删掉空格"）。拼接是 a+MIT+b，所以空格只能由 a/b 自己带 ——
+  //     第一版忘了这一步，拼出来是 "isMIT-licensed"、"onBilibili"（探针抓到的）。
+  foot_use_a: ['本项目为', 'This project is '],
+  foot_use_b: ['开源项目，可自由使用、修改与分发（保留版权与许可声明即可）',
+               '-licensed open source: free to use, modify and redistribute (keep the copyright and license notice)'],
+  foot_mit_title: ['查看 MIT 许可证全文', 'View the full MIT license'],
+  // ★ V1.9.9.630（用户要求）：页脚新增「欢迎在 B站动态页、Github Issue 和 Gitee Issue 上提意见」一行。
+  //   同样拆成 a/b/c/d 四段，把三个人名做成链接（B站粉 / GitHub 千帆蓝 / Gitee 橙黄）。
+  //   ⚠️ 中文句式是"在 A、B和C 上"；英文自然语序是"on A, B and C"，所以两边的分段**必须各自成立**，
+  //     不能靠中文的词序硬套（这正是拆成四段而不是三段的理由）。
+  foot_fb_a: ['欢迎在', 'Suggestions and feedback are welcome on '],
+  foot_fb_bili: ['B站动态页', 'Bilibili'],
+  foot_fb_b: ['、', ', '],
+  foot_fb_c: ['和', ' and '],
+  foot_fb_d: ['上为本项目提出更多宝贵的意见和建议！',
+               ' — more ideas and comments are always welcome!'],
+  // ★ V1.9.9.630：页内 MIT 许可证弹窗的标题与说明
+  d_lic_title: ['MIT 许可证', 'MIT License'],
+  d_lic_note: ['本项目以 MIT 协议发行 —— 可自由使用、修改、分发（包括商用），只需保留版权与许可声明。以下是许可证全文。',
+               'This project is released under the MIT License — free to use, modify and distribute (including commercially), provided the copyright and license notice are kept. The full text follows.'],
   // 动态文案
   // ★ V1.9.9（N3/O30-2）：加载页三行已改成**写死的双语**（不经 i18n，见 template.html 的 .lm-dots / #lmThird）→
   //   `d_loading3`、`d_epoch2`、`d_pending_suffix` 三个键随之退役（最后一个与 d_more_pending2 重复）。
@@ -370,7 +404,8 @@ var I18N = {
   d_fixed_hint_2: [' · 点击该点解除', ' · click the site to release'],
   d_pick_btn_off: ['选择地面观测点', 'Pick ground site'],
   d_pick_btn_on: ['退出观测点模式', 'Exit site mode'],
-  d_loading: ['正在获取最新轨道要素…', 'Fetching the latest orbital elements…'],
+  // ★ V1.9.9.630（用户要求）：前两行末尾**不带省略号**（跳动的点只留给第三行「加载中/Reloading」）。
+  d_loading: ['正在获取最新轨道要素', 'Fetching the latest orbital elements'],
   d_updated: ['已更新至最新轨道要素', 'Updated to the latest elements'],   // V1.3.9：不再缀纪元，第三行已有
   // ★ V1.9.5（H44）：联网失败的药丸提示（红色、停留更久）。文案由用户 2026-10-16 指定：
   //   中文「联网失败，缓存数据可能已过时」；英文同名键。中英必须成对（i18n 审计会查漏译）。
@@ -431,6 +466,9 @@ function applyStaticLang() {
   document.documentElement.setAttribute('lang', LANG === 'en' ? 'en' : 'zh-CN');
   var b = document.getElementById('langBtn');
   if (b) b.textContent = LANG === 'en' ? '中' : 'EN';
+  // ★ V1.9.9.630：仓库选择药丸的引导语（它不在 data-i18n 覆盖范围 —— 药丸里是真实 <a>，
+  //   用 innerHTML 覆盖会把两个链接节点冲掉，所以单独改那个 <span>）。
+  try { repoPillLang(); } catch (e) {}
 }
 // V1.6.0：只在指定子树内应用静态文案（顶栏在动画一开始就换新语言，内容则延后半程）
 function applyStaticLangIn(root) {
@@ -7393,7 +7431,7 @@ var README_ZH = [
   '',
   '**哪些卫星没有画进来。** 最近几批（星网 2026-176 / 187 / 213 / 221，千帆 2026-210 / 211 等）在目录里**已经有临时编号**（100203–100799 段）与**公开的摘要参数**（周期、倾角、近远地点 —— 把鼠标停在「发射批次」表的「待编目」标签上就能看到），但**完整的轨道要素（TLE）尚未公开发布**：CelesTrak 的 GP 接口对这类临时编号不返回数据，Space-Track 需要账号，第三方镜像（n2yo、tle.ivanstanojevic.me 等）也都查不到。举一个已核对的例子：COSPAR **2026-176A** 对应临时编号 **100203**，目录里已命名为 **HULIANWANG DIGUI-178** —— 也就是说它们并非"下落不明"，只是被编成了待分析对象、还没拿到正式编号。因此本页只能展示这些摘要，无法推算它们的位置；相应地，这三类图里都没有它们，只有「轨道高度图」上按摘要高度画出的**空心点与虚线高度区间**（不参与选中与悬停）。等它们拿到正式编号并发布要素后，重新构建一次就会自动转入正常显示。此外，两星座的早期试验星、以及星网的高轨业务星（地球同步轨道）不在低轨分组之内，也未计入。页面顶部的「发射 / 在轨卫星数量」与「发射成功次数」一律**以卫星百科词条的统计栏为准**（括号内照搬词条原文的分项）；本页真正有完整轨道要素、能实时推算位置的颗数单独写在第二行，作为 TLE 一侧的核对。',
   '',
-  '**关于本项目。** 本页按 [MIT 协议](https://opensource.org/licenses/MIT)完全开源，可自由使用、修改与分发（许可全文见文末）。本页面由 [小橙子的宇宙Jackoraniverse](' + BILI + ') 使用 AI 工具生成，灵感与最初版本来自于 [Где «Рассветы»](https://findrassvet.ru/)（Bureau 1440 的 Rassvet 星座追踪站）的页面风格与布局。',
+  '**关于本项目。** 本页按 [MIT 协议](https://opensource.org/licenses/MIT)完全开源，可自由使用、修改与分发（许可全文见文末）。本页面由 [小橙子的宇宙Jackoraniverse](' + BILI + ') 使用 AI 工具生成。灵感与最初版本来自于 [Где «Рассветы»](https://findrassvet.ru/)（Bureau 1440 的 Rassvet 星座追踪站）的页面风格与布局 —— 感谢原作者 [V. Bulybenko](https://github.com/vbklgd) 把变轨方法论公开出来。完整的数据源与参考源致谢见文末「项目来源与致谢」一节。',
   '',
   '**免责声明。** 本页内容由人工智能辅助生成，虽经核对，仍可能存在疏漏，请以官方发布为准。轨道要素属于公开目录数据，精度有限且随时间老化，通常几小时内位置误差在公里量级，仅供科普与参考，不应用于工程、科研或过境预报等专业用途。本页为非官方项目，与中国卫星网络集团有限公司、上海垣信卫星科技有限公司均无关联。',
   '',
@@ -7541,10 +7579,34 @@ var README_ZH = [
   '',
 
   '',
+  // ★ V1.9.9.630：这一组数据源条目原先**没有标题**，直接挂在「三种高度」章末尾，
+  //   渲染出来像是上一节的补充说明。补回章节标题（与 README.md 的章节名对齐）。
+  '## 🔗 数据来源与引用合规',
+  '',
   '- 🌐 [CelesTrak](https://celestrak.org/) —— 公开轨道要素（TLE）的分发方；**本源**是美国太空军第 18 太空防御中队（18 SDS）的公开编目（经 Space-Track 分发）。本项目按 CelesTrak 的[使用政策](https://celestrak.org/usage-policy.php)取数（按更新节奏、只取需要的）；',
   '- 📚 [卫星百科](https://sat.huijiwiki.com/) —— 「星网」「千帆星座」词条的批次、时间、运载火箭、发射地点、研发机构与顶部计数。词条内容按 [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/deed.zh-hans) 共享（[版权页](https://sat.huijiwiki.com/wiki/Project:%E7%89%88%E6%9D%83)）：本项目**署名并链接协议**、只呈现事实性条目；你若转载本页内容，请一并遵守该协议；',
   '- 🗺️ [Natural Earth](https://www.naturalearthdata.com/) —— **公有领域**海岸线底图（[条款](https://www.naturalearthdata.com/about/terms-of-use/)：无需许可、无需署名）；',
   '- 🧮 [satellite-js](https://github.com/shashwatak/satellite-js)（MIT）→ 算法本源为 **Spacetrack Report #3 / CSSI**；🔤 字体 [Audiowide](https://fonts.google.com/specimen/Audiowide)（SIL OFL 1.1）；📐 变轨呈现的方法论参考 [findrassvet.ru](https://findrassvet.ru/)（[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/deed.zh-hans)，署名 `findrassvet.ru, V. Bulybenko`）；🛰️ 部分工程做法参考 [Kayhan Space 的开源实现](https://github.com/Kayhan-Space/sgp4gl)（MIT）。',
+  '',
+  '## 🌟 项目来源与致谢',
+  '',
+  '本页由 [小橙子的宇宙Jackoraniverse](' + BILI + ') 使用 AI 工具生成。',
+  '',
+  '灵感与最初版本来自于跟踪俄罗斯**[「黎明」星座](https://sat.huijiwiki.com/wiki/%E9%BB%8E%E6%98%8E%E6%98%9F%E5%BA%A7)**（Rassvet）态势的网站 [findrassvet.ru](https://findrassvet.ru/)（作者 [V. Bulybenko](https://github.com/vbklgd)）。该站公开的 [METHODOLOGY.md](https://github.com/vbklgd/findrassvet/blob/main/METHODOLOGY.md) 把升轨速率的算法写全了（2 天窗最小二乘、Kozai → Brouwer 半长轴、J₂ 交点退行），本页据此校核了自己的计算口径 —— 衷心感谢原作者的发现与指点。',
+  '',
+  '没有下面这些数据源与参考源，本页一个点都画不出来。**按重要程度排列**：',
+  '',
+  '1. **[卫星百科](https://sat.huijiwiki.com/)** —— 本页最依赖的数据源。星网与千帆两个词条给出了批次划分、发射时间、运载火箭、发射场、研发机构、卫星全名与中文名；顶部「发射 / 在轨 / 发射次数」三个计数、以及发射历史里的「任务结果」列，也一律以词条口径为准（[CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/deed.zh-hans)，署名 + 相同方式共享）。',
+  '2. **[CelesTrak](https://celestrak.org/)** —— 轨道要素（TLE）的日常分发方。页面每次打开都向它取当期两组要素；本源是美国太空军 **18 SDS**（经 Space-Track 分发）的公开编目。按它的[使用政策](https://celestrak.org/usage-policy.php)取数。',
+  '3. **[Space-Track.org](https://www.space-track.org/)** —— 18 SDS 的 GP 历史要素集。「变轨情况」章背后的历史轨道数据库就是从它灌进来的（构建期一次性拉取，使用者不需要账号）。',
+  '4. **[findrassvet.ru](https://findrassvet.ru/)** —— 灵感来源，也是变轨方法学的参考源（[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/deed.zh-hans)，署名 `findrassvet.ru, V. Bulybenko`）。',
+  '5. **[satellite-js](https://github.com/shashwatak/satellite-js)**（MIT）—— 页面里跑的 SGP4 就是它。',
+  '6. **[Spacetrack Report #3 / CSSI 官方验证用例](https://celestrak.org/NORAD/documentation/)** —— SGP4 的**数值回归标尺**（33 个场景 / 667 条期望位置与速度），原文经 [python-sgp4](https://github.com/brandon-rhodes/python-sgp4)（MIT）的分发包取得，容差口径（`error = 2e-7`）也取自它的测试。',
+  '7. **[Natural Earth](https://www.naturalearthdata.com/)** —— 海岸线底图（公有领域，无需署名）。',
+  '8. **[Kayhan Space 的 sgp4gl](https://github.com/Kayhan-Space/sgp4gl)**（MIT）—— 部分工程做法（如轨道圈的前后景分离）参考了它的实现。',
+  '9. **[Audiowide](https://fonts.google.com/specimen/Audiowide)**（SIL OFL 1.1）—— 顶栏 CISTrack 字标用的字体，已以 base64 内嵌；另感谢 Google Fonts 提供分发。',
+  '',
+  '最后，感谢 **1.9.9.630 正式稳定版发布前**通过 B站动态、[GitHub Issue](' + REPO_ISSUES + ')、[Gitee Issue](' + GITEE_ISSUES + ') 等方式给本项目提过意见与建议的各位网友。你们指出的错漏、别扭的交互和想不通的口径，很多已经落进了这一版；这一版没来得及做的，也都记进了发布说明里的「更新计划」。这个页面是大家一起挑出来的 —— 谢谢你们。',
   '',
   '## 📜 免责声明与隐私',
   '',
@@ -7586,7 +7648,7 @@ var README_ZH = [
   '',
   '---',
   '',
-  '本页面由 [小橙子的宇宙Jackoraniverse](https://space.bilibili.com/455972735) 使用 AI 工具生成，灵感与最初版本来自于跟踪俄罗斯**[「黎明」星座](https://sat.huijiwiki.com/wiki/%E9%BB%8E%E6%98%8E%E6%98%9F%E5%BA%A7)**（Rassvet）态势的网站**[findrassvet.ru](https://findrassvet.ru/)**。'
+  '本页面由 [小橙子的宇宙Jackoraniverse](https://space.bilibili.com/455972735) 使用 AI 工具生成，灵感与最初版本来自于跟踪俄罗斯**[「黎明」星座](https://sat.huijiwiki.com/wiki/%E9%BB%8E%E6%98%8E%E6%98%9F%E5%BA%A7)**（Rassvet）态势的网站**[findrassvet.ru](https://findrassvet.ru/)**（作者 [V. Bulybenko，GitHub @vbklgd](https://github.com/vbklgd)）。'
 ].join('\n');
 var README_EN = [
   '# 🛰️ CSCN & Qianfan Live Tracker',
@@ -7631,7 +7693,7 @@ var README_EN = [
   '',
   '**Which satellites are missing.** The most recent groups (CSCN 2026-176 / 187 / 213 / 221, Qianfan 2026-210 / 211, …) **are in the catalog** — with temporary NORAD numbers (100203–100799) and **published summary parameters** (period, inclination, perigee/apogee; hover the "pending" tag in the launch table to read them) — but their **full element sets (TLE) are not publicly distributed yet**: CelesTrak\'s GP endpoint returns nothing for temporary designators, Space-Track needs an account, and third-party mirrors (n2yo, tle.ivanstanojevic.me) do not carry them either. One verified example: COSPAR **2026-176A** is temporary number **100203**, already named **HULIANWANG DIGUI-178** — they are not lost, just filed as analyst objects pending permanent numbers. So this page can show the summary but cannot propagate them: they appear in none of the three views, except as **hollow dots with dashed altitude ranges** on the altitude chart (not selectable or hoverable). Once permanent numbers and elements appear, a rebuild promotes them automatically. Early test satellites and CSCN\'s GEO satellites sit outside these LEO groups and are not counted either. The "satellites launched / in orbit" and "launches succeeded" figures at the top are **taken verbatim from the Satellite Wiki statistics** (brackets quote the article\'s own breakdown); the number this page can actually propagate — objects with full published elements — sits on the second line as a TLE-side cross-check.',
   '',
-  '**About this project.** Fully open source under the [MIT license](https://opensource.org/licenses/MIT) — free to use, modify and distribute (full text at the end). This page was created by [小橙子的宇宙Jackoraniverse](' + BILI + ') using AI tools, inspired by and originally based on [Где «Рассветы»](https://findrassvet.ru/) (Bureau 1440\'s Rassvet tracker).',
+  '**About this project.** Fully open source under the [MIT license](https://opensource.org/licenses/MIT) — free to use, modify and distribute (full text at the end). This page was created by [小橙子的宇宙Jackoraniverse](' + BILI + ') using AI tools, inspired by and originally based on [Где «Рассветы»](https://findrassvet.ru/) (Bureau 1440\'s Rassvet tracker) — thanks to its author [V. Bulybenko](https://github.com/vbklgd) for publishing the orbit-raising methodology. Full credits for every data and reference source are under "Project origin & thanks" below.',
   '',
   '**Disclaimer.** This page was generated with the help of AI and reviewed, but may still contain errors; official sources prevail. Public catalog elements are limited in accuracy and age over time — typical position errors are kilometers within hours — for outreach and reference only, not for engineering, research or pass prediction. Unofficial project, not affiliated with China Satellite Network Group or Shanghai Spacecom Satellite Technology.',
   '',
@@ -7767,6 +7829,26 @@ var README_EN = [
   '- 🗺️ [Natural Earth](https://www.naturalearthdata.com/) — **public-domain** coastlines ([terms](https://www.naturalearthdata.com/about/terms-of-use/): no permission or credit needed);',
   '- 🧮 [satellite-js](https://github.com/shashwatak/satellite-js) (MIT) → the algorithm itself comes from **Spacetrack Report #3 / CSSI**; 🔤 [Audiowide](https://fonts.google.com/specimen/Audiowide) (SIL OFL 1.1); 📐 orbit-raising presentation follows the methodology of [findrassvet.ru](https://findrassvet.ru/) ([CC BY 4.0](https://creativecommons.org/licenses/by/4.0/deed.en), credit `findrassvet.ru, V. Bulybenko`); 🛰️ some engineering approaches follow [Kayhan Space\'s open-source work](https://github.com/Kayhan-Space/sgp4gl) (MIT).',
   '',
+  '## 🌟 Project origin & thanks',
+  '',
+  'This page was created by [小橙子的宇宙 Jackoraniverse](' + BILI + ') with AI tooling.',
+  '',
+  'The idea — and the very first version — came from **[findrassvet.ru](https://findrassvet.ru/)** (by [V. Bulybenko](https://github.com/vbklgd)), a site tracking Russia\'s **[Rassvet](https://sat.huijiwiki.com/wiki/%E9%BB%8E%E6%98%8E%E6%98%9F%E5%BA%A7)** (Бюро 1440) constellation. The author published the full orbit-raising methodology in [METHODOLOGY.md](https://github.com/vbklgd/findrassvet/blob/main/METHODOLOGY.md) (the 2-day OLS window, the Kozai → Brouwer semi-major axis, J₂ nodal regression), and we used it to audit this page\'s own conventions — our sincere thanks to the original author.',
+  '',
+  'Without the sources below, this page could not draw a single dot. **Listed in order of importance:**',
+  '',
+  '1. **[Satellite Wiki](https://sat.huijiwiki.com/)** — the source this page leans on most: the SatNet and Qianfan articles give the batches, launch dates, vehicles, sites, developers, full and Chinese names, plus the three header counters and the "mission result" column in the launch history ([CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/deed.en) — credit and share alike).',
+  '2. **[CelesTrak](https://celestrak.org/)** — day-to-day distributor of the orbital elements. Every page open pulls the two current groups from it; the upstream source is the public catalogue of the US Space Force **18 SDS** (via Space-Track). Fetched per its [usage policy](https://celestrak.org/usage-policy.php).',
+  '3. **[Space-Track.org](https://www.space-track.org/)** — 18 SDS\'s GP history set. The historical orbit database behind "Orbit Change Status" is loaded from it at build time; users need no account.',
+  '4. **[findrassvet.ru](https://findrassvet.ru/)** — the inspiration, and our reference for orbit-raising methodology ([CC BY 4.0](https://creativecommons.org/licenses/by/4.0/deed.en), credit `findrassvet.ru, V. Bulybenko`).',
+  '5. **[satellite-js](https://github.com/shashwatak/satellite-js)** (MIT) — the SGP4 propagator this page runs on.',
+  '6. **[Spacetrack Report #3 / CSSI verification cases](https://celestrak.org/NORAD/documentation/)** — the **numerical yardstick** for SGP4 (33 scenarios, 667 expected positions and velocities), obtained via the [python-sgp4](https://github.com/brandon-rhodes/python-sgp4) (MIT) distribution; the tolerance (`error = 2e-7`) follows its tests.',
+  '7. **[Natural Earth](https://www.naturalearthdata.com/)** — the coastline basemap (public domain, no credit needed).',
+  '8. **[Kayhan Space\'s sgp4gl](https://github.com/Kayhan-Space/sgp4gl)** (MIT) — a few engineering approaches (e.g. splitting orbit rings into front and back halves) follow this implementation.',
+  '9. **[Audiowide](https://fonts.google.com/specimen/Audiowide)** (SIL OFL 1.1) — the typeface of the CISTrack wordmark, embedded as base64; thanks also to Google Fonts for distributing it.',
+  '',
+  'Finally, our thanks to **everyone who sent in comments and suggestions before the 1.9.9.630 stable release** — on Bilibili, in [GitHub Issues](' + REPO_ISSUES + '), in [Gitee Issues](' + GITEE_ISSUES + '), or anywhere else. The bugs you found and the interactions that felt wrong: many are fixed in this version, and the rest are recorded under "Roadmap" in the release notes. This page was picked apart by all of you — thank you.',
+  '',
   '## 📜 Disclaimer and privacy',
   '',
   '- **Accuracy**: the data comes from third-party public catalogues and a community wiki; it may contain errors and may lag. TLE / SGP4 are **not suitable for conjunction assessment, flight operations or any business decision**; nothing here is professional advice;',
@@ -7803,7 +7885,7 @@ var README_EN = [
   '',
   '---',
   '',
-  'This page was created by [小橙子的宇宙Jackoraniverse](https://space.bilibili.com/455972735) using AI tools, inspired by **[findrassvet.ru](https://findrassvet.ru/)**, a site tracking Russia\'s **[Rassvet Constellation](https://sat.huijiwiki.com/wiki/%E9%BB%8E%E6%98%8E%E6%98%9F%E5%BA%A7)**.'
+  'This page was created by [小橙子的宇宙Jackoraniverse](https://space.bilibili.com/455972735) using AI tools, inspired by **[findrassvet.ru](https://findrassvet.ru/)**, a site tracking Russia\'s **[Rassvet Constellation](https://sat.huijiwiki.com/wiki/%E9%BB%8E%E6%98%8E%E6%98%9F%E5%BA%A7)**. Full credits for all data and reference sources are under "Project origin & thanks" above.'
 ].join('\n');
 var readmeOpen = false;
 function renderReadme() {
@@ -7814,6 +7896,7 @@ function openReadme() {
   readmeOpen = true;
   document.documentElement.classList.add('modal-open');   // 锁住背景滚动
   document.getElementById('readmeMask').classList.remove('hide');
+  placeModalX();     // ★ V1.9.9.630：显示后立刻按"上沿到屏顶 = 下沿到弹窗上沿"钉住 × 的位置
 }
 function closeReadme() {
   readmeOpen = false;
@@ -7826,8 +7909,47 @@ document.getElementById('readmeMask').addEventListener('click', function (e) {
   if (e.target === this) closeReadme();
 });
 document.addEventListener('keydown', function (e) {
-  if (e.key === 'Escape' && readmeOpen) closeReadme();
+  if (e.key !== 'Escape') return;
+  // ★ V1.9.9.630：MIT 许可证弹窗与说明弹窗各管各的（同时开的情况不存在，代码路径上有先后）
+  if (typeof licOpen !== 'undefined' && licOpen) { closeLic(); return; }
+  if (readmeOpen) closeReadme();
 });
+
+// ★★ V1.9.9.630（用户要求）：弹窗右上角「×」的**竖直位置**按等式钉死。
+// 判据（用户原文）：「使其**下沿到弹出窗口上沿的距离 = 其上沿到显示屏幕顶部的距离**」。
+// 为什么必须实测而不是写死：弹窗高度是 88vh、且上下居中 —— 视口越矮，弹窗上沿越靠上；
+//   写死 14px 只在某一档视口成立，手机上就露出"× 底部一小条压在弹窗上沿"的 bug。
+// 推导：设 × 高 H、top 为 t、弹窗上沿距屏顶 m
+//        上沿到屏顶      = t
+//        下沿到弹窗上沿  = m − (t + H)
+//       两者相等 ⇒ t = (m − H) / 2
+//   （注释里早先写成 m/2 − H 是错的 —— 那样 t 会更小、× 会顶到屏幕最上边；
+//     以本式为准，并用 smoke 的断言把这条代数关系锁住。）
+// 触发点：打开弹窗时、窗口尺寸变化时（88vh 会变）。两套弹窗（说明 / MIT）共用这一个函数。
+function placeModalX() {
+  try {
+    // 用**当前可见**的那个遮罩里的弹窗来量；都不可见就用说明弹窗的（布局仍在，量得到）
+    var mask = null;
+    ['licMask', 'readmeMask'].forEach(function (id) {
+      var m = document.getElementById(id);
+      if (m && !m.classList.contains('hide') && !mask) mask = m;
+    });
+    if (!mask) mask = document.getElementById('readmeMask');
+    if (!mask) return;
+    var box = mask.querySelector('.modal');
+    var x = mask.querySelector('.modal-x');
+    if (!box || !x) return;
+    var mr = box.getBoundingClientRect(), xr = x.getBoundingClientRect();
+    var H = xr.height || 40;
+    if (mr.top <= 0) return;                    // 布局未就绪（display:none）→ 保留 CSS 兜底值
+    var t = Math.max(2, Math.round((mr.top - H) / 2));
+    // 两套弹窗都写（下一次打开另一套时不必再算）
+    document.querySelectorAll('.modal-mask .modal-x').forEach(function (el) {
+      el.style.setProperty('--mx-top', t + 'px');
+    });
+  } catch (e) {}
+}
+window.addEventListener('resize', placeModalX);
 
 // ---------------------------------------------------------------- 顶部时钟药丸
 var clockUTC = false;
@@ -8577,6 +8699,93 @@ function showToast(txt, mode) {
     toastTimer = setTimeout(function () { toastEl.classList.remove('show'); }, mode === 'fail' ? 5200 : 1800);
   } catch (e) {}
 }
+
+// ------------------------------------------------------------------ ★ V1.9.9.630 顶栏标志的仓库选择药丸
+// 用户口径（原文）：「现有的页面点击顶栏的 CISTrack 标志就会跳转至 Github 页面，现在改为点击后跳出
+//   一个药丸窗（"已选择"同款，但是暗模式下为白底黑字，亮模式下为黑底白字），内容为
+//   "访问项目仓库主页：Github / Gitee"，其中 Github 为蓝色填充字体加下划线，Gitee 则为红色填充字体加下划线」。
+// 设计取舍（三条，都踩过坑）：
+//   ① **不复用 #selToast**：那个是纯提示、`pointer-events:none`，而这里要能点链接；
+//      且它的定位是"屏幕水平居中在时间药丸下方"，而标志在最左侧，弹到屏幕中央会离点击点很远。
+//      ⇒ 单开 #repoPill，外观抄同一套（padding/圆角/字号/阴影 + .inv 反色规则），交互独立。
+//   ② 定位读**标志的实测矩形**（getBoundingClientRect），不写死像素 —— 顶栏在 1440/1100/620/390
+//      四档字号都不同（32/26/25/23/18px），写死会在别的宽度上错位。
+//   ③ 窄屏要**夹回视口内**：390px 宽时"访问项目仓库主页：Github / Gitee"约 240px，
+//      标志左边距只有 12~16px，不夹的话右端会被切掉。
+var repoPillEl = null, repoPillOpen = false, repoPillTimer = 0;
+function repoPillLang() {
+  var lead = document.getElementById('repoPillLead');
+  if (lead) lead.textContent = t('d_repopill_lead');
+}
+function placeRepoPill() {
+  var el = repoPillEl || (repoPillEl = document.getElementById('repoPill'));
+  var link = document.getElementById('brandLink');
+  if (!el || !link) return;
+  var r = link.getBoundingClientRect();
+  // 先显示再量（opacity:0 也参与布局，量得到宽度；但 display:none 量不到 —— 这里没有用 display）
+  var w = el.offsetWidth || 0;
+  var left = Math.round(r.left);
+  var maxLeft = Math.max(8, window.innerWidth - w - 8);
+  if (left > maxLeft) left = maxLeft;          // 夹回视口右边界
+  if (left < 8) left = 8;                      // 夹回视口左边界
+  el.style.left = left + 'px';
+  el.style.top = Math.round(r.bottom + 8) + 'px';
+}
+function showRepoPill() {
+  var el = repoPillEl || (repoPillEl = document.getElementById('repoPill'));
+  var link = document.getElementById('brandLink');
+  if (!el) return;
+  repoPillLang();
+  el.classList.add('show');
+  repoPillOpen = true;
+  if (link) link.setAttribute('aria-expanded', 'true');
+  placeRepoPill();                              // ★ 必须在 add('show') 之后：否则量到的是未布局宽度
+  placeRepoPill();                              // 第二遍：首帧 offsetWidth 可能是 0（字体/换行还没算完）
+  clearTimeout(repoPillTimer);
+  // 12s 后自动收起 —— 与 #selToast 的"提示"气质一致：它是**快捷入口**，不是常驻面板；
+  //   不自动收的话，用户点了别处忘了关，它就长期浮在顶栏下面挡住品牌副标题。
+  repoPillTimer = setTimeout(hideRepoPill, 12000);
+}
+function hideRepoPill() {
+  var el = repoPillEl || (repoPillEl = document.getElementById('repoPill'));
+  var link = document.getElementById('brandLink');
+  if (!el) return;
+  el.classList.remove('show');
+  repoPillOpen = false;
+  if (link) link.setAttribute('aria-expanded', 'false');
+  clearTimeout(repoPillTimer);
+}
+function toggleRepoPill() { if (repoPillOpen) hideRepoPill(); else showRepoPill(); }
+// 绑定：点标志 → 弹药丸（**不跳转**）；点药丸外面 / 按 Esc / 滚动 / 改窗口大小 → 收起。
+//   为什么不给「点药丸内部」也加关闭：用户可能就是点了链接（target=_blank，本页不动），
+//   此时药丸该留着让他再点另一个 —— 12s 后自动收即可。
+(function wireRepoPill() {
+  var link = document.getElementById('brandLink');
+  var el = document.getElementById('repoPill');
+  if (link) {
+    link.addEventListener('click', function (e) {
+      // 只接管**普通左键点击**：Ctrl/Cmd/Shift/中键仍走原生"新标签打开"，
+      //   否则想直接在新标签打开的键盘用户会被拦住。
+      if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+      e.preventDefault();
+      toggleRepoPill();
+    });
+  }
+  if (el) {
+    el.addEventListener('click', function (e) { e.stopPropagation(); });
+  }
+  document.addEventListener('click', function (e) {
+    if (!repoPillOpen) return;
+    if (el && el.contains(e.target)) return;
+    if (link && link.contains(e.target)) return;
+    hideRepoPill();
+  }, true);
+  document.addEventListener('keydown', function (e) {
+    if (repoPillOpen && e.key === 'Escape') { hideRepoPill(); }
+  });
+  window.addEventListener('resize', function () { if (repoPillOpen) placeRepoPill(); });
+  window.addEventListener('scroll', function () { if (repoPillOpen) hideRepoPill(); }, { passive: true });
+})();
 // V1.9.1（A19）：搜索补池（已再入 / 尚未编目）条目的点击行为 —— 任务清单 Q35。
 //   ① **01/02/03 章物理上无法高亮**：那三章画的是"库内有可推算 TLE 的卫星"，补池对象不在其中，
 //      所以这里**只**跳到 06 卫星表格 + 弹提示，绝不假装在图上高亮了一个不存在的点；
@@ -9964,6 +10173,34 @@ function renderChrome() {
   var c = document.getElementById('footCopy');
   // V1.3.5：产品名统一 CISTrack，版本号用白色（页面主色）而非灰色
   if (c) c.innerHTML = 'CISTrack<i class="foot-ver"> · ' + VERSION + '</i>';
+  // ★ V1.9.9.630（用户要求）：第三行「本项目为MIT…」—— MIT **前后不留空格**，MIT 本身染绿 + 下划线，
+  //   并且**可点击**（点了在页内弹 MIT 许可证，规格与「说明」弹窗完全一致）。
+  //   为什么在这里拼而不是写死在 HTML：它夹在两句 i18n 文案中间（中英句子结构不同），
+  //   写死就没法跟着语言切换；而挂 data-i18n 又会 innerHTML 覆盖掉中间的按钮。
+  var u = document.getElementById('footUse');
+  if (u) {
+    u.innerHTML = t('foot_use_a') + '<button class="foot-mit" id="footMit" type="button">MIT</button>' +
+      t('foot_use_b');
+    var mit = document.getElementById('footMit');
+    if (mit) {
+      mit.title = t('foot_mit_title');
+      mit.setAttribute('aria-label', t('foot_mit_title'));
+      // 动态重建的按钮要重新绑定（renderChrome 会在换语言/换星座时再跑）
+      mit.addEventListener('click', openLic);
+    }
+  }
+  // ★ V1.9.9.630（用户要求）：新增第四行「欢迎在 B站动态页、GitHub Issue 和 Gitee Issue 上提意见」。
+  //   三个人名各自染色 + 下划线：B站粉 / GitHub 千帆蓝 / Gitee 橙黄（与小橙子的宇宙同款）。
+  var fb = document.getElementById('footFb');
+  if (fb) {
+    fb.innerHTML = t('foot_fb_a') +
+      '<a class="fb-bili" href="' + BILI_OPUS + '" target="_blank" rel="noopener">' + t('foot_fb_bili') + '</a>' +
+      t('foot_fb_b') +
+      '<a class="fb-gh" href="' + REPO_ISSUES + '" target="_blank" rel="noopener">GitHub Issue</a>' +
+      t('foot_fb_c') +
+      '<a class="fb-gee" href="' + GITEE_ISSUES + '" target="_blank" rel="noopener">Gitee Issue</a>' +
+      t('foot_fb_d');
+  }
   // 信息窗关闭按钮的提示随语言刷新
   document.querySelectorAll('.sat-info .si-close').forEach(function (b) {
     b.title = t('d_close_info');
@@ -9971,6 +10208,73 @@ function renderChrome() {
   });
   layoutNav();
   updateJumpActive();
+  syncFootPillGap();     // ★ V1.9.9.630：作者与章节药丸的水平间距（每次重排后都要重钉）
+}
+// ---------------------------------------------------------------- ★ V1.9.9.630 页内 MIT 许可证弹窗
+// 用户口径：「点击可在页面内显示本项目的 MIT 许可证，形式、规格和点击说明/readme按钮弹出的
+//   页面内带X按钮的窗口完全一样」。⇒ 结构与 .modal-mask/.modal/.modal-x 完全复用（那份 CSS 一字未改），
+//   这里只负责填内容与开关。
+var licOpen = false;
+function renderLic() {
+  var box = document.getElementById('licBody');
+  if (!box) return;
+  // 用 <pre> 保留许可证原文的换行与空行（.modal-body pre 已有样式）；
+  //   标题单独一行放在 pre 之前，让窗口里第一眼就知道这是什么。
+  box.innerHTML = '<h2>' + t('d_lic_title') + '</h2>' +
+    '<p>' + t('d_lic_note') + '</p>' +
+    '<pre>' + String(MIT_TXT).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</pre>';
+}
+function openLic() {
+  renderLic();
+  licOpen = true;
+  document.documentElement.classList.add('modal-open');   // 与说明弹窗共用同一把滚动锁
+  document.getElementById('licMask').classList.remove('hide');
+  placeModalX();     // ★ V1.9.9.630：与说明弹窗共用同一个位置钉法
+}
+function closeLic() {
+  licOpen = false;
+  document.documentElement.classList.remove('modal-open');
+  document.getElementById('licMask').classList.add('hide');
+}
+(function wireLic() {
+  var x = document.getElementById('licX');
+  if (x) x.addEventListener('click', closeLic);
+  var mask = document.getElementById('licMask');
+  if (mask) mask.addEventListener('click', function (e) { if (e.target === mask) closeLic(); });
+})();
+// ---------------------------------------------------------------- ★ V1.9.9.630 页脚作者与章节药丸的水平间距
+// 用户判据（原文）：「向右移动至"...rse"的右侧距离药丸左侧边框的水平距离 = 顶栏语言切换按钮右侧
+//   距离亮暗模式切换按钮的像素距离」。
+// 做法：**实测**顶栏两键的那段间距（不是写死像素）—— 顶栏按钮的 padding/gap 会随宽度档位变，
+//   写死一个数在别的宽度上就不等了。量到 gap 后，反推「需要给页脚右侧留多少 padding-right」，
+//   使 author 的右边缘到 #jumpPill 左边框恰好等于 gap。
+//   ⚠️ 用 padding-right 而不是 margin/transform：作者的右边缘位置由 footer 的 padding 决定，
+//     改 padding 不会影响左侧三行的换行计算（它们有自己的 min-width:0 + flex 收缩）。
+//   ⚠️ 只在宽屏生效（窄屏 author 居中，与药丸不重叠）；≤1100px 时清空内联值，交回 CSS。
+function syncFootPillGap() {
+  try {
+    var pill = document.getElementById('jumpPill');
+    var foot = document.querySelector('footer');
+    var lang = document.getElementById('langBtn');
+    var theme = document.getElementById('themeBtn');
+    if (!pill || !foot) return;
+    // 窄屏：清掉内联 padding-right，交回媒体查询里的值
+    if (window.innerWidth <= 1100) { foot.style.paddingRight = ''; return; }
+    var pr = 0;
+    if (lang && theme) {
+      var rl = lang.getBoundingClientRect(), rt = theme.getBoundingClientRect();
+      // 语言键在左、主题键在右 → gap = 主题键左边 − 语言键右边
+      pr = Math.round(rt.left - rl.right);
+    }
+    if (!(pr > 0)) pr = 15;                    // 量不到（隐藏/未布局）时用顶栏的实际视觉间距兜底
+    // 药丸左边缘到视口右边的距离
+    var rp = pill.getBoundingClientRect();
+    if (rp.width <= 0) return;                 // .off 状态下量不到就先跳过，等下次
+    var pillLeftInset = window.innerWidth - rp.left;
+    // 期望：author 右边缘 = 视口右 − pillLeftInset − pr
+    var want = pillLeftInset + pr;
+    foot.style.paddingRight = want + 'px';
+  } catch (e) {}
 }
 
 // ---------------------------------------------------------------- 联网刷新最新轨道要素

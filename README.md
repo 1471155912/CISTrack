@@ -11,7 +11,7 @@
 </div>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.9.9-ff6b6b?style=flat-square" alt="version">
+  <img src="https://img.shields.io/badge/version-1.9.9.630-ff6b6b?style=flat-square" alt="version">
   <a href="https://sat.huijiwiki.com/wiki/%E6%98%9F%E7%BD%91"><img src="https://img.shields.io/badge/%E6%98%9F%E7%BD%91-CSCN-ff6b6b?style=flat-square" alt="星网"></a>
   <a href="https://sat.huijiwiki.com/wiki/%E5%8D%83%E5%B8%86%E6%98%9F%E5%BA%A7"><img src="https://img.shields.io/badge/%E5%8D%83%E5%B8%86-G60-4dabf7?style=flat-square" alt="千帆"></a>
   <img src="https://img.shields.io/badge/license-MIT-4dabf7?style=flat-square" alt="license">
@@ -22,7 +22,7 @@
 > **本项目主页（GitHub）**：https://github.com/1471155912/CISTrack
 > **在线版页面**：https://1471155912.github.io/CISTrack/CISTrack.html
 > **国内镜像（Gitee）**：https://gitee.com/Jackoraniverse/CISTrack
-> 点击网页顶栏左上角的 **CISTrack** 标志可直接跳转到本项目主页。
+> 点击网页顶栏左上角的 **CISTrack** 标志会弹出一个选择窗，让你在 **GitHub / Gitee** 两个仓库主页之间选一个打开（V1.9.9.630 起；此前是直接跳 GitHub）。
 >
 > ⚠️ **两个仓库的关系**：GitHub 为主仓库、Gitee 为**同内容镜像**，每次提交**双向同步推送**（同一个 commit 哈希，内容逐字节一致）。
 > 由于 Gitee Pages 已于 2024–2025 年官方下线（[官方说明](https://gitee.com/help/articles/4228)、issue #IK5SM4「暂无上线计划」），
@@ -59,13 +59,42 @@
 
 ## 🌟 项目来源与致谢
 
-本页面由 [小橙子的宇宙Jackoraniverse](https://space.bilibili.com/455972735) 使用 AI 工具生成，灵感与最初版本来自于跟踪俄罗斯**[「黎明」星座](https://sat.huijiwiki.com/wiki/%E9%BB%8E%E6%98%8E%E6%98%9F%E5%BA%A7)**（Rassvet）态势的网站**[findrassvet.ru](https://findrassvet.ru/)**。
-作者（[V. Bulybenko，GitHub @vbklgd](https://github.com/vbklgd)）还公开了「升轨速率」（RATE / ТЕМП）指标背后的
-完整方法论 —— **[METHODOLOGY.md](https://github.com/vbklgd/findrassvet/blob/main/METHODOLOGY.md)**：
-以每日中午为中心的 2 天窗口最小二乘斜率、"宁可不输出也不外推"的三条拒绝规则、实测噪声（0.11 km/天）
-与单日点火峰值保留率（68 %）、Kozai → Brouwer 半长轴推导，以及用 J₂ 交点退行解释轨道面展开的发现。
-我们已据此校核 CISTrack 的计算口径，并将把相关建议落实到后续版本 —— 衷心感谢原作者的发现与指点，
-也欢迎大家直接阅读这份方法文档（引用规范见其文末）。
+本页面由 [小橙子的宇宙Jackoraniverse](https://space.bilibili.com/455972735) 使用 AI 工具生成，灵感与最初版本来自于跟踪俄罗斯**[「黎明」星座](https://sat.huijiwiki.com/wiki/%E9%BB%8E%E6%98%8E%E6%98%9F%E5%BA%A7)**（Rassvet）态势的网站**[findrassvet.ru](https://findrassvet.ru/)**（作者 [V. Bulybenko，GitHub @vbklgd](https://github.com/vbklgd)）。
+
+该站公开的 **[METHODOLOGY.md](https://github.com/vbklgd/findrassvet/blob/main/METHODOLOGY.md)** 把升轨速率（RATE / ТЕМП）
+的算法写全了 —— 2 天窗最小二乘、Kozai → Brouwer 半长轴、J₂ 交点退行，本项目据此校核了自己的计算口径
+（具体采用点见下文「🧭 方法来源与致谢」）。衷心感谢原作者的发现与指点，也推荐大家直接读这份方法文档，
+引用规范见其文末。
+
+没有下面这些数据源与参考源，这个页面一个点都画不出来。**按重要程度排列**：
+
+1. **[卫星百科](https://sat.huijiwiki.com/)** —— 本项目最依赖的数据源。星网与千帆两个词条给出了批次划分、
+   发射时间、运载火箭、发射场、研发机构、卫星全名与中文名；顶部「发射 / 在轨 / 发射次数」三个计数、
+   以及 07 章逐次发射的「任务结果」列，也一律以词条口径为准。词条内容按
+   [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/deed.zh-hans) 共享
+   （[版权页](https://sat.huijiwiki.com/wiki/Project:%E7%89%88%E6%9D%83)），本项目**署名并链接协议**、
+   只呈现事实性条目；你若转载本页内容，请一并遵守该协议。
+2. **[CelesTrak](https://celestrak.org/)** —— 轨道要素（TLE）的日常分发方。页面每次打开、以及仓库每 12 小时的
+   自动更新，都向它取当期两组要素；**本源**是美国太空军 **18 SDS**（经 Space-Track 分发）的公开编目。
+   本项目按它的[使用政策](https://celestrak.org/usage-policy.php)取数（按更新节奏、只取需要的）。
+3. **[Space-Track.org](https://www.space-track.org/)** —— 18 SDS 的 GP 历史要素集，04 章「变轨情况」背后的
+   历史轨道数据库就是从它灌进来的（构建期一次性拉取，普通使用者不需要账号）。
+4. **[findrassvet.ru](https://findrassvet.ru/)** —— 灵感来源，也是变轨方法学的参考源（见上文与下文专章）。
+   方法论文本与图采用 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/deed.zh-hans)，
+   署名 `findrassvet.ru, V. Bulybenko`。
+5. **[satellite-js](https://github.com/shashwatak/satellite-js)**（MIT）—— 页面里跑的 SGP4 就是它。
+6. **[Spacetrack Report #3 / CSSI 官方验证用例](https://celestrak.org/NORAD/documentation/)** —— SGP4 的**数值回归标尺**
+   （33 个场景 / 667 条期望位置与速度），原文经 [python-sgp4](https://github.com/brandon-rhodes/python-sgp4)（MIT）
+   的分发包取得，容差口径（`error = 2e-7`）也取自它的测试。`data/cssi/` 内保留原文，仅用于测试。
+7. **[Natural Earth](https://www.naturalearthdata.com/)** —— 海岸线底图（公有领域，无需署名）。
+8. **[Kayhan Space 的 sgp4gl](https://github.com/Kayhan-Space/sgp4gl)**（MIT）—— 部分工程做法（如轨道圈的前后景分离）
+   参考了它的开源实现。
+9. **[Audiowide](https://fonts.google.com/specimen/Audiowide)**（SIL OFL 1.1）—— 顶栏 CISTrack 字标用的字体，
+   已以 base64 内嵌；另感谢 Google Fonts 提供分发。
+
+最后，感谢 **1.9.9.630 正式稳定版发布前**通过 B站、GitHub Issue、Gitee Issue 等方式给本项目提过意见与建议的各位网友。
+你们指出的错漏、别扭的交互和想不通的口径，很多已经落进了这一版；这一版没来得及做的，也都记进了
+[1.9.9.630 发布说明](https://github.com/1471155912/CISTrack/releases)里的「更新计划」。这个页面是大家一起挑出来的 —— 谢谢你们。
 
 ---
 
@@ -80,7 +109,7 @@
 
 ### ② 本地版（单文件，双击即用）
 
-1. 下载 `CISTrack_v1.9.9.html`（[最新 Release 附件](https://github.com/1471155912/CISTrack/releases/latest)；
+1. 下载 `CISTrack_v1.9.9.630.html`（[最新 Release 附件](https://github.com/1471155912/CISTrack/releases/latest)；
    仓库内的 `index.html` 也会自动跳到最新版）
 2. 双击用浏览器打开（Chrome / Edge / Firefox / Safari 均可）
 
@@ -153,7 +182,7 @@
 两种方式任选：
 
 - **下载 Release 的 zip**（[最新 Release](https://github.com/1471155912/CISTrack/releases/latest) 的
-  `CISTrack_v1.9.9_local-deploy.zip`）→ 解压即用，**这是给本地部署准备的完整包**；
+  `CISTrack_v1.9.9.630_local-deploy.zip`）→ 解压即用，**这是给本地部署准备的完整包**；
 - 或 `git clone https://github.com/1471155912/CISTrack.git`
 
 ### 第二步：按需要选一种用法
@@ -452,7 +481,7 @@ build.mjs       # 把上面几块注入 template → 单文件 HTML
 CISTrack.html           ★ 唯一产物名（不带版本号）—— 固定链接就用它：
                           https://1471155912.github.io/CISTrack/CISTrack.html
                           （V1.9.5 起 build.mjs 直接写这个名字；原先那份同内容的中文名产物已取消）
-CISTrack_v1.9.9.html    当前版本快照
+CISTrack_v1.9.9.630.html    当前版本快照
 CISTrack_v1.9.8.html    上一版快照（回滚 / 对照用）
                         ↑ 更早的版本由 `release.mjs` **自动裁剪**（只留当前版 + 上一版）
 index.html              入口页（811 字节的跳转页，自动跳到 CISTrack.html）
@@ -489,6 +518,11 @@ scripts/omm.mjs                 6 位编目号（CelesTrak 100000+）解析与 T
 scripts/audit_refs.mjs          引用完整性体检（"测试引用了仓库里不存在的文件"）
 scripts/privacy_check.mjs       发布物去敏感闸门（本机私有环境叙事 → 命中即失败）
 scripts/repo_hygiene.mjs        仓库卫生闸门（根目录白名单 + 过程类文件黑名单 → 命中即失败）
+scripts/cdp.mjs                 **共享的浏览器抓取底座**（V1.9.9.630 抽出）：找浏览器 / 起 CDP /
+                                挑战页判据「只此一处」。四个抓取脚本全部依赖它 ——
+                                原先各自实现一遍，判据强弱不一，同一类 bug 反复复发。
+scripts/e2e_adversarial.mjs     **对抗性测试**（V1.9.9.630 新增）：喂坏数据看管道是"正确拒绝"
+                                还是"静默写坏产物"。完全离线，62 条断言分六层。
 scripts/import_history.mjs 等   见各脚本头部注释（历史库导入 / CT 爬升算法自证 / 搜索补池 / 离线 e2e / 临时根解析 等）
 .github/workflows/      云端自动化：update-tle.yml 每 12 小时刷新 TLE 并重新打包
 ```

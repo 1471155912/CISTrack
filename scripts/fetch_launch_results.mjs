@@ -13,17 +13,15 @@
 //     只要有任意一年成功就写文件（与 fetch_wiki.mjs 的容错口径一致）。
 //   · 结果码：ok = 成功/圆满成功，part = 部分成功，fail = 失败/失利；抓不到记 "?"。
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { tmpRoot } from './tmproot.mjs';
+import { openBrowser, waitContent } from './cdp.mjs';
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const OUT = path.join(ROOT, 'wiki_launches.json');
 const SATDATA = path.join(ROOT, 'build', 'satdata.json');
 const DUMP = process.argv.includes('--dump');
-const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 // V1.8.0：无头浏览器的用户数据目录默认落在 os.tmpdir()，本机 C 盘长期紧张 →
 //   由环境变量 CISTRACK_TMP 指到其它盘，其次用系统 TEMP/TMP。
 //   （V1.8.0 收尾：原来这里写死了某个本机盘符路径，已改为环境变量驱动。）
@@ -107,98 +105,54 @@ function parseRow(row) {
   };
 }
 
-// ---------------------------------------------------------------- 浏览器定位（与 fetch_wiki.mjs 相同）
-function findBrowser() {
-  const cands = [
-    process.env.CISTRACK_EDGE,
-    process.env.EDGE_PATH,
-    process.env.CHROME_PATH,
-    'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
-    'C:/Program Files/Microsoft/Edge/Application/msedge.exe',
-    '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
-    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-    '/usr/bin/microsoft-edge',
-    '/usr/bin/google-chrome',
-    '/usr/bin/chromium-browser',
-    '/usr/bin/chromium',
-  ].filter(Boolean);
-  for (const c of cands) { try { if (fs.existsSync(c)) return c; } catch (e) {} }
-  return null;
-}
-
-// ---------------------------------------------------------------- 最小 CDP 客户端（与 fetch_wiki.mjs 相同）
-function cdp(wsUrl) {
-  const ws = new WebSocket(wsUrl);
-  let id = 0; const pend = new Map();
-  const ready = new Promise((res, rej) => { ws.onopen = () => res(); ws.onerror = () => rej(new Error('WS 连接失败')); });
-  ws.onmessage = (m) => {
-    let d; try { d = JSON.parse(m.data); } catch (e) { return; }
-    if (d.id && pend.has(d.id)) { pend.get(d.id)(d); pend.delete(d.id); }
-  };
-  const send = (method, params = {}) => new Promise((res, rej) => {
-    const i = ++id;
-    pend.set(i, (d) => d.error ? rej(new Error(method + ': ' + (d.error.message || JSON.stringify(d.error)))) : res(d.result || {}));
-    ws.send(JSON.stringify({ id: i, method, params }));
-  });
-  const evalJs = async (expr) => {
-    const r = await send('Runtime.evaluate', { expression: expr, returnByValue: true, awaitPromise: true });
-    if (r.exceptionDetails) throw new Error('页面内报错: ' + (r.exceptionDetails.exception && r.exceptionDetails.exception.description || ''));
-    return r.result ? r.result.value : undefined;
-  };
-  return { ready, send, evalJs, close: () => { try { ws.close(); } catch (e) {} } };
-}
-
+// ---------------------------------------------------------------- 浏览器 / CDP（★ V1.9.9.630 起走 scripts/cdp.mjs）
+// 本文件原来自己写了一份 `findBrowser()` + `cdp()` + **只认中文的**挑战判据
+//   （`if (title && !/请稍候/.test(title)) { ok = true; break; }`）。
+//   那是本仓库最危险的一类 bug 的活标本：
+//     · Cloudflare 挑战页的标题是**英文** `Just a moment...`
+//       （`fetch_wiki.mjs` 在 V1.9.3 就实测确认过，并因此崩溃过几个月）；
+//     · 只认中文 → 挑战页被判成"已通过" → 接着去页面里查 `<tr>` → **0 行**；
+//     · 而 0 行在本脚本里的含义是"那一年真的没有发射"（`if (!got.rows.length) failedYears.push(y);`
+//       —— 连 failed 都只是"未读全"的提示，不是失败）→ 于是**整年的发射结果静默丢失**，
+//       下次运行还会用 `_stale` 把旧值保留下来，看起来一切正常。
+//   ⇒ 判据只该有一份。这里改成调用 cdp.mjs 的 `waitContent`，并且**必须用内容探针**
+//     （页面上真的出现了"年份 + COSPAR 编号"的行）才算过 —— 光标题正常不算数。
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/** 页面里是否真的有一张"发射记录表"（内容探针，交给 cdp.mjs 轮询） */
+const HAS_LAUNCH_TABLE = `(() => {
+  const trs = document.querySelectorAll('tr');
+  let n = 0;
+  for (const tr of trs) {
+    const t = (tr.innerText || '');
+    if (/\\b\\d{4}-\\d{1,3}\\s?[A-Z]?\\b/.test(t) || /\\d{4}\\s*年\\s*\\d{1,2}\\s*月/.test(t)) n++;
+    if (n >= 3) return true;                     // 至少 3 行像发射记录 → 认定表真的渲染了
+  }
+  return false;
+})()`;
+
 async function fetchArticle(url, { timeoutMs = 90000, pollMs = 2000 } = {}) {
-  const exe = findBrowser();
-  if (!exe) throw new Error('找不到 Edge/Chrome，请用 EDGE_PATH 环境变量指定可执行文件');
-  const udd = fs.mkdtempSync(path.join(TMPROOT, 'cistrack-launch-'));
-  const portFile = path.join(udd, 'DevToolsActivePort');
-  const child = spawn(exe, [
-    '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
-    '--disable-extensions', '--disable-background-networking', '--mute-audio',
-    '--remote-debugging-port=0', '--user-data-dir=' + udd, '--user-agent=' + UA, 'about:blank',
-  ], { stdio: 'ignore' });
-  let c = null;
+  // V1.8.0：本机偶发「浏览器没能在 10s 内启动调试端口」（与残留 msedge 进程争抢有关）→
+  //   等待窗口 30s，并由主流程对这一整年再重试 3 次。
+  const h = await openBrowser({ tmpRoot: TMPROOT, bootMs: 30000 });
   try {
-    let port = 0;
-    // V1.8.0：本机偶发「浏览器没能在 10s 内启动调试端口」（与残留 msedge 进程争抢有关）→
-    //   等待窗口放宽到 30s，并在主流程里对整年做重试。
-    for (let i = 0; i < 300; i++) {
-      await sleep(100);
-      try { port = parseInt(String(fs.readFileSync(portFile, 'utf8')).split(/\r?\n/)[0], 10) || 0; } catch (e) {}
-      if (port) break;
+    const { c } = h;
+    // 过 WAF：**标题 + 内容探针双判据**（详见 scripts/cdp.mjs `waitContent`；
+    //   本文件原来只判中文标题 —— 那是"整年发射结果静默丢失"的根因，见上方长注释）
+    const w = await waitContent(c, url, {
+      tries: 1,                       // 重试交给主流程的"逐年 3 次"（那里还带 2.5s 退避）
+      waitMs: timeoutMs, pollMs: pollMs,
+      contentProbe: HAS_LAUNCH_TABLE, settleMs: 1500,
+    });
+    if (!w.ok) {
+      throw new Error('发射记录页未通过 WAF 验证或表格未渲染（title=' + JSON.stringify(w.title) + '）');
     }
-    if (!port) throw new Error('浏览器没能在 30s 内启动调试端口');
-    let page = null;
-    for (let i = 0; i < 50; i++) {
-      try {
-        const list = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
-        page = list.find((t) => t.type === 'page') || list[0];
-      } catch (e) {}
-      if (page && page.webSocketDebuggerUrl) break;
-      await sleep(100);
-    }
-    if (!page || !page.webSocketDebuggerUrl) throw new Error('拿不到页面调试目标');
-    c = cdp(page.webSocketDebuggerUrl);
-    await c.ready;
-    await c.send('Page.enable'); await c.send('Runtime.enable');
-    await c.send('Page.navigate', { url });
-    const t0 = Date.now(); let ok = false;
-    while (Date.now() - t0 < timeoutMs) {
-      await sleep(pollMs);
-      const title = await c.evalJs('document.title').catch(() => '');
-      if (title && !/请稍候/.test(title)) { ok = true; break; }
-    }
-    if (!ok) throw new Error('发射记录页未通过 WAF 验证（标题一直是「请稍候…」）');
-    await sleep(1500);
     // 在页面里把每一行拆成「单元格数组」：每格 = { t: 文本, u: 词条链接 }。
     // ★ V1.9.4：改成**保留全部本星座行**（原先只留台账已有的 COSPAR）。
     //   为什么：新批次（如 26230）先在 TLE 目录里出现、台账还没人手补 → 旧口径直接把它
     //   丢掉，页面就永远显示「无台账」、没有批次名/制造商/发射日期/词条链接。
     //   新口径：凡是**目录里已有该批次卫星**的行一律保留（全球其它发射与本研究无关）。
-    const rows = await c.evalJs(`(() => {
+    const rows = await c.ev(`(() => {
       const out = [];
       document.querySelectorAll('tr').forEach(tr => {
         const cells = [].slice.call(tr.querySelectorAll('td,th')).map(function (el) {
@@ -210,19 +164,26 @@ async function fetchArticle(url, { timeoutMs = 90000, pollMs = 2000 } = {}) {
         });
         var txt = (tr.innerText || tr.textContent || '').replace(/\\s+/g, ' ').trim();
         if (!txt || txt.length > 600 || !cells.length) return;
-        // COSPAR 序号是 3 位零填充（2019-077A）；页面里可能写成 2019-77A，统一补齐到 3 位
-        var m = txt.match(/\\b(\\d{4})-(\\d{1,3})\\s?[A-Z]?\\b/);
+        // COSPAR 序号是 3 位零填充（2019-077A）；页面里可能写成 2019-77A，统一补齐到 3 位。
+        // ★★ V1.9.9.630（治本）：**必须先认 F 编号**（发射失利/取消批次，如 2025-F05）——
+        //   这类批次没有国际编号，卫星百科用「年-F序号」标记。旧正则只认纯数字
+        //   （四位年 + 短横 + 一到三位数字），遇到 2025-F05 直接 return → 整行被丢在解析层，
+        //   连"台账未匹配"的提示都拿不到原因。与 fetch_wiki_tables 的 normCospar 是同一类漏，
+        //   两处都要认，否则词条表里有这一发、发射结果却永远缺它。
+        //   实测（2026-10-21）：修前 "未匹配到结果的台账条目(1)：2025-F05"；
+        //   修后应能匹配到（发射记录页 2025 年确有这一行）。
+        var m = txt.match(/\\b(\\d{4})-F(\\d{1,3})\\b/i);
+        if (m) { out.push({ cos: m[1] + '-F' + String(+m[2]).padStart(2, '0'), txt: txt, cells: cells }); return; }
+        m = txt.match(/\\b(\\d{4})-(\\d{1,3})\\s?[A-Z]?\\b/);
         if (!m) return;
         out.push({ cos: m[1] + '-' + String(+m[2]).padStart(3, '0'), txt: txt, cells: cells });
       });
       return out;
     })()`);
-    const title = await c.evalJs('document.title').catch(() => '');
+    const title = w.title;
     return { rows: rows || [], title };
   } finally {
-    try { c && c.close(); } catch (e) {}
-    try { child.kill(); } catch (e) {}
-    setTimeout(() => { try { fs.rmSync(udd, { recursive: true, force: true }); } catch (e) {} }, 400);
+    h.cleanup();
   }
 }
 
@@ -254,16 +215,47 @@ console.log('保留行口径: 台账 ' + ledgerPrefixes().size + ' 个 ∪ 目�
 
 const found = {};        // '2026-210' → { res, n, date, rocket, site, payload, u }
 const failedYears = [];
+// ★★ V1.9.9.630：**全局时间预算**（抗干扰，与 refresh.mjs 同一思路）。
+//   病根：每个年份最多重试 3 次、每次 90s 超时 → 6 年最坏 27 分钟。
+//   这个脚本在 CI 里跑在 `timeout-minutes: 15`（update-wiki.yml）之下，
+//   一旦 WAF 变慢/网络抖动，job 会被**无声强杀**：没有日志、没有退出码、也没写盘，
+//   看起来就像"这轮没跑"——最难查的那种失败。
+//   取舍：宁可**少抓一年**并显式记账，也不要跑到被强杀、什么都没留下。
+//   （已读到的年份照常写盘；跳过的年份进 `skippedYears` 并打印，不伪装成"该年没有发射"。）
+const BUDGET_MS = (() => {
+  const v = Number(process.env.CISTRACK_LAUNCH_BUDGET_MIN);
+  return (isFinite(v) && v > 0 ? v : 11) * 60000;      // 默认 11 分钟（< CI 的 15 分钟上限）
+})();
+const T0 = Date.now();
+const elapsedMs = () => Date.now() - T0;
+const skippedYears = [];
 for (const y of years) {
+  // 预算用尽 → 后续年份不再尝试（已抓到的照常保留、照常写盘）
+  if (elapsedMs() > BUDGET_MS) {
+    skippedYears.push(y);
+    continue;
+  }
   const url = 'https://sat.huijiwiki.com/wiki/' + encodeURIComponent('引导页:发射记录/' + y);
   let got = null, lastErr = null;
   for (let attempt = 1; attempt <= 3 && !got; attempt++) {          // V1.8.0：逐年重试 3 次
+    // 重试前也看一眼预算：别为了第 3 次重试把整个 job 拖进超时
+    if (elapsedMs() > BUDGET_MS) { lastErr = new Error('超出时间预算，放弃剩余重试'); break; }
     try { got = await fetchArticle(url); }
     catch (e) { lastErr = e; if (attempt < 3) await sleep(2500); }
   }
   if (!got) {
-    console.error(y + ' 年抓取失败（3 次）：' + (lastErr && lastErr.message));
-    failedYears.push(y);
+    // 区分"预算用尽"与"真失败"：前者不是故障，别用"抓取失败"这种词吓人，
+    //   但**必须显式说出来**（否则读者会以为"这一年真的没有发射"）。
+    const outOfBudget = elapsedMs() > BUDGET_MS;
+    if (outOfBudget) {
+      console.error(y + ' 年：**超出时间预算（' + Math.round(BUDGET_MS / 60000) + ' 分钟）未抓取**'
+        + ' —— 不是故障，但这一年的数据仍是上一轮的（已标 _stale 保留）。'
+        + '如需抓全，调大 CISTRACK_LAUNCH_BUDGET_MIN 再单独跑一次。');
+      skippedYears.push(y);
+    } else {
+      console.error(y + ' 年抓取失败（3 次）：' + (lastErr && lastErr.message));
+      failedYears.push(y);
+    }
     continue;
   }
   let hit = 0, newHit = 0;
@@ -288,10 +280,18 @@ if (!hits) {
 }
 
 const now = new Date();
+// ★★ V1.9.9.630：日期/时间一律**北京时间**（与 fetch_wiki.mjs 同一口径）。
+//   旧实现用 `now.toISOString()`（UTC）→ 北京 00:00 那轮会写成前一天 16:00，
+//   与 wiki.json 的 `checkedAt`（北京时间）对不上，页面「卫星百科更新」看起来像落后一天。
+const bjNow = new Date(now.getTime() + 8 * 3600 * 1000);
 const out = {
   _readme: '星网/千帆逐次发射的任务结果（来源：卫星百科「引导页:发射记录/<年>」，res: ok=成功 part=部分成功 fail=失败 ?=未记载；n=该发颗数（页面没写就不记）；date/rocket/site/payload = V1.9.4 起保留的整行拆列，供构建端给"目录里已有卫星但台账未补"的新批次自动补元数据；u = 词条链接）。由 scripts/fetch_launch_results.mjs 自动更新。',
-  asOf: now.toISOString().slice(0, 10),
-  checkedAt: now.toISOString().slice(0, 16).replace('T', ' '),
+  asOf: bjNow.toISOString().slice(0, 10),
+  checkedAt: bjNow.toISOString().slice(0, 16).replace('T', ' '),
+  // ★ V1.9.9.630：把"这轮读全了没有"写进产物 —— 否则"某年没抓到"这件事
+  //   在下游完全不可见（页面照常显示，只是那年的结果变旧了）。
+  //   空数组 = 全读全；有值 = 该年未读全（预算用尽 / 抓取失败，日志里已逐条说明原因）。
+  _incompleteYears: [...new Set([...failedYears, ...skippedYears])].sort(),
   launches: {},
 };
 // 旧文件里已有、这次没抓到的条目保留（比如某年页面临时抽风），但要带上一次的核对时间避免误导读数
@@ -314,6 +314,36 @@ fs.writeFileSync(OUT, JSON.stringify(out, null, 1) + '\n', 'utf8');
 const wantLedger = ledgerPrefixes();
 console.log('wiki_launches.json 已更新：台账匹配 ' + hits + '/' + wantLedger.size +
   '（保留口径含目录新批次，见上），核对时间=' + out.checkedAt +
-  (failedYears.length ? '；**未读全**（' + failedYears.join(',') + '）' : ''));
+  '，耗时 ' + Math.round(elapsedMs() / 1000) + 's（预算 ' + Math.round(BUDGET_MS / 60000) + ' 分钟）' +
+  (failedYears.length ? '；**未读全·抓取失败**（' + failedYears.join(',') + '）' : '') +
+  (skippedYears.length ? '；**未读全·超预算跳过**（' + skippedYears.join(',') + '）' : ''));
 const miss = [...wantLedger].filter(k => !out.launches[k]);
-if (miss.length) console.log('未匹配到结果的台账条目(' + miss.length + ')：' + miss.join(', '));
+if (miss.length) {
+  // ★★ V1.9.9.630：未匹配**必须带原因**，不能只报个 key。
+  //   教训：本轮的 `2025-F05` 就只报了个 key，得靠人去读源码才发现是 COSPAR 正则漏了 F 编号。
+  //   现在按"F 编号 / 常规"两类给提示，F 编号还额外说明"失利批次常不进发射记录页"这一可能。
+  const fMiss = miss.filter(k => /F\d+$/.test(k));
+  console.log('未匹配到结果的台账条目(' + miss.length + ')：' + miss.join(', '));
+  if (fMiss.length) {
+    console.log('  ⓘ 其中 ' + fMiss.length + ' 条是**失利/取消批次**（' + fMiss.join(', ') + '，无国际编号）：'
+      + '若发射记录页确实没记这一发，属上游未收录（不是抓取失败）；'
+      + '本次已确认 F 编号正则生效——若仍缺，请到对应年份页人工核对。');
+  }
+  if (miss.length > fMiss.length) {
+    console.log('  ⓘ 其余 ' + (miss.length - fMiss.length) + ' 条为常规批次：请检查该年份页是否抓取失败（见上面"未读全"提示）。');
+  }
+}
+
+// ★★ V1.9.9.630：**写盘完成后显式退出**。
+//   为什么必须显式 `process.exit()`（实测踩过）：
+//     本脚本全程通过 `openBrowser()` 拉起 msedge 子进程，`cleanup()` 里虽然有
+//     `taskkill /T /F`，但那是**异步 spawn**，且 Windows 上偶尔有孙进程（crashpad 等）
+//     在父进程 `child.kill()` 之后仍短暂持有 stdout 管道 → Node 的事件循环认为
+//     "还有活的句柄"，于是**文件已写完、日志已打完，进程却迟迟不退出**。
+//     实测：用 `timeout 120` 包住跑，日志早已打印"wiki_launches.json 已更新（耗时 5s）"，
+//     但整条命令耗到 4 分钟才被 timeout 杀掉（EXIT=124）。
+//     在 CI 里这会表现为"步骤莫名耗满 timeout-minutes 然后被强杀" —— 明明活干完了。
+//   取舍：写到这一步所有落盘动作（writeFileSync）都已完成，是**同步**写、不依赖事件循环，
+//     所以此时强制退出不会丢数据；退出码用 exitCode 里已有的值（成功即 0）。
+//     `setTimeout` 留 250ms 让最后一批 console 输出 flush 完（Windows 管道偶有缓冲）。
+setTimeout(() => { process.exit(typeof process.exitCode === 'number' ? process.exitCode : 0); }, 250);

@@ -10,6 +10,299 @@ The version is written in the footer (`CISTrack · Vx.y.z`), and the bottom bar 
 
 ---
 
+## [V1.9.9.630] — 2026-10-21
+
+> A **root-cause release for the data-fetch pipeline**. No visual change. The goal is to make fetching
+> **complete, repeatable, traceable and interference-resistant**: the whole chain (the five-stage TLE
+> path plus the four wiki fetchers) was audited end to end and **16 defects** were fixed — **11 of them
+> silent failures**, where the script still exits 0, still writes its file, the page still renders, and
+> the only symptom is quietly missing data, a date that slipped back a day, or a status message that
+> lies. Those cannot be found by reading logs.
+> **Baseline**: V1.9.9 is now the single baseline version; this release builds on it.
+
+### 1. Structural fix: `scripts/cdp.mjs` (the most important item)
+
+- **Root cause**: the four fetchers each implemented their own "find browser / start CDP / detect the
+  challenge page", with detection strengths that differed. So the same class of bug kept recurring:
+  `fetch_wiki.mjs` was fixed in V1.9.3 to catch the English challenge page, while
+  `fetch_launch_results.mjs` still only recognised the Chinese "请稍候" — fix one file, miss three.
+- **Fix**: a shared module. The challenge criterion (`CHALLENGE_RE`) now exists in **exactly one place**,
+  and `waitContent()` enforces **both** a title check **and** a content probe (a title check alone
+  passes on a blank or half-rendered page).
+- Also fixed there: the `require('ws')` dependency (`ws` is a devDependency, `node_modules` is not
+  committed → any open-source clone would crash), a hardcoded `msedge.exe` path, and a relative
+  `profileDir` being resolved differently by Node vs Edge (which silently burned 30 s and then reported
+  "no stderr output", an error message that gives no hint it is about paths).
+- **`findBrowser()` now searches the Playwright/Puppeteer browser caches** (defect 11, found while
+  closing out this release): `update-wiki.yml` prepares a browser with
+  `npx playwright install chromium`, which lands in
+  `~/.cache/ms-playwright/chromium-*/chrome-linux/chrome` — **not** in any standard install path and
+  **not** on `PATH`. Since `ubuntu-latest` ships neither Edge nor Chrome, CI necessarily hit
+  `findBrowser()` → null → "找不到 Edge/Chrome — install one", i.e. **it reported the browser as
+  missing when one was installed**. It now walks the cache layout (`PLAYWRIGHT_BROWSERS_PATH` /
+  `PUPPETEER_CACHE_DIR` / the three platform defaults) covering all six real layouts
+  (`chrome-win`, `chrome-win64`, `chrome-linux`, `chrome-linux64`, `chrome-mac`, `chrome-mac-arm64`),
+  each verified to resolve. In addition, `update-wiki.yml` asks Playwright's own API for the
+  **authoritative path** and injects it as `CISTRACK_EDGE`, leaving cache probing as the fallback —
+  two layers of safety. The error message now lists *where it looked* instead of implying nothing
+  is installed.
+
+### 2. Lost-data fixes (3)
+
+- **Failed launches were silently dropped**: `normCospar` only accepted numeric sequence numbers, but
+  the wiki writes `2025-F05` for a failed/cancelled launch (it has no international designator) → it
+  normalised to an empty string → the caller's `continue` **dropped the row silently**. Measured: the
+  wiki table had the row but `wiki_tables.json` had only 41 keys with no F-number at all. After the fix
+  gw goes **41 → 42**, and `2025-F05` matches the ledger's `25F05` at `2025-08-15T09:17` field by field.
+- **The same miss in a second place**: the row parser in `fetch_launch_results.mjs` also only accepted
+  numeric designators, so that launch died at the parsing layer and not even the unmatched-ledger
+  message could say why.
+- **And a third**: `mkdata.mjs` used `/^\d{5}$/`, which rejects the 5-character key containing F, so
+  `row` was always null and the code always took the "failed launch is exempt" branch.
+
+### 3. Date handling (2)
+
+- `fetch_wiki.mjs` computed the per-constellation `asOf` in **UTC**: at 00:00 Beijing time UTC is still
+  the previous day, so `gw.asOf` lagged a day (the page's "wiki updated" date moved backwards — this
+  really happened in commit `382957d`).
+- `mkdata.mjs` copied `gw.asOf` straight into the top-level `asOf`, amplifying that into a whole-page
+  regression. It now takes the **later** of gw/qf. The launch-results `asOf`/`checkedAt` were moved to
+  Beijing time too, matching `wiki.json`.
+
+### 4. Partial success no longer writes a crippled file
+
+- The old code rebuilt and wrote the whole file: if gw succeeded and qf failed, the written `wiki.json`
+  had no qf, and the downstream check `w && w.gw && w.qf` **discarded the entire file**, falling back to
+  the built-in static values — throwing away the half that had actually been fetched. It now starts
+  from the old file and overwrites per constellation, saying loudly which one was reused.
+
+### 5. Interference resistance: host circuit breaker + global time budget
+
+- **Measured incident**: `celestrak.org` is entirely unreachable from this machine.
+  `timeout 600 node refresh.mjs` was **killed from outside** at 600 s (EXIT=124), the log stopped at S2,
+  and it never even reached the write step. The arithmetic: ~41 s per satellite (2×20 s timeout plus
+  backoff), with S3 up to 60, S4 up to 40 and S5 up to 400 — S3+S4 alone is 4100 s. Three consequences:
+  time burned for nothing; **the one working backup source (S4) starved behind S3**; and no report at
+  all, so troubleshooting is blind.
+- Fix: a **host-level circuit breaker** (3 consecutive network-layer failures on one host → short-circuit
+  for the rest of the process; only `status===0` counts, since HTTP 4xx/5xx means the host is alive but
+  refusing) plus a **global time budget** (20 min default, tunable via `CISTRACK_BUDGET_MIN`, checked in
+  all three per-satellite loops). Result: **killed at 124 → done gracefully in 52 s**.
+- **Same treatment for the launch-record fetcher** (defect 12): `fetch_launch_results.mjs` walks year by
+  year, up to 3 attempts per year with a 90 s timeout each → **27 minutes worst case** across 6 years,
+  while its CI job is capped at `timeout-minutes: 15`. It was therefore guaranteed to be **silently
+  killed** — no log, no exit code, nothing written, indistinguishable from "this round never ran",
+  which is the hardest class of failure to diagnose. Measured: one real full run took **over 17 minutes**.
+  It now has a global budget (11 min default, tunable via `CISTRACK_LAUNCH_BUDGET_MIN`, checked before
+  each year and before each retry). Years skipped for budget reasons are **not disguised** as a fetch
+  failure or as "that year had no launches": the log wording differs per case, the output gains an
+  `_incompleteYears` field to record it explicitly, and any year that was fetched is still written.
+- **Also fixed "writes its file but never exits"**: the script spawns msedge throughout, and although
+  `cleanup()` runs `taskkill /T /F`, on Windows a grandchild (crashpad and friends) can briefly keep the
+  stdout pipe open → the event loop believes a handle is still live, so **the file is fully written and
+  the log fully printed while the process lingers** (measured with `timeout`: the log said
+  "updated (5 s)" yet the whole command ran 4 minutes until killed, EXIT=124). In CI this shows up as a
+  step that mysteriously burns its entire timeout and gets killed *after the work was already done*.
+  It now calls `process.exit()` explicitly once every write has completed (`writeFileSync` is
+  synchronous, so exiting there loses nothing).
+
+### 6. The last silent failure: zero data, reported as success
+
+- After the breaker, the run still exited **0** — not one satellite updated, yet the task reported
+  success. Cause: network-layer failures always carry `status 0`, while `NET_ISSUES` only records
+  `r.status !== 0`, so **status 0 never entered any ledger**. The log showed only
+  `S1 GROUP 失败 0`, where that 0 is a **status code** that reads like "failed 0 times".
+- Fix: new `NET_DOWN_N` / `NET_OK_N` counters with a deliberately narrow predicate —
+  only `NET_DOWN_N>0 && NET_OK_N===0` fails the run (a single occasional timeout does not, so we do not
+  repeat the V1.9.5 false-positive episode) → **exit 8**, printing the tripped hosts, the consequence,
+  and three troubleshooting steps.
+
+### 7. Traceability: drop and failure forensics
+
+- The wiki-table fetcher now keeps a `_dropped` ledger (key / COSPAR / name / reason) recording exactly
+  what was dropped and why.
+- The card fetcher keeps `_fails` per entry, and revid **batch API failures are no longer counted as
+  `failed`** — the old wording made 37/37 successful fetches report "1 entry failed the challenge" on
+  the page indefinitely.
+
+### 8. Coverage audit result (real probe against the live wiki tables)
+
+- Only 14 of 42 SatNet batches and 4 of 19 Qianfan batches carry per-satellite links. The conclusion is
+  that **upstream simply has no `<a>` there, not that we lost them**: gw table #1 (12 rows) has 11 with
+  links, gw table #2 (30 rows) has 3 (the GEO 01/02/03 satellites), qf table #2 (6 rows) has all 6, and
+  qf table #3 (16 rows) has none.
+- **Cross-check: linked entries with a missing card = 0** (37 cards cover all 29 linked entries,
+  including range expansion). Everything upstream links to, we fetch: 100% coverage.
+
+### 9. Regression guards (16 new smoke assertions)
+
+Every defect above has a matching assertion, all run against **comment-stripped source** (lesson: quoting
+the old form inside a new comment makes an "is removed" assertion match its own comment → false FAIL),
+plus two **data-layer** assertions (an F-number batch really exists in `wiki_tables.json`, and linked
+entries really have cards).
+
+### 10. Adversarial tests: `scripts/e2e_adversarial.mjs` (new, wired into CI)
+
+The guards in §9 verify that **the code is written correctly**; the `e2e_*_offline` suites verify that
+**healthy data flows through**. But neither is where this project's silent failures came from — almost all
+of them were **bad input being treated as normal data**. So a third kind of test: **feed it bad data** and
+check whether the pipeline *rejects it properly* or *quietly writes a broken artifact*.
+
+- **Fully offline**; all fixtures are built in a temp copy and cleaned up afterwards (no residue).
+- 62 assertions in six parts: A. TLE text layer / B. OMM JSON layer / C. wiki table layer /
+  D. launch-record layer / E. consumer-side bad-data injection into mkdata / F. real-artifact cross-check.
+- One hard rule about how fixtures are built: **never hand-assemble fixed-width strings**. Use the
+  product's own `tleFromOmm()` and then **break a known column range**. Rationale: my first attempt
+  hand-assembled TLE and got it wrong twice in a row (71 cols / 64 cols / missing separators) — every
+  failure it reported was a false red, **worse than not testing at all**.
+
+**This round of adversarial testing found 3 real defects** (smoke and normal runs had missed all three):
+
+| # | Defect | Why it is dangerous | Fix |
+|---|---|---|---|
+| 14 | **`tleHealth` only checked `isFinite`, not physical range** | Inclination `999°`, mean motion `0`, eccentricity `1.5` are all "valid numbers but physically impossible". They pass every existing gate yet break SGP4 (mean motion 0 = infinite period = divide by zero). Same class of silent contamination as a literal `NaN` in the TLE, only harder to spot because the field is a number and the log looks fine | Extracted `l2InRange()` as the **single source of truth**; `tleHealth` (inspection) and `tleFromOmm` (generation) now **share the same ranges** → anything generated passes inspection, anything failing inspection cannot be generated. Verified on all 515 real TLE lines: **zero false positives** |
+| 15 | **`tleFromOmm` produced a 70-column L1 when the epoch was NaN** | `String(NaN).padStart(2,'0')` → `"NaN"` (3 chars; `padStart` **pads but never truncates**), `(NaN).toFixed(8)` → `"NaN"` → produced<br>`1 12345U 24001A   NaN000000000NaN  .00000000  00000+0  00000+0 0    03` = **70 columns**.<br>TLE is **fixed-width** and everything downstream slices by column → one extra column shifts **every following field**. `tleHealth` only inspects L2, so **nobody checked L1**. Same class as the `cosparField` 70-column bug fixed in V1.9.1, different trigger | ① The epoch joins the `req` gate (non-finite → throw and be accounted for); ② added a **fixed-width shape gate** (each line must be exactly 69 columns and contain no literal `NaN`), covering the whole class of "some column grows a 70th" |
+| 16 | **`tleEpochMs` parsed a bad epoch into a plausible-looking timestamp** | `parseInt('9X',10)` → `9` (silently eats the X) → year 2009; `parseFloat` swallows the rest → returns a perfectly plausible millisecond value. The "N days stale" gate then reads 6000+ days and still gets a finite number, and the date you see while debugging looks entirely legitimate | The epoch column must **strictly match** `YYDDD.DDDDDDDD`, otherwise return `0` (the downstream `em <= 0` predicate catches it). Better to return 0 than to invent a date. Verified: all 515 real TLE lines match strictly, **zero false positives** |
+
+Also fixed a logging-accuracy issue: S5 backfill lumped **"upstream has no such satellite"** (`[]` / `[{}]`,
+HTTP 200, a normal retirement) together with **real failures** (5xx / parse errors) in one `ommErr` counter
+and printed both as "failed" — impossible to tell during triage whether to retry or ignore. Now split into
+`ommErr` / `ommMissing` and printed separately.
+
+**Also worth knowing (not changed; pre-existing exposure)**: three batches in `data/wiki_tables.json` have
+duplicates in their `en` field (`qf 2019-077` / `qf 2021-070` / `qf 2026-211`, 12 items / 2 unique each).
+The old accumulation logic only rejected "exactly equal" and could not stop `"A / B"` being appended again;
+`fetch_wiki_tables.mjs` now dedupes item by item, but that **only affects the next fetch** — the data
+already on disk needs that script re-run. **Checked: nothing in `mkdata.mjs` reads this field** (English
+names actually come from `CARD_EN` in `wiki_cards.json`), so it is data noise, not a page defect.
+
+### 11. UI and copy (second batch of this version)
+
+With the data pipeline cured, this batch covers the requested interaction and copy changes on the main page.
+**No data-layer or rendering-engine changes** — everything below is the footer, top bar, loading screen and
+two in-page modals.
+
+**1. Rewritten README acknowledgements (both languages + the in-page About modal)**
+
+- The findrassvet paragraph in "Project origin & acknowledgements" is **condensed to two sentences** (the
+  original spent so long on the algorithm comparison that it overshadowed the sources that actually make
+  this page possible); it is followed by **nine data sources ranked by importance**, starting with 卫星百科
+  (Satellite Wiki) → CelesTrak → Space-Track → findrassvet → satellite-js → Spacetrack Report #3 →
+  Natural Earth → Kayhan Space sgp4gl → Audiowide, and closes by thanking the users who filed feedback on
+  Bilibili / GitHub Issues / Gitee Issues before the 1.9.9.630 release.
+- The English version is **rewritten in English** rather than translated sentence by sentence. The in-page
+  About modal (`README_ZH` / `README_EN`) is updated too — its source list previously had **no heading and
+  was glued onto the end of the previous section**; it now has its own `## 🔗 数据来源与引用合规` heading.
+
+**2. Loading screen**
+
+- The "Skip / 跳过" pill gets an **amber (`#f59f00`) border**. The real cause was not "the colour was too
+  faint": the old rule read `border:1px solid var(--row-sec)` and `--row-sec` **was never defined** — when a
+  custom property fails to resolve, the **entire border declaration is dropped at computed-value time**,
+  `border-style` falls back to `none`, and the pill simply has no border. A literal colour no longer depends
+  on any variable; the hover colour is pinned too.
+- The trailing ellipses are removed from the first two lines (Chinese and English "fetching the latest
+  orbital elements") — the "Loading / Reloading" line below already animates dots, and dots on all three
+  lines looked cluttered.
+
+**3. Top-bar CISTrack logo: from "jump to GitHub" to a repository chooser pill**
+
+- Clicking pops the same kind of pill as the "已选择" toast: "Repository home: Github / Gitee", with
+  **Github in Qianfan blue and Gitee in Xingwang red**, both underlined.
+- Colour scheme: **white background with black text in dark mode, black background with white text in light
+  mode** (identical to `.inv`). Link colours are split by background — `#4dabf7` / `#ff6b6b` on **white**
+  only reach 2.2:1 / 2.9:1 contrast, so the white-background case uses `#1971c2` / `#e03131`.
+- Modifier clicks (Ctrl/Cmd/Shift/Alt, middle button) **still open a new tab** and are not intercepted;
+  outside click / Esc / scroll dismisses it, it auto-hides after 12s, and `resize` repositions it. Bilingual.
+
+**4. Footer: fluid type scale, three lines become four, three-zone responsive layout**
+
+- **Type size**: `--fs-foot: clamp(13px, 10.94px + 0.2381vw, 14.6px)` — 13.0px at a 390px viewport, 14.4px
+  at 1440px, 14.6px at 1920px. **Line height is not increased** (still `line-height:1.5`) and **padding is
+  not increased** (still `padding:26px 40px` on desktop), so the text gets bigger without the block getting
+  taller; on mobile it stays at 13px, exactly as before.
+- **MIT**: the surrounding spaces are removed (`本项目为MIT开源项目`), it is tinted green and underlined, and
+  clicking it opens an **in-page MIT licence modal** that **reuses the exact same**
+  `.modal-mask / .modal / .modal-x` structure as the About modal.
+- **New feedback line**: "Suggestions and feedback are welcome on Bilibili, GitHub Issue and Gitee Issue",
+  with the three links tinted Bilibili pink `#fb7299` / Qianfan blue / Xiaochengzi orange `#ff8c1a`, all
+  underlined.
+- **Layout**: three zones on desktop (three lines left + centred About button + signature right), switching
+  to a stacked layout at `≤1100px` (four left-aligned lines → centred About button → centred signature).
+  **The signature's right offset is computed, not hard-coded**: `syncFootPillGap()` sets the footer's
+  `padding-right` to "the floating chapter pill's left inset + the gap between the top bar's language and
+  theme buttons" — that gap is the criterion given in the request, and it changes with window width.
+
+**5. Modal × position: solved as an equation instead of a fixed pixel value**
+
+- The criterion is "the distance from the × bottom edge to the modal top edge equals the distance from the
+  × top edge to the top of the screen". With modal top `m` and × height `H`, `m = t + H + t` →
+  **`t = (m − H) / 2`**.
+- It must be solved rather than pinned to `top:14px`: the modal is `88vh` and vertically centred, so **the
+  shorter the viewport, the higher the modal's top edge** — a fixed value pushes the 40px × into the modal on
+  short mobile screens, which is exactly the reported "a sliver of the button overlaps the window" bug.
+  Recomputed on `resize`.
+
+**6. `e2e_adversarial.mjs` part E: the artifact directory is now redirectable (a cure, not a workaround)**
+
+- Symptom: E2 / E3 / E4 failed every run with `[safe-delete][SAFE_DELETE_BULK_CONFIRM_REQUIRED]`
+  (`count:62, threshold:50, scope:"turn"`). That is this machine's **bulk-delete guard** firing, not a
+  product defect.
+- Root cause: `mkdata.mjs` starts each run by `rmSync(build/history)`, wiping **62 shards**, and the guard
+  counts **cumulative deletions per turn across processes** (a single process deleting 5 × 62 = 310 files in
+  a row is allowed, so it is not "too many files"). Part E runs mkdata **four times in the same turn** →
+  cumulative 248 → the threshold trips from E2 onwards.
+- Fix: `mkdata.mjs` accepts a `CISTRACK_BUILD_DIR` environment variable to redirect its artifact directory,
+  and each part-E case now gets its **own, non-existent** directory → `rmSync` has nothing to delete →
+  **zero deletions and zero counting**, and the cases no longer overwrite each other's artifacts. With the
+  variable unset, behaviour is byte-for-byte identical to before (still `<ROOT>/build`), so the production
+  build path is untouched.
+- Result: **PASS 62 / FAIL 0** (was PASS 59 / FAIL 3), and the temp copy now cleans up properly.
+- Why it was worth fixing: a gate that stays red teaches everyone to ignore it — more dangerous than the bug.
+
+**7. An idempotency defect in `release.mjs` badge sync (a real incident caught while closing this release)**
+
+- **Symptom**: the version badge at the top of both READMEs was written as
+  `version-1.9.9.630.630.630.630.…` (**18 segments**). shields.io renders that URL verbatim, so **that long
+  string is what was live**.
+- **Cause**: `BADGE_RE` in `release.mjs` only recognised **three** segments (`X.Y.Z`), while this project has
+  used **four** (`X.Y.Z.NNN`) since V1.9.9.630. So each release run:
+  · matched only `1.9.9` out of `1.9.9.630`, leaving the trailing `.630` in place;
+  · `1.9.9 !== 1.9.9.630` → replaced with `1.9.9.630`, trailing `.630` still there → `1.9.9.630.630`;
+  · one more segment per run. Repeated build/release cycles this round stacked it to 18.
+- **Why smoke missed it (the key lesson)**: that assertion was "badge version == app.js VERSION", but its own
+  version regex made the fourth segment **optional** → given `1.9.9.630.630.630…` it matched `1.9.9.630` and
+  stopped, ignoring the trailing garbage → the capture equalled the correct value → **false green**.
+  ⇒ **Idempotency defects only show up when you run something twice**; "values are equal" assertions are
+  structurally blind to "the value has extra stuff after it".
+- **Fix** (three places):
+  ① `release.mjs` regex accepts an **optional fourth segment and must match it whole** (no trailing leftovers);
+  ② the smoke assertion gained a negative lookahead `(?!\.[0-9])` — the version must not be followed by
+     `.<digit>`, so trailing garbage shows up immediately (verified: injecting `1.9.9.630.630.630` makes the
+     capture `1.9.9.63` → red);
+  ③ smoke also gained a **shape guard**: the badge version must have **≤ 4 segments** (verified: the dirty
+     value is 6 segments → red).
+- **A misstep worth recording**: my first version of ③ was "≤ 4 segments **and no two adjacent segments may be
+  equal**", hoping to catch stacking directly — **that was wrong**: `1.9.9.630` legitimately has `9` next to
+  `9` (minor and patch happen to match), so that predicate goes red on **every normal version**. The only
+  reliable signature of the dirty value is "more than 4 segments"; the rest was dropped.
+- **Verified**: three consecutive `release.mjs` runs leave the badge at `1.9.9.630` and all three report
+  "already current" (idempotent); injecting a dirty value turns both guards red; after restoring,
+  smoke is **PASS 998 / FAIL 0**.
+
+### 12. Verification (V1.9.9.630 final)
+
+| Gate | Result |
+|---|---|
+| `smoke.mjs` | **PASS 998 / FAIL 0** (36 new guards in this version) |
+| `visual.mjs` (real Edge, 13 widths × 2 languages × 2 themes = 52-cell matrix) | **PASS 132 / FAIL 0** |
+| `e2e_adversarial.mjs` | **PASS 62 / FAIL 0** |
+| `e2e_omm_offline.mjs` / `e2e_include_offline.mjs` / `e2e_fake_sat.mjs` | all pass |
+| `audit_refs.mjs` / `audit_assertions.mjs` / `repo_hygiene.mjs` / `privacy_check.mjs` | all pass (0 hygiene violations / 0 privacy hits) |
+| `omm_check.mjs` / `search_pools.mjs` | all pass (12/12) |
+
+---
+
 ## [V1.9.9] — 2026-10-19
 
 > A closing round for the **loading experience and chapter conventions**: the loading screen becomes

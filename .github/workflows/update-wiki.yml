@@ -28,6 +28,29 @@ jobs:
           npm i playwright --no-save
           npx playwright install --with-deps chromium
 
+      # ★ V1.9.9.630：把 Playwright 装的 chromium **显式告诉抓取脚本**。
+      #   为什么必须显式传（曾经的坑）：`scripts/cdp.mjs` 的 findBrowser() 查的是
+      #   "常见安装路径 + Playwright/Puppeteer 缓存目录"。ubuntu-latest **不预装** Edge/Chrome，
+      #   浏览器只存在于 `~/.cache/ms-playwright/…`。只靠缓存探测虽然现在能命中，
+      #   但一旦 Playwright 换了目录布局（历史上改过 chrome-linux → chrome-linux64），
+      #   就会退化成"装了却报没装"。这里用 Playwright 自己的 API 拿**权威路径**，
+      #   缓存探测只作兜底 —— 两重保险。
+      #   （该 API 在本版本必存在；取不到时留空即走兜底，不因此中断。）
+      - name: 指定浏览器路径（供 cdp.mjs 使用）
+        run: |
+          # ⚠️ 这里**不能用** P="$(node -e "...")" 的写法：外层双引号里的 `"` 会提前闭合，
+          #    命令被截断成 `node -e try{...}`（语法错）。改写成 heredoc 传入脚本，引号不再打架。
+          P="$(node <<'NODEJS'
+          try { process.stdout.write(require('playwright').chromium.executablePath()); } catch (e) { /* 走兜底 */ }
+          NODEJS
+          )" 2>/dev/null || P=""
+          if [ -n "$P" ] && [ -x "$P" ]; then
+            echo "CISTRACK_EDGE=$P" >> "$GITHUB_ENV"
+            echo "已指定浏览器：$P"
+          else
+            echo "⚠ 未能从 playwright API 取到可执行路径，将回退到 cdp.mjs 的缓存探测"
+          fi
+
       - name: Fetch & parse wiki stats
         run: node scripts/fetch_wiki.mjs
 
