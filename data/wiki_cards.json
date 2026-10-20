@@ -1,7 +1,9 @@
 {
  "_src": "https://sat.huijiwiki.com",
- "_checkedAt": "2026-10-20 00:03",
+ "_checkedAt": "2026-10-20 12:03",
  "_force": false,
+ "cardsAsOf": "2026-10-20 12:03",
+ "cardsError": "本轮 1 个词条未过挑战/解析失败，相关卡片沿用上次数据",
  "_counts": {
   "titles": 37,
   "fetched": 37,
