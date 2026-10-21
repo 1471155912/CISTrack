@@ -897,7 +897,26 @@ function auditCountsCoverage(tag, launchKeys, counts, ledger) {
     const res = Array.isArray(row) ? row[5] : (row && row.res);
     return String(res) === 'fail';
   };
-  const miss = launchKeys.filter((k) => !isFail(k) && (!counts[k] || !(counts[k].n > 0)));
+  // ⚠️⚠️ 还必须排除**刚发射、satcat 尚未编目**的批次（宽限期 3 天）。
+  //   为什么（否则 CI 会每天报红）：新星座每发一次，`mkdata` 都会先从**百科**自动补一台账，
+  //   而 satcat（Celestrak 的目录）对这种新目标通常要迟到几天。若不加宽限，
+  //   "新发射"就会被当成"satcat 过期"，每天定时任务都红 —— 而这恰恰是**正常状态**。
+  //   取 3 天：本轮那次真实事故是 **9 天**（10-10 发射、10-16 的 satcat 已覆盖到 228 却没这行），
+  //   3 天足够把"正常迟到"与"文件过期"分开。
+  const GRACE_DAYS = 3;
+  const isTooNew = (k) => {
+    const row = ledger && ledger[k];
+    const d = Array.isArray(row) ? row[1] : (row && row.d);
+    const t = d ? Date.parse(String(d).replace(' ', 'T')) : NaN;
+    return Number.isFinite(t) && (Date.now() - t) / 86400000 < GRACE_DAYS;
+  };
+  const missAll = launchKeys.filter((k) => !isFail(k) && (!counts[k] || !(counts[k].n > 0)));
+  const miss = missAll.filter((k) => !isTooNew(k));
+  const grace = missAll.filter(isTooNew);
+  if (grace.length) {
+    console.log('ℹ️ [' + tag + '] ' + grace.length + ' 批刚发射、satcat 尚未编目（' + GRACE_DAYS +
+      ' 天宽限内，正常）：' + grace.join(','));
+  }
   if (miss.length) {
     console.warn('⚠️ [' + tag + '] launchCounts 缺 ' + miss.length + ' 批：' + miss.join(',') +
       ' —— 这些批次在 satcat.csv 里查不到（多为 satcat 过期），' +
