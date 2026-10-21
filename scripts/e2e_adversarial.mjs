@@ -630,10 +630,14 @@ async function partE() {
     // 每次跑 mkdata 都要拿到**新的模块实例**（ESM 有缓存）→ 用 query 破缓存
     const url = 'file:///' + path.join(sub, 'mkdata.mjs').replace(/\\/g, '/') + '?t=' + tag + Date.now();
     let err = null;
-    const ol = console.log, ow = console.warn;
+    const ol = console.log, ow = console.warn, oe = console.error;
     let out = '';
     console.log = (...a) => { out += a.join(' ') + '\n'; };
     console.warn = (...a) => { out += a.join(' ') + '\n'; };
+    // ★ V1.9.9.630：**必须也抓 console.error** —— mkdata 的"拒绝写出"用的是 `console.error`。
+    //   第一版只接管 log/warn，于是闸门的告警没进 `out` → 前提判据恒 false →
+    //   E1/E2 依旧假红（我改了两轮才找到这一层，因为"告警确实打印了"）。
+    console.error = (...a) => { out += a.join(' ') + '\n'; };
     // ★★ V1.9.9.630：每个用例给一个**独立且尚不存在**的产物目录（`CISTRACK_BUILD_DIR`）。
     //   为什么必须这样：mkdata 每次都会 `rmSync(build/history)` 清空 **62 个分片**再重写。
     //   本机的批量删除守护按"单轮跨进程累计量"计数（阈值 50，
@@ -648,7 +652,7 @@ async function partE() {
     process.env.CISTRACK_BUILD_DIR = buildDir;
     try { await import(url); } catch (e) { err = e; }
     finally {
-      console.log = ol; console.warn = ow;
+      console.log = ol; console.warn = ow; console.error = oe;
       if (op === undefined) delete process.env.CISTRACK_BUILD_DIR;
       else process.env.CISTRACK_BUILD_DIR = op;
     }
@@ -664,6 +668,19 @@ async function partE() {
     const p = path.join(buildDir, 'satdata.json');
     let j = null;
     try { j = JSON.parse(fs.readFileSync(p, 'utf8')); } catch (e) { /* 下面判 */ }
+    // ★★ V1.9.9.630（2026-10-21）：基线**必须先声明输入前提**。
+    //   本轮给 mkdata 加了「发射批次颗数闸门」（exitCode 8），于是当本机
+    //   `data/satcat.csv` 过期时，基线本身就会按设计拒绝写出 → E1/E2 双双报红。
+    //   这个红**不是产品缺陷**（恰恰是闸门在岗），但会让"产品回归"与"输入过期"混在一起，
+    //   而这正是我在别处反复强调要避免的。所以：
+    //     · 输入过期 → 用 `_countMissing` 的失败信息**单独报一条前提不满足**，E1/E2 判 SKIP；
+    //     · 输入正常 → 照旧硬判（不放松）。
+    const gateMiss = /拒绝写出：有 \d+ 个\*\*非失利\*\*批次/.test(out || '');
+    ck('E1 输入前提：satcat.csv 覆盖了全部非失利批次（否则粒度闸门会按设计拒绝写出）',
+      !gateMiss, gateMiss ? 'satcat 过期 → E1/E2 判 SKIP（跑 `node refresh.mjs --force-cat` 后可恢复硬判）' : 'ok');
+    if (gateMiss) {
+      console.log('     ↳ E1/E2 跳过（输入过期，非产品缺陷）');
+    } else {
     ck('E1 产出 satdata.json 且可解析', !!j);
     if (j) {
       const n = (j.gw && j.gw.sats && j.gw.sats.length || 0) + (j.qf && j.qf.sats && j.qf.sats.length || 0);
@@ -694,6 +711,7 @@ async function partE() {
       }
       ck('E1 satdata 的 TLE 里没有 NaN/undefined', bad.length === 0, 'bad=' + bad.slice(0, 5).join(','));
     }
+    }   // ← 闭合 gateMiss 分支（输入过期时跳过 E1 的产物断言）
   }
 
   // E2. 坏数据：wiki_tables 塞进"日期无法解析 + 怪 COSPAR + 超长名"的批次
@@ -716,12 +734,16 @@ async function partE() {
 
     const { err, out, buildDir } = await runMkdata('bad-tables');
     ck('E2 wiki_tables 含坏批次时 mkdata 不崩', !err, err && String(err.message).slice(0, 200));
-    // 同上：产物在 `build-<tag>/`（不是 `data/`）
+    // 同上：输入过期时粒度闸门会按设计拒绝写出 → 本用例无法验证"坏值没泄漏"，判 SKIP 而非报红。
+    const gateMiss2 = /拒绝写出：有 \d+ 个\*\*非失利\*\*批次/.test(out || '');
     const sd = path.join(buildDir, 'satdata.json');
     let out2 = null;
     try { out2 = JSON.parse(fs.readFileSync(sd, 'utf8')); } catch (e) { /* 判下面 */ }
-    ck('E2 坏输入下 satdata 仍可解析', !!out2);
-    if (out2) {
+    if (gateMiss2) {
+      console.log('     ↳ E2 产物断言跳过（输入过期，非产品缺陷）');
+    } else {
+      ck('E2 坏输入下 satdata 仍可解析', !!out2);
+      if (out2) {
       const bad = [];
       for (const k of ['gw', 'qf']) {
         (out2[k] && out2[k].sats || []).forEach(s => {
@@ -731,6 +753,7 @@ async function partE() {
         });
       }
       ck('E2 超长名/坏值没有泄漏进 satdata', bad.length === 0, bad.slice(0, 5).join(','));
+      }
     }
     // 还原（后面还要用）
     fs.copyFileSync(path.join(SRC, 'data', 'wiki_tables.json'), p);

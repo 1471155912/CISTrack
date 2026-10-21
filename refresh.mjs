@@ -542,7 +542,16 @@ console.log('取数格式 GP_FORMAT=' + GP_FORMAT + '（期望 ' + GP_EXPECT + '
   (GP_FORMAT === 'tle' ? '  ⚠️ 已回退到 legacy TLE —— 仅用于对照/应急' : ''));
 const catPath = path.join(D, 'satcat.csv');
 const age = fs.existsSync(catPath) ? (Date.now() - fs.statSync(catPath).mtimeMs) / 86400000 : 999;
-if (forceCat || age > 7) {
+// ★★ V1.9.9.630（2026-10-21 实测抓出的静默回退，根因之一）：7 天 → **1 天**。
+//   为什么必须改（证据链）：
+//     `satcat.csv` 停在 10-16 22:42（= 4.5 天，**被判"新鲜"跳过**），而它只覆盖到 `2026-228`；
+//     10-10 发射的「低轨27组」（26230，9 颗）已在目录里，但这份文件**根本没有那一行** →
+//     `mkdata` 的 `launchCounts` 少一批 → 页面「发射卫星数」少 9 颗，全程**没有任何告警**。
+//   实测对照：已发布的 HEAD 产物是 41 批（含 26230），本地用这份旧 satcat 重建后只剩 40 批。
+//   ⇒ 判据从"文件存在且不太老"改成"**每天换一份**"：6.7MB 一天下一次，代价可以接受，
+//     而漏掉一次新发射的代价是页面数字直接错（且不报错）。
+//   保留 `--force-cat` 仍是**立即重下**的兜底。
+if (forceCat || age > 1) {
   console.log('satcat.csv 拉取中（' + (age > 900 ? '首次' : '已 ' + age.toFixed(1) + ' 天') + '）…');
   // ★★ V1.9.3：让"单个补充数据源的一次网络抖动"不再有资格毁掉整条日常链路。
   //   旧写法：`await get(SATCAT_URL, 1)` —— **只试一次、不重试**，且沿用 20s 的小文件超时。

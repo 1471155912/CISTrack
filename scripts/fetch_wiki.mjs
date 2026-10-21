@@ -233,3 +233,13 @@ console.log('wiki.json 已更新'
   + (numbersSame ? '（数字未变，仅更新核对时间）' : '')
   + (fullyRead ? '' : '；**未读全**（' + failed.join(',') + '），核对时间保持原值')
   + '  核对时间=' + (fullyRead ? checkedAt : (old.checkedAt || '无')));
+
+// ★★ V1.9.9.630（2026-10-21 实测抓出）：**写完必须显式退出**。
+//   原先只是"函数自然结束"，靠事件循环自己排空 —— 而本脚本通过 `openBrowser()` 拉起了浏览器
+//   子进程，Windows 上 crashpad 等孙进程会在父进程死后短暂持有 stdout 管道 →
+//   Node 认为"还有活句柄"→ **文件已写完、日志已打完，进程却挂着不退**。
+//   同型缺陷在 `fetch_launch_results.mjs` / `refresh.mjs` 都修过，
+//   `fetch_wiki_cards.mjs` 与**本文件**是漏掉的两处（本轮一起补）。
+//   ⚠️ 退出码要显式传：`process.exit(0)` 会把之前登记的 exitCode 覆盖成 0 ——
+//      这里走到末尾就是成功路径，传 0 是本意；失败路径由上面的 `process.exit(1)` 提前返回。
+setTimeout(() => process.exit(0), 250);

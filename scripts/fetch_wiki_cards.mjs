@@ -214,7 +214,12 @@ const EXTRACT = `(function () {
 (async () => {
   const titles = collectTitles();
   console.log('词条清单：' + titles.length + ' 个（来自 wiki_tables 的 nameLinks + 区间展开）');
-  if (DRY) { titles.slice(0, 8).forEach((x) => console.log('   ' + x.t + '  ← ' + x.src)); console.log('   …'); return; }
+  // ★ V1.9.9.630：`--list` 打印**全量**清单（--dry 只印前 8 条会让人误以为清单里没有某项）。
+  if (process.argv.includes('--list')) {
+    titles.forEach((x, i) => console.log(String(i + 1).padStart(3) + '. ' + x.t + '  ← ' + x.src));
+    return;
+  }
+  if (DRY) { titles.slice(0, 8).forEach((x) => console.log('   ' + x.t + '  ← ' + x.src)); console.log('   …（--list 可看全量）'); return; }
 
   let old = { cards: {} };
   try { old = JSON.parse(fs.readFileSync(OUT, 'utf8')) || { cards: {} }; } catch (e) { /* 首次 */ }
@@ -322,7 +327,10 @@ const EXTRACT = `(function () {
     if (!Object.keys(cards).length) {
       console.log('!! 本次一张卡片都没拿到 —— **不写文件**（保留旧数据）');
       patchWikiCards(checkedAt, cardsError, Object.keys(oldCards).length);
+      // ★ 同一处缺陷（写完不退出）的另一条出口：`return` 只会跳回 finally，
+      //   而 finally 里的 cleanup 是异步 taskkill → 进程仍可能挂住。必须显式退出。
       process.exitCode = 1;
+      setTimeout(() => process.exit(1), 300);
       return;
     }
     const out = {
@@ -339,7 +347,22 @@ const EXTRACT = `(function () {
     if (FAILS.length) FAILS.forEach(f => console.log('   ✗ ' + f.title + ' → ' + f.reason));
     console.log('核对时间：' + checkedAt + '（北京时间）');
     patchWikiCards(checkedAt, cardsError, n);
-    process.exitCode = failed ? 1 : 0;
+    // ★★ V1.9.9.630：**必须显式 process.exit()**，不能只设 exitCode。
+    //   实测（2026-10-21 07:38→07:53）：数据在 07:41 就写完了、日志也打全了，
+    //   但进程**整整多挂 12 分钟不退出**，最后靠外部 taskkill 才结束。
+    //   病根与 `fetch_launch_results.mjs` / `refresh.mjs` 完全同型：
+    //     ① `process.exitCode = …` 只是"登记"退出码，**不会结束进程**；
+    //     ② 浏览器是 `openBrowser()` 拉起的子进程，下面 `finally` 里的 `cleanup()`
+    //        用的是**异步 spawn** 的 `taskkill /T /F` —— Windows 上偶有 crashpad 等孙进程
+    //        在父进程死后仍短暂持有 stdout 管道 → Node 事件循环认为"还有活句柄"→ 不退出。
+    //        本次实测尤其明显：外层用 `| tail -30` 接管道，管道不关就一直等。
+    //   两个脚本都修过这个问题，这个漏了 ⇒ 现在统一走 `setTimeout(…, process.exit)`：
+    //   给 cleanup 的 taskkill 一点时间跑完（不硬抢），然后无论句柄状态如何都强制退出。
+    //   ⚠️ 退出码必须**显式传参**（`process.exit(code)` 的实参直接覆盖 exitCode，
+    //      反过来"先设 exitCode 再 exit(0)"会把 1 冲成 0 —— 这坑在本仓库踩过）。
+    const code = failed ? 1 : 0;
+    process.exitCode = code;
+    setTimeout(() => process.exit(code), 300);
   } finally {
     try { BROWSER && BROWSER.cleanup(); } catch (e) {}
   }

@@ -376,6 +376,69 @@ two in-page modals.
 | `audit_refs.mjs` / `audit_assertions.mjs` / `repo_hygiene.mjs` / `privacy_check.mjs` | all pass (0 hygiene violations / 0 privacy hits) |
 | `omm_check.mjs` / `search_pools.mjs` | all pass (12/12) |
 
+### 14. Post-release follow-up: **silent data regression** from a stale `satcat.csv` (17th defect)
+
+While doing a full "is the data actually up to date" audit, I diffed the **published** artifact
+against a **locally rebuilt** one field by field — and the local build was missing a whole batch,
+while **every gate (smoke / adversarial / build) was green**.
+
+- Symptom: the published `CISTrack.html` has **41** entries in `gw.launchCounts`; rebuilding with the
+  then-current data produced **40** — the `26230` batch (低轨27组, 9 satellites, launched 2026-10-10)
+  vanished from the "satellites launched" figure. The page still rendered, charts still drew,
+  and **nothing anywhere reported an error or warning**.
+- Root cause chain (three links, all required):
+  1. `data/satcat.csv` was frozen at **2026-10-16 22:42**, covering only up to `2026-228`,
+     while batches 229/230 had already launched;
+  2. `refresh.mjs` only re-downloads when **`age > 7` days** — the file was 4.5 days old, so it was
+     judged "fresh" and **skipped**, and this stale copy was never replaced;
+  3. `mkdata.mjs`'s `pendingSummary()` derives per-batch counts only from satcat; on a miss it simply
+     `return`s (the batch is silently absent) — **no error, no trace on the panel**.
+     More insidious: `build.mjs` **does not invoke mkdata**; it only reads `build/satdata.json`.
+     "Run build without mkdata" therefore back-ports published data, and build had **no regression
+     check for `satdata`** at all (`history/` and `wiki.json` both had one; this was the gap).
+- Fixes (four, all on the root-cause side):
+  1. `mkdata.mjs`: new `auditCountsCoverage()` — names every **non-failed** batch present in
+     `launches` but missing from `launchCounts`, and records it in the artifact's `_countMissing`.
+     ⚠️ The first version failed to exclude failed launches, so it flagged `25F05`
+     (朱雀二号E Y3, which never reached orbit) as "missing" — a **false red**. False alarms get real
+     alarms ignored, so failures are now excluded precisely via `res === 'fail'`.
+  2. Same place: a **refuse-to-write** gate (`exitCode = 8`), with `CISTRACK_ALLOW_COUNT_MISS=1`
+     as the explicit escape hatch — a silent regression must not pass on "just log a warning".
+  3. `refresh.mjs`: satcat freshness threshold **7 days → 1 day**. 6.7 MB a day is an acceptable cost;
+     missing one launch is not (the page then shows a wrong number, silently).
+  4. `build.mjs`: new **satdata no-regression guard** — compares the newly built SATDATA against the
+     one embedded in the published `CISTrack.html`, using two monotonic quantities ("batch count",
+     "satellite count"), and `exit(3)`s with a diff. ⚠️ File mtime cannot be used: mkdata rewrites
+     satdata at any time, so a new mtime does not mean new data.
+- Verification (all via **fault injection**, not merely "it runs"):
+  - normal state: mkdata flags only `26230`, never `25F05`; `smoke` **1006/0**;
+  - delete `auditCountsCoverage` → 3 corresponding guards turn red;
+  - delete only the `process.exitCode = 8` line → the "refuse to write" guard alone turns red
+    (proving it is anchored to the same branch rather than two isolated greps — the first version
+    was exactly that and still passed under injection, i.e. a guard in name only);
+  - set the satcat threshold back to `age > 7` → the threshold guard turns red and prints `7 天`;
+  - feed 40 batches to build while the artifact holds 41 → `exit 3`, output `gw 批次数 41→40`.
+- Outcome: **the locally rebuilt artifact was not committed and has been reverted to the published
+  version.** Reason: this build environment could not reach the upstream satellite catalogue,
+  so the stale satcat could not be replaced; shipping regressed data is worse than not shipping.
+  Once reachable: `node refresh.mjs --force-cat` → `node mkdata.mjs` → `node build.mjs`.
+- Side fix: `scripts/fetch_wiki_cards.mjs` gained `--list` (prints the **full** title list).
+  `--dry` used to print the first 8 and then `…`, which made me briefly conclude "the new entry is not
+  in the list" (it was item 32) — **display truncation mistaken for missing data**.
+
+### 15. Data-freshness audit (reproducible)
+
+| Data | Verdict |
+|---|---|
+| `data/ct_hulianwang.tle` | **253 satellites**, newest epoch 2026-10-20 13:00 UTC; no missing line 2, no 6-digit ID misalignment, no duplicate NORADs |
+| `data/ct_qianfan.tle` | **262 satellites**, newest epoch 2026-10-20 13:06 UTC; all checks clean as well |
+| TLE fetch lag | **median 7.3 h / p75 8.8 h** behind upstream at fetch time (from 32 historical commits); this run 8.8 h → **normal** |
+| 13 "old-epoch" satellites | 12 are `INCLUDE`-whitelisted test satellites whose epochs were **unchanged across 14 commits** while control satellites kept refreshing ⇒ **upstream stopped updating them, not a missed fetch**; `00799` is a 6-digit placeholder (sidecar → `100799`), epoch 10-17 is normal |
+| `data/wiki_tables.json` | `_fetched 2026-10-20T21:35Z` (10.5 h, within the 1-day TTL); 61 rows / 18 with single-satellite links / 29 links |
+| `data/wiki_cards.json` | 37 cards, `cardsAsOf 2026-10-21 07:41`, **failed 0**, `error ""` |
+| `wiki_launches.json` | 61 entries, including `2025-F05 res=fail` |
+| `wiki.json` / `build/wiki.json` | now synced to `cards 07:41` (both were stuck at 00:04 and carried an alert that no longer applied) |
+
 ---
 
 ## [V1.9.9] — 2026-10-19

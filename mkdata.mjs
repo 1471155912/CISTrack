@@ -874,6 +874,41 @@ Object.keys(qfSum).forEach(k => { if (qfPend[k]) qfPend[k] = qfSum[k].n; });
 // 每批「发射时搭载的卫星数」：以目录里的有效载荷数为准，缺则回落到已有 TLE 数。
 // 用于顶部信息栏的「发射卫星数量」。
 const gwCounts = pendingSummary(Object.keys(GW_LAUNCH), true), qfCounts = pendingSummary(Object.keys(QF_LAUNCH), true);
+
+// ★★ V1.9.9.630（2026-10-21 实测抓出的**静默回退**，这是治本项）★★
+//   症状：本地重建产物的 `gw.launchCounts` 只有 40 批，而已发布的 HEAD 是 41 批 ——
+//         `26230`（低轨27组，9 颗）整个批次**无声消失**，页面「发射卫星数」随之少 9 颗。
+//   根因链（三环，缺一不可）：
+//     ① `data/satcat.csv` 停在 10-16 22:42，只覆盖到 `2026-228`，而 229/230 已发射；
+//     ② `refresh.mjs` 的判据是 `age > 7` 天才重下 —— 它 4.5 天，**被判"新鲜"跳过**，
+//        于是这份过期文件从未被换掉；
+//     ③ `pendingSummary()` 只能从 satcat 算每批颗数，查不到就 `return`（该批不出现），
+//        **面板上既不报错也不留痕** —— 产物看着完全正常，只是数据少了一批。
+//   为什么必须在这里拦：① 和 ② 修好之前（本机跑不了外网）仍会复现；
+//   而且这类"静默少数据"比"报错"危险得多 —— 页面会一本正经地显示错数字。
+//   判据：`launches` 里有、`launchCounts` 里没有的批次 → **逐条点名**，并写进 `_partial`。
+//   ⚠️ 这里**不抛错**（否则会把整条日常链路打断），但必须让它在产物里留下证据。
+function auditCountsCoverage(tag, launchKeys, counts, ledger) {
+  // ⚠️ 必须排除**失利批次**（`res === 'fail'`）：它们本来就没有入轨卫星，
+  //   `launchCounts` 里不应出现。第一版判据漏了这一点，把 `25F05`（朱雀二号E Y3 失利）
+  //   也报成"缺失" → 假红。**假警报会让真警报被无视**，所以这里按 res 精确排除。
+  const isFail = (k) => {
+    const row = ledger && ledger[k];
+    const res = Array.isArray(row) ? row[5] : (row && row.res);
+    return String(res) === 'fail';
+  };
+  const miss = launchKeys.filter((k) => !isFail(k) && (!counts[k] || !(counts[k].n > 0)));
+  if (miss.length) {
+    console.warn('⚠️ [' + tag + '] launchCounts 缺 ' + miss.length + ' 批：' + miss.join(',') +
+      ' —— 这些批次在 satcat.csv 里查不到（多为 satcat 过期），' +
+      '「发射卫星数」会偏少；请刷新 data/satcat.csv（refresh.mjs --force-cat）。');
+  }
+  return miss;
+}
+const GW_COUNT_MISS = auditCountsCoverage('gw', Object.keys(GW_LAUNCH), gwCounts, GW_LAUNCH);
+const QF_COUNT_MISS = auditCountsCoverage('qf', Object.keys(QF_LAUNCH), qfCounts, QF_LAUNCH);
+// 应急放行开关（只在**明确知道** satcat 拉不到时用；默认关闭 = 缺失即失败）
+const ALLOW_COUNT_MISS = process.env.CISTRACK_ALLOW_COUNT_MISS === '1';
 function launchedTotal(launchKeys, counts, satsByPrefix) {
   return launchKeys.reduce(function (a, k) {
     var n = counts[k] ? counts[k].n : 0;
@@ -944,25 +979,46 @@ const WIKI_STATIC = {
 };
 const WIKI_CHECKED_AT = (WIKI_FETCHED && WIKI_FETCHED.checkedAt) || '';
 /** ★ O30-12（V1.9.9 收尾）：**卡片抓取状态**随 wiki.json 发布（页面「卫星百科更新」行附显）。
- *  来源优先级：① 仓库 wiki.json 的 `cards` 键（本地任务每轮抓取后由 fetch_wiki_cards.mjs 补丁，
- *    与页面运行时读的那份**同源**，构建产物与它一致最重要）；② 没有该键时从
- *    data/wiki_cards.json 现推（CI 全新 checkout、或 wiki.json 还没有该键）。
  *  形状：{ asOf:'YYYY-MM-DD HH:MM'（北京时间）, error:''|'原因…', n:卡片张数 }；两张都没有 → null。
+ * ★★ V1.9.9.630（2026-10-21 实测抓出）：**不能无条件优先用 `wiki.json` 的 `cards` 键。**
+ *  事故现场：卡片脚本 07:41 已成功写完 `data/wiki_cards.json`（failed 0、cardsError 空），
+ *  但 `wiki.json.cards` 还是 00:04 那份"1 个词条未过挑战"的旧状态 —— 于是构建产物把
+ *  **已经修好的失败信息当作现状发布出去**，页面会一直挂着一条早已不成立的告警。
+ *  为什么会这样：`wiki.json` 的 cards 是 `fetch_wiki_cards.mjs` 补丁进去的，而
+ *  `fetch_wiki.mjs` 跑一轮会重写整个 wiki.json（虽然它会保留 old.cards，但保留的就是旧值）。
+ *  ⇒ 正确口径：**两处都读，取 `asOf` 更新的那一份**（`data/wiki_cards.json` 是抓取的直接产物、
+ *    字段最全；`wiki.json` 那份是"已发布快照"）。相等时用 wiki.json（与页面同源）。
  *  ⚠️ 必须放在 WIKI_FETCHED 定义**之后** —— 它是个 `let`，提前访问会 TDZ 抛 ReferenceError。 */
 const CARDS_STATUS = (() => {
-  const fromWiki = WIKI_FETCHED && WIKI_FETCHED.cards;
-  if (fromWiki && (fromWiki.asOf || fromWiki.n)) return fromWiki;
+  // ① 直接产物（权威）：data/wiki_cards.json
+  let direct = null;
   try {
     const j = JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'wiki_cards.json'), 'utf8'));
     // 旧版卡片文件没有 cardsError 平铺字段 —— 用 _counts.failed 做失败证据，
     // 没有记录就明说"状态未知"，**不把未知谎报成正常**。
     const failedN = (j._counts && isFinite(j._counts.failed)) ? j._counts.failed : null;
-    return {
+    direct = {
       asOf: j.cardsAsOf || j._checkedAt || '',
       error: j.cardsError || (failedN ? '上次抓取有 ' + failedN + ' 个词条未过挑战（旧版记录，无详细状态）' : ''),
       n: Object.keys(j.cards || {}).length
     };
-  } catch (e) { return null; }
+  } catch (e) { /* 没有就直接产物 */ }
+  // ② 已发布快照：wiki.json 的 cards 键
+  const fromWiki = (WIKI_FETCHED && WIKI_FETCHED.cards) || null;
+  if (!direct) return (fromWiki && (fromWiki.asOf || fromWiki.n)) ? fromWiki : null;
+  if (!fromWiki || !(fromWiki.asOf || fromWiki.n)) return direct;
+  // ③ 两份都有 → 比 asOf（'YYYY-MM-DD HH:MM' 可直接字符串比较）
+  const a = String(direct.asOf || ''), b = String(fromWiki.asOf || '');
+  if (b > a) {
+    console.warn('⚠️ wiki.json 的卡片状态（' + b + '）比 data/wiki_cards.json（' + a
+      + '）更新 —— 说明卡片文件落后于已发布快照，本次采用 wiki.json 那份。');
+    return fromWiki;
+  }
+  if (a > b) {
+    console.log('卡片状态取更**新**的 data/wiki_cards.json（' + a + '），'
+      + 'wiki.json 里那份（' + b + '）已过期、不予采用');
+  }
+  return direct;
 })();
 if (CARDS_STATUS) {
   console.log('卡片状态：n=' + CARDS_STATUS.n + '，asOf=' + (CARDS_STATUS.asOf || '未记') +
@@ -1026,6 +1082,9 @@ const DATA = {
     key: 'gw', name: '星网', en: 'SatNet / CSCN', org: '中国卫星网络集团有限公司',
     sub: '低轨互联网星座',
     launches: GW_LEDGER, pending: gwPend, pendingInfo: gwSum, launchCounts: gwCounts, stats: gwStats,
+    // ★ V1.9.9.630：satcat 覆盖不到的批次（见 auditCountsCoverage 的长注释）。
+    //   进产物的目的是**留证**：这样"发射卫星数偏少"这件事在数据里可被追溯，而不是只在控制台闪一下。
+    _countMissing: GW_COUNT_MISS,
     // V1.9.1（1.7）：按批次的"已再入"清单（动态；页面据此标注批次行、并在在轨数量里扣除）
     goneCount: goneCountsOf(Object.keys(GW_LAUNCH)),
     // V1.9.1（A19）：搜索补池 —— 库内没有 TLE 的「已再入」/「尚未编目」对象（页面并联进搜索）
@@ -1039,6 +1098,7 @@ const DATA = {
     key: 'qf', name: '千帆', en: 'Qianfan / Thousand Sails (G60)', org: '上海垣信卫星科技有限公司',
     sub: '低轨互联网星座',
     launches: QF_LEDGER, pending: qfPend, pendingInfo: qfSum, launchCounts: qfCounts, stats: qfStats,
+    _countMissing: QF_COUNT_MISS,
     goneCount: goneCountsOf(Object.keys(QF_LAUNCH)),
     dead: QF_POOLS.dead, pend: QF_POOLS.pend,
     wiki: WIKI_STAT.qf,
@@ -1638,6 +1698,20 @@ if (OMM_MISSING.length) {
   console.error('[mkdata] 拒绝写出：星网 GEO 卫星 0 颗（应 ≥1；它们只能按 INCLUDE 白名单纳入，' +
     '请检查 refresh.mjs 的 INCLUDE 与 satcat 是否已变）');
   process.exitCode = 6;
+} else if ((GW_COUNT_MISS.length || QF_COUNT_MISS.length) && !ALLOW_COUNT_MISS) {
+  // ★★ V1.9.9.630：**发射批次颗数闸门**（见 auditCountsCoverage 的长注释）。
+  //   为什么它必须是"拒绝写出"而不是"打个警告就过"：
+  //     这是本轮实测到的**静默数据回退** —— 页面照常渲染、图照常画，只是「发射卫星数」少 9 颗，
+  //     没有任何东西会红。而 `satcat.csv` 被 .gitignore（CI 每轮都是新下载），
+  //     所以本机这份过期文件**只有靠这道闸门才会被发现**。
+  //   代价可控：`CISTRACK_ALLOW_COUNT_MISS=1` 可显式放行（用于"已知 satcat 拉不到、先出产物"的应急）。
+  console.error('[mkdata] 拒绝写出：有 ' + (GW_COUNT_MISS.length + QF_COUNT_MISS.length) +
+    ' 个**非失利**批次在 satcat.csv 里查不到（「发射卫星数」会偏少）：' +
+    [].concat(GW_COUNT_MISS.length ? ['gw: ' + GW_COUNT_MISS.join(',')] : [],
+      QF_COUNT_MISS.length ? ['qf: ' + QF_COUNT_MISS.join(',')] : []).join(' | '));
+  console.error('[mkdata] 修法：`node refresh.mjs --force-cat` 重下 data/satcat.csv 后重跑；' +
+    '应急放行：设环境变量 CISTRACK_ALLOW_COUNT_MISS=1。');
+  process.exitCode = 8;
 } else {
   fs.writeFileSync(path.join(BUILD, 'satdata.json'), JSON.stringify(DATA), 'utf8');
   console.log('satdata.json bytes=', fs.statSync(path.join(BUILD, 'satdata.json')).size);

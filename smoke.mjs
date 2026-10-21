@@ -5024,6 +5024,37 @@ assert('A9（V1.9.7 §6）：圈的来源 = 工作轨道层（orbLayerDefs），
         /txt\.match\(\/\\\\b\(\\\\d\{4\}\)-F\(\\\\d\{1,3\}\)\\\\b\/i\)/.test(s) &&
         /'-F' \+ String\(\+m\[2\]\)\.padStart\(2, '0'\)/.test(s),
         'F正则=' + /-F\(\\\\d\{1,3\}\)\\\\b\/i/.test(s));
+
+      // ⑩ ★ 所有抓取脚本落盘后必须**显式 process.exit()**（不是只设 exitCode）。
+      //   事故（2026-10-21 实测，第 5 个 CI 之外的真缺陷）：`fetch_wiki_cards.mjs` 数据在 07:41
+      //   就写完、日志也打全，但进程**整整多挂 12 分钟**，最后靠外部 taskkill 才结束。
+      //   病根两条：`process.exitCode=` 只是登记、不结束进程；而 `cleanup()` 用的是
+      //   **异步 spawn** 的 `taskkill /T /F`，Windows 上 crashpad 等孙进程会短暂持有 stdout
+      //   管道 → 事件循环认为还有活句柄 → 不退出（外层接 `| tail` 时更明显）。
+      //   `refresh.mjs` / `fetch_launch_results.mjs` 都修过，`fetch_wiki_cards.mjs` 漏了
+      //   —— 所以这条**按文件清单循环**，防止下次再漏第四个。
+      //   判据必须**锚定在"成功落盘之后"**，不能只扫"文件里有没有 process.exit(" ——
+      //   实测教训：第一版就是那么扫的，结果 `fetch_wiki_cards.mjs` 里
+      //     ① 第 98 行"读不到 tables 就 exit(1)"、② 末尾 `.catch(... => process.exit(1))`
+      //   这两处**早就存在**的兜底退出让判据永远成立 → 我把真正的修复删掉后它**依然 PASS**
+      //   （典型的"守卫看着在、其实永远绿"）。
+      //   ⇒ 正确判据：**写盘调用之后**必须出现 process.exit(。写盘调用 = writeFileSync(OUT…)。
+      //   ⚠️ 还要排除"末尾 .catch(... => process.exit(1))"那个**错误兜底** ——
+      //      它也落在写盘之后，但它是"出异常才走"的分支，与"成功写完后能退出"无关。
+      //      实测：上一版没排除它，把修复从 fetch_wiki_cards 删掉后**依然 PASS**。
+      //      排除方式：只看"写盘位置 → 文件末尾"这段里的 exit，且该 exit **不在** catch 回调内。
+      for (const f of ['fetch_wiki.mjs', 'fetch_wiki_tables.mjs', 'fetch_wiki_cards.mjs', 'fetch_launch_results.mjs']) {
+        const sf = codeOnly(fs.readFileSync(B + '/scripts/' + f, 'utf8'));
+        const iWrite = Math.max(sf.lastIndexOf('writeFileSync(OUT'), sf.lastIndexOf('writeFileSync(LAUNCHES'));
+        let tail = iWrite >= 0 ? sf.slice(iWrite) : '';
+        // 砍掉一切"错误兜底"分支：`.catch(` 起到文件末尾通常是最后一行，直接截断更稳。
+        const iCatch = tail.indexOf('.catch(');
+        if (iCatch >= 0) tail = tail.slice(0, iCatch);
+        const hardExit = /process\.exit\((?!Code)/.test(tail);
+        assert('V1.9.9.630：' + f + ' **落盘之后**显式 process.exit（只设 exitCode 会让进程挂着不退）',
+          iWrite >= 0 && hardExit,
+          '找到写盘=' + (iWrite >= 0) + ' 写盘后有 exit=' + hardExit);
+      }
       // ⑩ 未匹配必须**带原因**（本轮就是靠人工读源码才发现 F 编号漏了）
       assert('V1.9.9.630：台账未匹配条目**带原因提示**（区分失利批次 / 常规批次，不再只报 key）',
         /const fMiss = miss\.filter\(k => \/F\\d\+\$\/\.test\(k\)\)/.test(s) &&
@@ -6888,6 +6919,40 @@ assert('V1.9.3：两个 e2e 脚本都设了 `CISTRACK_SKIP_STALE_CHECK`（否则
   //   （没数据时大声失败，好过静默产出残缺产物），但必须先有重试和兜底。
   assert('V1.9.3：`exitCode = 4` 的大声失败策略**保留**（静默降级比失败更糟）',
     /process\.exitCode = 4;/.test(rf));
+}
+
+// ===== V1.9.9.630（2026-10-21 实测）：**发射批次颗数静默回退**的守卫 =====
+// 实测事故（必须留档，否则下轮照样会退化）：
+//   `data/satcat.csv` 停在 10-16 22:42（4.5 天），只覆盖到 `2026-228`；
+//   refresh 的 `age > 7` 判据判它"新鲜"→ 跳过重下；
+//   mkdata 的 `pendingSummary()` 查不到 `2026-230` 就**静默 return** →
+//   `gw.launchCounts` 从 41 批掉到 40 批（`26230` 低轨27组 9 颗整个消失），
+//   页面「发射卫星数」少 9 颗，**全程无任何告警**（HEAD 产物有、本地重建后没有）。
+{
+  // 本地剥注释（`codeOnly` 在别处是块级局部，这里自备一份，避免作用域依赖）
+  const stripC = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('\n').map((l) => l.replace(/\/\/.*$/, '')).join('\n');
+  const mk = stripC(fs.readFileSync(B + '/mkdata.mjs', 'utf8'));
+  const rf2 = stripC(fs.readFileSync(B + '/refresh.mjs', 'utf8'));
+  const hasAudit = /auditCountsCoverage/.test(mk) && /_countMissing/.test(mk);
+  assert('V1.9.9.630：mkdata 有**发射批次颗数覆盖自检**（satcat 过期导致整批消失时必须点名）',
+    hasAudit, 'auditCountsCoverage=' + /auditCountsCoverage/.test(mk) + ' _countMissing=' + /_countMissing/.test(mk));
+  // 判据必须排除失利批次 —— 第一版漏了，把 25F05（朱雀二号E Y3 失利）误报成"缺失"→ 假红。
+  const hasFail = /isFail/.test(mk) && /'fail'/.test(mk) && /!isFail\(k\)/.test(mk);
+  assert('V1.9.9.630：覆盖自检**排除失利批次**（res=fail 本就没卫星，报它=假警报）',
+    hasFail, 'isFail=' + /isFail/.test(mk) + " 'fail'=" + /'fail'/.test(mk) + ' !isFail(k)=' + /!isFail\(k\)/.test(mk));
+  // 必须是"拒绝写出"，否则静默回退照样能发布。
+  // ⚠️ 这里必须锚定**同一个分支**（`else if (...GW_COUNT_MISS.length || QF_COUNT_MISS.length...)`）
+  //   而不是分别 grep 两个孤立 token —— 第一版就因为"只剩 exitCode=8 与开关、自检已删"
+  //   仍然 PASS（注入测试抓出来的），属"守卫到位但形同虚设"。
+  const hasGate = /else if \(\(GW_COUNT_MISS\.length \|\| QF_COUNT_MISS\.length\) && !ALLOW_COUNT_MISS\)\s*\{[\s\S]{0,900}?process\.exitCode = 8;/.test(mk);
+  assert('V1.9.9.630：批次颗数缺失时 **拒绝写出** satdata（不是打个警告就过）',
+    hasGate, '同一分支内含 exitCode=8 ' + hasGate);
+  // satcat 新鲜度判据：7 天太宽（实测 4.5 天就已漏掉两次发射）→ 必须 ≤1 天
+  const mAge = /if \(forceCat \|\| age > ([\d.]+)\)/.exec(rf2);
+  const ageOk = !!mAge && Number(mAge[1]) <= 1;
+  assert('V1.9.9.630：refresh 的 satcat 新鲜度阈值 **≤1 天**（`age > 7` 实测漏掉两次发射）',
+    ageOk, '实际阈值=' + (mAge ? mAge[1] + ' 天' : '(未匹配到判据)'));
 }
 
 assert('V1.9.3：e2e 的实跑挂在 CI 上（本地 smoke 不跑，避免闸门从 40s 涨到 10 分钟）',

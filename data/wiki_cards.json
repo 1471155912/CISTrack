@@ -1,13 +1,13 @@
 {
  "_src": "https://sat.huijiwiki.com",
- "_checkedAt": "2026-10-21 00:04",
+ "_checkedAt": "2026-10-21 07:41",
  "_force": false,
- "cardsAsOf": "2026-10-21 00:04",
- "cardsError": "本轮 1 个词条未过挑战/解析失败，相关卡片沿用上次数据",
+ "cardsAsOf": "2026-10-21 07:41",
+ "cardsError": "",
  "_counts": {
   "titles": 37,
   "fetched": 37,
-  "failed": 1
+  "failed": 0
  },
  "cards": {
   "卫星互联网技术试验卫星一号": {

@@ -40,6 +40,54 @@ let html = fs.readFileSync(`${B}/template.html`, 'utf8');
 const sgp4 = fs.readFileSync(`${R}/satellite.min.js`, 'utf8');
 const coast = fs.readFileSync(`${R}/coast.js.txt`, 'utf8');
 const data = fs.readFileSync(`${B}/build/satdata.json`, 'utf8');
+
+// ★★ V1.9.9.630（2026-10-21 实测抓出）：**satdata 的"不倒退"守卫** —— 与下面
+//   `history/`（R17）和 `wiki.json`（V1.4.0）那两道同类，但这一处此前**完全没有**。
+//   事故实证：`data/satcat.csv` 停在 10-16（4.5 天）→ mkdata 的 launchCounts 少一批
+//   （`26230` 低轨27组 9 颗）→ 跑 build 后产物里 `gw.launchCounts` 从 **41 批掉到 40 批**，
+//   而 build 一声不吭（`build.mjs` 不跑 mkdata，只读 `build/satdata.json`；"只跑 build
+//   不跑 mkdata"就会把**已发布的数据往回栽**）。
+//   判据（与 history 同思路）：拿**已发布的 `CISTrack.html`** 里内嵌的 SATDATA 做对照，
+//   比"批次数"和"卫星数"两个**单调量**——它们不会因合法的容量治理而变小。
+//   ⚠️ 不能只看文件 mtime：mkdata 随时会重写 satdata，mtime 新不代表数据新。
+const PUBLISHED = `${B}/CISTrack.html`;
+function satCounts(src) {
+  try {
+    const m = /window\.SATDATA=(\{[\s\S]*?\});?<\/script>/.exec(src);
+    if (!m) return null;
+    const o = JSON.parse(m[1]);
+    return {
+      gwBatch: Object.keys(o.gw.launchCounts || {}).length,
+      qfBatch: Object.keys(o.qf.launchCounts || {}).length,
+      gwSat: (o.gw.sats || []).length,
+      qfSat: (o.qf.sats || []).length,
+      miss: (o.gw._countMissing || []).length + (o.qf._countMissing || []).length,
+    };
+  } catch (e) { return null; }
+}
+if (fs.existsSync(PUBLISHED) && !process.env.CISTRACK_ALLOW_SATDATA_REGRESS) {
+  const prev = satCounts(fs.readFileSync(PUBLISHED, 'utf8'));
+  const next = satCounts('window.SATDATA=' + data + ';</script>');
+  if (prev && next) {
+    const down = [];
+    if (next.gwBatch < prev.gwBatch) down.push('gw 批次数 ' + prev.gwBatch + '→' + next.gwBatch);
+    if (next.qfBatch < prev.qfBatch) down.push('qf 批次数 ' + prev.qfBatch + '→' + next.qfBatch);
+    if (next.gwSat < prev.gwSat) down.push('gw 卫星数 ' + prev.gwSat + '→' + next.gwSat);
+    if (next.qfSat < prev.qfSat) down.push('qf 卫星数 ' + prev.qfSat + '→' + next.qfSat);
+    if (down.length) {
+      console.error('!! satdata **拒绝写入产物**：数据比已发布的 CISTrack.html **更少** ——');
+      down.forEach((d) => console.error('     · ' + d));
+      console.error('   最常见原因：`data/satcat.csv` 过期（launchCounts 少批次），或"只跑 build 没跑 mkdata"。');
+      console.error('   修法：`node refresh.mjs --force-cat` → `node mkdata.mjs` → 再跑 build。');
+      console.error('   确实要下调数据（例如词条被更正）：设 CISTRACK_ALLOW_SATDATA_REGRESS=1。');
+      process.exit(3);
+    }
+    if (next.miss > prev.miss) {
+      console.log('⚠️ 产物含 ' + next.miss + ' 个「颗数缺失」批次（上次 ' + prev.miss + ' 个）——' +
+        '真值未减少，但「发射卫星数」会偏少；跑 `refresh.mjs --force-cat` 修。');
+    }
+  }
+}
 const app = fs.readFileSync(`${B}/app.js`, 'utf8');
 
 for (const [name, code] of [['sgp4', sgp4], ['coast', coast], ['data', data], ['app', app]]) {
