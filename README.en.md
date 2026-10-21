@@ -197,7 +197,7 @@ data always current without manually downloading anything.
 
 Either way works:
 
-- **Download the Release zip** (`CISTrack_v1.9.9.630_local-deploy.zip` from the [latest Release](https://github.com/1471155912/CISTrack/releases/latest)) — unzip and go; **this is the complete package for local deployment**;
+- **Download the Release zip** (`CISTrack_v2.0.0.630_local-deploy.zip` from the [latest Release](https://github.com/1471155912/CISTrack/releases/latest)) — unzip and go; **this is the complete package for local deployment**;
 - or `git clone https://github.com/1471155912/CISTrack.git`
 
 ### Step 2: pick the usage that fits

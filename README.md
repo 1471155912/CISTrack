@@ -182,7 +182,7 @@
 两种方式任选：
 
 - **下载 Release 的 zip**（[最新 Release](https://github.com/1471155912/CISTrack/releases/latest) 的
-  `CISTrack_v1.9.9.630_local-deploy.zip`）→ 解压即用，**这是给本地部署准备的完整包**；
+  `CISTrack_v2.0.0.630_local-deploy.zip`）→ 解压即用，**这是给本地部署准备的完整包**；
 - 或 `git clone https://github.com/1471155912/CISTrack.git`
 
 ### 第二步：按需要选一种用法
