@@ -439,6 +439,71 @@ while **every gate (smoke / adversarial / build) was green**.
 | `wiki_launches.json` | 61 entries, including `2025-F05 res=fail` |
 | `wiki.json` / `build/wiki.json` | now synced to `cards 07:41` (both were stuck at 00:04 and carried an alert that no longer applied) |
 
+### 16. Added after release (evening of 2026-10-21): release notes archived + R7 added to the roadmap
+
+Two additions made **after** the release. Neither changes product behaviour; both are about making the
+"what happens next" layer traceable.
+
+**① The release notes were never archived (now fixed)**
+
+- **The problem**: the "🗺️ Roadmap" chapter of V1.9.9.630 is the **single authoritative statement** of
+  what comes next, and it lived **only in the GitHub Release body**. The repo's `junk/release_body_199.md`
+  is the archive of an older three-part version; this four-part version was never written to disk.
+  The next release using different notes would make that chapter **vanish silently**, with nothing in the
+  repo raising an error. That is the same class of problem this version has been fixing all along —
+  a silent regression, just at the documentation layer.
+- **What was done**: exported the body to `junk/release_body_1.9.9.630.md` (`junk/` is already
+  `.gitignore`d and explicitly allowed by `repo_hygiene` — same place as the existing precedent, no new
+  root-level file). Added 5 smoke guards: the archive exists (≥12000 **characters**, not bytes — 12k
+  Chinese characters ≈ 25k bytes, so a byte threshold would mask truncation), R1–R7 all present, R7 is a
+  substantive entry (contains the "current state / what to do / boundaries" sections), R7 does not
+  overturn a settled convention, and R7 sits before "How to Upgrade".
+- **Why not in the repo root**: the root allowlist only admits "things users use" plus "the rebuild
+  chain"; process documents like `PROCESS.md` are on `repo_hygiene`'s blocklist. An archive is a process
+  document, so `junk/` is the only place that does not break the existing convention.
+
+**② Roadmap gains R7 — a better fuzzy search (explicitly requested)**
+
+- **Why it is written as "current state / what to do / boundaries" rather than "shipping soon"**: fuzzy
+  search is not solved by adding a few more aliases. Its four weak spots each carry a cost (see R7 in the
+  release notes): no typo tolerance, no skipped-character matching, no fallback on empty results, and
+  pinyin only as a whole string. In particular **tolerance must live on the vocabulary side**
+  (pre-generated index); computing edit distance at runtime over every record would mean an
+  O(records × word length) full scan on every keystroke — it would stutter on phones. That is a direct
+  performance-versus-recall trade-off, and it has to be stated before any code is written.
+- **Boundary (written into the notes to avoid over-promising)**: constellation names (SatNet / Qianfan)
+  **still do not participate in keyword matching** — search already happens inside each constellation's
+  own page, and fuzzy matching will not bring that settled convention back. A guard locks this in.
+
+**③ One thing cleared up along the way: the manufacturer alias table was never missing (the user challenged this, and my previous statement was wrong)**
+
+- Last round I closed with "input still needed from you: the CISTrack manufacturer alias table (the
+  `data/makers.json`, 59 entries → 14 organisations thread)" — **that was wrong**. What the audit found:
+  - The path `data/makers.json` **no longer exists**; since V1.9.5 (H9) it is `data/manufacturers.json`,
+    and it is no longer a hand-written table but a **single-source derivation** from
+    `data/wiki_tables.json` by `mkmanufacturers.mjs`.
+  - The runtime alias table lives in `MANUFACTURER_ALIAS` in `app.js`: **15 groups**; plus
+    `MANUFACTURER_RAW`: **18** raw-name mappings.
+  - Checked against the real derived index: the data yields **15 distinct organisations**, and the
+    number not covered by the alias table is **0** (zero gaps).
+- I turned this into a **machine-checkable guard** rather than another verbal assurance: a new smoke
+  assertion extracts organisation names from `data/manufacturers.json` and requires each one to map
+  through `MANUFACTURER_RAW` into some canonical group in `MANUFACTURER_ALIAS`. Injection test (removing
+  the "氦星光联" alias group) → reports `1 uncovered: 氦星光联`; restored → `0 uncovered`.
+- **Conclusion**: you do not need to supply an alias table. What genuinely remains is **new
+  organisations**: when a brand-new organisation appears in the data, this guard goes red immediately and
+  names it, and one group gets added at that point.
+
+**④ Gate results this round**
+
+| Gate | Result |
+|---|---|
+| `smoke.mjs` | **PASS 1012 / FAIL 0** (+6 guards; 2 verified by injection to fail accurately) |
+| `scripts/e2e_adversarial.mjs` | **PASS 57 / FAIL 1** — the only red is "E1 input precondition: `satcat.csv` covers every non-failed launch", **reported honestly**: the local satcat stops at 10-16, `26230` is absent, so E1/E2 are SKIP by design (not a product defect) |
+| `audit_refs` / `audit_assertions` / `repo_hygiene` / `privacy_check` | all EXIT=0 |
+| Local `mkdata` gate (probed via a separate `CISTRACK_BUILD_DIR`) | **refuses to write, by design**: `拒绝写出：有 1 个非失利批次在 satcat.csv 里查不到：gw: 26230` |
+| Live artifact vs local `CISTrack.html` | **byte-identical**: sha256 `e0c1dba2…fb29b4`, 1,750,458 bytes (rebuilt by CI run 39523263585) |
+
 ---
 
 ## [V1.9.9] — 2026-10-19

@@ -7299,6 +7299,70 @@ assert('V1.9.3：e2e 的实跑挂在 CI 上（本地 smoke 不跑，避免闸门
 
 $('#themeBtn').dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
 
+// ============================================================ V1.9.9.630 收口追加
+// Release 正文（「更新计划 / Roadmap」章）的**留档与线上一致性**守卫。
+// 为什么需要：这一章是"以后要做什么"的唯一权威表述，但它**只存在于 GitHub Release 正文里**
+//   —— 下次发布若用别的 notes 覆盖，这一章就悄悄消失，而仓库里没有任何东西会报错。
+//   本仓库此前只有 junk/release_body_199.md（三段式旧版），四段式的正文从未留档。
+//   留档放 junk/（.gitignore 已排除、repo_hygiene 也允许该目录）—— 与既有先例同位置。
+// 判据：留档存在 + 含 R1..R7 全部七条 + R7 是实质条目 + 结构未割裂。
+{
+  const p = B + '/junk/release_body_1.9.9.630.md';
+  let body = '';
+  try { body = fs.readFileSync(p, 'utf8'); } catch (e) { body = ''; }
+  // 注意：这里判**字符数**不判字节数 —— 中文正文 12k 字符 ≈ 25k 字节，按字节设阈值会掩盖截断。
+  assert('V1.9.9.630：Release 正文已留档（junk/release_body_1.9.9.630.md，原先只在 GitHub 上）',
+    body.length > 12000, body ? body.length + ' 字符' : '(文件不存在)');
+  const hasAll = ['R1.', 'R2.', 'R3.', 'R4.', 'R5.', 'R6.', 'R7.'].every((r) => body.indexOf('### ' + r) >= 0);
+  assert('V1.9.9.630：「更新计划」七条齐全（R1–R7）', hasAll,
+    'R1–R7 齐=' + hasAll);
+  // R7 必须是**实质条目**，不能只是一行标题
+  const r7 = body.indexOf('### R7.');
+  const r7seg = r7 >= 0 ? body.slice(r7, r7 + 2200) : '';
+  assert('V1.9.9.630：R7 = 更好用的模糊搜索，且写明「现状/要做什么/边界」三节',
+    /模糊搜索/.test(r7seg) && /\*\*现状\*\*/.test(r7seg) && /\*\*要做什么\*\*/.test(r7seg) && /\*\*边界/.test(r7seg),
+    '段长=' + r7seg.length);
+  // R7 不能悄悄推翻已裁决口径 ①（星座名不做关键词匹配）
+  assert('V1.9.9.630：R7 明确声明不改「星座名不做关键词匹配」的已裁决口径',
+    /星座名（星网\/千帆）\*\*仍然不做关键词匹配\*\*/.test(r7seg),
+    '含裁决说明=' + /仍然不做关键词匹配/.test(r7seg));
+  const up = body.indexOf('## 📦 升级方式');
+  assert('V1.9.9.630：R7 插在「升级方式」之前（结构未被割裂）',
+    r7 >= 0 && up > r7, 'R7@' + r7 + ' 升级方式@' + up);
+}
+// 制造商别名表**对数据的覆盖率**守卫：这是用户反复质疑过的一条 ——
+//   "为什么还要我提供别名表"。答案必须能被机器验证，而不是靠我口头保证。
+//   判据：数据里拆出的每个独立机构名，都必须在 MANUFACTURER_RAW 里有映射，
+//   且映射到的规范名必须存在于 MANUFACTURER_ALIAS 的某个组里。
+{
+  const mRaw = /var MANUFACTURER_RAW = \{([\s\S]*?)\n\};/.exec(appSrc);
+  const mAli = /var MANUFACTURER_ALIAS = \[([\s\S]*?)\n\];/.exec(appSrc);
+  const rawMap = {};
+  if (mRaw) {
+    for (const mm of mRaw[1].matchAll(/'([^']+)':\s*'([^']*)'/g)) rawMap[mm[1]] = mm[2];
+  }
+  const canonSet = new Set();
+  if (mAli) for (const mm of mAli[1].matchAll(/^\s*\['([^']+)'/gm)) canonSet.add(mm[1]);
+  // 数据侧：从真实派生索引里拆机构名（按「、」分词 + 剥掉（N颗）后缀）
+  let mk = null;
+  try { mk = JSON.parse(fs.readFileSync(B + '/data/manufacturers.json', 'utf8')); } catch (e) { mk = null; }
+  if (mk && mRaw && mAli) {
+    const names = new Set();
+    for (const v of Object.values(mk.byCospar || {})) {
+      String(v.manufacturer || '').split('、').forEach((part) => {
+        const base = part.replace(/（[^）]*）/g, '').replace(/\([^)]*\)/g, '').trim();
+        if (base) names.add(base);
+      });
+    }
+    const orphan = [...names].filter((n) => !rawMap[n] || !canonSet.has(rawMap[n]));
+    assert('V1.9.9.630：制造商别名表**零缺口**（数据里每个机构都有别名组，无需用户再提供）',
+      names.size > 0 && orphan.length === 0,
+      '数据机构 ' + names.size + ' 个 / 未覆盖 ' + orphan.length + (orphan.length ? '：' + orphan.join('|') : ''));
+  } else {
+    assert('V1.9.9.630：制造商别名表零缺口（产物与别名表都可读）', false,
+      'mk=' + !!mk + ' RAW=' + !!mRaw + ' ALIAS=' + !!mAli);
+  }
+}
 
 await new Promise(r => setTimeout(r, 400));
 console.log('--- 汇总');
