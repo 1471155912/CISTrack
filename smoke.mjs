@@ -102,6 +102,12 @@ const rows = () => d.querySelectorAll('#tbody tr[data-idx]').length;
 // ★ V1.9.9：断言也要**自己计数** —— 历史上「错误数: 0」只统计运行时异常，
 //   有 FAIL 时它照样是 0（退出码虽为 1，但人眼先看到的往往是那行"错误数 0" → 误判全绿）。
 let PASS_N = 0, FAIL_N = 0;
+// ★★ V2.0.0（2026-10-22）：新增 `SKIP_N` —— **"跳过"必须与"通过"区分开** ★★
+//   来历：为了让 CI 不再因"本机运维留档不在仓库里"而整体变红（见文件末尾 Release 正文那段的
+//   长注释），把那条断言改成"文件存在才校验"。但如果只是静默不计数，后人看汇总
+//   `PASS: 1012 / FAIL: 0` 会以为**全部验过了**，其实有 5 条根本没跑 —— 那就是新的静默失效。
+//   所以：跳过要**单独计数并在汇总里打印**，让"没验"这件事始终可见。
+let SKIP_N = 0;
 function assert(name, cond, extra) {
   if (cond) PASS_N++; else FAIL_N++;
   console.log((cond ? 'PASS ' : 'FAIL ') + name + (extra !== undefined ? '  → ' + extra : ''));
@@ -1076,8 +1082,9 @@ assert('V1.9.9：`orbitStatusHtml` 支持**简写**第二参（brief），且信
 assert('V1.9.9：简写形态的四个分支齐全（在轨 / 间歇 / 点火 / 已再入）',
   // 已再入 → 只留 `已再入`
   /if \(r\.gone\) return brief \? t\('st_gone'\)/.test(appSrc) &&
-  // 在轨 → 只留 `在轨`
-  /if \(brief\) return t\('st_orbit'\);/.test(appSrc) &&
+  // ★ V1.9.9（Q26 四态化改写）：在轨分「正常 / 可能异常」两态，简写要各自成形；
+  //   旧写法 `if (brief) return t('st_orbit')` 已不存在（「在轨」这个笼统叫法被拆开）。
+  /if \(brief\) return isAbn \? t\('st_orbit_abn_b'\) : t\('st_orbit_b'\);/.test(appSrc) &&
   // 点火 → 只留速度项，且用**半角括号**
   /return t\('st_raise_hot_b'\) \+ t\('st_paren_l'\)/.test(appSrc) &&
   // 间歇/无速率 → 只留状态名
@@ -1870,7 +1877,11 @@ assert('V1.7.2r7（需求2）：#pageEpoch 常驻（CSS 里不得再有 display:
 // ================================================================ ★ V1.9.9：信息窗与表格**内容一致**（三条真 bug）
 // ① 「在轨」行日期一直显示 `—`：satStatusRow 少传 `od`（工作轨道生效日），而文案模板是 `在轨（~<od>, …）`。
 assert('V1.9.9：信息窗「在轨」行带上 od（否则「在轨（~—, 1150km）」而表格有日期）',
-  /_s: s, orb: s\.orb, wk: s\.wk, od: s\.od,/.test(appSrc) && /function satStatusRow\(s\)/.test(appSrc));
+  // ★ V1.9.9（Q26）：satStatusRow 里这行后来又补了 `la` / `st` / `abn`（四态要用），
+  //   所以这里只锚"这几个字段都在同一行对象里"，不再锚具体的字面顺序（一改就假红）。
+  /_s: s, orb: s\.orb, wk: s\.wk, la: s\.la, od: s\.od,/.test(appSrc) &&
+  /st: s\.st \|\| '', abn: s\.abn/.test(appSrc) &&
+  /function satStatusRow\(s\)/.test(appSrc));
 // ② 单星发射的「批次/组」：表格 `−`、信息窗曾直接印批次名 → 抽成 batchCellHtml 两处共用。
 assert('V1.9.9：批次/组判据**表格与信息窗同源**（单星发射两边都显示 `−`）',
   /function isLoneLaunch\(L\)/.test(appSrc) && /function batchCellHtml\(L, asLink\)/.test(appSrc) &&
@@ -2488,15 +2499,27 @@ assert('V1.9.0（R17）：升轨速率算法在页面端与构建期**同一口�
     assert('V1.9.1（1.4-D）：mkdata 从 satcat 的 DECAY_DATE 产出"已再入"状态（st=r + dt）',
       /function reentryMap/.test(md) && /const REENTRY = reentryMap\(\)/.test(md) &&
       /rec\.st = 'r'; rec\.dt = dec;/.test(md));
-    assert('V1.9.1（1.4-D）：在轨卫星不带 st 字段（只有已再入的才加，绝大多数记录零增重）',
-      /if \(dec\) \{ rec\.st = 'r'; rec\.dt = dec; \}/.test(md) &&
+    // ★ V1.9.9（Q26 四态化改写）：原断言守的是「在轨卫星**不带** st 字段」—— 那是三态时代
+    //   的口径（只有已再入才加 st='r'，多数记录零增重）。四态化之后 `st` 承担了
+    //   `'r'`（已再入）与 `'abn'`（在轨·可能异常）两个取值，"不带 st" 不再成立。
+    //   现在要守的是**同一件事的等价形式**：`st` 只会取允许的值，绝不出现第三种。
+    assert('V1.9.9（Q26）：卫星的 `st` 只取 r / abn / 缺省三值（不再有其它状态码混进来）',
       (function () {
         const g = JSON.parse(fs.readFileSync(B + '/build/satdata.json', 'utf8'));
         const g2 = g.SATDATA || g;
         const all = [...(g2.gw.sats || []), ...(g2.qf.sats || [])];
-        const withSt = all.filter(s => s.st).length;
-        return withSt === all.filter(s => s.st === 'r').length;   // 不存在 st 非 'r' 的
-      })());
+        const ALLOWED = new Set(['r', 'abn']);
+        const bad = all.filter(s => s.st !== undefined && s.st !== null && s.st !== '' && !ALLOWED.has(s.st));
+        return bad.length === 0;
+      })(), '（越界取值：' +
+        (function () {
+          const g = JSON.parse(fs.readFileSync(B + '/build/satdata.json', 'utf8'));
+          const g2 = g.SATDATA || g;
+          const all = [...(g2.gw.sats || []), ...(g2.qf.sats || [])];
+          const ALLOWED = new Set(['r', 'abn']);
+          const bad = all.filter(s => s.st !== undefined && s.st !== null && s.st !== '' && !ALLOWED.has(s.st));
+          return [...new Set(bad.map(s => s.c + '=' + s.st))].slice(0, 6).join(',') || '无';
+        })() + '）');
   }
 
 // ---- V1.9.1（执行顺序 1.7）：台账口径修正 ----
@@ -3819,9 +3842,26 @@ assert('V1.9.2：右侧留白按"要标几条"动态加宽（否则名称会被�
       })(),
       '有 rr ' + raiS.filter(r => r.rr !== undefined).length + ' / 无 rr ' + raiS.filter(r => r.rr === undefined).length +
         ' 颗（无 rr 的批次号：' + [...new Set(raiS.filter(r => r.rr === undefined).map(r => String(r.c).slice(0, 5)))].join(',') + '）');
-    assert('A7：**在轨**的星都写「进入工作轨道日期」od；**变轨中**的不写（它在上升途中会穿过工作带）',
-      orbS.every(r => /^\d{4}-\d{2}-\d{2}$/.test(r.od)) && raiS.every(r => !r.od),
-      '在轨缺日期 ' + orbS.filter(r => !/^\d{4}-\d{2}-\d{2}$/.test(r.od)).length + ' 颗');
+    // ★ V1.9.9（Q26/Q27 改写）：旧口径是「**所有**在轨星都有 od」——三态时代成立；
+    //   四态化之后「在轨·正常」按用户裁决**包含**"停在非工作轨道但无法明确判定异常"的星，
+    //   这些星从未落进设计层，`od` 按定义（首次落进设计层 ±NEAR 那条 TLE）本就该为空。
+    //   实测：在轨 439 颗里 409 颗在层上（od 齐备）、30 颗不在层上（27 颗 od 空 + 3 颗 GEO 不计层）。
+    //   ⇒ 正例：**在层上**的星必须有 od；反例：变轨中的一律没有 od。
+    //   （"离层却有 od"只允许 GEO —— 它的 od 走 GEO_SMA 另一条分支）
+    assert('A7：**在层上**的在轨星都写「进入工作轨道日期」od；**变轨中**的一律不写（它在上升途中会穿过工作带）',
+      (function () {
+        const onLayer = orbS.filter(r => typeof r.la === 'number' && Math.abs(r.wk - r.la) <= 30);
+        return onLayer.length > 300 && onLayer.every(r => /^\d{4}-\d{2}-\d{2}$/.test(r.od));
+      })() &&
+      // 反例：离层且非 GEO 的星不许有 od（有 = od 语义被写坏了）
+      orbS.filter(r => r.wk !== 'GEO' && !(typeof r.la === 'number' && Math.abs(r.wk - r.la) <= 30))
+        .every(r => !r.od) &&
+      raiS.every(r => !r.od),
+      '在层上缺日期 ' + orbS.filter(r => typeof r.la === 'number' && Math.abs(r.wk - r.la) <= 30 &&
+        !/^\d{4}-\d{2}-\d{2}$/.test(r.od)).length + ' 颗' +
+      '｜离层却误填 ' + orbS.filter(r => r.wk !== 'GEO' &&
+        !(typeof r.la === 'number' && Math.abs(r.wk - r.la) <= 30) && r.od).length + ' 颗' +
+      '｜变轨中误填 ' + raiS.filter(r => r.od).length + ' 颗');
     assert('A7/Q46：GEO 的工作高度写 `GEO` 而非数字（周期≈1436 min，等价于半长轴 ≥42000 km）',
       geoS.length === 3 && geoS.every(r => r.orb === 0),
       geoS.length + ' 颗：' + geoS.map(r => r.id).join('/'));
@@ -3849,26 +3889,64 @@ assert('V1.9.2：右侧留白按"要标几条"动态加宽（否则名称会被�
         if (!bad.length) return '全部合法（' + [...new Set(liveS.filter(r => r.wk !== 'GEO').map(r => r.wk))].length + ' 个档位）';
         return '违规 ' + bad.length + ' 颗：' + bad.slice(0, 8).map(r => r.id + '=' + r.wk).join(',');
       })());
-    assert('A7：**同批同高**（同一批次内所有星的 wk 完全一致）',
+    // ★★ V1.9.9（Q27）：「同批同高」这条断言**语义已失效，必须换** ★★
+    //   旧断言：同一批次内所有星 `wk` 完全一致（当时 wk = 该批的**设计层高**，同批当然同高）。
+    //   用户裁决后 `wk` = 「**现在临时停泊的高度**」（每颗星的实际高度），
+    //   同批星本来就会各自停在不同高度（实测 24185 批 18 颗散在 800~974），这条必然失败。
+    //   现在要守的是**设计层高 `la` 同批一致** —— 那才是"这一批要去的层"。
+    assert('A7：**同批同层**（同一批次内所有星的 `la` 设计层高一致）',
       (function () {
         const byk = {};
-        for (const r of liveS) { const k = String(r.c).slice(0, 5); (byk[k] = byk[k] || []).push(r.wk); }
+        // 只对已归层（la 是数字）的星比对；无层的星 la=null，不参与（它们还没被归到任何层）
+        for (const r of liveS) {
+          if (typeof r.la !== 'number') continue;
+          const k = String(r.c).slice(0, 5); (byk[k] = byk[k] || []).push(r.la);
+        }
         const bad = Object.keys(byk).filter(k => !byk[k].every(v => v === byk[k][0]));
         return bad.length === 0;
       })(), '（不一致的批次：' +
         (function () {
           const byk = {};
-          for (const r of liveS) { const k = String(r.c).slice(0, 5); (byk[k] = byk[k] || []).push(r.wk); }
+          for (const r of liveS) {
+            if (typeof r.la !== 'number') continue;
+            const k = String(r.c).slice(0, 5); (byk[k] = byk[k] || []).push(r.la);
+          }
           return Object.keys(byk).filter(k => !byk[k].every(v => v === byk[k][0])).join(',') || '无';
         })() + '）');
-    // 24185 是这次判据校准的关键样本：18 颗里只有 4~5 颗真到了 1071，其余长期停在 800~974。
-    //   若有人把 wk 的算法改回"全批中位数"，这条会立刻失败（那时 wk 会变 880~890）。
-    assert('A7：24185（极轨02组）工作高度 = **1070 km**（不能是"全批中位数"算出的 880）',
+    // 24185 是判据校准的关键样本：18 颗里只有 4~5 颗真到了 1071，其余长期停在 800~974。
+    //   ★ V1.9.9（Q27 改写）：这条断言原本守的是 `wk === 1070`（即"设计层高不能被
+    //   全批中位数带偏"）。现在 `wk` 是各星实际高度，**不再是** 1070；
+    //   要守的同一件事改由 `la` 表达 —— `la` 必须全部是 1070。
+    //   这条同时也验证了"可能异常"的判据基础：同批 18 颗只有 5 颗 la 正确落层，
+    //   另 12 颗长期静止在低处 ⇒ 正是 `st:'abn'` 的来源。
+    assert('A7：24185（极轨02组）设计层高 `la` = **1070 km**（不能是"全批中位数"算出的 880）',
       (function () {
-        const g = liveS.filter(r => String(r.c).slice(0, 5) === '24185');
-        return g.length > 0 && g.every(r => r.wk === 1070);
+        const g = liveS.filter(r => String(r.c).slice(0, 5) === '24185' && typeof r.la === 'number');
+        return g.length > 0 && g.every(r => r.la === 1070);
       })(),
-      JSON.stringify(liveS.filter(r => String(r.c).slice(0, 5) === '24185').map(r => r.wk).slice(0, 5)));
+      JSON.stringify(liveS.filter(r => String(r.c).slice(0, 5) === '24185').map(r => r.c + ':la=' + r.la + '/wk=' + r.wk).slice(0, 5)));
+    // ★ V1.9.9（Q26 新增守卫）：四态字段自洽 —— 「可能异常」必须是 orb=0 且在轨（不是变轨中/已再入）。
+    //   来历：`st:'abn'` 与 `orb` 是两个独立字段，一旦谁写错（比如给 orb=1 的星打了 abn），
+    //   页面上会同时显示"变轨中"和"可能异常"，自相矛盾。
+    assert('A7（Q26）：`st="abn"` 的星必须 `orb=0` 且不是 `st="r"`（四态互斥）',
+      liveS.filter(r => r.st === 'abn').every(r => r.orb === 0 && r.st !== 'r'),
+      '异常态 ' + liveS.filter(r => r.st === 'abn').length + ' 颗 / 违例 ' +
+      liveS.filter(r => r.st === 'abn' && (r.orb !== 0 || r.st === 'r')).map(r => r.c).join(',') || '无');
+    // ★ V1.9.9（Q27 新增守卫）：`wk` 必须等于**实际高度**（10 km 档位），不再是设计层高。
+    //   判据：`|wk − 实测高度|` 不应超过档位量化误差（±5km）+ TLE 演化误差。
+    //   实测（修复后）：402 颗在轨非 GEO 星全部满足 |wk − round(alt)| ≤ 5km。
+    assert('A7（Q27）：在轨星的 `wk` = 实际高度（±10km 内），不是设计层高',
+      (function () {
+        const bad = liveS.filter(r => typeof r.wk === 'number' && isFinite(r.smaB) &&
+          Math.abs(r.wk - r.smaB) > 10);
+        return bad.length === 0;
+      })(),
+      (function () {
+        const bad = liveS.filter(r => typeof r.wk === 'number' && isFinite(r.smaB) &&
+          Math.abs(r.wk - r.smaB) > 10);
+        return '违例 ' + bad.length + ' 颗' + (bad.length ? '：' + bad.slice(0, 6).map(r =>
+          r.c + ' wk=' + r.wk + ' alt=' + r.smaB.toFixed(0)).join(', ') : '');
+      })());
 
     // ★ V1.9.3（CI 报错根因修复的防复发守卫）：**无历史点的星必须被兜底，不许留 undefined**。
     //   来历（2026-10-13，CI 连续两次红灯）：`ORBIT_ST` 的 rows 只从**历史库**构建，
@@ -3883,7 +3961,9 @@ assert('V1.9.2：右侧留白按"要标几条"动态加宽（否则名称会被�
         const mkSrc = fs.readFileSync(B + '/mkdata.mjs', 'utf8');
         // ⚠️ 窗口必须够大：从 `const st = ORBIT_ST.get(...)` 到 `rec.orb = 1` 之间
         //   夹着 26 行说明注释（实测踩到 —— 第一版写 {0,900} 匹配不到）。
-        return /const st = ORBIT_ST\.get\(rec\.id\);[\s\S]{0,3000}?rec\.orb = 1; rec\.wk = wkGuess; rec\.od = '';/.test(mkSrc) &&
+        // ★ V1.9.9（Q27）：兜底行多了 `rec.la = null;`（无层可比 → 设计层高未知），
+        //   所以正则尾巴改成"以 rec.od = '' 开头"，不再要求它是整条语句的结尾。
+        return /const st = ORBIT_ST\.get\(rec\.id\);[\s\S]{0,3000}?rec\.orb = 1; rec\.wk = wkGuess; rec\.la = null; rec\.od = '';/.test(mkSrc) &&
           /wkGuess = Math\.round\(\(sumGuess \/ nGuess\) \/ 10\) \* 10;/.test(mkSrc) &&
           /else wkGuess = Math\.round\(400 \/ 10\) \* 10;/.test(mkSrc) &&
           !/if \(!st\) continue;/.test(mkSrc);
@@ -3908,9 +3988,15 @@ assert('V1.9.2：右侧留白按"要标几条"动态加宽（否则名称会被�
         (miss.length ? '：' + miss.slice(0, 8).join(',') : ''));
     }
 
-    assert('A7：i18n 三态文案齐全（在轨 / 变轨中 + 速率单位）',
+    // ★ V1.9.9（Q26 四态化改写）：原断言找的是 `st_orbit_a: ['在轨（~', ...]` ——
+    //   那个"笼统的在轨"键已被拆成 `st_orbit_a`（正常）+ `st_orbit_abn_a`（可能异常）两组，
+    //   文案也从「在轨（~」改成「在轨·正常（~」。现在守的是**四态文案齐全**。
+    assert('A7：i18n 四态文案齐全（在轨·正常 / 在轨·可能异常 / 变轨中 + 速率单位）',
       /st_raising: \['变轨中', 'Raising'\]/.test(appSrc) &&
-      /st_orbit_a: \['在轨（~', 'In orbit \(~'\]/.test(appSrc) &&
+      /st_orbit_a: \['在轨·正常（~', 'In orbit · normal \(~'\]/.test(appSrc) &&
+      /st_orbit_abn_a: \['在轨·可能异常（~', 'In orbit · possibly anomalous \(~'\]/.test(appSrc) &&
+      /st_orbit_b: \['在轨·正常', 'In orbit · normal'\]/.test(appSrc) &&
+      /st_orbit_abn_b: \['在轨·可能异常', 'In orbit · possibly anomalous'\]/.test(appSrc) &&
       /st_raising_a: \['变轨中（~', 'Raising \(~'\]/.test(appSrc) &&
       /st_kmday: \['km\/天', 'km\/day'\]/.test(appSrc));
     // ⚠️ 这条守的是我自己踩过的坑：orbitStatusHtml 里若写 `r.launch`，
@@ -3922,11 +4008,86 @@ assert('V1.9.2：右侧留白按"要标几条"动态加宽（否则名称会被�
     //   （V1.9.1 的 st/dt、V1.9.2 的 orb/wk/od/rr），根因都是"白名单重建对象"：
     //     build() 造行数据对象、unpackSat() 差分还原，**两处都只抄自己列出的字段**。
     //   判据：satdata 里出现过的卫星字段，必须在这两处都被带上（至少 orb/wk/od/rr 这一组）。
-    assert('A7：三态字段穿过度分还原与 build() 两处白名单（`orb/wk/od/rr` 一处都不能漏）',
+    assert('A7：三态字段穿过度分还原与 build() 两处白名单（`orb/wk/la/od/rr/abn` 一处都不能漏）',
       // ★ V1.9.7：build() 里 orb 改成"缺省保守判变轨中"（在线新增星没有 mkdata 的三态）
-      /orb: \(s\.orb === 0 \|\| s\.orb === 1\) \? s\.orb : 1,/.test(appSrc) &&
-      /wk: s\.wk, od: s\.od, rr: s\.rr,/.test(appSrc) &&
+      // ★ V1.9.9（Q26/Q27）：orb 放行 -1（已再入），否则会把"已再入"改写成"变轨中"
+      /orb: \(s\.orb === 0 \|\| s\.orb === 1 \|\| s\.orb === -1\) \? s\.orb : 1,/.test(appSrc) &&
+      /wk: s\.wk, la: s\.la, od: s\.od, rr: s\.rr, abn: s\.abn,/.test(appSrc) &&
       /'orb'[^\]]*'wk'[^\]]*'od'[^\]]*'rr'/.test(appSrc));
+    // ★★ V1.9.9（Q26/Q27，2026-10-21）：**三处白名单必须同源** ★★
+    //   本项目有**三处**需要手工抄字段的地方（同一个坑已踩三次）：
+    //     ① `unpackSat()` 的 EXTRA 表（差分还原）
+    //     ② `build()` 里 sats.push({...}) 的对象字面量
+    //     ③ `satStatusRow()` 里给信息窗包的那层 r
+    //   任何一处漏，表现都是"数据层有、页面读不到"，且**不报错**。
+    //   这条把三处**同时**对齐到 satdata 的真实字段集，漏一处就红。
+    (function () {
+      const g = JSON.parse(fs.readFileSync(B + '/build/satdata.json', 'utf8'));
+      const g2 = g.SATDATA || g;
+      const allS = [...(g2.gw.sats || []), ...(g2.qf.sats || [])];
+      const STRUCT = new Set(['id', 'c', 'd', 'l1', 'l2', 'name']);
+      const seen = new Set();
+      for (const s of allS) for (const k of Object.keys(s)) if (!STRUCT.has(k)) seen.add(k);
+      // 从源码解析 EXTRA 表
+      const m = /var EXTRA = \[([^\]]*)\]/.exec(appSrc);
+      const extra = new Set(m ? (m[1].match(/'([^']+)'/g) || []).map(x => x.slice(1, -1)) : []);
+      // ② build() 的白名单：**从 `st: s.st` 起**（它排在 orb 之前 844 字节处，实测），
+      //   到 `wu: s.wu, wn: s.wn` 收尾。窗口要够宽：中间夹着 800+ 字节的整段说明注释。
+      //   ⚠️ 别再写成从 `orb: (s.orb` 起 —— st 在它前面，会漏判（已踩一次）。
+      const bm = /st: s\.st, dt: s\.dt[\s\S]{0,2000}?wu: s\.wu, wn: s\.wn/.exec(appSrc);
+      const buildBlob = bm ? bm[0] : '';
+      // ③ satStatusRow 的白名单：抓函数体前 600 字符
+      const sm = /function satStatusRow\(s\) \{[\s\S]{0,900}?\};/.exec(appSrc);
+      const statusBlob = sm ? sm[0] : '';
+      // 三处都必须出现的"关键业务字段"
+      // ⚠️ `orb` 在 build() 里是三元表达式（`orb: (s.orb === 0 || …)`），不是 `orb: s.orb`，
+      //    所以匹配式要允许 `(` 开头 —— 只写 `orb:\s*s\.` 会漏判 orb（实测踩过）。
+      // ★★ V2.0.0（2026-10-22）：**不要再硬编码 KEY 清单** ★★
+      //   病根：旧写法 `KEY = ['st','orb','wk','la','od','rr','abn']` 是**人工维护的第二份清单**，
+      //   于是它自己也会过期 —— 本轮实测 `en`（词条英文名）在 satdata 里有、`EXTRA` 里也有，
+      //   但 `build()` 漏抄，而 KEY 里根本没有 `en` → **守卫照样绿**，
+      //   页面英文名一路退回 `WHJSW-01`（正确值应为卡片里的 `Hulianwang Jishu Shiyan 1`）。
+      //   这与"白名单必须机器比对"是同一条教训：**守卫的判据本身也不能手写**。
+      //   现在：EXTRA 与 build() 一律要求覆盖 **seen 全量**（从 satdata 反推的真实业务字段集）；
+      //   只有 satStatusRow 保留精简清单 —— 它只喂信息窗那固定 12 行，
+      //   词条链接/英文名/再入日期由别的字段承担（`deadOn: s.dt` 形态不同，不在本题范围）。
+      const STATUS_KEY = ['st', 'orb', 'wk', 'la', 'od', 'rr', 'abn'];
+      const hasField = (blob, k) => new RegExp('(^|[\\s,{])' + k + ':\\s*\\(?\\s*s\\.').test(blob);
+      const allSeen = [...seen];
+      const missExtra = allSeen.filter(k => !extra.has(k));
+      const missBuild = allSeen.filter(k => !hasField(buildBlob, k));
+      const missStatus = STATUS_KEY.filter(k => seen.has(k) && !hasField(statusBlob, k));
+      const anyMiss = missExtra.length || missBuild.length || missStatus.length;
+      assert('A7（防复发）：**三处**字段白名单（unpackSat EXTRA / build() / satStatusRow）全部覆盖 satdata 业务字段',
+        !!m && !!bm && !!sm && !anyMiss,
+        'satdata 字段 ' + seen.size + ' 个(' + allSeen.join(',') + ')' +
+          '｜EXTRA 漏:' + (missExtra.join(',') || '无') +
+          '｜build() 漏:' + (missBuild.join(',') || '无') +
+          '｜satStatusRow 漏:' + (missStatus.join(',') || '无'));
+    })();
+    // ★★ V1.9.9（Q26/Q27，2026-10-21）：**白名单自动覆盖守卫** ★★
+    //   来历：同一个坑已经踩了三次（st/dt → orb/wk/od/rr → la/abn）。前两次都是"加字段时
+    //   忘了同步 EXTRA 表"，而人工维护的字段清单永远会漏 —— 所以这里改成**机器比对**：
+    //   把 satdata 里卫星记录出现的所有"业务字段"列出来，逐个查 `unpackSat` 的 EXTRA 表
+    //   是否收录。以后谁再加字段而忘了写 EXTRA，这条会当场红，不必等页面显示错。
+    //   白名单本身从源码里**解析**出来（不是硬编码第二份），否则守卫自己也会过期。
+    (function () {
+      const g = JSON.parse(fs.readFileSync(B + '/build/satdata.json', 'utf8'));
+      const g2 = g.SATDATA || g;
+      const allS = [...(g2.gw.sats || []), ...(g2.qf.sats || [])];
+      // 差分打包的"结构字段"（不是业务字段）：id/c/d = 差分三元组，已由 unpackSat 显式还原
+      const STRUCT = new Set(['id', 'c', 'd', 'l1', 'l2', 'name']);
+      const seen = new Set();
+      for (const s of allS) for (const k of Object.keys(s)) if (!STRUCT.has(k)) seen.add(k);
+      // 从 app.js 解析 EXTRA 表（取 `var EXTRA = [...]` 里的字符串字面量）
+      const m = /var EXTRA = \[([^\]]*)\]/.exec(appSrc);
+      const extra = new Set(m ? (m[1].match(/'([^']+)'/g) || []).map(x => x.slice(1, -1)) : []);
+      const missing = [...seen].filter(k => !extra.has(k));
+      assert('A7（防复发）：`unpackSat` 的 EXTRA 表**自动覆盖** satdata 的全部业务字段（漏一个就静默丢字段）',
+        !!m && missing.length === 0,
+        'satdata 业务字段 ' + seen.size + ' 个｜EXTRA ' + extra.size + ' 个｜漏掉：' +
+          (missing.join(',') || '无'));
+    })();
     assert('A7：排序语义 = 0 在轨 / 1 变轨中 / 2 已再入',
       /status: s\.st === 'r' \? 2 : \(s\.orb \? 1 : 0\)/.test(appSrc));
     assert('A7：变轨的"速度片段"单独着色 —— .st-rate + pos/neg/zero 三色（不随整格染黄）',
@@ -3956,7 +4117,17 @@ assert('V1.9.2：右侧留白按"要标几条"动态加宽（否则名称会被�
     //   拿间歇星去验 <span class="st-rate"> 必然假红。
     const raiSample = raiS.filter(r => typeof r.rr === 'number' && isFinite(r.rr) && Math.abs(r.rr) > 0.5)[0]
       || raiS.filter(r => typeof r.rr === 'number')[0] || raiS[0] || { id: -1, rr: 0 };
-    const orbSample = orbS.filter(r => r.wk !== 'GEO')[0] || orbS[0] || { id: -1 };
+    // ★ V1.9.9（Q26/Q27 四态化改写）：在轨不再只有一种渲染 ——
+    //   「在轨·正常」→ .st-orbit + 「在轨·正常（~date, NNNkm）」
+    //   「在轨·可能异常」→ .st-standby + 「在轨·可能异常（~date, NNNkm）」
+    //   取样必须**分别取一颗**（旧写法只取第一颗，取到 abn 星就必然红）。
+    //   ⚠️「在轨·正常」的取样还必须**在层上**（|wk-la|≤30）：按 Q26 裁决，"正常"包含
+    //     "长期停在非工作轨道但不确定是否异常"的星（实测 10 颗，如 23095A 停在 1110 而层是 1170），
+    //     它们 od 按定义为空、文案只显示高度不显示日期 —— 拿它去验"带日期"的模板必然假红。
+    const orbSample = orbS.filter(r => r.wk !== 'GEO' && r.st !== 'abn' &&
+      typeof r.la === 'number' && Math.abs(r.wk - r.la) <= 30)[0]
+      || orbS.filter(r => r.wk !== 'GEO' && r.st !== 'abn')[0] || orbS[0] || { id: -1 };
+    const abnSample = orbS.filter(r => r.st === 'abn')[0] || null;
     const geoSample = geoS[0] || { id: -1 };
     const c1 = cellOf(raiSample.id);
     assert('A7：**变轨中**的行 —— 单元格带 .st-raising，文案形如「变轨中（~YYYY-MM-DD，NNNkm (+X.XXkm/天)）」',
@@ -3971,13 +4142,36 @@ assert('V1.9.2：右侧留白按"要标几条"动态加宽（否则名称会被�
       (raiSample.rr > 0 ? /class="st-rate pos"/.test(c1.html) : true),
       c1 ? c1.html.replace(/<[^>]*>/g, '|') : 'null');
     const c2 = cellOf(orbSample.id);
-    assert('A7：**在轨**的行 —— 单元格带 .st-orbit，文案形如「在轨（~YYYY-MM-DD，NNNkm）」',
-      !!c2 && /st-orbit/.test(c2.cls) &&
-      /^在轨（~\d{4}-\d{2}-\d{2}, \d+km）$/.test(c2.txt),
+    assert('A7：**在轨·正常**的行 —— 单元格带 .st-orbit，文案形如「在轨·正常（~YYYY-MM-DD，NNNkm）」',
+      !!c2 && /st-orbit/.test(c2.cls) && !/st-standby/.test(c2.cls) &&
+      /^在轨·正常（~\d{4}-\d{2}-\d{2}, \d+km）$/.test(c2.txt),
       c2 ? JSON.stringify(c2.txt) : 'null（搜不到 ' + orbSample.id + '）');
+    // ★ V1.9.9（Q26 新增）：第四态「在轨·可能异常」必须在表格里**真的渲染出来**
+    //   （只是数据层打了 st='abn' 却没染色/没文案 = 用户看不到，等于没做）
+    //   ⚠️ 实测 17 颗 abn **全部在千帆**（星网 abn=0），所以必须先切到千帆再取样 ——
+    //      否则 tableSearch 在星网数据里搜千帆的 NORAD，永远返回 null（假红）。
+    //   ⚠️ 文案模板：abn 星**从未落进设计层**，`od` 按定义为空 ⇒ 按 app.js 的既定分支
+    //      （`if (!r.od) return lead + wk + close`）只显示高度、不显示日期。
+    //      所以这里断言的是「带日期」或「只带高度」两种合法形态之一，
+    //      而不是硬套「必须带日期」——后者会一直假红。
+    await (async function () {
+      const seg = d3.querySelector('#constelSeg button[data-c="qf"]');
+      if (!seg) { assert('A7：星座切换按钮存在（切不到千帆就验不了 abn 渲染）', false, 'no #constelSeg'); return; }
+      seg.dispatchEvent(new w3.MouseEvent('click', { bubbles: true }));
+      await new Promise(r => setTimeout(r, 1000));       // 520ms 动画 + 半程换数据
+      const c2b = abnSample ? cellOf(abnSample.id) : null;
+      assert('A7：**在轨·可能异常**的行 —— 单元格带 .st-standby（紫色），文案形如「在轨·可能异常（~[日期，]NNNkm）」',
+        !!abnSample && !!c2b && /st-standby/.test(c2b.cls) &&
+        /^在轨·可能异常（~(\d{4}-\d{2}-\d{2}, )?\d+km）$/.test(c2b.txt),
+        !abnSample ? 'abn 取样为空'
+          : (c2b ? JSON.stringify(c2b.txt) + ' / cls=' + c2b.cls : 'null（搜不到 ' + abnSample.id + '）'));
+      // 切回星网，别污染后面的断言（沿用 F43 的做法）
+      const back = d3.querySelector('#constelSeg button[data-c="gw"]');
+      if (back) { back.dispatchEvent(new w3.MouseEvent('click', { bubbles: true })); await new Promise(r => setTimeout(r, 1000)); }
+    })();
     const c3 = cellOf(geoSample.id);
     assert('A7：**GEO** 的行 —— 写 `GEO` 不写高度',
-      !!c3 && /在轨（~\d{4}-\d{2}-\d{2}, GEO）$/.test(c3.txt),
+      !!c3 && /在轨·正常（~\d{4}-\d{2}-\d{2}, GEO）$/.test(c3.txt),
       c3 ? JSON.stringify(c3.txt) : 'null');
     ti7.value = ''; ti7.dispatchEvent(new w3.Event('input', { bubbles: true }));
   }
@@ -4581,11 +4775,17 @@ assert('V1.9.2：右侧留白按"要标几条"动态加宽（否则名称会被�
         const gwTotal = (RAW.gw.sats || []).length;
         return total <= gwTotal && total > 0;
       })(), cls.reduce((a, c) => a + c.n, 0) + ' / ' + ((RAW.gw.sats || []).length));
-    assert('A9：**半度分带不再把 86.5° 星群切成两半**（旧 1° 分箱会把 86.36/86.65 切成 32+29 两个圈）',
-      (function () {
-        const at86 = cls.filter(c => c.x >= 86 && c.x < 87);
-        return at86.length === 1 && at86[0].n === 61;
-      })(), JSON.stringify(cls.filter(c => c.x >= 86).map(c => [c.x, c.n])));
+    // ★ V1.9.9（Q27）改写：原断言把成员数**钉死成 61**，而修好 `la`（层成员判定从
+//   `wk` 改回设计层高 `la`）之后，页面端能多认出 3 颗真正属于该层、但实际高度
+//   与层高差 20km 的星 → 变成 **64**。这是修复的**预期结果**，不是回归。
+//   ⇒ 改成性质判据：86~87° 之间必须是**恰好一个圈**（半度分带不裂开），
+//     且成员数 ≥ 构建期层表的 n（前端只可能比构建期认得更全，不可能更少）。
+assert('A9：**半度分带不再把 86.5° 星群切成两半**（恰好一个圈，且成员数不少于构建期层表）',
+  (function () {
+    const at86 = cls.filter(c => c.x >= 86 && c.x < 87);
+    const builtN = (RAW && RAW.gw && (RAW.gw.layers || []).find(L => Math.abs(L.inc - 86.5) < 0.01) || {}).n || 0;
+    return at86.length === 1 && at86[0].n >= builtN && at86[0].n >= 50;
+  })(), JSON.stringify(cls.filter(c => c.x >= 86).map(c => [c.x, c.n])));
     // ★ V1.9.2（用户报"圈互相重合、没有起到区分效果，请重新划分"）：
     //   旧判据要求"1100/1127/1149 三档各自独立"，但它们的间距只有 27~49 km，
     //   在 35000 km 的纵轴上画出来**必然互相重叠**（要分开就得把半径压到 <1 像素）。
@@ -4663,11 +4863,17 @@ assert('A9（V1.9.7 §6）：圈的来源 = 工作轨道层（orbLayerDefs），
     //   ⚠️ 刻意**不用 DOM 比对**（当前选中态取决于前面各块的残留，取到的两颗星未必是同一颗，
     //      那样会写出一条随执行顺序漂移的假断言）；这里锚"同一函数 + 同一套类"，行为一致性由
     //      orbitStatusHtml 本身的单点实现保证。
-    assert('§7/§10：03 章「变轨情况」行与 06 表格状态列**同源**（都走 orbitStatusHtml，同三态染色）',
+    // ★ V1.9.9（Q26 四态化改写）：染色类多了第四态 `.st-standby`（在轨·可能异常），
+    //   旧正则只认三态 → 四态化后必然红。三处染色（表格 td / 信息窗 si-row / 图例）必须同一套。
+    assert('§7/§10：03 章「变轨情况」行与 06 表格状态列**同源**（都走 orbitStatusHtml，同四态染色）',
       /function satStatusRow\(s\)/.test(appSrc) &&
       /orbitStatusHtml\(r\)/.test(appSrc) &&
-      /var cls = r\.gone \? 'st-gone' : \(r\.orb === 1 \? 'st-raising' : 'st-orbit'\);/.test(appSrc) &&
-      /\.sat-info \.si-row\.st-raising > span:last-child \{ color:var\(--st-raising\); \}/.test(tpl));
+      // 四态染色：gone > raising > standby > orbit（顺序即是优先级，别调换）
+      /var cls = r\.gone \? 'st-gone' : \(r\.orb === 1 \? 'st-raising' : \(r\.st === 'abn' \? 'st-standby' : 'st-orbit'\)\);/.test(appSrc) &&
+      /\.sat-info \.si-row\.st-raising > span:last-child \{ color:var\(--st-raising\); \}/.test(tpl) &&
+      // 第四态必须真的有样式（否则类名挂上了却不显色 = 用户看不到）
+      /\.sat-info \.si-row\.st-standby > span:last-child \{ color:var\(--st-standby\); \}/.test(tpl) &&
+      /#satTable td\.st-standby \{ color:var\(--st-standby\); \}/.test(tpl));
     // ★ V1.9.5（H18）：选中态标签**三态**（簇标签 → 批次名 → 单星名）
     //   ① 未选/远 → 簇标签（上面已验）；② 选中批次且批内星挤在一起（相邻像素间距 < 阈值）→ **批次名**；
     //   ③ 放大到能分辨 → **单星名**。用户口径："选中批次时显示批次名，放大到能分辨时再显示单星名"。
@@ -7306,10 +7512,28 @@ $('#themeBtn').dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
 //   本仓库此前只有 junk/release_body_199.md（三段式旧版），四段式的正文从未留档。
 //   留档放 junk/（.gitignore 已排除、repo_hygiene 也允许该目录）—— 与既有先例同位置。
 // 判据：留档存在 + 含 R1..R7 全部七条 + R7 是实质条目 + 结构未割裂。
+// ★★ V2.0.0（2026-10-22 追问核实，**这是一处真缺陷的修复**）★★
+//   病根：这段断言硬读 `junk/release_body_1.9.9.630.md`，而 **`junk/` 整个目录被 .gitignore
+//     排除、从不进仓库**（`git ls-files junk/` 为空）→ CI 全新 checkout 里必然没有这个文件
+//     → 5 条断言必挂 → smoke 退出码 1 → 工作流在"冒烟测试"这一步中断 →
+//     后面的「有变化才提交并推送」**根本不执行** → **那一轮 TLE 数据没推上去**。
+//   实测证据：gh run 39574031202（2026-10-21T09:03:46Z）= failure，
+//     日志 `FAIL … (文件不存在)` ×1 + `R1–R7 齐=false` 等 ×4，汇总 `PASS: 1007 FAIL: 5`。
+//   修法：**文件存在才严格校验，不存在则显式跳过并注明原因**。
+//     为什么选这条而不是"把文件挪进受跟踪目录"：`repo_hygiene.mjs` 明确把"过程类文档"
+//     列为黑名单（留档正文属于运维过程物，不该进仓库）；删掉断言又会丢掉"更新计划不会悄悄消失"
+//     这个守卫。⇒ 只有"存在才校验"既保住守卫、又不让 CI 因运维留档而红。
+//   ⚠️ 这条修正的**判据本身**也必须是"跳过 ≠ 通过"：跳过时打印原因，让人看得出没验。
 {
   const p = B + '/junk/release_body_1.9.9.630.md';
   let body = '';
   try { body = fs.readFileSync(p, 'utf8'); } catch (e) { body = ''; }
+  if (!body) {
+    // CI（全新 checkout）必然走这里 —— 打印一行"为什么没验"，但**不计入失败**
+    console.log('SKIP V1.9.9.630：Release 正文留档不在本机（junk/ 被 .gitignore 排除，CI 上正常缺失）' +
+      ' —— 这 5 条断言只在**有留档的机器**上校验，CI 不因它变红');
+    SKIP_N += 5;
+  } else {
   // 注意：这里判**字符数**不判字节数 —— 中文正文 12k 字符 ≈ 25k 字节，按字节设阈值会掩盖截断。
   assert('V1.9.9.630：Release 正文已留档（junk/release_body_1.9.9.630.md，原先只在 GitHub 上）',
     body.length > 12000, body ? body.length + ' 字符' : '(文件不存在)');
@@ -7329,6 +7553,7 @@ $('#themeBtn').dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
   const up = body.indexOf('## 📦 升级方式');
   assert('V1.9.9.630：R7 插在「升级方式」之前（结构未被割裂）',
     r7 >= 0 && up > r7, 'R7@' + r7 + ' 升级方式@' + up);
+  }   // ← 对应上面 `if (!body) { … } else {`
 }
 // 制造商别名表**对数据的覆盖率**守卫：这是用户反复质疑过的一条 ——
 //   "为什么还要我提供别名表"。答案必须能被机器验证，而不是靠我口头保证。
@@ -7364,9 +7589,113 @@ $('#themeBtn').dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
   }
 }
 
+// ============================================================ V2.0.0.630：satcat 精简子集（方案 A）
+// 动机：`data/satcat.csv`（6.4 MB）被 .gitignore，而它支撑四件事（台账颗数 / 已再入 /
+//   搜索补池 / 待编目摘要）；出网受限的环境里，这几项会一直停在旧值。
+//   ⇒ CI 每轮导出一份只含本项目批次前缀的**同格式子集**入库，本地用它兜底。
+// 实测（2026-10-22）：全量 70953 行 / 6.4 MB → 子集 1275 行 / 109 KB；
+//   且「只用子集构建」与「只用全量构建」的 `satdata.json` **逐字节完全相同**（除 generated 时间戳）。
+// 这几条守的是**最容易悄悄坏掉**的三个点：
+//   ① 有人图省事在 mkdata 里又写一遍 `readFileSync('satcat.csv')` → 口径分裂（台账读子集、补池读全量）
+//   ② 有人把导出判据从"整批保留"改成"只留名字匹配行" → `tot` 偏小，页面把「9/10颗」错写成「9颗」
+//   ③ 有人在子集上再看 mtime 判新鲜度 → git checkout 会把 mtime 刷成检出时刻，旧子集冒充新数据
+{
+  const slimSrc = fs.existsSync(B + '/scripts/satcat_src.mjs') ? fs.readFileSync(B + '/scripts/satcat_src.mjs', 'utf8') : '';
+  const mkSrc2 = fs.readFileSync(B + '/mkdata.mjs', 'utf8');
+  assert('V2.0.0.630①：satcat 选源规则集中在 scripts/satcat_src.mjs（导出 pickSatcat/buildSlim/writeSlim）',
+    /export function pickSatcat/.test(slimSrc) && /export function buildSlim/.test(slimSrc) &&
+    /export function writeSlim/.test(slimSrc));
+  // ①：mkdata 里**不许**再有直接读 satcat.csv 的地方 —— 五处必须共用同一份 SATCAT_TEXT
+  const directReads = (mkSrc2.match(/readFileSync\([^)]*satcat\.csv/g) || []).length;
+  assert('V2.0.0.630②：mkdata 的五处 satcat 消费点**共用一份 SATCAT_TEXT**（无第二处直读，防口径分裂）',
+    directReads === 0 && /const SATCAT_TEXT = CAT_SRC\.text/.test(mkSrc2) &&
+    /searchPools\(SATCAT_TEXT, batchKeys/.test(mkSrc2),
+    '直读次数=' + directReads);
+  // ②：导出必须整批保留（含搭车星/R-B），且判据由调用方传入（不复制第二份名单）
+  assert('V2.0.0.630③：子集导出**按整批前缀保留全部行**（R/B 与搭车星也要，否则 launchCounts.tot 偏小）',
+    /pres\.add\(pre\)/.test(slimSrc) && /if \(!pres\.has\(pre\)\) continue;/.test(slimSrc) &&
+    /isOurs/.test(slimSrc) && !/HULIANWAN|GUOWANG|QIANFAN/.test(slimSrc),
+    'satcat_src 内不得硬编码星座名判据（须由调用方传 isOurs）');
+  // ③：新鲜度只认 meta.exported，不拿 mtime 冒充
+  assert('V2.0.0.630④：子集新鲜度**只认 meta.exported**（不拿 mtime —— git checkout 会刷新它）',
+    /meta && meta\.exported/.test(slimSrc) && /slimAgeDays = Infinity/.test(slimSrc));
+  // refresh 侧的导出闸门：必须"来自全量 + 全量确实新鲜"，否则会给旧数据盖上"新"时间
+  assert('V2.0.0.630⑤：refresh 导出子集有三道闸门（来自全量 / 全量≤2 天 / 表头校验），不合即不导出',
+    /CAT_SRC\.kind === 'full' && Number\.isFinite\(CAT_SRC\.ageDays\) && CAT_SRC\.ageDays <= 2/.test(refreshSrc) &&
+    /buildSlim\(CAT_SRC\.text, isOurs, CAT_SRC\.meta\)/.test(refreshSrc) &&
+    /process\.exitCode = process\.exitCode \|\| 9/.test(refreshSrc));
+  // 产物侧：页面真正用到的四项 satcat 派生数据必须**真的在产物里**
+  {
+    const g = JSON.parse(fs.readFileSync(B + '/build/satdata.json', 'utf8'));
+    const g2 = g.SATDATA || g;
+    const ok = ['gw', 'qf'].every((k) => {
+      const c = g2[k];
+      return c && c.launchCounts && Object.keys(c.launchCounts).length > 0 &&
+        c.goneCount && typeof c.goneCount === 'object' &&
+        Array.isArray(c.dead) && Array.isArray(c.pend);
+    });
+    assert('V2.0.0.630⑥：产物内含全部四项 satcat 派生数据（launchCounts / goneCount / dead / pend）',
+      ok, ['gw', 'qf'].map((k) => k + ': lc=' + Object.keys(g2[k].launchCounts || {}).length +
+        ' gone=' + Object.keys(g2[k].goneCount || {}).length +
+        ' dead=' + (g2[k].dead || []).length + ' pend=' + (g2[k].pend || []).length).join(' | '));
+  }
+  // 本机若有子集，核对它没变窄（meta 自洽）—— 这是"子集越跑越窄"的现场守卫
+  {
+    const mp = B + '/data/satcat_slim.meta.json';
+    const sp = B + '/data/satcat_slim.csv';
+    if (fs.existsSync(mp) && fs.existsSync(sp)) {
+      let m = null; try { m = JSON.parse(fs.readFileSync(mp, 'utf8')); } catch (e) { m = null; }
+      const rows = fs.readFileSync(sp, 'utf8').split('\n').filter((l) => l && !l.startsWith('OBJECT_NAME,')).length;
+      assert('V2.0.0.630⑦：子集 meta 与实际行数自洽（且批次数 > 0）',
+        !!m && m.rows === rows && m.batches > 0 && !!m.exported,
+        m ? ('meta.rows=' + m.rows + ' 实际=' + rows + ' 批次=' + m.batches + ' @' + m.exported) : 'meta 解析失败');
+    } else {
+      console.log('SKIP V2.0.0.630⑦：本机无 satcat_slim（尚未由 refresh 导出，CI 首轮后会有）');
+      SKIP_N += 1;
+    }
+  }
+}
+
+// ============================================================ V2.0.0.630：R16 简名越界（导出图必须是全名）
+// 用户第 10381 条裁决：「简化名称**用且仅用于**宽度不足的变轨情况章节的右侧标签……
+//   **但是其他章节的卫星名要保持全名！**」+ 第 10805 条：画布光点小字保持简略。
+// 所以合法的简名调用点只有两个：① 变轨章节右侧标签（climbSatName）② 画布光点/聚集标签。
+// **导出图片是对外成品，属"其他章节"，必须全名** —— 旧实现有 2 处越界，导致
+//   同一颗星在表格叫「卫星互联网技术试验卫星03」、在导出图里叫 `S03`。
+// 这条守卫用"白名单行号"而不是"关键词"：只要 `nameOf(` 出现在别处就红。
+{
+  const lines = appSrc.split('\n');
+  const hits = [];
+  lines.forEach((ln, i) => {
+    if (/\bnameOf\(/.test(ln) && !/^\s*(\/\/|\*)/.test(ln)) hits.push({ ln: i + 1, txt: ln.trim() });
+  });
+  // 函数定义本身不算调用
+  const calls = hits.filter((h) => !/^function nameOf/.test(h.txt));
+  // 合法：climbSatName（变轨右侧标签）、画布光点（2820 附近 g.forEach fillText）、地图/地球标签
+  const illegal = calls.filter((h) => {
+    const t = h.txt;
+    if (/^function nameOf/.test(t)) return false;
+    // 画布光点/聚集标签：出现在 fillText(...) 或 var lb = nameOf(...) 形态
+    if (/fillText\(nameOf\(/.test(t)) return false;
+    if (/^var lb = nameOf\(/.test(t)) return false;
+    // climbSatName 内部
+    if (/return nameOf\(cur\(\)\.sats\[i\]\)/.test(t)) return false;
+    return true;
+  });
+  assert('V2.0.0.630⑧（R16）：简名 `nameOf()` 只出现在"变轨右侧标签"与"画布光点小字"两处，导出图已改全名',
+    illegal.length === 0,
+    illegal.length ? ('越界 ' + illegal.length + ' 处：' + illegal.map((h) => 'L' + h.ln + ' ' + h.txt.slice(0, 60)).join(' ｜ '))
+      : ('nameOf 调用共 ' + calls.length + ' 处，全部合法'));
+  // 导出图的两处必须显式用 fullNameOf
+  assert('V2.0.0.630⑨（R16）：导出图底栏与变轨图第 1 列都用 `fullNameOf()`（与表格逐字一致）',
+    /\{ t: sat \? fullNameOf\(sat\) : String\(c\.norad\) \}/.test(appSrc) &&
+    /var parts = \[\s*\n\s*\/\/[^\n]*\n\s*\/\/[^\n]*\n\s*fullNameOf\(s\),/.test(appSrc),
+    '变轨图第1列=' + /\{ t: sat \? fullNameOf\(sat\)/.test(appSrc) + ' 底栏=' + /fullNameOf\(s\),\n\s*String\(s\.norad\),/.test(appSrc));
+}
+
 await new Promise(r => setTimeout(r, 400));
 console.log('--- 汇总');
-console.log('PASS:', PASS_N, ' FAIL:', FAIL_N, ' 错误数:', errors.length);
+console.log('PASS:', PASS_N, ' FAIL:', FAIL_N, ' SKIP:', SKIP_N, ' 错误数:', errors.length);
 if (FAIL_N) console.log('  ⚠️ 有 ' + FAIL_N + ' 条断言未通过（退出码 1）；上面那行"错误数"只统计运行时异常，不代表断言全过');
 errors.slice(0, 8).forEach(e => console.log('  ! ' + e));
 dom.window.close();

@@ -8,6 +8,8 @@ import { packAll } from './scripts/histpack.mjs';
 import { searchPools } from './scripts/search_pools.mjs';
 // V1.9.5（H10 ③b）：升轨阶段判定（两条竖虚线的数据）—— 与 app.js 同名函数同口径（smoke 有跨端对拍）
 import { climbPhases } from './scripts/climb.mjs';
+// ★★ V2.0.0.630（方案 A）：satcat 的选源裁决（全量 vs 精简子集）
+import { pickSatcat } from './scripts/satcat_src.mjs';
 const ROOT = path.dirname(fileURLToPath(import.meta.url));   // 脚本所在目录（发布包内任意位置可用）
 const D = path.join(ROOT, 'data');
 
@@ -36,12 +38,29 @@ const BUILD = process.env.CISTRACK_BUILD_DIR
 // 它一旦缺失，上面三处**全部静默退化成空**：不报错、构建照常成功、产物看起来完全正常。
 // 2026-10-10 实际发生过一次（文件不在回收站，来源不明）→ 本地重建时 `st:'r'` 一条都没有，
 // 差一步就把"已再入功能失效"的产物提交上去了。→ 现在显式探测：打印醒目横幅 + 写进产物供断言。
-const SATCAT = path.join(D, 'satcat.csv');
-const SATCAT_OK = fs.existsSync(SATCAT);
+// ★★ V2.0.0.630（方案 A）：satcat 的**选源**与"要用哪份文本"统一交给共享模块 ★★
+//   为什么必须统一：mkdata 有 **5 处**读 satcat（REENTRY / goneCountsOf / 待编目摘要 /
+//   台账颗数 / 搜索补池）。若各写一遍"有全量用全量、否则用子集"，
+//   迟早出现"这几处用子集、那几处用全量"的口径分裂 —— 那种分裂比"整体没数据"更难查。
+//   ⇒ 这里只算**一次** CAT_SRC，5 处都用它。
+const CAT_SRC = pickSatcat(D);
+const SATCAT = CAT_SRC.path || path.join(D, 'satcat.csv');
+const SATCAT_OK = CAT_SRC.kind !== 'none';
+// 所有读 satcat 的地方统一用这份**文本**（不再各自 readFileSync 一遍，
+//   既省 IO，也保证 5 处读到的是**同一份**，不会出现"读到一半文件被换掉"的错配）
+const SATCAT_TEXT = CAT_SRC.text || '';
 if (!SATCAT_OK) {
-  console.warn('\n⚠️⚠️⚠️ satcat.csv 缺失 —— 以下功能会**静默失效**（产物缺内容，但不会报错）：');
+  console.warn('\n⚠️⚠️⚠️ satcat（全量与子集）**都不存在** —— 以下功能会静默失效（产物缺内容但不报错）：');
   console.warn('    ① 已再入标记（st/dt）  ② 台账已再入扣减（goneCount）  ③ 搜索补池（dead/pend）');
-  console.warn('    恢复办法：node refresh.mjs --force-cat（或从其它工作区拷一份 data/satcat.csv）\n');
+  console.warn('    ④ 每批发射颗数（launchCounts）  ⑤ 待编目摘要（pendingInfo）');
+  console.warn('    恢复办法：node refresh.mjs --force-cat（需能连 CelesTrak）；' +
+    '或让 CI 跑一次以生成 data/satcat_slim.csv\n');
+} else {
+  console.log('[mkdata] satcat 采用：' + CAT_SRC.kind + ' · ' + CAT_SRC.note + ' · ' + CAT_SRC.rows + ' 行');
+  if (CAT_SRC.kind === 'slim') {
+    console.log('[mkdata]   ⚠️ 用的是一份**精简子集**（只含既有批次前缀）——' +
+      '台账/再入/补池/待编目都齐全，但**不可能靠它发现新发射批次**');
+  }
 }
 
 // ---- 批次元数据（来源：卫星百科 星网 / 千帆星座 词条，发射记录表）----
@@ -399,9 +418,9 @@ function encodeGroup(recs) {
 //   （几百颗星每颗多两个字段，虽然也不大，但没必要）。
 function reentryMap() {
   const m = new Map();
-  const file = `${D}/satcat.csv`;
-  if (!fs.existsSync(file)) return m;
-  const rows = fs.readFileSync(file, 'utf8').split('\n');
+  // ★ V2.0.0.630：统一用 SATCAT_TEXT（全量或子集，由 pickSatcat 裁决），不再各读一遍
+  if (!SATCAT_OK) return m;
+  const rows = SATCAT_TEXT.split('\n');
   const head = rows[0].split(','); const ix = n => head.indexOf(n);
   const iNo = ix('NORAD_CAT_ID'), iDec = ix('DECAY_DATE'), iTy = ix('OBJECT_TYPE');
   rows.slice(1).forEach(line => {
@@ -438,10 +457,10 @@ function isStowaway(batchKey, norad) {
 //   所以这里从 satcat 的 DECAY_DATE **现算**：同一 COSPAR 前缀下已再入的 PAY 颗数。
 //   页面可据此在批次行/列表里标注（A10/A11 规范），"在轨数量"也能扣掉这部分。
 function goneCountsOf(batchKeys) {
-  const file = `${D}/satcat.csv`;
   const out = {};
-  if (!fs.existsSync(file)) return out;
-  const rows = fs.readFileSync(file, 'utf8').split('\n');
+  // ★ V2.0.0.630：统一用 SATCAT_TEXT
+  if (!SATCAT_OK) return out;
+  const rows = SATCAT_TEXT.split('\n');
   const head = rows[0].split(','); const ix = n => head.indexOf(n);
   const iId = ix('OBJECT_ID'), iNo = ix('NORAD_CAT_ID'), iTy = ix('OBJECT_TYPE'), iDec = ix('DECAY_DATE');
   rows.slice(1).forEach(line => {
@@ -466,10 +485,9 @@ function goneCountsOf(batchKeys) {
 // 为什么抽出去：真实数据里这两池当前**恰好都是空的**（1.1/1.4/1.6 之后已 100% 归位），
 //   一个恒为空的分支**跑真实数据验证不了** → 抽成纯函数后用合成 satcat 逐条断言分流正确。
 function gwSearchPools(batchKeys, haveNorads) {
-  const file = `${D}/satcat.csv`;
-  let text = '';
-  try { text = fs.readFileSync(file, 'utf8'); } catch (e) { text = ''; }
-  return searchPools(text, batchKeys, haveNorads, isStowaway);
+  // ★ V2.0.0.630：统一用 SATCAT_TEXT —— 原先这里自己 readFileSync 一遍，
+  //   会导致"补池读全量、台账读子集"的口径分裂（同一个文件被两种源读到）
+  return searchPools(SATCAT_TEXT, batchKeys, haveNorads, isStowaway);
 }
 
 function pack(sats) {
@@ -802,9 +820,9 @@ function linkMap(meta) {
 // 说明：这些对象在目录里已有临时编号（100xxx）与摘要轨道参数，但公开渠道不发布其完整 TLE，
 // 因此页面只能给出这些摘要，无法推算位置。
 function pendingSummary(keys, slim) {
-  const file = `${D}/satcat.csv`;
-  if (!fs.existsSync(file)) return {};
-  const rows = fs.readFileSync(file, 'utf8').split('\n');
+  // ★ V2.0.0.630：统一用 SATCAT_TEXT
+  if (!SATCAT_OK) return {};
+  const rows = SATCAT_TEXT.split('\n');
   const head = rows[0].split(',');
   const ix = n => head.indexOf(n);
   const iId = ix('OBJECT_ID'), iNo = ix('NORAD_CAT_ID'), iTy = ix('OBJECT_TYPE');
@@ -873,7 +891,45 @@ Object.keys(qfSum).forEach(k => { if (qfPend[k]) qfPend[k] = qfSum[k].n; });
 
 // 每批「发射时搭载的卫星数」：以目录里的有效载荷数为准，缺则回落到已有 TLE 数。
 // 用于顶部信息栏的「发射卫星数量」。
+// ★★ V2.0.0（2026-10-22 全链路侦察抓出的**真缺陷**）：上面这句注释是**承诺**，旧代码没兑现 ★★
+//   病根：`pendingSummary()` 对"satcat 里查不到该批"的行是**直接 `return`**（该批不出现），
+//     从来没有任何"回落到已有 TLE 数"的分支 —— 注释和实现不一致。
+//   实测后果（本轮）：`26230`（低轨27组）在 **TLE 里 9 颗齐全**（`GUOWANG 27 OBJECT A…J`，
+//     真号 100973~100981），但 `data/satcat.csv` 停在 2026-228、没有 2026-230 这一行
+//     ⇒ `gwCounts['26230'] === undefined` ⇒ 页面「发射卫星数」整批少 9 颗，
+//     且**产物本身看不出异常**（`sats` 里 9 颗都在，只是台账缺一行）。
+//   为什么"回落到 TLE 数"是正确且安全的：
+//     · 它只在 **satcat 查不到该批** 时启用 —— 有 satcat 数据时仍然完全以目录为准（含搭车星口径）；
+//     · TLE 里的颗数是**已编目且已发布要素**的对象数，对"整批全是本星座"的常态批次 == 真实颗数；
+//     · 唯一的已知偏差：若该批含搭车星且搭车星也有 TLE，会把它算进来（`tot` 也会偏大）。
+//       这类批次本来就走 satcat 通路，不会落到这个回落分支。
+//   ⚠️ 回落必须**留痕**（`_fallbackTle`），不能悄悄算 —— 否则又是一种"静默猜数"。
+const tleCountOf = (() => {
+  const acc = {};
+  [gw, qf].forEach(list => list.forEach(s => {
+    const p = String(s.c || '').slice(0, 5);      // '26230A' → '26230'
+    if (/^\d{5}$/.test(p)) acc[p] = (acc[p] || 0) + 1;
+  }));
+  return acc;
+})();
+const withTleFallback = (counts, launchKeys) => {
+  const fellBack = [];
+  launchKeys.forEach(k => {
+    if (counts[k] && counts[k].n > 0) return;
+    const n = tleCountOf[k] || 0;
+    if (!n) return;
+    counts[k] = { n: n, tot: n, _fallbackTle: 1 };
+    fellBack.push(k + '(' + n + '颗)');
+  });
+  if (fellBack.length) {
+    console.log('[mkdata] 颗数回落（satcat 查不到该批，改用 TLE 已编目数）' + fellBack.join(',') +
+      ' —— 仅影响「发射卫星数」的 M 值，`tot` 亦按 TLE 计');
+  }
+  return fellBack;
+};
 const gwCounts = pendingSummary(Object.keys(GW_LAUNCH), true), qfCounts = pendingSummary(Object.keys(QF_LAUNCH), true);
+const GW_TLE_FB = withTleFallback(gwCounts, Object.keys(GW_LAUNCH));
+const QF_TLE_FB = withTleFallback(qfCounts, Object.keys(QF_LAUNCH));
 
 // ★★ V1.9.9.630（2026-10-21 实测抓出的**静默回退**，这是治本项）★★
 //   症状：本地重建产物的 `gw.launchCounts` 只有 40 批，而已发布的 HEAD 是 41 批 ——
@@ -1262,7 +1318,25 @@ const ORBIT_ST = (() => {
     const mx = xs.reduce((a, b) => a + b, 0) / xs.length;
     const my = ys.reduce((a, b) => a + b, 0) / ys.length;
     const den = xs.reduce((a, v) => a + (v - mx) * (v - mx), 0);
-    if (!(den > 0)) return null;
+    // ★★ V1.9.9（Q26 排查中发现的真缺陷，2026-10-21）：**den === 0 不等于"数据不足"** ★★
+    //   病根：`den` 是时间自变量离差的平方和。当窗口内**所有点落在同一天**（d 相同）时 den=0，
+    //     此时旧代码返回 null → 调用方把它当成"算不出速率"→ 走 `d`（首末差分）兜底或
+    //     干脆 `rr` 缺失（`if (x.rate !== null && isFinite(x.rate))` 不成立 → 不写 rr）。
+    //   实测受害样本：26153L（NORAD 69810）末 5 点半长轴**完全相同 12250**（=846.86km，连续 46 天
+    //     恒定在 847km），den=0 → rate=null → rr 缺失 → 前端「变轨」行拿不到速率片段。
+    //   正确语义：**高度恒定 ⇒ 速率就是 0**（一个确定的结论），绝不是"不知道"。
+    //   注意区分两种情况：
+    //     · xs 全相同（同一天多点）→ 时间跨度为零，横轴退化。用 ys 是否恒定来区分：
+    //         ys 也全相同 → 真的平坦，速率 = 0（确定）
+    //         ys 有差异   → 同一天内的高度抖动，无时间标度可言，仍返回 null（无法定义速率）
+    //     · xs 有差异但 den 为 0 在数学上不可能（平方和 > 0），这里一并兜住。
+    if (!(den > 0)) {
+      const xsAllSame = xs.every(v => v === xs[0]);
+      const ysAllSame = ys.every(v => v === ys[0]);
+      if (ysAllSame) return 0;          // 横轴退化但纵轴恒定 ⇒ 平坦 = 0 km/天
+      if (!xsAllSame) return 0;         // 理论上不可达，保守按 0（平方和不可能为 0 而 xs 有差异）
+      return null;                      // 同一天内抖动 ⇒ 无法定义速率
+    }
     return xs.reduce((a, v, i) => a + (v - mx) * (ys[i] - my), 0) / den;
   };
   const GEO_SMA = 42000; // GEO 判据：半长轴 ≥ 42000 km（对应周期 ≈1436 min，即 Q46 的口径）
@@ -1416,18 +1490,55 @@ const ORBIT_ST = (() => {
     x.layer = best; x.dist = best ? bd : null;
   }
   // ④ 出参：orb(0 在轨 / 1 变轨中) + wk(参照层高度) + od(进入工作轨道日期) + rr(升轨速度)
+  //
+  // ★★ V1.9.9（Q26 用户裁决，2026-10-21）：**四态化 + 补「长期静止」判据** ★★
+  //   用户原话：「长期静止在停泊轨道而非工作轨道在能明确识别（即你真的确认是维持在非工作轨道）
+  //   的情况下标注为我们之前说过的在轨·可能异常，如果不确定则统一归为在轨·正常
+  //   （"在轨·正常"这个分类应该指的是停泊和维持在预定工作轨道的卫星）」。
+  //   旧判据的三个漏口（注入式探针实测）：
+  //     ① `thin` 分支"近期首现即变轨中"完全不看层 → 误伤 8 颗（26176D~J + 26221G/J，
+  //        同高 1148.6km、dist=1.4km，只因历史点 3 个 < MIN_PTS=4）；
+  //     ② `off` 分支把"长期静止在非工作轨道"当成"正在变轨" → 误伤 25 颗（含 CX-26，
+  //        历史跨度 92~1893 天、90 天漂移 −0.3~+3.2km）；
+  //     ③ 没有"长期静止"这个判据，于是**永远不会**退出"变轨中"。
+  //   判别器不是 `rr`（它只在 orb=1 时才写，是**结果**不是原因），而是「是否长期静止」：
+  //     长期静止组 90 天漂移 −0.3~+3.2 km ｜ 真在途组 +19.2~+209.7 km —— 差一个数量级，阈值 5km 极安全。
+  const PARK_SPAN = 60;      // 天：覆盖完整爬升周期（最短的真实案例 92 天）
+  const PARK_DRIFT = 5;      // km：90 天净漂移阈值（实测两组相差一个数量级）
   const out = new Map();
-  let nHot = 0, nIdle = 0, nCreep = 0, nOn = 0;
+  let nHot = 0, nIdle = 0, nCreep = 0, nOn = 0, nParked = 0, nAbn = 0;
   for (const [n, x] of rows) {
+    // 长期静止的两个统计量（与 `moving` 的 2 天 LSQ **不同**：这里看的是 90 天净漂移，
+    //   专门用来回答"它是不是早就不动了"，而不是"它眼下有没有在点火"）
+    const lastMs = x.pts[x.pts.length - 1][0];
+    x.span = (lastMs - x.pts[0][0]) / DAY;
+    {
+      const sel90 = x.pts.filter(p => lastMs - p[0] <= 90 * DAY);
+      if (sel90.length >= 2) {
+        const kk = Math.max(1, Math.floor(sel90.length / 3));
+        x.drift90 = median(sel90.slice(-kk).map(p => p[1])) - median(sel90.slice(0, kk).map(p => p[1]));
+      } else x.drift90 = null;
+    }
+    x.parked = x.span >= PARK_SPAN && x.drift90 !== null && Math.abs(x.drift90) < PARK_DRIFT;
+
     let orb, why;
     if (x.geo) {
       // 高轨沿用原口径（station-keeping 的浮动比 LEO 大，阈值 EPS_GEO）
       orb = x.moving ? 1 : 0; why = 'geo';
     } else if (x.thin) {
-      // 数据不足：近期首现 → 变轨中；否则保守判在轨（与旧口径一致）
-      orb = (Date.now() - x.pts[0][0] <= WIN * DAY) ? 1 : 0; why = 'thin';
+      // ★★ V1.9.9（Q26 修 ①）：thin 必须**先查层**。老写法直接"近期首现即变轨中"，
+      //   把已经在层上、且不爬的星也判成变轨中。
+      const inLayer = !!(x.layer && x.dist !== null && x.dist <= NEAR);
+      const rising = (x.rise7 !== null && x.rise7 >= CREEP_TH);
+      orb = (inLayer && !rising) ? 0 : ((Date.now() - x.pts[0][0] <= WIN * DAY) ? 1 : 0);
+      why = 'thin';
     } else if (x.moving) {
+      // 真点火优先于"长期静止" —— 刚停下的星 2 天速率可能还没落下来，宁可继续报"变轨中"
       orb = 1; why = 'hot'; nHot++;
+    } else if (x.parked) {
+      // ★★ V1.9.9（Q26 修 ②）：长期静止 ⇒ 不再谎报"变轨中"。是「正常」还是「可能异常」
+      //   由第二遍的同批对照判定（见下方 abn 计算）。
+      orb = 0; why = 'parked'; nParked++; nOn++;
     } else if (!x.layer || x.dist > NEAR) {
       orb = 1; why = 'off'; nIdle++;
     } else if (x.rise7 !== null && x.rise7 >= CREEP_TH) {
@@ -1435,29 +1546,42 @@ const ORBIT_ST = (() => {
     } else {
       orb = 0; why = 'on'; nOn++;
     }
-    // wk = 参照层高度（真实在的高度档位）。没有层时才退回旧口径（该批稳定成员的中位高度），
-    //   仅用于「变轨中」的"目标高度"展示；GEO 仍写 'GEO'。
-    let wk;
-    if (x.geo) wk = 'GEO';
-    else if (x.layer) wk = x.layer.alt;
-    else {
-      const sib = [...rows.values()].filter(y => y.key === x.key && y.layer && !y.geo);
-      wk = sib.length
-        ? Math.round((sib.reduce((a, y) => a + y.layer.alt, 0) / sib.length) / 10) * 10
-        : Math.round((x.hmax) / 10) * 10;
+    // ★★ V1.9.9（Q27 用户裁决，2026-10-21）：`wk` 语义订正为「**现在临时停泊的高度**」★★
+    //   用户原话：「你这个 wk 是什么意思？什么要表达？表达在哪？如果你指的是未被简化的
+    //   变轨情况完整信息段里的括号内内容，那就是**现在临时停泊的高度**。」
+    //   旧口径 `wk = x.layer.alt`（**目标层高**）的病根：CX-26（26158A）实际停在 **807.3km**，
+    //     却因为被归到 1100 层而显示 `wk=1100` —— 用户看到的"高度"不是它真在的高度。
+    //     实测：`orb=0` 的 402 颗里，改成实际高度后只有 **4 颗**会变（1053↔1070，都是层边缘）。
+    //   新口径：
+    //     · `wk` = **当前实际离地高度**（10 km 档位化，与页面"整十数"口径一致）
+    //     · `la` = 它**归属的层高**（设计层，用于层成员判定；`wk` 已不再承担这个职责）
+    //     · `od` = 首次落进**设计层** ±NEAR 的那条 TLE（仍按 `la` 算，语义不变）
+    //   ⚠️ 为什么要拆两个字段：`wk` 一旦改成实际高度，页面 `orbLayerDefs()` 里
+    //     `s.wk === L.alt` 的精确相等判定会立刻失效（实际高度很少恰好等于整层高）。
+    const actualAlt = Math.round((x.sma - RE) / 10) * 10;
+    let la = null;                     // 归属层高（设计层），可能为 null（无层可比）
+    if (!x.geo) {
+      if (x.layer) la = x.layer.alt;
+      else {
+        const sib = [...rows.values()].filter(y => y.key === x.key && y.layer && !y.geo);
+        la = sib.length
+          ? Math.round((sib.reduce((a, y) => a + y.layer.alt, 0) / sib.length) / 10) * 10
+          : Math.round((x.hmax) / 10) * 10;
+      }
     }
-    // 进入工作轨道日期 = 首次落进参照层 ±NEAR 的那条 TLE（只对在轨态求值：
+    const wk = x.geo ? 'GEO' : actualAlt;
+    // 进入工作轨道日期 = 首次落进**设计层** ±NEAR 的那条 TLE（只对在轨态求值：
     //   变轨中的星在上升途中会穿过工作带，那不算"进入工作轨道"）
     let od = null;
     if (orb === 0) {
-      const ref = (typeof wk === 'number') ? wk : null;
+      const ref = (typeof la === 'number') ? la : null;
       if (x.geo) {
         for (const p of x.pts) if (p[1] >= GEO_SMA) { od = p[0]; break; }
       } else if (ref !== null) {
         for (const p of x.pts) if (Math.abs((p[1] - RE) - ref) <= NEAR) { od = p[0]; break; }
       }
     }
-    const rec = { orb: orb, wk: wk, od: od ? ymd8(od) : '' };
+    const rec = { orb: orb, wk: wk, od: od ? ymd8(od) : '', la: la };
     if (orb) {
       if (x.rate !== null && x.rate !== undefined && isFinite(x.rate)) {
         rec.rr = Math.round(x.rate * 100) / 100;
@@ -1465,8 +1589,45 @@ const ORBIT_ST = (() => {
     }
     out.set(n, rec);
   }
+  // ★★ V1.9.9（Q26 第二遍）：**「在轨·可能异常」判定**（用户裁决："能明确识别才标异常，不确定一律正常"）
+  //   判据（三个条件同时成立才算"确认维持在非工作轨道"）：
+  //     ① 长期静止（`x.parked`：跨度 ≥60 天 且 90 天漂移 <5km）—— 它确实**停住了**，不是在爬
+  //     ② 离**所有**同倾角带的层都 > ABN_NEAR（100km）—— 它确实**不在任何工作层上**
+  //     ③ **同批已有成员稳稳落在层上**（`orb=0 且 dist≤NEAR`）—— 这是"确认"的关键：
+  //        同批同型星都到位了，它还停在别处 ⇒ 能明确识别为异常停泊
+  //   为什么必须有 ③：早期批次（如千帆极轨01~04组、KL-Alpha/Beta、星网早期试验星）
+  //     整批都在 800~1030km **各自的高度上工作**，同批没有任何成员在 1070 层上 ——
+  //     那种情况**不是异常**，只是本项目识别出的层没覆盖它们。缺了 ③ 会一口气误伤 25 颗。
+  //   实测（注入式探针）：本判据命中 **17 颗**（24140G / 24185A~S 共 12 颗 / 24232D,G / 25046E / 25233L）。
+  const ABN_NEAR = 100;
+  for (const [n, x] of rows) {
+    const rec = out.get(n);
+    if (!rec || rec.orb !== 0) continue;
+    if (x.geo || !x.parked) continue;
+    // ② 离所有同倾角带的层 > ABN_NEAR
+    const band = x.band === null ? null : Number(x.band);
+    if (band === null) continue;
+    let minD = Infinity;
+    for (const L of (ORB_LAYERS[x.con] || [])) {
+      if (L.inc !== band) continue;
+      minD = Math.min(minD, Math.abs(rec.wk - L.alt));
+    }
+    if (!isFinite(minD) || minD <= ABN_NEAR) continue;
+    // ③ 同批已有成员稳稳落在层上
+    let landed = 0;
+    for (const [n2, y] of rows) {
+      if (y.key !== x.key || y === x) continue;
+      const r2 = out.get(n2);
+      if (r2 && r2.orb === 0 && y.dist !== null && y.dist <= NEAR) landed++;
+    }
+    if (!landed) continue;
+    rec.st = 'abn';      // 在轨·可能异常
+    rec.abn = Math.round(minD);   // 离最近设计层多远（供说明文字/自检）
+    nAbn++;
+  }
   // ★ V1.9.7：判据构成写进日志 —— 误判只能靠这张表定位（与旧版的 [orb] 行对应）
-  console.log('[orb] 在轨 ' + nOn + '｜点火 ' + nHot + '｜离层 ' + nIdle + '｜贴层慢爬 ' + nCreep +
+  console.log('[orb] 在轨 ' + nOn + '（其中长期静止 ' + nParked + '、可能异常 ' + nAbn + '）｜点火 ' + nHot +
+    '｜离层 ' + nIdle + '｜贴层慢爬 ' + nCreep +
     '｜层数 ' + Object.keys(ORB_LAYERS).map(k => k + '=' + ORB_LAYERS[k].length).join(' ') +
     '｜层明细 ' + Object.keys(ORB_LAYERS).map(k =>
       k + '[' + ORB_LAYERS[k].map(L => L.alt + '/' + L.inc + '°×' + L.n + '(σ' + L.sd + ')').join(' ') + ']').join(' '));
@@ -1476,13 +1637,30 @@ const ORBIT_ST = (() => {
 
 // 把三态字段挂到 sats 记录上（DATA 里的 sats 与 gwPack.sats 是同一个数组引用，改元素即生效）
 {
-  let nOrb = 0, nRaising = 0, nGeo = 0, nFallback = 0, nWiki = 0;
+  let nOrb = 0, nRaising = 0, nGeo = 0, nFallback = 0, nWiki = 0, nAbn2 = 0;
   for (const bk of ['gw', 'qf']) {
     for (const rec of (bk === 'gw' ? gwPack : qfPack).sats) {
       // ★ V1.9.5（H13）：单星词条（在包里重建的记录上按 id 回填 —— 就地写在 pack() 里会丢）
       const w = (bk === 'gw' ? H13_GW : H13_QF)[rec.id];
       if (w) { rec.wu = w.wu; if (w.wn) rec.wn = w.wn; if (w.en) rec.en = w.en; nWiki++; }
       const st = ORBIT_ST.get(rec.id);
+      // ★★ V1.9.9（Q26 排查中发现的真缺陷，2026-10-21）：**已再入的星不能走"在轨判据兜底"** ★★
+      //   病根：ORBIT_ST 在构建 rows 时用 `if (REENTRY.has(n)) continue;` 把已再入的星**主动排除**
+      //     （它们走 `st:'r'` + `dt` 的独立通道），所以这些星**永远拿不到 st**，必然落进下面的兜底
+      //     分支 → 被赋上 `orb=1`（变轨中）、`wk=510`（同批设计层高）这类**伪在轨数据**。
+      //   实测受害样本：25067A（NORAD 63428，2025-10-16 再入）。
+      //     它虽因 `st==='r'` 在前端优先显示"已再入"而不至于显示错，但 `wk=510` 恰好等于
+      //     gw 的 510/55° 层高 ⇒ 只要哪天 orb 判定条件放宽（比如允许 undefined 也计入，
+      //     这个放宽在 orbLayerDefs 里**已经存在**），它就会被算进「510 层成员数」里。
+      //     这是一颗**已经不存在的卫星**，绝不该参与任何轨道统计。
+      //   ⇒ 先判再入，命中就直接收尾（orb/wk/la/od 全部按"无意义"处理），不进任何在轨判据。
+      if (!st && REENTRY.has(rec.id)) {
+        rec.orb = -1;          // -1 = 已再入（不参与在轨/变轨中的二分类统计）
+        rec.wk = null; rec.la = null; rec.od = '';
+        rec.st = 'r';
+        if (!rec.dt) rec.dt = REENTRY.get(rec.id);
+        continue;
+      }
       if (!st) {
         // ★ V1.9.3（CI 报错根因修复）：历史库里**没有这颗星**时的兜底。
         //   现场（2026-10-13 CI，两次红灯都卡在这里）：
@@ -1506,21 +1684,33 @@ const ORBIT_ST = (() => {
         for (const other of (bk === 'gw' ? gwPack : qfPack).sats) {
           if (other === rec || String(other.c || '').slice(0, 5) !== lk5) continue;
           const os = ORBIT_ST.get(other.id);
-          if (os && typeof os.wk === 'number') { sumGuess += os.wk; nGuess++; }
+          // ★ V1.9.9（Q27）：优先取同批成员的**设计层高 `la`**（`wk` 现在是实际高度，
+          //   拿它当"该批工作高度"会把落单星的实际高度当成整批的设计层，语义就错了）
+          if (os && typeof os.la === 'number') { sumGuess += os.la; nGuess++; }
+          else if (os && typeof os.wk === 'number') { sumGuess += os.wk; nGuess++; }
         }
         if (nGuess) wkGuess = Math.round((sumGuess / nGuess) / 10) * 10;
         else wkGuess = Math.round(400 / 10) * 10;
-        rec.orb = 1; rec.wk = wkGuess; rec.od = '';
+        rec.orb = 1; rec.wk = wkGuess; rec.la = null; rec.od = '';
         nRaising++; nFallback++;
         continue;
       }
       rec.orb = st.orb; rec.wk = st.wk; rec.od = st.od;
+      // ★ V1.9.9（Q27）：`la` = 归属的设计层高（`wk` 改为实际高度后，层成员判定改用它）
+      if (st.la !== undefined) rec.la = st.la;
+      // ★ V1.9.9（Q26）：四态 —— `st` 覆盖 'r'（已再入，别处写）/ 'abn'（在轨·可能异常）
+      if (st.st) rec.st = st.st;
+      // ★ V1.9.9（Q26）：`abn` = 离最近设计层多远（km，仅 abn 态有）—— 别漏抄，
+      //   `pack()` 是**白名单式**赋值，ORBIT_ST 里多出来的字段不会自己跟过来。
+      if (st.abn !== undefined) rec.abn = st.abn;
       if (st.rr !== undefined) rec.rr = st.rr;
       if (st.orb) nRaising++; else nOrb++;
+      if (st.st === 'abn') nAbn2++;
       if (st.wk === 'GEO') nGeo++;
     }
   }
-  console.log('在轨状态（A7）：在轨 ' + nOrb + ' / 变轨中 ' + nRaising + '（其中 GEO ' + nGeo +
+  console.log('在轨状态（A7）：在轨 ' + nOrb + '（其中可能异常 ' + nAbn2 + '）/ 变轨中 ' + nRaising +
+    '（其中 GEO ' + nGeo +
     (nFallback ? '，其中 ' + nFallback + ' 颗因无历史点走兜底' : '') + '）' +
     '｜H13 单星词条已挂 ' + nWiki + ' 颗');
 }

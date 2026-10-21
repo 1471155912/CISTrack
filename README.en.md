@@ -11,7 +11,7 @@
 </div>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.9.9.630-ff6b6b?style=flat-square" alt="version">
+  <img src="https://img.shields.io/badge/version-2.0.0.630-ff6b6b?style=flat-square" alt="version">
   <a href="https://sat.huijiwiki.com/wiki/%E6%98%9F%E7%BD%91"><img src="https://img.shields.io/badge/%E6%98%9F%E7%BD%91-CSCN-ff6b6b?style=flat-square" alt="SatNet"></a>
   <a href="https://sat.huijiwiki.com/wiki/%E5%8D%83%E5%B8%86%E6%98%9F%E5%BA%A7"><img src="https://img.shields.io/badge/%E5%8D%83%E5%B8%86-G60-4dabf7?style=flat-square" alt="Qianfan"></a>
   <img src="https://img.shields.io/badge/license-MIT-4dabf7?style=flat-square" alt="license">
@@ -339,6 +339,46 @@ node scripts/check_gh_status.mjs --json     # machine-readable
 
 `data/ct_*.tle` is only an **offline fallback snapshot** and can be refreshed periodically with `refresh.mjs`.
 
+### The satcat catalogue: why it needs special handling (since V2.0.0.630)
+
+Besides the public elements above, the project also depends on CelesTrak's **`pub/satcat.csv`** (the NORAD
+space-object catalogue — about 6.4 MB / 70k rows). It plays **no part in orbit propagation**, but it
+backs four things:
+
+1. **Per-launch satellite counts** — the `M/N` figure in the header and the launch history;
+2. **Re-entry markers** — the "re-entered" state and decay dates;
+3. **Search pools** — "already re-entered" and "not yet catalogued" objects have no TLE, so without this
+   **searching by name or NORAD finds nothing**;
+4. **Pending-summary data** — the hover tooltip behind the "pending" tag in the launch history.
+
+The problem is **size**: 6.4 MB is not something to commit every day. So it is split in two:
+
+| File | Size | In the repo? | Produced by |
+|---|---|---|---|
+| `data/satcat.csv` (full) | 6.4 MB | **no** (`.gitignore`) | `refresh.mjs`, re-downloaded daily |
+| `data/satcat_slim.csv` (**this project's subset**) | **~110 KB** | **yes** | `refresh.mjs`, exported from the full file each run |
+
+The subset contains **every row of this project's 60 launch batches** (measured: 1275 rows), and it
+deliberately keeps rideshare payloads and R/Bs — the "N = how many payloads that launch carried" needs
+them, and keeping only our own constellation's rows would under-count `M/N`. **Its header and column
+order are identical to the full file**, so every downstream consumer works unchanged.
+
+At read time, `scripts/satcat_src.mjs` decides **which copy to use**: whichever is newer, with the full
+file winning ties. Three details are recorded here so they are not "simplified away" later:
+
+- **The subset's freshness comes only from the `exported` timestamp in `satcat_slim.meta.json`**, never
+  from the file's mtime — `git checkout` rewrites mtime to the checkout time, so using it would treat a
+  three-month-old subset as brand new.
+- **A subset is exported only when the full file is present *and* genuinely fresh (≤2 days).** If
+  restricted network access leaves the full file days old, exporting would stamp stale data with today's
+  date — worse than not exporting at all (silently false freshness).
+- **If the exported subset loses a batch, the run fails explicitly with exit code 9**: a batch dropping
+  out of the subset is exactly the silent defect this mechanism exists to prevent.
+
+One limitation to know: **the subset can never discover a new launch batch** (it is filtered by existing
+batch prefixes). New batches still require one `refresh.mjs` run in an environment that can reach
+CelesTrak — which the CI does on a daily basis.
+
 **Automation (two-track A+B since V1.8.0)**
 
 - **A · Local scheduled tasks**: `update_tle.bat` / `update_wiki.bat` run `refresh → mkdata → build → build_release → git push`.
@@ -437,6 +477,114 @@ their whole year range, 200–400 requests). Add `--net` to actually go online (
 needed; credentials come from the `SPACETRACK_USER` / `SPACETRACK_PASS` environment variables and are
 never written to disk); without it the raw message pool in `data/history_cache/` is re-parsed **offline**
 with 0 requests. Run `--prune` afterwards for capacity governance.
+
+## 🛰️ How the in-orbit status is derived (four states since V2.0.0)
+
+> **The most important sentence first: every statement this project makes about a satellite's
+> "in-orbit status" is a statistical estimate inferred from public TLEs — not the satellite's real
+> state. It does not represent the actual situation and must not be used for mission decisions,
+> fault diagnosis, insurance or legal purposes.** See "Disclaimer" at the end.
+
+In the *Orbits Change* section (04) and the *Satellite Table* section (06) every satellite carries a
+status tag. **Before V2.0.0** that tag had only a coarse two or three buckets
+(in orbit / raising / re-entered), and "in orbit" lumped together satellites **sitting on their
+intended working orbit** with those **parked long-term in the wrong place**. V2.0.0 splits it into
+**four states**:
+
+| Tag | Meaning |
+|---|---|
+| **In orbit · normal** | Holding (or essentially holding) the intended working orbit for its launch |
+| **In orbit · possibly anomalous** | Parked long-term at a **non-intended** altitude/orbit while other satellites from the same launch have already arrived |
+| **Raising · burning** | Still actively raising/lowering, with measurable thrust |
+| **Raising · coasting** | Still heading for the target, but currently moving very slowly (creeping near the layer, or paused) |
+| **Re-entered** | Already left orbit (with a decay date) |
+
+### Step 1 — find the working "layers" from the data (they are not hard-coded)
+
+Layers are **clustered from the actual altitude distribution of the satellites**, not configured by hand:
+
+1. **Pick stable seeds**: only satellites that are *not* currently raising are used to build layers —
+   2-day rate ≤ `0.5 km/day`, 30-day net rise < `10 km`, and enough history points.
+   **Building layers from stable satellites only** is essential: include the still-climbing ones and
+   they line up in a vertical column that gets mistaken for a "layer".
+2. **Cluster by inclination band + altitude**: within one inclination band (`0.5°`), sort by altitude and
+   **break the chain whenever the gap exceeds 30 km**; a group needs at least `8` members, and its
+   altitude standard deviation must be ≤ `8 km`.
+   *That σ cap specifically blocks fake layers made of satellites that merely happen to line up*:
+   measured, 31 Qianfan satellites sit stably between 800 and 974 km (σ = 57.7 km) — without the cap
+   they would be taken as one 174 km-thick "working layer".
+3. **Layer altitude = the modal 10-km bucket**: heights are rounded to 10 km, voted, and the most
+   frequent bucket wins — so layer altitudes are always round tens (1150 / 1170 / 510 / 1070 km),
+   never an averaged number with decimals.
+4. **Assign each satellite**: compare only against layers in its **own inclination band**, take the
+   nearest one; "on the layer" requires a distance ≤ `30 km`.
+
+> Measured today: CSCN has 4 layers (1150/50°×117, 1170/86.5°×61, 1100/50°×11, 510/55°×9);
+> Qianfan has 1 (1070/89°×197). These numbers are computed, not configured.
+
+### Step 2 — tag each satellite (the order of the rules matters)
+
+```
+(1) Is it GEO?                        → separate thresholds (rate 3.0 km/day, since GEO station-keeping moves anyway)
+(2) Too few history points (< 4)?     → insufficient data, conservatively "raising" (never falsely claim "arrived")
+(3) |2-day rate| > 0.5 km/day?        → raising · burning
+(4) Off every layer, or > 30 km away? → raising · coasting
+(5) On a layer, but 7-day rise ≥ 3 km?→ raising · coasting (creeping near the layer)
+(6) otherwise                         → in orbit
+```
+
+Rule (5), the "creeping near the layer" fallback, is **necessary**: some satellites move so little per
+day that the 2-day rate stays under the 0.5 detection line, yet a 3 km rise over 7 days is visible
+(stable satellites' p99 noise on the same measure is only 0.54 km/14 days, so it does not misfire).
+Conversely you **cannot** use "30-day net rise ≥ 10 km" directly: satellites that arrived less than
+30 days ago still have the climb inside that window (measured: Qianfan 69857/69860/69865 show a 24.9 km
+30-day rise but ≈ 0 over 7 days — they stopped long ago).
+
+### Step 3 — separate "possibly anomalous" out of "in orbit"
+
+This is the strictest rule set — **all three conditions must hold** before we dare tag it:
+
+1. It is genuinely static: altitude drift ≤ `5 km` across a `60`-day span
+   (only a satellite that has really stopped somewhere gives us grounds to say it "is parked there";
+   anything still moving is never guessed at)
+2. It sits **more than 100 km away from every working layer** of its constellation
+   (closer than that might just be an imprecise layer height; further away is clearly "not the working orbit")
+3. **Other satellites from the same launch have already arrived** (at least one layer member from that batch)
+   (if the whole batch has not arrived yet, it is just "this launch went higher / has not finished
+   manoeuvring", not a single-satellite anomaly)
+
+**If any of the three fails, the satellite is filed as "in orbit · normal".** Why so conservative: the
+label carries an implication of "anomaly", so a false positive wrongly accuses a healthy satellite,
+while a false negative merely withholds a hint. **Better to say nothing than to say it wrong.**
+
+> Measured (V2.0.0): 422 in orbit · normal / 17 in orbit · possibly anomalous / 75 raising / 1 re-entered.
+> All 17 are Qianfan (zero for CSCN).
+
+### Step 4 — "re-entered" is handled separately, and must never be given fabricated orbital data
+
+Re-entered objects (`DECAY_DATE` non-empty in `satcat`) **bypass every rule above** and get
+`re-entered` plus the decay date. That sounds obvious, but V2.0.0 fixed a real defect here: the old code
+excluded them from the rule inputs, so they **fell into the "insufficient data" fallback** and were
+given fabricated `raising + 510 km` data — and 510 km happens to equal one of CSCN's layer altitudes,
+so a relaxed rule would have counted them as members of that layer.
+
+### Known limitations (stated plainly)
+
+- **TLE only**: TLEs are public, coarse mean elements. A satellite's real attitude, payload state or
+  whether it has failed **cannot be derived at all**. Holding the right altitude does not mean it works;
+  a wrong altitude does not necessarily mean a fault (it may simply not be finished yet).
+- **"Possibly anomalous" covers one shape only**: parked long-term at the wrong altitude. Other anomaly
+  shapes (inclination drift, phase dispersion, conjunction risk within a plane) are **not** judged.
+- **Fresh launches must wait**: the rules need history, so a satellite launched days ago will only get
+  "raising" — that is correct conservatism, not a miss.
+- **The thresholds are empirical**: `0.5 km/day`, `60 days`, `100 km` come from the measured distribution
+  of current data and may need retuning as the constellations grow or operations change.
+- **The sources themselves lag**: `satcat` is roughly daily, TLE batches roughly every 12 hours. Upstream
+  delay shows up directly as "this judgement is a little behind reality".
+
+> **Once more: all of the above is a rough estimate reverse-engineered from public data and does not
+> represent the satellites' actual in-orbit status.** The same statement appears on the page below the
+> *Orbits Change* and *Satellite Table* charts, and is embedded in the exported images.
 
 ## 📊 Data sources
 

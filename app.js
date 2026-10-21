@@ -11,7 +11,15 @@ var DAY = 86400000;
 var SGP4 = window.satellite;
 var RAW = window.SATDATA;
 var COAST = window.COAST_DATA || [];
-var VERSION = 'V1.9.9.630';          // 页脚版本号，后续更新在此改动
+// ★★ V2.0.0.630（用户 2026-10-22 明确指示：「由于更新范围和内容太大，我决定这一次工作后的
+//   版本为 2.0.0.630 版本」）★★
+//   这是本项目**第一次升到 2.x** —— 主版本号跳变不是因为我做了什么功能扩张，而是因为
+//   本轮把「卫星在轨情况」从一个笼统的二元（在轨/变轨中）改成了**四态判读体系**
+//   （在轨·正常 / 在轨·可能异常 / 变轨中·点火|间歇 / 已再入），
+//   并修掉了它下面的四个真缺陷（lsqRateDay 分母退化、已再入伪在轨数据、
+//   la/abn 漏白名单、en 漏 build()）。**旧版本的判读口径与新版本不完全等价**，
+//   所以按语义化版本的原则升主版本号，而不是继续在 1.9.x 上打补丁。
+var VERSION = 'V2.0.0.630';          // 页脚版本号，后续更新在此改动
 
 // ---------------------------------------------------------------- V1.3.7：TLE 分组差分解码
 // 构建脚本按发射批次（COSPAR 前缀）把「名称+两行要素」压成公共模板 + 每颗星的差异串，
@@ -36,7 +44,14 @@ function unpackSat(s, tpls) {
   //     ② V1.9.2（A7）的三态字段 `orb`/`wk`/`od`/`rr` → 「在轨状态」列退化成
   //        「在轨（~—，undefinedkm）」（smoke 的渲染层断言当场抓到）。
   //   ⚠️ 以后往 satdata 的卫星记录里加字段时，**必须同步写进下面这张 EXTRA 表**。
-  var EXTRA = ['st', 'dt', 'orb', 'wk', 'od', 'rr', 'wu', 'wn', 'en'];   // ★ V1.9.9：en = 词条英文名
+  // ★★ V1.9.9（Q26/Q27，2026-10-21）：补 `la`（设计层高）与 `abn`（离层距离）★★
+  //   ⚠️ 这是同一个坑的**第三次**（前两次：V1.9.1 的 st/dt、V1.9.2 的 orb/wk/od/rr）。
+  //   1.9.9 新加的 `la` / `abn` 一开始又漏在这张表外面，后果是：
+  //     · `la` 丢了 → `orbLayerDefs()` 回落到 `s.wk`（实际高度）做精确相等判定
+  //       → 层成员数凭空变少（402 颗里 4 颗实际高度与层高差 20km）；
+  //     · `abn` 丢了 → 表格/信息窗拿不到"离层多远"。
+  //   凡是 mkdata 写进卫星记录的新字段，**必须同步加进这张表**（smoke 有专门守卫）。
+  var EXTRA = ['st', 'dt', 'orb', 'wk', 'la', 'od', 'rr', 'abn', 'wu', 'wn', 'en'];   // ★ V1.9.9：en = 词条英文名
   for (var ei = 0; ei < EXTRA.length; ei++) {
     var ek = EXTRA[ei];
     // 用 `!== undefined` 而不是真值判断 —— `orb` 的 0（在轨）是**合法且最常见**的取值，
@@ -199,6 +214,28 @@ var I18N = {
   //   语义含混（not the actual situation 什么？）。改成地道的免责口吻，语义不变。
   d_shot_disc: ['非官方项目，模拟基于开源 TLE 数据，不代表实际情况',
     'Unofficial project · simulated from open TLE data — does not reflect actual conditions'],
+  // ★★ V1.9.9（R18，用户 2026-10-21 新需求）：**在轨状态判读声明** ★★
+  //   用户原话：「在变轨情况章节和卫星表格章节的图表下面写一段关于如何识别和区分卫星在轨情况的
+  //   简洁说明，并再次强调这是一个结合数据源的大概估计不一定代表卫星真实在轨情况，
+  //   两章节输出的图片也要写这个声明（变轨情况章节的图片写在 CISTrack 行的下方，
+  //   卫星表格输出的图片声明写在表格的下方，现有的右下角的免责接在这段声明的后面），
+  //   注意中英文都要改。」
+  //   口径要点（与 Q26 四态一致，不要写成旧的三态）：
+  //     · 在轨·正常 —— 停在预定工作轨道上的卫星（含正常位置保持）
+  //     · 在轨·可能异常 —— 长期静止在**非**工作轨道、且同批已有成员到位（能明确识别的异常停泊）
+  //     · 变轨中·点火 / 间歇 —— 正在抬升（2 天速率 > 0.5 km/天 = 点火；贴层慢爬 = 间歇）
+  //     · 已再入 —— 已离开轨道
+  //   末尾统一强调"这是基于公开 TLE 的大概估计"。
+  d_st_note_climb: [
+    '判读说明：「在轨·正常」= 停在预定工作轨道；「在轨·可能异常」= 长期停在非预定工作轨道、'
+      + '且同批其它星已到位；「变轨中」= 仍在抬升，2 天速率 > 0.5 km/天为「点火」、贴层慢爬为「间歇」；'
+      + '「已再入」= 已离轨。均由公开 TLE 反推，只是大概估计，不代表卫星真实在轨情况。',
+    'Note: “In orbit · normal” = holding its intended working orbit; “possibly anomalous” = long parked '
+      + 'off its intended orbit while other satellites from the same launch have arrived; “raising” = still '
+      + 'climbing (“burning” above 0.5 km/day, “coasting” when creeping below the target layer); '
+      + '“re-entered” = left orbit. All inferred from open TLE data — a rough estimate, '
+      + 'not the satellite’s actual status.'
+  ],
   b_pick: ['选择地面观测点', 'Pick ground site'], b_names: ['名称', 'Names'],
   // ★ V1.9.8（用户第 7 条）：导出弹层第二行改成「打印第 X 页～第 Y 页」
   shot_from: ['打印第', 'Pages '], shot_to: ['页～第', ' to '], shot_page: ['页', ' of this table'],
@@ -236,9 +273,23 @@ var I18N = {
   t_status: ['在轨状态', 'Status'], st_orbit: ['在轨', 'In orbit'], st_gone: ['已再入', 'Re-entered'],
   // V1.9.2（A7）：三态化 —— 在轨（绿）/ **正在变轨**（黄）/ 已再入（红）。
   //   前两态的判定在构建期算好（mkdata.mjs 的 ORBIT_ST），字段挂在卫星记录上：
-  //     orb = 0 在轨 / 1 变轨中，wk = 该批工作轨道高度档位（10 km）或 'GEO'，
-  //     od = 进入工作轨道日期（UTC+8），rr = 升轨速度（km/天，仅变轨中）。
-  st_orbit_a: ['在轨（~', 'In orbit (~'],
+  //     orb = 0 在轨 / 1 变轨中，
+  //     wk  = **现在临时停泊的高度**（实际离地高度，10 km 档位）或 'GEO'   ← ★ V1.9.9（Q27）订正
+  //     la  = 归属的**设计层高**（10 km 档位；`wk` 已不再承担层成员判定）
+  //     od  = 进入工作轨道（= 首次落进设计层 ±30km）的日期（UTC+8）
+  //     rr  = 升轨速度（km/天，仅变轨中）
+  //     st  = 'abn' → 在轨·可能异常（长期静止在**非工作轨道**，且同批已有成员到位）
+  //
+  // ★★ V1.9.9（Q26 用户裁决，2026-10-21）：**四态化** ★★
+  //   用户原话：「长期静止在停泊轨道而非工作轨道在能明确识别（即你真的确认是维持在非工作轨道）
+  //   的情况下标注为我们之前说过的在轨·可能异常，如果不确定则统一归为在轨·正常
+  //   （"在轨·正常"这个分类应该指的是停泊和维持在预定工作轨道的卫星）」
+  //   ⇒ 状态全集：在轨·正常（绿）/ 在轨·可能异常（琥珀）/ 变轨中·点火（黄）/ 变轨中·间歇（黄）/ 已再入（红）
+  //   ⚠️ 「在轨」这个笼统叫法**取消**：它原本同时指"正常"与"异常"，用户要求拆开。
+  st_orbit_a: ['在轨·正常（~', 'In orbit · normal (~'],
+  st_orbit_abn_a: ['在轨·可能异常（~', 'In orbit · possibly anomalous (~'],
+  st_orbit_b: ['在轨·正常', 'In orbit · normal'],
+  st_orbit_abn_b: ['在轨·可能异常', 'In orbit · possibly anomalous'],
   st_raising: ['变轨中', 'Raising'],
   st_raising_a: ['变轨中（~', 'Raising (~'],
   // ★ V1.9.7：把「变轨中」拆成两种状态（用户批准）——点火中 / 间歇
@@ -520,12 +571,14 @@ function batchName(name) {
  *  （实测 `卫星互联网技术试验卫星(CZ_12_Y1)`），而卡片标题本身带空格。显示前一律还原。 */
 function cleanName(t) { return String(t || '').replace(/_/g, ' ').replace(/\s+/g, ' ').trim(); }
 
-function cnName(s) {
-  var n = s.name;
-  if (LANG === 'en') return enOf(s);
-  return zhRules(n);
-}
-/** ★ V1.9.5（H19）：**按中文规则翻译**（与界面语言无关）—— cnName() 与搜索变体共用同一份规则。
+// ★★ V2.0.0.630（C11 清理）：删掉死函数 `cnName()` ★★
+//   它自 V1.9.8 起就是**零调用**（全仓库 grep 只有定义与两处注释提到它）。
+//   为什么留着有害：它的注释自称"表格同一套本地化函数"，而表格实际用的是 `fullNameOf()` ——
+//   一条假注释把后来的人（包括我）引去改错地方（变轨标签那次就是这么误判的）。
+//   两个真实用途都已各自有实现：
+//     · 表格/信息窗/导出 → `fullNameOf()`（全名）
+//     · 画布/变轨右侧标签 → `shortOf()` → `nameOf()`（简名）
+/** ★ V1.9.5（H19）：**按中文规则翻译**（与界面语言无关）—— 供 `shortOf()` 与搜索变体共用同一份规则。
  *  为什么抽出来：`nameVariants()` 原先自己抄了一半规则（缺 GEO/KL/DTC/CX…），两处会越走越偏；
  *  搜索索引必须认**全部**中文写法（含词条名），否则"搜得到名字却搜不到卫星"。 */
 function zhRules(n) {
@@ -931,8 +984,29 @@ function build(key) {
       //   在线刷新会带来"打包时还不存在"的新卫星（没有 mkdata 算的 orb/wk/od），
       //   若原样留 undefined，状态列会掉进「在轨」分支并写出 `undefinedkm` ——
       //   既难看又谎报"已到位"。这里与 mkdata 对无历史点卫星的口径保持一致。
-      orb: (s.orb === 0 || s.orb === 1) ? s.orb : 1,
-      wk: s.wk, od: s.od, rr: s.rr,
+      // ★ V1.9.9（Q26 排查中发现的真缺陷，2026-10-21）：必须放行 `-1`（已再入）★★
+      //   病根：mkdata 现在给已再入的星写 `orb:-1`（不再给它们编造 `orb:1` 的伪"变轨中"），
+      //   但这里旧写法 `(s.orb === 0 || s.orb === 1) ? s.orb : 1` 会把 `-1` 当成"无效值"
+      //   → 改写成 **1（变轨中）**。于是已再入的星在重建后变成了"变轨中"，
+      //   而 `dt`（再入日期）又只在 st='r' 分支里显示 —— 两边不一致。
+      //   现在：0/1/-1 三个值都原样保留，只有**真正缺失**（undefined/null/其它）才保守取 1。
+      orb: (s.orb === 0 || s.orb === 1 || s.orb === -1) ? s.orb : 1,
+      // ★★ V1.9.9（Q26/Q27，2026-10-21）：补 `la`（设计层高）与 `abn`（离层距离）★★
+      //   与 `unpackSat()` 的 EXTRA 表是**同一份字段清单的两处**，加字段时两处都要改。
+      //   漏 `la` 的后果：`orbLayerDefs()` 的层成员判定回落到 `s.wk`（实际高度）做**精确相等**，
+      //   而实际高度很少恰好等于整层高 → 层成员数凭空变少（实测 402 颗里有 4 颗会掉）。
+      wk: s.wk, la: s.la, od: s.od, rr: s.rr, abn: s.abn,
+      // ★★ V2.0.0（2026-10-22 全链路侦察抓出的**真缺陷**，白名单第 4 次踩坑）★★
+      //   漏掉 `en` 的后果：`enOf()` 第一句就是 `String(s.en||'')`，读不到就一路退回
+      //   `WHJSW-编号` 推导 —— 实测（jsdom，英文模式，搜 NORAD 57288）：显示 `WHJSW-01`，
+      //   而词条卡片里的权威英文名是 `Hulianwang Jishu Shiyan 1`。
+      //   即 V1.9.9 D3「英文名改用词条来源、与英文模式对齐」这条裁决**从来没生效过**：
+      //   数据层（satdata.json 里 30 条 `en`）是对的、`unpackSat()` 的 EXTRA 也带了 `en`，
+      //   唯独 `build()` 构造卫星对象时没抄过来 → 页面永远拿不到。
+      //   ⚠️ 这是**同一个坑的第 4 次**（前三次：st/dt → orb/wk/od/rr → la/abn）。
+      //   根治手段：smoke 的「三处白名单机器比对」守卫本轮改为从 satdata **反推全量字段**，
+      //   再逐个查三处 —— 该清单不再手写，所以不会再"因为清单过期而假绿"。
+      en: s.en,
       // ★ V1.9.5（H13/H19）：百科词条链接（单星词条，只有试验星/GEO/KL/DTC 这类有）
       //   与词条名（中文名优先来源）。没有单星词条时页面回落到**批次词条**（见 wikiUrlOf）。
       wu: s.wu, wn: s.wn
@@ -2298,7 +2372,13 @@ function orbLayerDefs(st) {
       st.sats.forEach(function (s) {
         // ★ V1.9.7（P0-D）：`orb` 缺失（在线新增的星）也允许计入成员 —— 只要它确实落在层高上；
         //   旧写法要求 `orb===0`，一旦三态字段丢了，层就直接空掉（三个模块一起白）。
-        if ((s.orb === 0 || s.orb === undefined) && s.wk === L.alt && isFinite(s.inc)) {
+        // ★ V1.9.9（Q27）：层成员判定改用 `la`（**设计层高**），不再用 `wk`。
+        //   为什么：`wk` 已订正为"现在临时停泊的高度"（实际高度），而实际高度几乎从不
+        //   恰好等于整层高（实测 402 颗里只有 398 颗碰巧相同，4 颗差 20km）——
+        //   继续用 `s.wk === L.alt` 会让层成员数莫名少了。`la` 才是"它归属哪一层"。
+        //   老数据（无 `la` 字段）退回 `wk`，兼容混搭部署。
+        const sLa = (typeof s.la === 'number') ? s.la : s.wk;
+        if ((s.orb === 0 || s.orb === undefined) && sLa === L.alt && isFinite(s.inc)) {
           if (Math.abs(Math.round(s.inc / LAYER_INC) * LAYER_INC - L.inc) <= 1e-6) mem.push(s.idx);
         }
       });
@@ -2315,7 +2395,9 @@ function orbLayerDefs(st) {
   //   `orb` 缺失的星照常参与（它们是数据最不完整的那批，恰恰最需要"看起来正常"）。
   var seeds = st.sats.filter(function (s) {
     if (s.wk === 'GEO' || !isFinite(s.smaB) || !isFinite(s.inc)) return false;
-    if (s.orb === 1 && typeof s.wk === 'number') return false;
+    // ★ V1.9.9（Q27）：判"明确的变轨中"看 `la`（有设计层 ⇒ 说明它已被归层，
+    //   此时还在 orb=1 就是真在动），不再依赖 `wk` 是否为数字 —— `wk` 现在恒为数字。
+    if (s.orb === 1 && typeof s.la === 'number') return false;
     return true;
   });
   var bands = {}, bkeys = [];
@@ -2825,14 +2907,19 @@ function satBlock(s, scope, extra) {
 //   `_s` / `epoch`），这里按同样形状包一层，**不另写一套判定**（否则两处迟早不一致）。
 function satStatusRow(s) {
   var r = {
-    _s: s, orb: s.orb, wk: s.wk, od: s.od, rr: s.rr, smaB: s.smaB, epoch: s.epochMs,
-    gone: s.st === 'r', deadOn: s.dt
+    _s: s, orb: s.orb, wk: s.wk, la: s.la, od: s.od, rr: s.rr, smaB: s.smaB, epoch: s.epochMs,
+    gone: s.st === 'r', deadOn: s.dt,
+    // ★ V1.9.9（Q26）：信息窗的四态也要认得 `st`（'r' / 'abn'）与 `abn`（离层距离）——
+    //   旧写法只传了 `gone`，于是信息窗**永远显示不出**「在轨·可能异常」，
+    //   与表格（走 tableVals，已带 st/abn）不一致。这是"同一颗星两处说法"的又一次复发。
+    st: s.st || '', abn: s.abn
   };
   // ★ V1.9.9（用户 2026-10-20 报的 bug）：这里**漏了 `od`** ——
   //   而「在轨」那条文案是 `在轨（~<od>, <高度>）`，于是信息窗一直显示 `在轨（~—, 1150km）`，
   //   表格却是 `在轨（~2026-08-26, 1150km）`。同一颗星两个说法，看起来像数据错。
   //   `od` = 工作轨道生效日（mkdata 的 ORBIT_ST 产出），表格从 tableVals 里拿，这里有它就行。
-  var cls = r.gone ? 'st-gone' : (r.orb === 1 ? 'st-raising' : 'st-orbit');
+  // ★ V1.9.9（Q26）：四态色 —— "在轨·可能异常"用琥珀（--st-standby），与"正常"的绿区分开。
+  var cls = r.gone ? 'st-gone' : (r.orb === 1 ? 'st-raising' : (r.st === 'abn' ? 'st-standby' : 'st-orbit'));
   // ★★ V1.9.9（2026-10-20 用户新需求）：**信息窗里用简写**（`brief = true`）——
   //   在轨 / 变轨中·间歇 → 只留状态名；变轨中·点火 → 只留 `（+X.XXkm/天）`。
   //   ⚠️ 06 章卫星表格走的是 `orbitStatusHtml(r)`（不带第二参），**保持完整文案不变** ——
@@ -3675,13 +3762,21 @@ function orbitStatusHtml(r, brief) {
     }
     return txt + t('st_close');
   }
-  // ★ V1.9.9：简写态「在轨」不带任何括号内容
-  if (brief) return t('st_orbit');
+  // ★★ V1.9.9（Q26/Q27）：四态文案 ★★
+  //   在轨·正常 / 在轨·可能异常 / 变轨中·点火 / 变轨中·间歇 / 已再入
+  //   `wk` 已订正为「**现在临时停泊的高度**」（实际高度），`la` 才是设计层高。
+  //   `r.abn` = 离最近设计层多远（km，仅"可能异常"态有），供说明文字使用。
+  var isAbn = (r.st === 'abn');
+  // ★ 简写态（信息窗）：只给状态名，不带括号内容（用户 V1.9.9 明文要求）
+  if (brief) return isAbn ? t('st_orbit_abn_b') : t('st_orbit_b');
   // ★ V1.9.7（P0-A 配套）：`wk` 可能缺失（在线新增、尚未经过 mkdata）——
   //   旧写法会拼出 `undefinedkm`。缺失时退回**当前半长轴高度**（`smaB` 已是离地高度）。
   var wk = (r.wk === 'GEO') ? 'GEO'
     : ((typeof r.wk === 'number' ? r.wk : Math.round(r.smaB)) + 'km');
-  return t('st_orbit_a') + (r.od || '—') + t('st_gone_b') + wk + t('st_close');
+  var lead = isAbn ? t('st_orbit_abn_a') : t('st_orbit_a');
+  // "进入工作轨道日期"对"可能异常"的星是空的（它没进过设计层）—— 空时只写高度，不写"—，"
+  if (!r.od) return lead + wk + t('st_close');
+  return lead + r.od + t('st_gone_b') + wk + t('st_close');
 }
 function tableVals(s) {
   var b = S.model === 'brouwer';
@@ -3696,8 +3791,11 @@ function tableVals(s) {
     //   已再入的卫星在 mkdata 里带了 `st:'r'` 与 `dt`（再入日期，来自 satcat 的 DECAY_DATE）。
     // V1.9.2（A7）：三态化 —— 0=在轨 / 1=变轨中 / 2=已再入（升序排 → 在轨在前、已再入最后）。
     //   变轨中的判定与工作轨道高度由 mkdata.mjs 的 ORBIT_ST 在构建期算好（见该处注释）。
+    // ★ V1.9.9（Q26）：四态 —— 排序值仍是 0/1/2（"可能异常"归 0，它确实在轨），
+    //   但 `st`/`abn` 要**原样带到前端**，否则 orbitStatusHtml 分不出正常与异常。
     status: s.st === 'r' ? 2 : (s.orb ? 1 : 0), gone: s.st === 'r', deadOn: s.dt || '',
-    orb: s.st === 'r' ? -1 : (s.orb || 0), wk: s.wk, od: s.od, rr: s.rr,
+    st: s.st || '', abn: s.abn,
+    orb: s.st === 'r' ? -1 : (s.orb || 0), wk: s.wk, la: s.la, od: s.od, rr: s.rr,
     // V1.8.0（需求12）：卫星表格新增「发射时间 (GMT+8)」列 —— 值取本批发射时刻（已是北京时间），
     //   排序用毫秒值（ltime），显示用 lstr；元数据缺失的批次（无台账）显示「—」。
     ltime: L.dateMs || 0, lstr: L.dateStr && L.dateStr !== '—' ? L.dateStr.replace('T', ' ') : '—',
@@ -3836,7 +3934,7 @@ function satRowHtml(r) {
     // V1.9.1（1.4-D）：「在轨状态」列 —— 在轨绿 / 已再入红。
     // V1.9.1（A10）：已再入的写**完整**文案「已再入（~YYYY-MM-DD，XXX 天）」（XXX = 冻结的在轨日）。
     // V1.9.2（A7）：三态 —— 在轨绿 / **变轨中黄** / 已再入红，内容见 orbitStatusHtml()。
-    '<td class="stcell ' + (r.gone ? 'st-gone' : (r.orb === 1 ? 'st-raising' : 'st-orbit')) + '"' +
+    '<td class="stcell ' + (r.gone ? 'st-gone' : (r.orb === 1 ? 'st-raising' : (r.st === 'abn' ? 'st-standby' : 'st-orbit'))) + '"' +
       (r.gone && r.deadOn ? ' title="' + t('st_gone_tip') + r.deadOn + '"' : '') + '>' +
       orbitStatusHtml(r) + '</td>' +
     '<td>' + batchCellHtml(L, true) + '</td>' +
@@ -4401,7 +4499,10 @@ function shotSatLines(view) {
       }
     }
     return [{ segs: [
-      { t: sat ? nameOf(sat) : String(c.norad) },
+      // ★★ V2.0.0.630（R16 简名越界，用户 10381 条裁决）：**导出图属"其他章节成品"，必须全名** ★★
+      //   旧写法用 nameOf()（画布简名）→ 同一张导出图里第 1 列是 `CX26`、第 3 列却是批次全名，
+      //   自相矛盾。简名的唯一合法用途是「变轨章节右侧标签」与「画布光点小字」。
+      { t: sat ? fullNameOf(sat) : String(c.norad) },
       { t: String(c.norad) },
       { t: sat ? batchName((sat.launch || {}).name) : '' },
       { t: s4 },
@@ -4418,7 +4519,9 @@ function shotSatLines(view) {
     var d = (L.dateStr || '').slice(0, 10) || '—';
     var days = isFinite(L.dateMs) ? Math.max(0, Math.floor((Date.now() - L.dateMs) / DAY)) : null;
     var parts = [
-      nameOf(s),
+      // ★★ V2.0.0.630（R16）：同上 —— 导出图底栏用**全名**，与表格逐字一致。
+      //   旧写法让同一颗星在表格叫「卫星互联网技术试验卫星03」、在导出图里叫 `S03`。
+      fullNameOf(s),
       String(s.norad),
       batchName(L.name),
       fmtNum(s.hpK, 2) + 'km×' + fmtNum(s.haK, 2) + 'km',
@@ -4445,6 +4548,8 @@ function drawShotBar(ctx, W, yTop, title, satLines, dpr, view) {
   var st = cur();
   var chapter = shotChapter(view);
   var disco = t('d_shot_disc');
+  // ★ V1.9.9（R18）：本图是否要在 CISTrack 行下方加「在轨状态判读声明」（04/06 两章）
+  var statNoteOn = statNoteChapter(view);
 
   // 卫星信息行
   if (satLines.length) {
@@ -4550,8 +4655,11 @@ function drawShotBar(ctx, W, yTop, title, satLines, dpr, view) {
   var netP = shotNetParams(view);
   if (netP) rest += ' | ' + netP;
   // 先算右下角声明要占多宽（含 16px 间距），给 CISTrack 行留出空间，避免两者重叠
+  // ★ V1.9.9（R18）：04/06 两章的免责声明**不再挤在 CISTrack 行右侧**，
+  //   而是按用户要求「接在判读声明的后面」独占下方一行 —— 见下方 statNoteOn 分支。
+  //   非这两章：维持原有"右侧对齐、与 CISTrack 同行"的表现形式（不动）。
   ctx.font = monoFont(size * 0.9);
-  var discW = ctx.measureText(disco).width;
+  var discW = statNoteOn ? 0 : ctx.measureText(disco).width;
   var discGap = 16 * dpr;
   var avail = W - x - 12 * dpr - discW - discGap;
   var rs = size;
@@ -4579,27 +4687,110 @@ function drawShotBar(ctx, W, yTop, title, satLines, dpr, view) {
   y += lineH;
 
   // 右下角声明
-  ctx.font = monoFont(size * 0.9);
-  ctx.fillStyle = shotInkDim();
-  ctx.textAlign = 'right';
-  if (discOwnLine) {
-    ctx.fillText(disco, W - 12 * dpr, y + lineH * 0.45);
-    y += lineH * 0.9;
-  } else if (discW + 24 * dpr < W) {
-    ctx.fillText(disco, W - 12 * dpr, cy);
+  // ★ V1.9.9（R18）：04/06 两章跳过此处，改到判读声明之后再画（见下方 statNoteOn 分支）。
+  if (!statNoteOn) {
+    ctx.font = monoFont(size * 0.9);
+    ctx.fillStyle = shotInkDim();
+    ctx.textAlign = 'right';
+    if (discOwnLine) {
+      ctx.fillText(disco, W - 12 * dpr, y + lineH * 0.45);
+      y += lineH * 0.9;
+    } else if (discW + 24 * dpr < W) {
+      ctx.fillText(disco, W - 12 * dpr, cy);
+    }
+    ctx.textAlign = 'left';
   }
-  ctx.textAlign = 'left';
+  // ★★ V1.9.9（R18，用户 2026-10-21）：**在轨状态判读声明** ★★
+  //   用户原话：「两章节输出的图片也要写这个声明（变轨情况章节的图片写在 **CISTrack 行的下方**，
+  //   卫星表格输出的图片声明写在**表格的下方**，现有的右下角的免责接在这段声明的后面）」
+  //   ⇒ 只在 04 变轨情况（climb）与 06 卫星表格（table）两章输出；
+  //     顺序：CISTrack 行 → **判读声明** → **免责声明**（"接在这段声明的后面"）。
+  if (statNoteOn) {
+    y += 2 * dpr;
+    y += drawStatNote(ctx, W, y, dpr, size * 0.86);
+    // 免责声明接在判读声明之后，单独一行、左对齐（与声明同列，读起来是一段连贯的话）
+    y += 2 * dpr;
+    ctx.font = monoFont(size * 0.86);
+    ctx.fillStyle = shotInkDim();
+    ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    ctx.fillText(disco, 12 * dpr, y + Math.round(size * 0.86 * 1.62) / 2);
+    y += Math.round(size * 0.86 * 1.62);
+  }
   // V1.7.3（需求8）：CISTrack 行下缘→图片底边的距离 = 行上缘→分割线的距离（3dpr）。
   //   旧版这里是 pad(10dpr)，加上 shotBarHeight 无条件多预留的 0.9 行高，底部空白过大。
   y += 3 * dpr;
   return y - yTop;
+}
+// ★★ V1.9.9（R18）：把「在轨状态判读声明」按可用宽度折行 —— 只算行，不画。
+//   为什么要手写折行：canvas 没有自动换行；而这段文字中英混排（中文逐字断、英文按词断），
+//   直接套一种断法必然在另一种语言下断得难看。这里按"当前字符是否 CJK"决定断点粒度。
+//   ⚠️ 抽成独立函数（而不是在 drawStatNote 里现算）：shotBarHeight 要先知道占几行才能
+//   给画布分配高度，而那时**不能**真的往画布上落笔。测量必须无副作用。
+function statNoteLines(ctx, W, dpr, size) {
+  var txt = t('d_st_note_climb');
+  var maxW = W - 24 * dpr;
+  var saveFont = ctx.font;
+  ctx.font = monoFont(size);
+  var lines = [], cur = '';
+  for (var i = 0; i < txt.length; i++) {
+    var ch = txt.charAt(i);
+    var next = cur + ch;
+    if (ctx.measureText(next).width > maxW && cur) {
+      // 超宽：英文尽量整体换行（回退到上一个空格），中文直接断
+      var sp = cur.lastIndexOf(' ');
+      var isCJK = /[\u3000-\u9fff\uff00-\uffef]/.test(ch);
+      if (!isCJK && sp > 0 && (cur.length - sp) < 20) {
+        lines.push(cur.slice(0, sp));
+        cur = cur.slice(sp + 1) + ch;
+      } else {
+        lines.push(cur); cur = ch;
+      }
+    } else cur = next;
+  }
+  if (cur) lines.push(cur);
+  ctx.font = saveFont;                 // 复原字体（测量不留副作用）
+  return lines;
+}
+/** 声明占用高度（供 shotBarHeight 预算画布） */
+function statNoteHeightOf(ctx, W, dpr, size) {
+  var lineH = Math.round(size * 1.62);
+  return statNoteLines(ctx, W, dpr, size).length * lineH;
+}
+/** 画出声明，返回占用高度 */
+function drawStatNote(ctx, W, yTop, dpr, size) {
+  var lines = statNoteLines(ctx, W, dpr, size);
+  var lineH = Math.round(size * 1.62);
+  ctx.font = monoFont(size);
+  ctx.fillStyle = shotInkDim();
+  ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  var y = yTop;
+  for (var k = 0; k < lines.length; k++) {
+    ctx.fillText(lines[k], 12 * dpr, y + lineH / 2);
+    y += lineH;
+  }
+  return y - yTop;
+}
+// ★ V1.9.9（R18）：该章导出图是否要带判读声明 —— 只有 04 变轨情况与 06 卫星表格要。
+function statNoteChapter(view) {
+  return view === 'climb' || view === 'table';
 }
 // 预计算条带高度（供 exportView 分配画布）
 // V1.7.0：多留一行余量 —— drawShotBar 在极端情况下会把右下角声明换到下一行，
 // 这里按「可能多一行」预留，避免声明被裁掉（多出的空白在底部很自然）。
 function shotBarHeight(ctx, W, title, satLines, dpr, view) {
   var pad = 10 * dpr, size = 11.5 * dpr, lineH = Math.round(size * 1.62);
-  return pad + lineH * satLines.length + 6 * dpr + lineH + lineH * 0.9 + pad;
+  var base = pad + lineH * satLines.length + 6 * dpr + lineH + lineH * 0.9 + pad;
+  // ★★ V1.9.9（R18）：04/06 两章要多预留「在轨状态判读声明」的高度。
+  //   ⚠️ 必须**真的量一遍**（而不是拍一个固定行数）：声明的折行数随图片宽度、
+  //   语言（中/英长度差很大）、字号而变，拍固定值一定在某一种情况下不够 → 最后一行被裁。
+  if (statNoteChapter(view)) {
+    // ★ V1.9.9（R18）：这两章的**免责声明也独占一行**（接在判读声明后面），
+    //   所以还要多预留「2dpr 间距 + 一行 0.86 号字」——旧版它是和 CISTrack 同行右对齐的，
+    //   那一份高度已经含在 `lineH * 0.9` 里，不能重复计。
+    base += 2 * dpr + statNoteHeightOf(ctx, W, dpr, size * 0.86)
+          + 2 * dpr + Math.round(size * 0.86 * 1.62);
+  }
+  return base;
 }
 
 // V1.7.0 第三轮末修正③：导出的 PNG 不再直接搬屏幕像素（那等于"屏幕分辨率"），
@@ -12286,8 +12477,13 @@ function climbSatIdx(norad) {
   } catch (e) {}
   return -1;
 }
-/** V1.9.2（用户要求）：变轨图**线旁的标注用卫星名称**（中英随语言），不再用 NORAD 编号。
- *  名称取自表格同一套本地化函数 `cnName()`，所以中英界面各自正确、且与表格里看到的一致。 */
+/** V1.9.2（用户要求）：变轨图**线旁的标注用卫星简名**（中英随语言），不再用 NORAD 编号。
+ *  ★★ V2.0.0.630 更正注释（实现不动）★★
+ *  这里**故意**用简名 `nameOf()` —— 用户第 10381 条明确「简化名称**用且仅用于**宽度不足的
+ *  变轨情况章节的右侧标签」。原注释称"取自表格同一套本地化函数 `cnName()`"是**错的**：
+ *   · 实现从来没调用过 `cnName()`（那是死代码）；
+ *   · 表格用的是全名 `fullNameOf()`，与这里**本来就不同**，注释说"与表格里看到的一致"也不成立。
+ *  改注释而不是改实现，是因为**行为本来就符合裁决**，错的是注释给人的印象。 */
 function climbSatName(norad) {
   var i = climbSatIdx(norad);
   if (i >= 0) {

@@ -23,6 +23,10 @@
  *      GP_FORMAT=tle node refresh.mjs      回退到旧格式抓取（对照/应急）
  */
 import { checkFormat } from './scripts/format_guard.mjs';   // ★ V1.9.5（H42）：格式变更探测（纯函数，smoke 也 import 它）
+// ★★ V2.0.0.630（方案 A）：satcat 的**选源**与**子集导出**集中在这一个模块 ★★
+//   为什么抽出去：全量/子集的取舍规则必须**只有一处**（mkdata 也要用同一套），
+//   若各写一份，迟早出现"这边用全量、那边用子集"的口径分裂。
+import { pickSatcat, buildSlim, writeSlim, SLIM_FILE } from './scripts/satcat_src.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -579,8 +583,21 @@ if (forceCat || age > 1) {
 
 // 从目录里按名称反查两个星座的所有对象，按 COSPAR 前缀归批
 const catByPrefix = { gw: {}, qf: {} };
-if (fs.existsSync(catPath)) {
-  const rows = fs.readFileSync(catPath, 'utf8').split('\n');
+// ★★ V2.0.0.630（方案 A）：**读哪一份由 pickSatcat 决定**，不再死认 satcat.csv ★★
+//   当出网受限、全量停在几天前而子集较新时，这里会自动选较新的那份（取新不取全）。
+//   ⚠️ 但"发现新批次"这件事**只有全量能做**（子集是按已知批次前缀筛出来的，
+//     里面不可能出现新批次）—— 所以用子集时下面会明确警告"本轮无法发现新批次"。
+const CAT_SRC = pickSatcat(D);
+if (CAT_SRC.kind !== 'none') {
+  console.log('satcat 采用：' + CAT_SRC.kind + ' · ' + CAT_SRC.note +
+    ' · ' + CAT_SRC.rows + ' 行');
+  if (CAT_SRC.kind === 'slim') {
+    console.log('  ⚠️ 用的是**精简子集** —— 它能提供台账/再入/补池，但**无法发现新发射批次**' +
+      '（子集按既有批次前缀筛出）。要纳入新批次，必须在能连 CelesTrak 的环境跑一次 refresh。');
+  }
+}
+if (CAT_SRC.text) {
+  const rows = CAT_SRC.text.split('\n');
   const head = rows[0].split(',');
   const ix = n => head.indexOf(n);
   const iId = ix('OBJECT_ID'), iNo = ix('NORAD_CAT_ID'), iTy = ix('OBJECT_TYPE'), iNm = ix('OBJECT_NAME');
@@ -618,6 +635,46 @@ if (fs.existsSync(catPath)) {
   // 白名单通道的战绩（名字不含关键字的那一类）—— 打出来才看得见它到底生效没有
   console.log('  ├ 其中"按批次点名纳入"（名字不含星座关键字）：gw', incHit.gw, '个 / qf', incHit.qf, '个');
   if (!incHit.gw && !incHit.qf) console.log('  ⚠️ 白名单一个都没命中 —— 请检查 INCLUDE 的批次前缀是否与 satcat 的 COSPAR 一致');
+
+  // ================================================================ 方案 A：导出精简子集
+  // ★★ V2.0.0.630 ★★ 把"CI 能拉到 satcat"变现成"本地也能用"。
+  //   动机与实测数据见 scripts/satcat_src.mjs 文件头（6.4 MB / 70953 行 → 109 KB / 1274 行）。
+  //   ⚠️⚠️ 导出闸门（三条，缺一不可）：
+  //     ① **必须来自全量** —— 从子集再导子集只会越导越窄，且会误给旧数据盖上"新"时间戳；
+  //     ② **全量必须确实新鲜（≤2 天）** —— 否则会把"拉了 6 天都没拉到的旧全量"
+  //        盖章成"今天导出的子集"，那是比不导出更坏的结果（静默假新鲜）；
+  //     ③ 表头必须对得上（buildSlim 内部校验，异常直接抛，不写出坏文件）。
+  //   为什么闸门②用 2 天而不是 1 天：下载跳过阈值是 `age > 1`，
+  //     正常情况下全量最多 1 天出头；给到 2 天是留一次调度延迟的余量。
+  if (CAT_SRC.kind === 'full' && Number.isFinite(CAT_SRC.ageDays) && CAT_SRC.ageDays <= 2) {
+    try {
+      // 判据**复用**上面同一轮的三道通路（名字正则 / 批次白名单 / 词条点名），
+      //   ⚠️ 绝不在这里重写一份名单 —— 本项目因"守卫用第二份手写清单"已经踩过 4 次。
+      const isOurs = (nm, pre, norad) => ['gw', 'qf'].some(k =>
+        MATCH[k].test(nm) || includedByBatch(k, pre, norad) || includedByCard(k, norad));
+      // 先把上一次的 meta 读出来做"不许变窄"比对，再写新的
+      const slim = buildSlim(CAT_SRC.text, isOurs, CAT_SRC.meta);
+      const { meta } = writeSlim(D, slim);
+      console.log('  ├ 子集已导出 ' + SLIM_FILE + '：' + meta.rows + ' 行 / ' +
+        meta.batches + ' 批 / ' + (meta.bytes / 1024).toFixed(1) + ' KB（全量 ' +
+        (Buffer.byteLength(CAT_SRC.text) / 1048576).toFixed(1) + ' MB）');
+      if (slim.shrink) {
+        // 批次数变少＝有批次整批掉出子集 —— 这正是本方案要防的那类静默缺陷，必须响亮
+        console.error('  ✗✗ 子集**变窄了**（' + slim.shrink.kind + '：' +
+          slim.shrink.before + ' → ' + slim.shrink.after + '）——' +
+          '可能是上游改编号/判据失效，请人工核对；子集已写出但**这轮不要发布**。');
+        process.exitCode = process.exitCode || 9;
+      }
+    } catch (e) {
+      console.error('  ✗ 子集导出失败：' + (e && e.message ? e.message : e) +
+        ' —— 全量本身仍可用，但本地将无法靠子集兜底');
+    }
+  } else {
+    console.log('  ├ 子集**未导出**：' +
+      (CAT_SRC.kind !== 'full'
+        ? '本轮读的是子集/无数据（从子集再导会越导越窄，且会伪造"新鲜"时间戳）'
+        : '全量已 ' + CAT_SRC.ageDays.toFixed(1) + ' 天（>2 天），导出会把旧数据盖章成新数据'));
+  }
 }
 
 // ---- 逐星座合并四个来源 ----

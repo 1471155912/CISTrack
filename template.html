@@ -654,6 +654,12 @@ section.fs-mobile .sec-tools .tools-row { justify-content:flex-start; }
 section.fs-mobile .sec-lead,
 section.fs-mobile .note,
 section.fs-mobile .legend-groups { display:none; }
+/* ★ V1.9.9（R18）：`.stat-note`（图下判读声明）在全屏态**不显示** ——
+   依据：**用户 2026-10-21 明确指示「全屏模式下本来就不需要显示这段声明」**。
+   理由（与布局一致）：全屏是"只留画布"的定高布局（画布高 = 视口 − 顶栏 − 控件条），
+   插入这段声明会把画布挤矮 → 等于改变既有画面表现形式。
+   声明在**非全屏阅读态**给出；全屏态改由**导出图内嵌声明**承担（见 app.js drawStatNote）。
+   ⚠️ 这是**用户裁决**，不是漏改 —— 不要再"顺手"补上例外。 */
 section.fs-mobile .view-ctl button[data-fs] { display:none; }
 /* V1.7.0：前三章「非全屏」隐藏右下按钮列最后一个打印键（全屏模式保留）。
    删除后整列自动下移，新的最后一个按钮占据原打印键位置（flex column，无需额外处理）。 */
@@ -2083,15 +2089,28 @@ html[data-theme="light"] .res-fail { color:#c72929; }
 #satTable td.cospar-cell .no-data { font-weight:400; }
 /* V1.9.1（1.4-D）：「在轨状态」列 —— 在轨绿 / 已再入红。
    颜色走 CSS 变量以便深浅主题各自取值（浅色主题下要压暗一档才够对比度）。 */
-:root { --st-orbit:#3ddc84; --st-gone:#ff5c5c; --st-raising:#f59f00; }
-:root[data-theme="light"] { --st-orbit:#0f9d58; --st-gone:#d93025; --st-raising:#b26a00; }
+:root { --st-orbit:#3ddc84; --st-gone:#ff5c5c; --st-raising:#f59f00; --st-standby:#c084fc; }
+:root[data-theme="light"] { --st-orbit:#0f9d58; --st-gone:#d93025; --st-raising:#b26a00; --st-standby:#7c3aed; }
 #satTable td.stcell { text-align:center; white-space:nowrap; font-weight:600; font-size:12px; }
 #satTable td.st-orbit { color:var(--st-orbit); }
 #satTable td.st-gone { color:var(--st-gone); }
-/* V1.9.2（A7）：「正在变轨」黄 —— 三态中的第二态（在轨绿 / 变轨中黄 / 已再入红） */
+/* V1.9.2（A7)：「正在变轨」黄 —— 三态中的第二态（在轨绿 / 变轨中黄 / 已再入红） */
 #satTable td.st-raising { color:var(--st-raising); }
+/* ★ V1.9.9（Q26）：第四态「在轨·可能异常」—— 长期静止在**非工作轨道**且同批已有成员到位。
+   刻意**不用**黄色（黄已表示"变轨中"，语义是"在动"），改用紫 —— 它确实是"在轨"，只是存疑。 */
+#satTable td.st-standby { color:var(--st-standby); }
 /* 变轨速度片段**单独着色**（清单 A7 明文要求"该片段单独着色，不随整格染黄"）：
-   正绿 / 负黄 / 0 灰 —— 与 A1「轨道高度变更」行同一套颜色规则 */
+   正绿 / 负黄 / 0 灰 —— 与 A1「轨道高度变更」行同一套颜色规则。
+   ★★ V2.0.0.630（R-2 **评估后放弃**，保留重复）★★
+   本就打算把下面这两组（表格 td / 信息窗 .si-row，各 4 行）合并成一条 `:is()`，
+   但**实测证明那会改变画面**，故不做：
+     · 原·信息窗 `.sat-info .si-row .st-rate.pos` 特异性 = (0,4,0)
+     · 行容器色 `.sat-info .si-row.st-orbit > span:last-child` = (0,4,1)  ← 更具体，压住速率色
+     · 合并后 `:is(#satTable td.stcell, .sat-info .si-row) .st-rate.pos` = (1,6,0)
+       → 反过来**压住**行容器色 ⇒ 信息窗里"速率片段"的染色会突然盖掉整行状态色（画面变化）
+   结论：这两组**必须保持各自的特异性**，用 `:is()` 合并无法同时满足；
+   宁可留 8 行重复，也不改画面（用户硬性要求「不要改变现有的画面表现形式」）。
+   若将来真要合并：需同时把行容器色改成同特异性写法，并**逐屏截图比对**后再动。 */
 #satTable td.stcell .st-rate { font-weight:700; }
 #satTable td.stcell .st-rate.pos { color:var(--st-orbit); }
 #satTable td.stcell .st-rate.neg { color:var(--st-raising); }
@@ -2099,6 +2118,7 @@ html[data-theme="light"] .res-fail { color:#c72929; }
 /* ★ V1.9.7（§7）：03 章信息窗里的「变轨情况」行与表格**同一套染色**（同一个 orbitStatusHtml 输出）。
    表格那三色只挂在 td 上，这里补一份 .si-row 版本 —— 值在 span:last-child 上，所以覆盖规则要更具体。 */
 .sat-info .si-row.st-orbit > span:last-child { color:var(--st-orbit); }
+.sat-info .si-row.st-standby > span:last-child { color:var(--st-standby); }
 .sat-info .si-row.st-raising > span:last-child { color:var(--st-raising); }
 .sat-info .si-row.st-gone > span:last-child { color:var(--st-gone); }
 .sat-info .si-row .st-rate { font-weight:700; }
@@ -2151,7 +2171,7 @@ html[data-theme="light"] .res-fail { color:#c72929; }
    画布高度按「视口 − 顶栏 − climb-bar 实测高」算，而不是写死 100vh（会多出一截空白）。 */
 #sec-climb.fs-mobile { padding:0; overflow:hidden; }
 #sec-climb.fs-mobile .sec-head { display:none; }
-#sec-climb.fs-mobile .sec-lead { display:none; }
+#sec-climb.fs-mobile .sec-lead { display:none; }  /* ★ V1.9.9（R18）：图下声明全屏不显示＝用户明确要求，详见 :657 处注释 */
 #sec-climb.fs-mobile .climb-bar {
   position:fixed; left:0; right:0; top:0; z-index:46; margin:0;
   padding:6px 12px 6px calc(16px + var(--fs-ctl-h) + 12px);
@@ -2458,7 +2478,11 @@ html[data-theme="light"] .res-fail { color:#c72929; }
       <button data-shot="climb" class="shot" type="button" aria-label="导出图片" data-i18n-title="t_shot"><svg viewBox="0 0 24 24"><path d="M7 9V3h10v6"/><path d="M5 19h14a2 2 0 0 0 2-2v-4a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v4a2 2 0 0 0 2 2z"/><path d="M7 15h10v6H7z"/></svg></button>
     </div>
   </div>
-  <!-- ★ V1.9.7（§8 用户要求）：原来这里有一行图下说明（#climbNote），已整块删除 -->
+  <!-- ★ V1.9.9（R18，用户 2026-10-21）：图下「在轨状态判读声明」。
+       用户原话：「在变轨情况章节和卫星表格章节的图表下面写一段关于如何识别和区分卫星在轨情况的
+       简洁说明，并再次强调这是一个结合数据源的大概估计不一定代表卫星真实在轨情况」。
+       V1.9.7 曾把旧的 #climbNote 整块删掉，这次是**换内容重新加回**（不是恢复旧文案）。 -->
+  <p class="sec-lead below stat-note" data-i18n="d_st_note_climb">判读说明：「在轨·正常」= 停在预定工作轨道；「在轨·可能异常」= 长期停在非预定工作轨道、且同批其它星已到位；「变轨中」= 仍在抬升，2 天速率 > 0.5 km/天为「点火」、贴层慢爬为「间歇」；「已再入」= 已离轨。均由公开 TLE 反推，只是大概估计，不代表卫星真实在轨情况。</p>
 </section>
 
 <section id="sec-progress"><button class="fs-exit-btn" type="button" aria-label="退出全屏" data-i18n-title="t_exitfs">×</button>
@@ -2571,6 +2595,9 @@ html[data-theme="light"] .res-fail { color:#c72929; }
     </div>
   </div>
   <p class="tbl-foot" id="tableFoot"></p>
+  <!-- ★ V1.9.9（R18）：卫星表格章图（表）下「在轨状态判读声明」—— 与 04 章同一份文案（同一个 i18n 键），
+       用户要求两章都要写、且导出图片里也要写在表格下方。 -->
+  <p class="sec-lead below stat-note" data-i18n="d_st_note_climb">判读说明：「在轨·正常」= 停在预定工作轨道；「在轨·可能异常」= 长期停在非预定工作轨道、且同批其它星已到位；「变轨中」= 仍在抬升，2 天速率 > 0.5 km/天为「点火」、贴层慢爬为「间歇」；「已再入」= 已离轨。均由公开 TLE 反推，只是大概估计，不代表卫星真实在轨情况。</p>
 </section>
 
 <section id="sec-launches">

@@ -10,6 +10,155 @@ The version is written in the footer (`CISTrack · Vx.y.z`), and the bottom bar 
 
 ---
 
+## [V2.0.0.630] — 2026-10-22
+
+> The first **2.x** release. The major bump is not about new features — it is because the
+> **interpretation itself changed**: "in-orbit status" went from a coarse two-or-three buckets
+> (in orbit / raising / re-entered) to **four states** (in orbit · normal / in orbit · possibly
+> anomalous / raising · burning|coasting / re-entered), and **the old and new results are not
+> equivalent**. Per semantic versioning that warrants a major bump rather than another 1.9.x patch.
+
+### 1. In-orbit status: from three states to four (the main theme)
+
+- **"In orbit" was split apart**: the old scheme lumped satellites *holding their intended working
+  orbit* together with those *parked long-term in the wrong place*, so an anomalous satellite looked
+  normal. Now:
+  | Tag | Meaning |
+  |---|---|
+  | In orbit · normal | Holding (or essentially holding) the intended working orbit |
+  | In orbit · possibly anomalous | Parked long-term on a **non-intended** orbit while others from the same launch have arrived |
+  | Raising · burning / coasting | Still climbing (measurable thrust / creeping near the layer) |
+  | Re-entered | Left orbit, with a decay date |
+- **The working "layers" are computed, not configured**: only stable satellites seed them
+  (2-day rate ≤0.5 km/day, 30-day net rise <10 km), then clustering within an inclination band (0.5°)
+  by altitude (break when the gap exceeds 30 km, at least 8 members, altitude σ ≤8 km); the layer
+  altitude is the **modal 10-km bucket**. Measured: CSCN 4 layers (1150/50°×117, 1170/86.5°×61,
+  1100/50°×11, 510/55°×9), Qianfan 1 layer (1070/89°×197).
+- **"Possibly anomalous" requires all three conditions at once** (the strictest rule set):
+  (1) drift ≤5 km across 60 days; (2) more than 100 km from every working layer of its constellation;
+  (3) other satellites from the same launch have already arrived. **Fail any one and it is filed as
+  "normal"** — the label implies a fault, so a false positive wrongly accuses a healthy satellite
+  while a false negative only withholds a hint.
+- Both the page and the exported images gained an **explanatory note below the chart**
+  (Orbits Change / Satellite Table), restating that this is **a rough estimate inferred from public
+  TLEs and does not represent the satellites' actual status**.
+- The README gains a full section in both languages covering the mechanism, rule order, thresholds
+  and **known limitations**.
+
+### 2. Four real defects fixed this round (each made the page quietly show something wrong)
+
+1. **`lsqRateDay` returned `null` when the denominator degenerated**: when the last few altitudes are
+   exactly constant, the sum of squared deviations of the time axis is 0, and the old code treated
+   that as "cannot compute" and dropped the rate. The correct meaning is **constant altitude ⇒ rate
+   is 0** (a definite conclusion). Victim: `26153L` (last five semi-major axes all exactly 12250,
+   i.e. constant 847 km for 46 days) — all 17 siblings had a rate, only it did not. After the fix all
+   75 raising satellites carry a rate.
+2. **Re-entered satellites were given fabricated orbital data**: the old code excluded them from the
+   rule inputs, so they fell into the "insufficient data" fallback and received fake
+   `raising + 510 km` values — and 510 km happens to be one CSCN layer altitude, so a relaxed rule
+   would have mixed them into that layer's membership. Victim: `25067A`. Re-entered objects are now
+   handled before the fallback: `orb=-1` plus a decay date, excluded from the two-way statistics.
+3. **`la` / `abn` were missing from the field whitelists** (third time for this same trap): losing
+   `la` made layer assignment fall back to comparing actual altitude for **exact equality**, silently
+   shrinking layer membership; losing `abn` meant the info panel could never show the off-layer distance.
+4. **`en` (wiki English name) was missing from `build()`'s whitelist** (fourth time, caught this round):
+   in English mode a satellite with a wiki entry displayed `WHJSW-01` where the authoritative name is
+   `Hulianwang Jishu Shiyan 1`. All 30 `en` values were in the data and the unpack table carried the
+   field too — only the satellite-object assembly failed to copy it, meaning the decision "use the
+   wiki as the source of English names" **had never actually taken effect**.
+
+### 3. Data pipeline: one silent data loss and one CI blocker
+
+- **`launchCounts` losing a whole batch (silently)**: `mkdata.mjs`'s comment promised "fall back to
+  the TLE count when satcat has no row", but **that fallback was never implemented** — whenever
+  `satcat.csv` is stale and missing a batch, that batch's "satellites launched" figure vanishes
+  entirely while the artefact still looks fine (all satellites present, just one ledger row missing).
+  Victim: `26230` (LEO Group 27 — 9 satellites fully present in the TLE, ledger row entirely absent).
+  The fallback is implemented now and **must leave a trace** (`_fallbackTle: 1` plus a log line)
+  rather than silently guessing.
+- **CI outage (blocking the entire TLE update)**: five "release body archived" assertions in
+  `smoke.mjs` read `junk/release_body_*.md` directly, but `junk/` is `.gitignore`d and **never enters
+  the repo** — so a fresh CI checkout can never have that file → all five fail → smoke exits 1 →
+  the workflow stops at the smoke step → **the later "commit and push only if changed" step never
+  runs**, and that round's TLE was never pushed. Now it validates strictly only when the file exists
+  and otherwise prints an explicit `SKIP` with the reason. A `SKIP` counter is reported separately as
+  well: **"skipped" must stay visibly distinct from "passed"**, otherwise a summary reading
+  `PASS: 1012 / FAIL: 0` implies everything was verified when it was not — another silent failure.
+
+### 4. The guard itself was fixed: criteria must not be hand-written
+
+The three-field-whitelist guard used a **hard-coded list**
+`['st','orb','wk','la','od','rr','abn']` as its own criterion — so the list itself went stale: `en`
+was not in it, which is why the fourth occurrence of the trap **passed the guard**. It now derives the
+full business-field set **from `satdata.json`** (11 fields measured) and checks all three places, so
+the list is no longer hand-maintained and can no longer go green merely because it is out of date.
+
+### 5. Other
+
+- Added `npm run refresh:force` / `npm run all:force` (force re-download of `satcat.csv`, then the
+  full rebuild).
+- The explanatory note is **not shown in fullscreen** (per the user's explicit instruction: fullscreen
+  is a fixed-height "canvas only" layout, and inserting the note would squeeze the canvas).
+- Verification: all 1017 `smoke` assertions pass; all 66 adversarial tests pass; all three offline
+  e2e suites pass; plus a new 8-stage end-to-end audit script (new satellite → recognition →
+  extraction → ledger → tagging → packing → whitelists → rendering).
+- Measured four-state distribution: in orbit · normal 422 / possibly anomalous 17 / raising 75 /
+  re-entered 1; missing `launchCounts` batches: **0**.
+
+### 6. Fixing the satcat data path at the root: committing a slim subset (Plan A)
+
+**The problem**: the full `data/satcat.csv` is 6.4 MB / 70k rows and is excluded by `.gitignore` for its
+size, yet it backs four things (per-launch payload counts, re-entry markers, search pools, pending-batch
+summaries). That created a deadlock: **a network-restricted environment cannot fetch it, and the CI can
+fetch it but cannot get it back into the repo** — one end is a network problem, the other a size problem.
+
+**The fix**: the CI now exports a subset of just this project's batches to `data/satcat_slim.csv` and
+commits it.
+
+| | Full | Subset |
+|---|---|---|
+| Size | 6.4 MB | **~110 KB** |
+| Rows | 70953 | **1275** |
+| Committed | no | **yes** |
+| Header / column order | — | **identical to the full file** |
+
+- **No downstream changes**: because the format is identical, `pendingSummary` / `REENTRY` /
+  `goneCountsOf` / `searchPools` need no edits at all — only the "which file to read" choice changed,
+  centralised in the new `scripts/satcat_src.mjs`.
+- **Whole batches are kept**: the subset deliberately keeps rideshare payloads and R/Bs
+  (measured: PAY 495 / R-B 44 / DEB 707), because the "N = how many payloads that launch carried"
+  needs them; keeping only our own constellation's rows would under-count `M/N`.
+- **Freshness comes from meta, never mtime**: `git checkout` rewrites mtime to the checkout time, so
+  using mtime would treat a three-month-old subset as brand new ⇒ a new `satcat_slim.meta.json`
+  records `exported`.
+- **Three export gates**: must come from the full file + the full file must be genuinely fresh (≤2 days)
+  + the header must validate. When restricted networking leaves the full file days old, the export is
+  **refused** — stamping stale data with today's date would be worse than not exporting.
+- **Shrinking is a failure**: if the subset loses a batch compared with last time, the run exits with
+  code 9 (a batch silently dropping out is exactly the defect this mechanism exists to prevent).
+- **Measured equivalence**: building from the subset only and building from the full file only produce a
+  **byte-identical `satdata.json`** (apart from the `generated` timestamp).
+
+⚠️ **A limitation you must know**: the subset is filtered by existing batch prefixes, so it **can never
+discover a new launch batch**. New batches still require one `refresh.mjs` run in an environment that can
+reach CelesTrak — which the CI does daily.
+
+### 7. Other cleanups and corrections
+
+- **R16 short-name leakage (2 places)**: the export bar's satellite line and the first column of the
+  orbit-change export mistakenly used the canvas short name `nameOf()`, so the same satellite appeared as
+  "WHJSW-03" (the Chinese name 卫星互联网技术试验卫星03) in the table but `S03` in the exported image; and within one orbit-change
+  image column 1 read `CX26` while column 3 carried the full batch name. Both now use `fullNameOf()`,
+  matching the table character for character. (User's 10381st message: short names are **for the
+  orbit-change right-hand labels only**; 10805th: canvas dot labels stay abbreviated.)
+- **Removed the dead function `cnName()`**: zero call sites, and its comment claimed it was "the same
+  localisation helper the table uses" (the table actually uses `fullNameOf()`) — that false comment had
+  already sent one investigation down the wrong path.
+- **R-2 evaluated and declined**: merging the two duplicated `.st-rate` colour rule groups with `:is()`
+  looked tidy, but measurement showed specificity moving from `(0,4,0)` to `(1,6,0)`, which would let the
+  rate colour override the whole-row status colour ⇒ **the visuals would change**, so the duplication stays,
+  with the reason recorded inline.
+
 ## [V1.9.9.630] — 2026-10-21
 
 > A **root-cause release for the data-fetch pipeline**. No visual change. The goal is to make fetching
