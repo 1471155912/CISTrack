@@ -11465,15 +11465,15 @@ if (!window.satellite) {
     requestAnimationFrame(function () { if (m) m.style.display = 'none'; });
     // ★ V2.0.0.630 二次修补：给一个**看得见的回执** —— 以前跳过之后界面毫无变化，
     //   用户无法判断"是按钮没生效"还是"已经跳过了"。
-    setTimeout(function () { try { showToast(t('d_skipped'), 'ok'); } catch (x) {} }, 700);
+    setTimeout(function () { try { showToast(t('d_skipped')); } catch (x) {} }, 700);
     // ★ V2.0.0.630 二次修补：给一个**看得见的回执** —— 以前跳过之后界面毫无变化，
     //   用户无法判断"是按钮没生效"还是"已经跳过了"。
-    setTimeout(function () { try { showToast(t('d_skipped'), 'ok'); } catch (x) {} }, 700);
+    setTimeout(function () { try { showToast(t('d_skipped')); } catch (x) {} }, 700);
     try { window.scrollTo(0, 0); } catch (x) {}
     // ★ V2.0.0.630 二次修补：给一个**看得见的回执** —— 以前跳过之后界面毫无变化，
     //   用户无法判断"是按钮没生效"还是"已经跳过了"。进页面后补一条轻提示。
     setTimeout(function () {
-      try { showToast(t('d_skipped'), 'ok'); } catch (x) {}
+      try { showToast(t('d_skipped')); } catch (x) {}
     }, 650);
   }
   b.addEventListener('click', doSkip);
