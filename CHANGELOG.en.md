@@ -198,6 +198,33 @@ unilaterally.
 
 Verification: smoke 1030/0, visual 132/0 (incl. the 52-case matrix), adversarial 66/0, other gates green.
 
+### 9. Inflection markers switch to "1 or 2 lines" + network-progress wording
+
+**The orbit-change chart's vertical dashed lines are now drawn per inflection point** instead of a fixed
+pair. For each point (start of raising, end of raising) the batch's earliest and latest times are taken:
+a span of **≤5 days** yields 1 line (at the median), **>5 days** yields 2 lines, with no cap on the count.
+Measured across 51 batches, **34 starts and 28 ends** span more than 5 days (up to 253), so this is the
+normal case, not an edge case.
+
+A screenshot caught a problem immediately: batch 23212 (start spanning 67 days, end spanning 112) packs
+four lines into a few dozen pixels, and the four dates collapsed into an unreadable black smudge
+("24/01/24/04/01/06"). Date labels now use **greedy placement: if it does not fit, the line is still drawn
+but the date is skipped** — the line is the marker; losing a date is better than overlapping text.
+
+**Network-progress wording and layout**: "发射量（累计）" → "发射量", "在轨数量" → "在轨量",
+"新增卫星" → "星座变化" (the block expresses both additions and re-entries, so calling it "new satellites"
+was misleading); each addition is prefixed with "＋" to match the user's `+低轨26组×8 +EUHT试验星`.
+Also fixed a bug the user called out: the `.net-add` row used `flex-start`, so its content hugged the label
+instead of right-aligning with the three rows above it. The body now fills the remaining width and
+right-aligns, with the label vertically centred (measured: right-edge gap 0px, label-centre offset 0px).
+
+**The "include test satellites" toggle is on hold**: items Q24/Q25 in the plan are both marked
+"must be decided" and they conflict — whether 2026-211 contributes +8 (the constellation table says
+"8 satellites") or +0 (the user's words: "after removing, there is no Polar Group 26"), and whether test
+classification is per-satellite by COSPAR suffix or per-launch. Either choice changes whether 1 or 9
+satellites are deducted. This project already had to redo "试验星12" because a sequence was invented by
+guesswork, so the decision is left to the user rather than assumed.
+
 ## [V1.9.9.630] — 2026-10-21
 
 > A **root-cause release for the data-fetch pipeline**. No visual change. The goal is to make fetching
