@@ -1546,8 +1546,13 @@ const ORBIT_ST = (() => {
         //   本项目的实测也印证：星网 1150km 那批明明已到位，`rr = 0`，却因 `|d| > EPS_LEO` 被判 orb=1。
         //   现在：速率用与展示完全相同的 2 天 LSQ（同一函数），阈值 ≈ 5σ（findrassvet 取 0.8 km/day）。
         const rate = lsqRateDay(pts, 2);
+        // ★★ V2.0.1（用户裁决 A/D）：**再加一个 30 天窗口的速率** ★★
+        //   2 天窗能抓住"正在点火"，但对**台阶式爬升的平台期**会读成 0（末两点等高）；
+        //   30 天窗能反映"这一段的整体趋势"，是"它到底还在不在往上走"的正确尺度。
+        //   两者分工：2 天 = 眼下有没有推；30 天 = 这段时间有没有在走。
+        const rate30 = lsqRateDay(pts, 30);
         rows.set(n, {
-          key: key, norad: n, pts: pts, sma: sma, geo: geo, drift: d, hmax: hmax - RE, rate: rate,
+          key: key, norad: n, pts: pts, sma: sma, geo: geo, drift: d, hmax: hmax - RE, rate: rate, rate30: rate30,
           thin: thin,                      // ★ V1.9.7：层/判据要用（点数不足的星不参与建层）
           moving: thin ? (now - pts[0][0] <= WIN * DAY)
                        // ★ 2026-10-20：GEO 用自己的阈值（RATE_TH_GEO=3.0），
@@ -1671,7 +1676,7 @@ const ORBIT_ST = (() => {
   const PARK_SPAN = 60;      // 天：覆盖完整爬升周期（最短的真实案例 92 天）
   const PARK_DRIFT = 5;      // km：90 天净漂移阈值（实测两组相差一个数量级）
   const out = new Map();
-  let nHot = 0, nIdle = 0, nCreep = 0, nOn = 0, nParked = 0, nAbn = 0;
+  let nHot = 0, nIdle = 0, nCreep = 0, nOn = 0, nParked = 0, nAbn = 0, nOnLayer = 0, nThin = 0;
   for (const [n, x] of rows) {
     // 长期静止的两个统计量（与 `moving` 的 2 天 LSQ **不同**：这里看的是 90 天净漂移，
     //   专门用来回答"它是不是早就不动了"，而不是"它眼下有没有在点火"）
@@ -1684,7 +1689,27 @@ const ORBIT_ST = (() => {
         x.drift90 = median(sel90.slice(-kk).map(p => p[1])) - median(sel90.slice(0, kk).map(p => p[1]));
       } else x.drift90 = null;
     }
-    x.parked = x.span >= PARK_SPAN && x.drift90 !== null && Math.abs(x.drift90) < PARK_DRIFT;
+    // ★★ V2.0.1（用户裁决 D）：**"长期驻留"要有第二条判据** ★★
+    //   用户原话：「很多卫星特别是试验星本身就不在一般的组网星常常部署的轨道（比如千帆DTC01），
+    //   不能一味归类为等待变轨点火」。
+    //   实例：26128A（千帆 DTC-01，410km）123 天净变化仅 +10 km、30 天速率 0.11，
+    //   但 90 天漂移 7.1 km > 5 km 阈值 ⇒ 旧判据不认它"停住了" ⇒ 落在 `off` ⇒ 谎报"变轨中"。
+    //   为什么 7.1 而不是 0：低轨（410km）大气阻力导致的高度波动天然比 1100km 大一个量级，
+    //   同一个 5 km 阈值套在两种轨道上，物理基准并不统一。
+    //   ⇒ 补一条与高度无关的判据：**近 30 天几乎没动（|30天速率| < RATE_TH）**也算长期驻留。
+    //     它与 90 天漂移是互补的：一个看"这段时间的走向"，一个看"两端的总落差"。
+    // ★ V2.0.1（A/D）：**长期驻留的第二条判据**（见上方 D 段说明）
+    //   ⚠️ 这里**刻意没有**加"低于最近层就算在等爬升"的判据 —— 试过，代价太大：
+    //   实测把 22 颗"低于最近层、但本来就在自己的轨道上稳定运行"的老星（57288/49059/60385…）
+    //   全部翻成"变轨中"，可能异常档从 17 掉到 0。原因是 `x.layer` 是**最近的层**，
+    //   不是"它该去的目标"；层被 LAYER_MIN/SD 过滤掉时，一颗在 1100 长期稳定的星
+    //   会被归到 1150，然后被误判成"该爬却没爬"。
+    //   ⇒ 停在低处且同批也没有任何星到位的个例（如 26153L 在 850 停 46 天），
+    //     按 Q26 的「不确定一律正常」保守归入在轨 —— 与用户"不能一味归类为等待变轨点火"一致，
+    //     反过来说也不能一味归为"在轨"：真在爬的（26153 那 17 颗）由 moving/off 正常判出。
+    x.parked = x.span >= PARK_SPAN &&
+      ((x.drift90 !== null && Math.abs(x.drift90) < PARK_DRIFT) ||
+       (x.rate30 !== null && Math.abs(x.rate30) < RATE_TH));
 
     let orb, why;
     if (x.geo) {
@@ -1696,7 +1721,20 @@ const ORBIT_ST = (() => {
       const inLayer = !!(x.layer && x.dist !== null && x.dist <= NEAR);
       const rising = (x.rise7 !== null && x.rise7 >= CREEP_TH);
       orb = (inLayer && !rising) ? 0 : ((Date.now() - x.pts[0][0] <= WIN * DAY) ? 1 : 0);
-      why = 'thin';
+      why = 'thin'; nThin++;
+    } else if (x.layer && x.dist !== null && x.dist <= NEAR &&
+               (x.rise7 === null || x.rise7 < CREEP_TH)) {
+      // ★★ V2.0.1（用户裁决 A）：**「已在工作层上」优先于「2 天速率」** ★★
+      //   用户原话：「要合理区分**真在比较长的临时轨道等待变轨点火**的和**确实是位于新的工作轨道的**」。
+      //   实例（实测抓到的两处误判）：
+      //     · 26091D 在 510km 层上、近 7 天没爬，只因地 2 天速率 0.73 略超 0.5 → 旧判据报"变轨中·点火"；
+      //       而同批 A/B/C 三颗都在"在轨" —— 同一批同高度，唯独它被一个噪声读数踢出在轨。
+      //     · 26155A/D/G/L 已经停在 1070km 目标层（2 天速率 ≈0、7 天净升 ≈0），
+      //       但 90 天漂移 188~219km（那段是**爬升过程**），若用长窗口速率反而会把它们误判成"还在变轨"。
+      //   ⇒ 判据顺序改成「先看位置，再看速度」：
+      //     已经在工作层上（dist ≤ NEAR）**且**近 7 天没爬（rise7 < CREEP_TH）⇒ 它就是到位了。
+      //     真在爬的星 rise7 ≥ 3km/7天 会挡住这一条，继续走下面的 moving/off 分支，不会被误留。
+      orb = 0; why = 'onLayer'; nOnLayer++; nOn++;
     } else if (x.moving) {
       // 真点火优先于"长期静止" —— 刚停下的星 2 天速率可能还没落下来，宁可继续报"变轨中"
       orb = 1; why = 'hot'; nHot++;
@@ -1753,7 +1791,7 @@ const ORBIT_ST = (() => {
       // ★ V2.0.1（O-1）：历史跨度也要留 —— 自检只对**跨度足够做判断**的星报错。
       //   跨度不足 60 天的星，判据会保守地把它们留在「变轨中」（无法证明"停住了"），
       //   那是**设计**，不是矛盾；把它算进自检等于让守卫误伤自己。
-      span: x.span };
+      span: x.span, rate30: x.rate30 };
     if (orb) {
       if (x.rate !== null && x.rate !== undefined && isFinite(x.rate)) {
         rec.rr = Math.round(x.rate * 100) / 100;
@@ -1761,6 +1799,11 @@ const ORBIT_ST = (() => {
     }
     out.set(n, rec);
   }
+  // ★★ V2.0.1：**判据分支命中分布** —— 每个分支都必须 >0，否则说明存在不可达代码。
+  //   放在这里（判据循环刚结束）而不是统计打印处：那些计数器是**本循环的局部变量**，
+  //   拿到 IIFE 外层会直接 ReferenceError（第一次就插错位置，实测报 nOnLayer is not defined）。
+  console.log('  判据分支：层优先 ' + nOnLayer + '｜hot ' + nHot + '｜parked ' + nParked +
+    '｜off ' + nIdle + '｜creep ' + nCreep + '｜on ' + (nOn - nOnLayer) + '｜thin ' + nThin);
   // ★★ V1.9.9（Q26 第二遍）：**「在轨·可能异常」判定**（用户裁决："能明确识别才标异常，不确定一律正常"）
   //   判据（三个条件同时成立才算"确认维持在非工作轨道"）：
   //     ① 长期静止（`x.parked`：跨度 ≥60 天 且 90 天漂移 <5km）—— 它确实**停住了**，不是在爬
@@ -1921,7 +1964,12 @@ function selfCheckOf(map, isGw) {
     //   （与 `parked` 的 PARK_SPAN=60 同口径 —— 判据自己都要 60 天才敢说"停住了"，
     //     自检没理由用更短的标准去指责它。）
     if (!(x.span >= 60)) { shortSpan++; continue; }
-    if (typeof x.rr === 'number' && Math.abs(x.rr) < 0.15) { rateZero++; if (rateZeroIds.length < 6) rateZeroIds.push(norad); }
+    // ★★ V2.0.1（用户裁决 A 的配套）：自检判据从 **2 天速率**改用 **30 天速率** ★★
+    //   病根：2 天窗对**台阶式爬升的平台期**会读成 0（末两点等高），于是把"真在爬"报成"速率≈0"。
+    //   实测：26153A/F/H/M + 26155C 五颗，2 天速率 0 但 30 天速率 1.45~1.80（100 天净爬 +109~+119km）
+    //   —— 它们判"变轨中"是对的，是**自检的尺子太短**。
+    //   换 30 天窗后，这五颗不再误报；真正的"停住却仍标变轨中"才会被抓住。
+    if (typeof x.rate30 === 'number' && Math.abs(x.rate30) < 0.15) { rateZero++; if (rateZeroIds.length < 6) rateZeroIds.push(norad); }
     if (typeof x.alt === 'number' && typeof x.wk === 'number' && Math.abs(x.alt - x.wk) > 60) {
       far++; if (farIds.length < 6) farIds.push(norad);
     }

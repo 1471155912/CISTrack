@@ -227,13 +227,19 @@ var I18N = {
   //     · 已再入 —— 已离开轨道
   //   末尾统一强调"这是基于公开 TLE 的大概估计"。
   d_st_note_climb: [
-    '判读说明：「在轨·正常」= 停在预定工作轨道；「在轨·可能异常」= 长期停在非预定工作轨道、'
-      + '且同批其它星已到位；「变轨中」= 仍在抬升，2 天速率 > 0.5 km/天为「点火」、贴层慢爬为「间歇」；'
-      + '「已再入」= 已离轨。均由公开 TLE 反推，只是大概估计，不代表卫星真实在轨情况。',
-    'Note: “In orbit · normal” = holding its intended working orbit; “possibly anomalous” = long parked '
-      + 'off its intended orbit while other satellites from the same launch have arrived; “raising” = still '
-      + 'climbing (“burning” above 0.5 km/day, “coasting” when creeping below the target layer); '
-      + '“re-entered” = left orbit. All inferred from open TLE data — a rough estimate, '
+    '判读说明：「在轨·正常」= 停在预定工作轨道（含正常位置保持）；「在轨·可能异常」= 长期停在非预定工作轨道、'
+      + '且同批其它星已到位；「变轨中」= 仍在抬升——2 天速率 > 0.5 km/天为「点火」，贴层慢爬或暂时停推为「间歇」；'
+      + '「已再入」= 已离轨。判据先看位置、再看速度：已经在工作层上且近期不再爬升的即算到位；'
+      + '停在临时轨道等点火的仍算「变轨中」；试验星本来就不在组网轨道上，长期稳定即按其自身轨道计入在轨。'
+      + '均由公开 TLE 反推，只是大概估计，不代表卫星真实在轨情况。',
+    'Note: “In orbit · normal” = holding its intended working orbit (including normal station-keeping); '
+      + '“possibly anomalous” = long parked off its intended orbit while other satellites from the same '
+      + 'launch have already arrived; “raising” = still climbing — “burning” above 0.5 km/day, “coasting” '
+      + 'when creeping along a layer or pausing between burns; “re-entered” = left orbit. '
+      + 'The rule checks position first, velocity second: a satellite already on a working layer that '
+      + 'has stopped climbing counts as arrived; one holding on a temporary orbit between burns still counts '
+      + 'as raising; a test satellite that never targets the constellation shell is counted as in orbit once '
+      + 'it is stable on its own orbit. All inferred from open TLE data — a rough estimate, '
       + 'not the satellite’s actual status.'
   ],
   b_pick: ['选择地面观测点', 'Pick ground site'], b_names: ['名称', 'Names'],

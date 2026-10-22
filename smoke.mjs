@@ -6297,7 +6297,13 @@ assert('V1.9.9.630：加载页「跳过 / Skip」药丸有**实色**黄边框（
     (function () {
       const M = {};
       const i0 = appCode.indexOf('var I18N = {');
-      const blk = appCode.slice(i0, appCode.indexOf('\n};', i0));
+      // ★★ V2.0.0.630：**先把多行字符串拼接合并**（`'…' + '…'` → `'……'`）★★
+      //   病根：下面的正则要求 `key: ['中文', '英文']` 出现在**同一行**，而长文案是按
+      //   `'第一段' + '第二段'` 跨行拼接的 —— 这类键**直接被正则漏掉**，
+      //   于是 `d_st_note_climb`（四态判读说明）的静态回退与 i18n 表各改各的，守卫却一直绿。
+      //   实测：模板用了 95 个 data-i18n 键，旧解析只覆盖 94 个（唯一漏的就是这一条）；
+      //   合并后 95/95。**守卫的解析能力也是一种"判据"，它过期就会静默放过。**
+      const blk = appCode.slice(i0, appCode.indexOf('\n};', i0)).replace(/'\s*\+\s*'/g, '');
       const re = /([A-Za-z_][A-Za-z0-9_]*)\s*:\s*\[\s*'((?:[^'\\]|\\.)*)'\s*,\s*'((?:[^'\\]|\\.)*)'\s*\]/g;
       let m; while ((m = re.exec(blk))) M[m[1]] = m[2];
       const norm = x => x.replace(/<[^>]*>/g, '').replace(/[\u200b\u00a0]/g, '').replace(/\s+/g, '').trim();

@@ -155,7 +155,7 @@ That is all. On first open it tries to fetch the latest TLEs; if that fails it f
 | **01 Map** | Each satellite's current sub-satellite point, ground coverage (adjustable minimum elevation) and half an orbit of ground track before/after; you can pin a ground station and highlight the satellites visible from it |
 | **02 Orbits** | 3D globe: inclinations, coverage cones and the separation between different launch batches at a glance (altitudes are drawn exaggerated 2.4× above 8000 km so the shells are easy to tell apart) |
 | **03 Inclination distribution** | X = orbital inclination, Y = semi-major axis / apogee / perigee; one chart shows which orbital planes the constellation uses. When the data spans LEO and GEO, an **axis break** is applied (the LEO upper bound and the GEO lower bound are aligned on the canvas and the altitudes in between are treated as non-existent) — the two regions form one **continuous** chart, so zooming and panning move as a single rigid body with no jump at the seam |
-| **04 Orbit Change Status** | Each satellite's **semi-major-axis climb** from insertion to its working orbit (driven by a self-built historical orbit database; pick a batch or a single satellite to plot it; re-entered satellites are flagged red). Climb rate = least squares over a ±2 day window; **status rule: \|rate\| > 0.5 km/day ⇒ "burning", ≤ 0.5 km/day while outside the working-altitude band (±30 km) ⇒ "coasting"** (the same sentence sits under the chart in that chapter); **the Y axis hugs the selected batch's actual altitude range** (magnifying inter-satellite differences) and the X axis runs from launch day to the last data point; two modes (semi-major axis / climb rate), image export with a Δ column, and two-way sync with the global selection. **Right-hand labels are short names** (`A124` / `S03` / `G01` / `A27A`, identical in both languages) and **clicking or tapping a label selects that satellite** across chapters; the **full official name** (wiki article name / English `WHJSW-<serial>`) appears in the info-panel title and the satellite table, while the raw TLE name stays in the "catalog name" row |
+| **04 Orbit Change Status** | Each satellite's **semi-major-axis climb** from insertion to its working orbit (driven by a self-built historical orbit database; pick a batch or a single satellite to plot it; re-entered satellites are flagged red). Climb rate = least squares over a ±2 day window; **four-state rule: already on a working layer (±30 km) with a 7-day rise <3 km ⇒ "in orbit"; otherwise \|2-day rate\| > 0.5 km/day ⇒ "burning", still short of the layer ⇒ "coasting", long-term static (≤5 km drift over 60 days, or a 30-day trend <0.5 km/day) ⇒ "in orbit"** (the same sentence sits under the chart in that chapter); **the Y axis hugs the selected batch's actual altitude range** (magnifying inter-satellite differences) and the X axis runs from launch day to the last data point; two modes (semi-major axis / climb rate), image export with a Δ column, and two-way sync with the global selection. **Right-hand labels are short names** (`A124` / `S03` / `G01` / `A27A`, identical in both languages) and **clicking or tapping a label selects that satellite** across chapters; the **full official name** (wiki article name / English `WHJSW-<serial>`) appears in the info-panel title and the satellite table, while the raw TLE name stays in the "catalog name" row |
 | **05 Network progress** | Two cumulative curves over time (X axis by week, labelled with the matching date): **launches** = cumulative satellites launched (never decreases on re-entry); **in orbit** = cumulative − re-entered + launched-but-not-yet-catalogued; three time-range presets (all / this year / last 3 months); plus an **"include test satellites"** toggle — with it off only constellation satellites count (whole test-only batches drop out, mixed batches lose just their test satellites). The toggle affects this chart only, never the launch-history table |
 | **06 Satellite table** | Orbital elements for every in-orbit satellite (batch/group, manufacturer, **status**, semi-major axis, apogee/perigee, inclination, period, days in orbit, RAAN, eccentricity, BSTAR, epoch) — sortable, searchable, exportable as an image. Eccentricity and BSTAR use **standard scientific notation** (`1.23×10⁻⁵`). Manufacturers come from the satellite wiki, shortened, and link out |
 | **07 Launch history** | Batch / rocket / launch time / site / **target inclination** / **satellites** / mission result per launch. The satellite count is this constellation's own; when the launch also carried others it reads `M/N` (M = this constellation's, N = the whole launch), and failed launches show `-` in both columns. Rockets and sites link to the satellite wiki, satellite names link to satcat.com |
@@ -525,13 +525,32 @@ Layers are **clustered from the actual altitude distribution of the satellites**
 ### Step 2 — tag each satellite (the order of the rules matters)
 
 ```
-(1) Is it GEO?                        → separate thresholds (rate 3.0 km/day, since GEO station-keeping moves anyway)
-(2) Too few history points (< 4)?     → insufficient data, conservatively "raising" (never falsely claim "arrived")
-(3) |2-day rate| > 0.5 km/day?        → raising · burning
-(4) Off every layer, or > 30 km away? → raising · coasting
-(5) On a layer, but 7-day rise ≥ 3 km?→ raising · coasting (creeping near the layer)
-(6) otherwise                         → in orbit
+(1) Is it GEO?                                     → separate thresholds (rate 3.0 km/day, since GEO station-keeping moves anyway)
+(2) Too few history points (< 4)?                  → insufficient data, conservatively "raising" (never falsely claim "arrived")
+(3) On a working layer (≤30 km) and 7-day rise <3 km? → in orbit   ← **position first, velocity second**
+(4) |2-day rate| > 0.5 km/day?                     → raising · burning
+(5) Long-term static (see Step 3)?                 → in orbit
+(6) Off every layer, or > 30 km away?              → raising · coasting
+(7) On a layer, but 7-day rise ≥ 3 km?             → raising · coasting (creeping near the layer)
+(8) otherwise                                      → in orbit
 ```
+
+**Why (3) must come before (4) (fixed in V2.0.0.630)**: the requirement was to "properly distinguish
+satellites **holding on a long temporary orbit while waiting for the next burn** from those **actually
+settled on their new working orbit**". The old order was velocity-first — any 2-day rate above
+0.5 km/day was called a "burn", which produced two measured misreads:
+
+- **26091D**: already sitting on the 510 km working layer and not climbing for 7 days, but its 2-day
+  rate of 0.73 marginally exceeded the threshold, so it was reported as "raising · burning" — while
+  A/B/C from the very same launch were all "in orbit". Same launch, same altitude, yet one noisy
+  reading pushed it out.
+- **26155A/D/G/L**: already parked on the 1070 km target layer (2-day rate ≈0, 7-day rise ≈0), but
+  their 90-day drift is 188–219 km (that stretch was the **climb**). Switching to a long-window rate
+  would wrongly report them as "still raising".
+
+So the order is now "position first, velocity second": **already on a working layer and not climbing in
+the last 7 days means it has arrived**. Satellites genuinely climbing show a 7-day rise ≥3 km, which
+blocks this rule and lets them fall through to the branches below — they are never wrongly kept.
 
 Rule (5), the "creeping near the layer" fallback, is **necessary**: some satellites move so little per
 day that the 2-day rate stays under the 0.5 detection line, yet a 3 km rise over 7 days is visible
@@ -544,9 +563,13 @@ Conversely you **cannot** use "30-day net rise ≥ 10 km" directly: satellites t
 
 This is the strictest rule set — **all three conditions must hold** before we dare tag it:
 
-1. It is genuinely static: altitude drift ≤ `5 km` across a `60`-day span
+1. It is genuinely static: altitude drift ≤ `5 km` across a `60`-day span, **or** a 30-day trend
+   below `0.5 km/day`
    (only a satellite that has really stopped somewhere gives us grounds to say it "is parked there";
-   anything still moving is never guessed at)
+   anything still moving is never guessed at. The second criterion was added in V2.0.0.630: atmospheric
+   drag at 410 km made Qianfan DTC-01 drift 7.1 km over 123 days, yet its 30-day trend is only
+   0.11 km/day — it really is holding its own orbit. **Applying the same 5 km threshold to both a
+   410 km and a 1100 km orbit is not physically consistent**, hence a height-independent criterion.)
 2. It sits **more than 100 km away from every working layer** of its constellation
    (closer than that might just be an imprecise layer height; further away is clearly "not the working orbit")
 3. **Other satellites from the same launch have already arrived** (at least one layer member from that batch)
@@ -557,8 +580,12 @@ This is the strictest rule set — **all three conditions must hold** before we 
 label carries an implication of "anomaly", so a false positive wrongly accuses a healthy satellite,
 while a false negative merely withholds a hint. **Better to say nothing than to say it wrong.**
 
-> Measured (V2.0.0): 422 in orbit · normal / 17 in orbit · possibly anomalous / 75 raising / 1 re-entered.
-> All 17 are Qianfan (zero for CSCN).
+> Measured (V2.0.0.630): **425 in orbit · normal / 17 in orbit · possibly anomalous / 72 raising /
+> 1 re-entered** (515 total). All 17 are Qianfan (zero for CSCN).
+>
+> The difference from V2.0.0 (421/17/76/1 → 425/17/72/1) comes from the two fixes above: four satellites
+> moved from "raising" back to "in orbit" — 26091D (noisy reading on a layer it already sits on),
+> 26128A (DTC-01, stable on its own orbit), and 26155B/P (already on the 1070 km layer).
 
 ### Step 4 — "re-entered" is handled separately, and must never be given fabricated orbital data
 

@@ -244,6 +244,53 @@ Also fixed a defect hiding in the cache: `NET` was only invalidated by `mode`, s
 left the chart unchanged — the button went grey but the curve did not move. Adding `incTest` to the
 cache key made it work ("a cache key missing a field = silently showing stale data").
 
+### 11. Orbit-change detection: position first, and test satellites are no longer assumed to be awaiting a burn
+
+Two decisions drove this change:
+
+> "Properly distinguish satellites **holding on a long temporary orbit while waiting for the next burn**
+> from those **actually settled on their new working orbit**."
+> "Many satellites — test satellites in particular — simply do not sit on the orbit a constellation
+> satellite normally uses (Qianfan DTC-01 for instance); they must not all be filed as awaiting a burn."
+
+**① Rule order is now "position first" (A).** Previously any 2-day rate above 0.5 km/day was tagged
+"burning", which produced two measured misreads:
+
+- **26091D** was already sitting on the 510 km working layer and had not climbed for 7 days; its 2-day
+  rate of 0.73 marginally exceeded the threshold, so it was reported as "raising · burning" while
+  A/B/C from the same launch were "in orbit".
+- **26155A/D/G/L** were parked on the 1070 km target layer (2-day rate ≈0, 7-day rise ≈0) but show a
+  90-day drift of 188–219 km (that stretch was the climb) — a long-window rate would have wrongly
+  reported them as still raising.
+
+Now: **already on a working layer (±30 km) with a 7-day rise <3 km ⇒ in orbit**, and this rule comes
+before the rate test. Satellites genuinely climbing show a 7-day rise ≥3 km and fall through.
+
+**② "Long-term static" gained a second criterion (D).** It used to require "≤5 km drift over 60 days".
+Atmospheric drag at 410 km made Qianfan DTC-01 drift 7.1 km over 123 days (30-day trend only
+0.11 km/day), so it was tagged "raising". A 30-day trend below 0.5 km/day now also counts — a
+height-independent criterion, so low and high orbits are judged by the same yardstick.
+
+**③ The self-check uses a better yardstick too.** `satdata.selfCheck` judged "raising but rate ≈0"
+with the 2-day rate, which reads 0 during the plateau of a stepped climb (the last two points are
+level). Switching to the 30-day rate stopped the five 26153 satellites from being false-flagged and
+brought the check back to **0**. The "0 means healthy" alarm is meaningful again.
+
+**④ A dead branch was removed.** The rule chain contained **two `else if` branches with identical
+conditions**, the second unreachable (duplicated during an earlier edit). It is gone, and a
+**branch-hit log line** now serves as evidence:
+
+```
+branch hits: onLayer 411 | hot 33 | parked 28 | off 27 | creep 4 | on 28 | thin 8
+```
+
+Every branch has a non-zero count ⇒ no unreachable code.
+
+**Result**: the four states moved from **421 / 17 / 76 / 1** (normal / possibly anomalous / raising /
+re-entered) to **425 / 17 / 72 / 1**. Four satellites moved from "raising" back to "in orbit":
+26091D, 26128A (DTC-01), 26155B and 26155P. The 17 genuinely climbing satellites of batch 26153 plus
+26155C all stay "raising".
+
 ## [V1.9.9.630] — 2026-10-21
 
 > A **root-cause release for the data-fetch pipeline**. No visual change. The goal is to make fetching
