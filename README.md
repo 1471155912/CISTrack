@@ -645,6 +645,9 @@ scripts/cdp.mjs                 **共享的浏览器抓取底座**（V1.9.9.630 
                                 原先各自实现一遍，判据强弱不一，同一类 bug 反复复发。
 scripts/e2e_adversarial.mjs     **对抗性测试**（V1.9.9.630 新增）：喂坏数据看管道是"正确拒绝"
                                 还是"静默写坏产物"。完全离线，62 条断言分六层。
+scripts/e2e_extreme_data.mjs    **页面层极限数据测试**（V2.0.0.630 新增）：把怪异数据
+                                （负数高度 / NaN / 超长名 / 非法 COSPAR / 重复 NORAD / 空批次）
+                                直接注入 SATDATA，验证页面"不崩、仍可用"。完全离线，10 个场景。
 scripts/import_history.mjs 等   见各脚本头部注释（历史库导入 / CT 爬升算法自证 / 搜索补池 / 离线 e2e / 临时根解析 等）
 .github/workflows/      云端自动化：update-tle.yml 每 12 小时刷新 TLE 并重新打包
 ```
