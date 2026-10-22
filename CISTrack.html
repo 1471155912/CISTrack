@@ -3130,8 +3130,6 @@ var I18N = {
   climb_n_hist: ['历史点', 'points'],
   // V1.9.1（A1）：信息窗最末行 —— 当前节点相比该星**前一个历史节点**的半长轴变化量
   climb_delta: ['轨道高度变更', 'Altitude change'],
-  climb_take_sma: ['半长轴（离地高度）', 'Semi-major axis (altitude)'],
-  climb_take_rate: ['变轨速度（±2 天最小二乘）', 'Maneuver rate (±2 d least squares)'],
   climb_y_alt: ['离地高度, km', 'Altitude, km'],
   climb_y_rate: ['变轨速度, km/天', 'Maneuver rate, km/day'],
   t_defclimb: ['恢复 04 变轨情况的初始设置', 'Restore the default settings of 04 Orbit Change Status'],
@@ -3293,15 +3291,6 @@ function applyStaticLang() {
   // ★ V1.9.9.630：仓库选择药丸的引导语（它不在 data-i18n 覆盖范围 —— 药丸里是真实 <a>，
   //   用 innerHTML 覆盖会把两个链接节点冲掉，所以单独改那个 <span>）。
   try { repoPillLang(); } catch (e) {}
-}
-// V1.6.0：只在指定子树内应用静态文案（顶栏在动画一开始就换新语言，内容则延后半程）
-function applyStaticLangIn(root) {
-  if (!root) return;
-  root.querySelectorAll('[data-i18n]').forEach(function (el) { el.innerHTML = t(el.getAttribute('data-i18n')); });
-  root.querySelectorAll('[data-i18n-ph]').forEach(function (el) { el.placeholder = t(el.getAttribute('data-i18n-ph')); });
-  // V1.7.0 第三轮（需求11）：title 提示气泡也要跟着语言切换
-  root.querySelectorAll('[data-i18n-title]').forEach(function (el) { el.title = t(el.getAttribute('data-i18n-title')); });
-  root.querySelectorAll('[data-i18n-aria]').forEach(function (el) { el.setAttribute('aria-label', t(el.getAttribute('data-i18n-aria'))); });
 }
 // 批次名的英文写法（低轨01组 → LEO Group 01 等）
 /**
@@ -5932,7 +5921,23 @@ function propagateAll(ms) {
   if (bad) console.warn('SGP4 推算失败 ' + bad + ' 颗，首例 ' + first);
   return out;
 }
-function wrapLon(lon) { while (lon > 180) lon -= 360; while (lon < -180) lon += 360; return lon; }
+// ★★ V2.0.0.630：**这里原本是唯一一处"可能真的永不结束"的循环** ★★
+//   旧写法：`while (lon > 180) lon -= 360; while (lon < -180) lon += 360;`
+//   · 传 ±Infinity ⇒ 条件永真、`Infinity - 360` 仍是 Infinity ⇒ **无限循环，页面直接卡死**；
+//   · 传 1e9 这类大数 ⇒ 会停，但要循环约 280 万次（浏览器假死数秒）。
+//   经度不只来自 SGP4 轨迹（那里可能是 NaN），也来自**用户输入的地面站坐标** —— 不是理论风险。
+//   改成取模：O(1)、天然有界，结果仍落在 [-180, 180]。
+//   ⚠️ 保留 +180 的特判：旧写法对 180 原样返回（`180 > 180` 为假），取模会得到 -180；
+//   两者地理上等价，但为了让"输入 180 得到 180"这个既有行为不悄悄改变，显式跳过一次。
+function wrapLon(lon) {
+  if (!isFinite(lon)) return 0;                     // NaN / ±Infinity → 按 0 处理（无有效经度）
+  if (lon === 180) return 180;
+  var w = ((lon + 180) % 360 + 360) % 360 - 180;
+  // 旧写法对"正的整圈"会落到 180（540 → 180），对"负的整圈"落到 -180（−540 → −180）。
+  // 取模一律给 −180，所以这里按输入符号补回 180 —— 纯粹为了**不改变任何既有输出**。
+  if (w === -180 && lon > 0) return 180;
+  return w;
+}
 function mapTracks(ms) {
   var st = cur();
   var tmin = Math.round(ms / 60000);
@@ -7136,54 +7141,6 @@ function shotFileName(view, extra) {
   return 'CISTrack_' + safeName(name) + '_' + fileStamp() + '_' + safeName(shotTimeTagName(view)) + '.png';
 }
 function fileStamp() { return new Date().toISOString().slice(0, 10); }
-// V1.4.0：底栏时间 = 页面当前正在模拟的时刻（把时间条偏移算进去），不是按快门的时刻。
-// 格式：GMT 2026/09/30_20:18:00（+8 04:18:00）—— 括号里是本机时区偏移与对应本地时间。
-function shotClock(view) {
-  var offMin = -new Date().getTimezoneOffset();               // 东八区 = 480
-  var ms = (view === 'map' || view === 'globe') ? simMs(view) : Date.now();   // V1.7.3 需求9：按章取模拟时刻
-  var p2 = function (n) { return (n < 10 ? '0' : '') + n; };
-  var u = new Date(ms), l = new Date(ms + offMin * 60000);
-  var dstr = function (d) {
-    return d.getUTCFullYear() + '/' + p2(d.getUTCMonth() + 1) + '/' + p2(d.getUTCDate());
-  };
-  var tstr = function (d) {
-    return p2(d.getUTCHours()) + ':' + p2(d.getUTCMinutes()) + ':' + p2(d.getUTCSeconds());
-  };
-  var sign = offMin >= 0 ? '+' : '-', abs = Math.abs(offMin);
-  var off = sign + Math.floor(abs / 60) + (abs % 60 ? ':' + p2(abs % 60) : '');
-  var br = LANG === 'en' ? ['(', ')'] : ['（', '）'];
-  // 本地钟面时间：把偏移加到毫秒上再按 UTC 读，得到的就是当地墙上时间
-  return 'GMT ' + dstr(u) + '_' + tstr(u) + br[0] + off + ' ' + tstr(l) + br[1];
-}
-// 底栏统一画法：左侧署名+模拟时间，右侧免责声明，**全白字**（V1.4.0 起不再是灰字）。
-// 窄图放不下右侧声明时自动只留左侧。
-function drawShotFooter(ctx, W, y, left, dpr) {
-  var white = '#ffffff';
-  var disc = t('d_shot_disc');
-  ctx.textBaseline = 'middle';
-  ctx.fillStyle = white;
-  // 先按基准字号量一遍；放不下就整体缩一点（最多缩 6 次），保证两侧都不重叠
-  var size = 11.5 * dpr, lw = 0, dw = 0;
-  for (var i = 0; i < 6; i++) {
-    ctx.font = monoFont(size);
-    lw = ctx.measureText(left).width;
-    ctx.font = monoFont(size * 0.95);
-    dw = ctx.measureText(disc).width;
-    if (lw + dw + 44 * dpr <= W) break;
-    size *= 0.92;
-  }
-  ctx.textAlign = 'left';
-  ctx.font = monoFont(size);
-  ctx.fillText(left, 12 * dpr, y);
-  ctx.font = monoFont(size * 0.95);
-  ctx.textAlign = 'right';
-  if (W - lw - dw > 26 * dpr) ctx.fillText(disc, W - 12 * dpr, y);
-  ctx.textAlign = 'left';
-}
-// 底栏左侧那串：CISTrack <版本> · 星座 · 章节 · GMT …（版本号与页面同步）
-function shotLeft(title) {
-  return 'CISTrack ' + VERSION + ' · ' + t('shot_' + S.key) + ' · ' + title + ' · ' + shotClock();
-}
 function monoFont(px, bold) {
   return (bold ? '700 ' : '') + px + 'px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
 }
@@ -9647,11 +9604,6 @@ function siteBlockHtml(lat, lon) {
     siRow(t('d_latlon'), lat.toFixed(2) + '°, ' + lon.toFixed(2) + '°') +
     siRow(t('d_visible'), n) + siRow(t('l_el'), '≥ ' + S.pick.el + '°') + '</div>';
 }
-// A 窗（地图，观测点模式固定后）
-function showSiteInfo(lat, lon) {
-  mapInfo.__html = siteBlockHtml(lat, lon);
-  showInfo(mapInfo, 'map', mapInfo.__html, 'site');
-}
 function elevationOf(g) {
   var obsGd = { longitude: S.pick.lon * RAD, latitude: S.pick.lat * RAD, height: 0.05 };
   var look = SGP4.ecfToLookAngles(obsGd, g.ecf);
@@ -11332,20 +11284,6 @@ function syncFsBarHeight() {
 }
 // （V1.8.0 需求8 已把上面那个函数改成两章通用；旧的单章实现删除，避免死代码。）
 
-function renderFsSug(el, q) {
-  if (!el) return;
-  var raw = String(q || '').trim();
-  if (!raw) {
-    var h = SEARCH_HISTORY[S.key] || [];
-    if (!h.length) { el.classList.remove('open'); el.innerHTML = ''; return; }
-    el.innerHTML = h.slice(0, window.innerHeight < 520 ? 3 : 6).map(function (o) { return sugItemHtml(o, t('d_search_recent')); }).join('');
-    el.classList.add('open'); return;
-  }
-  var list = searchCandidates(raw).slice(0, window.innerHeight < 520 ? 3 : 6);
-  if (!list.length) { el.innerHTML = '<div class="sug-item" style="cursor:default">' + t('d_search_none') + '</div>'; el.classList.add('open'); return; }
-  el.innerHTML = list.map(function (o) { return sugItemHtml(o, ''); }).join('');
-  el.classList.add('open');
-}
 
 
 // V1.5.1：搜索键 —— 点击选中联想第一项（没有候选时只是聚焦）
@@ -12069,12 +12007,6 @@ function rocketNameExact(s) {
     for (var j = 0; j < ns.length; j++) if (String(ns[j]).toLowerCase() === w) return true;
   }
   return false;
-}
-// 一句话判断：这个词是不是命中了某个别名组（返回别名组，否则 null）
-// V1.7.0：拼音支持 —— 允许「子串命中」（yinghe → yinhehangtian / yhht），不再只认前缀；
-//         同时把数据里的「原名」（含（N颗）后缀）也并入匹配集合。
-function aliasNames(table) {
-  return table;
 }
 function aliasEntry(word, table) {
   var w = String(word || '').toLowerCase();
@@ -12999,46 +12931,6 @@ window.addEventListener('resize', function () {
 
 // ---------------------------------------------------------------- 语言切换
 
-// ================================================================ V1.6.0 语言切换动画
-// 方向：中文在上、英文在下 → 中→英 时新字自下而上顶入、内容自下而上擦除后又自下而上长出；
-//       英→中 完全对称反向。
-function txSwap(el, oldText, newText, dir) {
-  if (!el || oldText === newText) return;
-  el.textContent = '';
-  el.classList.add('tx-swap');
-  var inner = document.createElement('div');
-  inner.className = 'tx-in';
-  var a = document.createElement('span'); a.className = 'tx-a'; a.textContent = oldText;
-  var b = document.createElement('span'); b.className = 'tx-b'; b.textContent = newText;
-  if (dir === 1) { inner.appendChild(a); inner.appendChild(b); }    // 新字在下 → 向上顶
-  else { inner.appendChild(b); inner.appendChild(a); }              // 新字在上 → 向下压
-  el.appendChild(inner);
-  inner.style.transition = 'none';
-  inner.style.transform = (dir === 1 ? 'translateY(0)' : 'translateY(-50%)');
-  void inner.offsetWidth;
-  requestAnimationFrame(function () {
-    inner.style.transition = 'transform var(--anim-half) var(--ease-slow-fast)';
-    inner.style.transform = (dir === 1 ? 'translateY(-50%)' : 'translateY(0)');
-  });
-  setTimeout(function () {
-    el.classList.remove('tx-swap');
-    el.textContent = newText;
-    el.style.overflow = '';
-  }, ANIM.half + 60);
-}
-function langSwapTargets() {
-  var list = [];
-  ['langBtn', 'brandNote'].forEach(function (id) {
-    var e = document.getElementById(id); if (e) list.push(e);
-  });
-  // V1.7.2 第七轮（需求2）：原来这里还会收集 '.topnav .navlinks a'，
-  //   顶栏章节切换按钮删掉后该选择器恒为空，属死代码，一并移除。
-  document.querySelectorAll('#constelSeg button .cn').forEach(function (e) { list.push(e); });
-  return list;
-}
-function langBlocks() {
-  return Array.prototype.slice.call(document.querySelectorAll('section, footer, .hero'));
-}
 // 编排：擦除（先快后慢）→ 半程替换语言 → 长出（先快后慢），总时长 = --anim-t
 // V1.9.0（需求1/6）：本函数已升格为**通用过场** —— 语言切换、还原所有默认设置、章级默认设置
 //   三处共用同一套曲线与时长（620ms、--ease-slow-fast），保证观感完全一致。
@@ -13943,12 +13835,6 @@ function ensureHistBatch(bk, lk) {
   return p;
 }
 /** 索引里该批次的概览（没索引就返回 null） */
-function histBatchInfo(bk, lk) {
-  var ix = HIST_IDX[bk];
-  if (!ix || !ix.batches) return null;
-  for (var i = 0; i < ix.batches.length; i++) if (ix.batches[i].k === String(lk)) return ix.batches[i];
-  return null;
-}
 function loadHistoryJson() {
   if (typeof fetchText !== 'function') return Promise.resolve(false);
   return Promise.all([loadHistIndex('gw'), loadHistIndex('qf')]).then(function (r) {

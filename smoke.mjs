@@ -353,13 +353,54 @@ if (shotBtn && numBox) {
 
 console.log('--- 导出底栏（V1.4.0）---');
 // V1.7.3（需求9）：时间偏移改为**两章各存一份**（S.time.map/globe.off），导出底栏走 simMs(view)
+// ★★ V2.0.0.630：这两条同样原先守着**已废弃的 shotClock**（随 shotLeft 一起删了）。
+//   迁到真正在用的 `shotTimeStr`：
+//     · 「模拟时间」这条性质仍然成立（冻结章用 ts.frozen，实时章用 Date.now()+off）；
+//     · 「GMT 格式」这条**格式已经变了** —— 旧的是 `GMT YYYY/MM/DD_HH:MM:SS`，
+//       新的是 `(GMT+8 12:34:56)`。断言必须跟着改，否则就是拿旧格式去要求新实现。
 assert('底栏时间用「模拟时间」而不是按快门时间',
-  /function shotClock\(view\)/.test(appSrc) && /simMs\(view\)/.test(appSrc));
-assert('底栏时间格式 GMT …（+偏移 本地时间）',
-  /'GMT ' \+ dstr\(u\) \+ '_' \+ tstr\(u\)/.test(appSrc) && /br\[0\]/.test(appSrc));
+  /function shotTimeStr\(view\)/.test(appSrc) &&
+  /S\.time\[view === 'globe' \? 'globe' : 'map'\]/.test(appSrc) &&
+  /ts\.frozen != null/.test(appSrc));
+assert('底栏时间格式 (GMT+偏移 本地时间)',
+  // ⚠️ 这里原本写成正则，`\\(` 在 JS 正则字面量里会变成"字面反斜杠 + 未闭合分组"→ 语法错误。
+  //   改用 indexOf 做字面子串匹配，绕开两层转义（JS 源码 + 本文件的生成脚本）。
+  appSrc.indexOf("'(GMT' + off + ' '") >= 0 &&
+  appSrc.indexOf("offMin >= 0 ? '+' : '-'") >= 0);
 assert('底栏右侧有免责声明', /d_shot_disc: \['非官方项目，模拟基于开源 TLE 数据，不代表实际情况'/.test(appSrc));
-assert('底栏全白字（不再是灰字）', /function drawShotFooter[\s\S]{0,400}'#ffffff'/.test(appSrc));
-assert('底栏版本号与页面同步（都用 VERSION）', /shotLeft\(title\)[\s\S]{0,200}'CISTrack ' \+ VERSION/.test(appSrc) === false ? /\+ VERSION \+/.test(appSrc) : true);
+// ★★ V2.0.0.630：这两条断言原先检查的是 `drawShotFooter` / `shotLeft` ——
+//   那是**已被 drawShotBar 取代的旧底栏实现**，函数本身长期无人调用（死代码）。
+//   本轮清理死代码时把它们删了，于是断言必须迁到**真正在用的**实现上，
+//   否则就会变成"守着一个不存在的函数"的假绿。
+//   同时要认清语义已经变了：新底栏的字标用的是**星座配色**（星网红 / 千帆蓝 / 两半各一色），
+//   不再是旧实现的纯白字 —— 所以第一条从"全白字"改成"字标用星座配色"。
+assert('底栏字标用星座配色（星网红 / 千帆蓝 / 两半各一色）',
+  /function drawShotBar\(/.test(appSrc) &&
+  // ⚠️ 两个变量是**同一行逗号声明**（`var cGw2 = …, cQf2 = …`）——
+  //   第一版写成 `/var cQf2 = …/` 会漏配（实测当场 FAIL）。这里只认变量名本身。
+  /cGw2 = cssVar\('--c-gw'/.test(appSrc) && /cQf2 = cssVar\('--c-qf'/.test(appSrc) &&
+  /ctx\.rect\(x, cy - size, half, size \* 2\); ctx\.clip\(\)/.test(appSrc));
+assert('底栏版本号与页面同步（都用 VERSION）',
+  /function drawShotBar\(/.test(appSrc) &&
+  /var rest = \[VERSION, /.test(appSrc));
+// ★★ V2.0.0.630：**唯一的"可能真的永不结束"的循环** ★★
+//   旧实现 `while (lon > 180) lon -= 360; while (lon < -180) lon += 360;`
+//   对 ±Infinity 条件永真（Infinity − 360 仍是 Infinity）⇒ 页面卡死；
+//   对 1e9 这类大数要循环约 280 万次 ⇒ 假死数秒。
+//   经度不只来自 SGP4（可能是 NaN），也来自用户输入的地面站坐标，不是理论风险。
+//   守卫三条：① 必须有 isFinite 兜底；② 必须用取模（O(1)）；③ 旧 while 写法不得复活。
+assert('经度归一化用取模 + 非有限值兜底（旧 while 写法对 ±Infinity 会死循环）',
+  (function () {
+    // ⚠️ "旧写法不得复活"这一条**必须剔除注释再判**：我在 app.js 的改动注释里
+    //   引用了旧代码当说明（"旧写法：while (lon > 180) …"），直接正则会把说明当成实现 ——
+    //   第一次跑就 FAIL 在这一条上（与 zhRules 那次是同一类坑）。
+    const code = appSrc.replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
+    const fn = code.slice(code.indexOf('function wrapLon('), code.indexOf('function wrapLon(') + 700);
+    return fn.indexOf('!isFinite(lon)') >= 0 &&
+           fn.indexOf('% 360') >= 0 &&
+           fn.indexOf('while (lon > 180)') < 0 &&
+           fn.indexOf('while (lon < -180)') < 0;
+  })());
 assert('导出多页/全页走同一套绘制（exportTable 接收 mode）',
   /function exportTable\(opts\)/.test(appSrc) && /opts\.mode === 'all'/.test(appSrc) && /typeof opts\.mode === 'number'/.test(appSrc));
 assert('行模板抽成函数（非当前页也能导出）',
@@ -2163,15 +2204,21 @@ assert('V1.9.0（R17）：章级过场映射含 05 章（默认设置按钮走 p
 assert('V1.9.0（R17）：i18n 三段式键位齐备（缺一个就会把键名当文字画在页面上）',
   ['h_climb', 'lead_climb', 'climb_pick', 'climb_take', 'climb_rate', 't_defclimb',
    'climb_sel_tip', 'climb_none', 'climb_n_hist',
-   'climb_take_sma', 'climb_take_rate', 'climb_y_alt', 'climb_y_rate',
+   'climb_y_alt', 'climb_y_rate',
    // V1.9.1（A1）：信息窗新行
    'climb_delta']
+   // ★ V2.0.0.630：`climb_take_sma` / `climb_take_rate` 已从清单移除（键本身也删了）。
+   //   它们原本服务于"纵轴量下拉选项"的**动态拼 key**（t('climb_take_' + take)），
+   //   后来控件改成 seg 按钮、文案换成静态的 `m_sma` / `climb_rate`，这两个键就再没人取，
+   //   但清单一直留着 —— 与本文件里 `climb_pick_auto` 是同一类"清单比实现活得久"。
+   //   ⚠️ 断言里"缺一个就会把键名当文字画在页面上"这句前提也随之失效：
+   //   现在没有任何地方拼 `climb_take_` 前缀（已全库 grep 确认）。
    // ⚠️ 不能用 ^\s* 锚行首：climb_pick / climb_take / climb_rate 三个键写在**同一行**
    //   （逗号连排），锚行首会把后两个误判为缺失（V1.9.0 就因此误报过一次）。
    //   同时要求键后面紧跟 [ 才算命中，避免 climb_take 误配到 climb_take_sma。
    //   V1.9.1（A6/F3）：`climb_pick_auto` 已从清单里**移除**（键本身也删了）。
    .every(k => new RegExp('(^|[{,\\s])' + k + ': \\[').test(appSrc)),
-  '15 个键');
+  '13 个键');
 // V1.9.1（A6/F3）：死键必须真的删掉 —— 只从断言清单里删掉是不够的
 assert('V1.9.1（A6/F3）：`climb_pick_auto` 键已彻底删除（源码里除注释外不再出现）',
   !/climb_pick_auto: \[/.test(appSrc));

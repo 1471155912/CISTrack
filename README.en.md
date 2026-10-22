@@ -519,8 +519,10 @@ Layers are **clustered from the actual altitude distribution of the satellites**
 4. **Assign each satellite**: compare only against layers in its **own inclination band**, take the
    nearest one; "on the layer" requires a distance ≤ `30 km`.
 
-> Measured today: CSCN has 4 layers (1150/50°×117, 1170/86.5°×61, 1100/50°×11, 510/55°×9);
-> Qianfan has 1 (1070/89°×197). These numbers are computed, not configured.
+> Measured on 2026-10-22: CSCN has 4 layers (1150/50°×117, 1170/86.5°×61, 1100/50°×11, 510/55°×8);
+> Qianfan has 1 (1070/89°×197). These numbers are **computed, not configured**;
+> membership drifts with the daily data refresh (the 510 km layer going from 9 to 8 just means one
+> satellite no longer meets the seeding rule), so treat the list as a snapshot, **not a constant**.
 
 ### Step 2 — tag each satellite (the order of the rules matters)
 
