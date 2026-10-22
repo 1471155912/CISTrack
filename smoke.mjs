@@ -2044,7 +2044,9 @@ assert('V1.9.0（需求3）：组网进度的口径进偏好系统；显示星�
   /netMode: 'launch',/.test(appCode) &&
   // ★ V1.9.2：本章「默认设置」的第 2 项 = 时间区间档（全部 / 今年 / 最近3月）——
   //   按了默认设置就该回到"全部"，不然轴还缩着。
-  /progress: \['netMode', 'netSpan'\]/.test(appCode) &&
+  // ★ V2.0.1（R7）：本章默认设置新增第 3 项 `netIncTest`（试验星开关）——
+  //   断言用「前缀匹配」而不是全等，以后再加章级设置项也不必改这条。
+  /progress: \['netMode', 'netSpan'/.test(appCode) &&
   // 在 STATE_FIELDS 里 → 随星座快照。
   //   V1.9.0 起该数组末尾追加了 R17 的两项，故这里只断言 netGw/netQf **相邻且同在数组内**，
   //   不再锚定它们是最后两项（那个约束在 R17 之后已经不成立了）。
@@ -4612,7 +4614,7 @@ assert('V1.9.2：右侧留白按"要标几条"动态加宽（否则名称会被�
       /function netSetSpan\(sp\)[\s\S]{0,520}?syncNetControls\(\);[\s\S]{0,160}?cvSwap\('netCv', function \(\) \{ netAutoView\(\); drawNet\(\); \}\);/.test(appCode) &&
       /function cvSwap\(cvId, apply\)[\s\S]{0,420}?wrap\.classList\.add\('chart-out'\)[\s\S]{0,200}?ANIM\.half/.test(appCode));
     assert('V1.9.2：档位进偏好系统（PREF_DEF / 本章「默认设置」/ 快照 / 还原 / 合法性校验）',
-      /netSpan: 'all',/.test(appCode) && /progress: \['netMode', 'netSpan'\]/.test(appCode) &&
+      /netSpan: 'all',/.test(appCode) && /progress: \['netMode', 'netSpan'/.test(appCode) &&
       /netSpan: S\.netSpan,/.test(appCode) &&
       /S\.netSpan = NET_SPANS\.indexOf\(p\.netSpan\) >= 0 \? p\.netSpan : 'all';/.test(appCode) &&
       /var NET_SPANS = \['all', 'year', 'qtr'\];/.test(appCode));

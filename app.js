@@ -332,6 +332,8 @@ var I18N = {
   // ★ V2.0.1（R7）：控件文案收短 —— 用户口径「发射量（累计）」→「发射量」、「在轨数量」→「在轨量」。
   //   「（累计）」三字在纵轴标题与按钮上都显得啰嗦，而「累计」这层含义由图上的阶梯单调递增自明。
   nm_launch: ['发射量', 'Launches'], nm_orbit: ['在轨量', 'In orbit'],
+  // V2.0.1（R7）：组网进度的「是否包含试验星」开关（默认包含）
+  l_inctest: ['是否包含试验星', 'Include test satellites'], nm_inc_test: ['包含', 'Include'],
   nm_unit_launch: ['累计发射卫星数', 'Cumulative satellites launched'], nm_unit_orbit: ['在轨卫星数', 'Satellites in orbit'],
   l_netshow: ['星座', 'Constellation'], d_x_date: ['日期', 'Date'],
   // ★ V1.9.2（用户要求）：组网进度的时间区间档按钮 + 导出底栏的两段留底。
@@ -994,7 +996,10 @@ function build(key) {
       // ★★ V2.0.1（R9）：本批**已再入**颗数（satcat 的 DECAY_DATE 数出来的）。
       //   为什么挂在 launch 上：`netCountOf()` 只拿到 L，而"累计发射"与"当前在轨"这两个口径
       //   的唯一区别就是这个数（见那里的长注释）。没有它，两条曲线在数学上必然重合。
-      gone: (c.goneCount && c.goneCount[k]) ? c.goneCount[k].length : 0
+      gone: (c.goneCount && c.goneCount[k]) ? c.goneCount[k].length : 0,
+      // ★ V2.0.1（R7）：该发的**试验星颗数**（Q24/Q25 口径，由 mkdata 的 testCount 给出）。
+      //   「是否包含试验星」开关关闭时，组网进度只扣这一部分（2026-211：扣 1、留 8）。
+      testN: (c.testCount && c.testCount[k]) || 0
     };
     // ⚠️ dateMs 绝不允许是 NaN：发射历史表按 dateMs **倒序**排（见 renderLaunches），
     //   NaN 参与比较时全部返回 false → 排序结果未定义，该行会被随机挤到任意位置
@@ -1186,6 +1191,8 @@ var S = {
   // V1.8.0（需求8）：03.5 组网进度的三项设置。**不进 STATE_FIELDS** —— 那张图同时画两个星座，
   //   按星座各存一份没有意义；它们随「默认设置 / 还原所有默认设置」还原即可。
   netMode: 'launch',          // 'launch' = 发射量累计；'orbit' = 在轨数量
+  // ★ V2.0.1（R7）：**是否包含试验星**（默认包含）。只影响组网进度画出来的点（Q14）。
+  netIncTest: true,
   netGw: true, netQf: true,   // 两条曲线的显隐
   // ★ V1.9.2（用户要求）：组网进度的时间区间档 —— 'all' = 全部；'year' = 今年（本年 1/1 至今）；
   //   'qtr' = 最近 3 个月（三个月前至今）。
@@ -1211,6 +1218,7 @@ var PREF_DEF = {
   coneOn: true, coneEl: 10, spin: true, showTracks: true, nameGlobe: true,
   sortKey: 'norad', sortAsc: false, allCols: false,
   netMode: 'launch',                              // V1.8.0（需求8）：03.5 组网进度
+  netIncTest: true,                               // V2.0.1（R7）：是否包含试验星（默认包含）
   netSpan: 'all',                                 // V1.9.2：时间区间档（全部 / 今年 / 最近3月）
   // V1.9.0（需求3）：netGw / netQf **不再放这里** —— 它们改为按星座各存一份（见 STATE_FIELDS），
   //   出厂默认 = 只看本页星座（星网页面只显示星网、千帆页面只显示千帆），两个页面互不联动。
@@ -1225,7 +1233,7 @@ var PREF_SEC = {
   map: ['covOn', 'covEl', 'pickOn', 'pickEl', 'mapTrack', 'nameMap', 'cMap', 'timeOffsetMap'],
   globe: ['coneOn', 'coneEl', 'spin', 'showTracks', 'nameGlobe', 'cGlobe', 'timeOffsetGlobe'],
   // V1.8.0（需求8）：03.5 组网进度自己那一章的默认设置
-  progress: ['netMode', 'netSpan'],
+  progress: ['netMode', 'netSpan', 'netIncTest'],   // V2.0.1（R7）
   // V1.9.0（R17）：04 变轨情况本章的默认设置 = 对象选择 + 纵轴量（视图由 resetView 归位）
   climb: ['climbPick', 'climbTake'],
   table: ['sortKey', 'sortAsc', 'allCols']
@@ -1271,6 +1279,9 @@ function prefApply(p) {
   S.spin = p.spin; S.showTracks = p.showTracks; S.names.globe = p.nameGlobe;
   S.sortKey = p.sortKey; S.sortAsc = p.sortAsc; S.allCols = p.allCols;
   S.netMode = p.netMode; S.netGw = !!p.netGw; S.netQf = !!p.netQf;   // V1.8.0（需求8）
+  // V2.0.1（R7）：判定写 `!== false` 而不是 `=== true` —— 旧存档里没有这个键时应当**默认包含**，
+  //   写成 `=== true` 会让所有老用户升级后默认变成「不含试验星」（静默改变他们看到的图）。
+  S.netIncTest = p.netIncTest !== false;
   // ★ V1.9.2：时间区间档（非法值一律回落 'all'，老存档没有这一键时也一样）
   S.netSpan = NET_SPANS.indexOf(p.netSpan) >= 0 ? p.netSpan : 'all';
   // V1.9.0（R17）：05 章两项一并落回 S（climbPick 可能是 'b:xxx'，按原样写回）
@@ -11482,6 +11493,15 @@ function netCountOf(L, mode) {
   //      与"口径错误"不是一回事（satcatOk 为 false 时页面另有提示）。
   var gone = (L && L.gone > 0) ? L.gone : 0;
   var tot = (L && L.count > 0) ? L.count : ((L && L.wn > 0) ? L.wn : 0);
+  // ★★ V2.0.1（R7 · Q24/Q25/Q14）：**「不含试验星」只改这里的计数** ★★
+  //   Q14 明确：这个开关只影响组网进度画出来的点，**不改发射历史表、不隐藏任何行**。
+  //   Q25 明确：按单星粒度扣（2026-211 扣 1 颗 EUHT，留 8 颗极轨26组）。
+  //   Q24 明确：2026-211 在「不含试验星」下记 **+8**（组网星章节表写的「共8颗」）。
+  //   ⇒ 所以这里做的是 `tot - testN`，而不是"整发剔除"。
+  if (!S.netIncTest) {
+    var tN = (L && L.testN > 0) ? L.testN : 0;
+    if (tN > 0) tot = Math.max(0, tot - tN);
+  }
   if (mode === 'orbit') {
     // 在轨 = 累计 − 已再入 + 成功但尚未编目的颗数（失利批次不补，它根本没进轨道）
     var pendAdd = (L && L.pending > 0 && L.res !== 'fail') ? L.pending : 0;
@@ -11496,6 +11516,11 @@ function netBuild() {
   ['gw', 'qf'].forEach(function (key) {
     CONST[key].launches.forEach(function (L) {
       if (!isFinite(L.dateMs)) return;
+      // ★ V2.0.1（R7）：**「不含试验星」时，整批都是试验星的批次不参与组网进度**
+      //   （如星网 12 个试验批、千帆 KL/DTC）。混编批次（2026-211）**保留** ——
+      //   它的组网贡献是 8 颗，由 netCountOf 扣掉那 1 颗试验星（Q24 的 +8）。
+      //   Q14：这里只影响「点」，不影响发射历史表（那张表仍显示全部行）。
+      if (!S.netIncTest && L.testN > 0 && L.testN >= (L.count || L.wn || 0)) return;
       // V1.9.0（需求8）：把批次 key（5 位发射编号）一并带上 —— 信息窗里「新增卫星」的批次/组名
       //   要能点击 = 全选该批次（与表格里的批次链接同款行为），而旧版这里只带了 name。
       evs.push({ ms: L.dateMs, key: key, n: netCountOf(L, mode), name: L.name, lk: L.key,
@@ -11540,7 +11565,7 @@ function netBuild() {
   // ★ V1.9.2：把逐条发射记录（evs）也带出去 —— 「今年 / 最近3月」两档要算**窗口起点之前的
   //   全量累计**（曲线的 0 基线）与**任意时刻的累计**（节点高度），都离不开这份原始事件表。
   return { mode: mode, weeks: weeks, series: series, delta: delta, lastN: lastN, now: now,
-    originMs: originMs, evs: evs };
+    originMs: originMs, evs: evs, incTest: !!S.netIncTest };   // V2.0.1（R7）：缓存键的一部分
 }
 // V1.9.1（A8）：各星座「**第一颗正式星**」的发射时刻 —— 组网进度里它以**第一个实线点**出现，
 //   它之前的连接线（试验星阶段）用该星座自身颜色的**虚线**。
@@ -11570,7 +11595,10 @@ function netSolidSplit(key, weeks) {
 }
 
 function netData() {
-  if (!NET || NET.mode !== S.netMode) NET = netBuild();
+  // ★ V2.0.1（R7）：缓存键**必须同时包含 netIncTest** ——
+  //   否则切开关时 mode 没变 → 不重建 → 曲线纹丝不动（实测就踩了：按钮变灰了、图还是 251）。
+  //   这条与「缓存键漏字段 = 静默显示旧数据」是同一类缺陷，只是它藏在缓存判据里。
+  if (!NET || NET.mode !== S.netMode || NET.incTest !== !!S.netIncTest) NET = netBuild();
   return NET;
 }
 function netInvalidate() { NET = null; }
@@ -12177,6 +12205,11 @@ function syncNetControls() {
     b.classList.toggle('on', on);
     b.setAttribute('aria-pressed', String(on));
   });
+  // ★ V2.0.1（R7）：试验星开关的按下态（关闭时按钮不高亮 = 与其它 seg 同一套视觉语言）
+  document.querySelectorAll('#netIncSeg button').forEach(function (b) {
+    b.classList.toggle('on', !!S.netIncTest);
+    b.setAttribute('aria-pressed', String(!!S.netIncTest));
+  });
 }
 function netSetMode(m) {
   // ★ V1.9.1（#7）：按钮高亮**立即**响应（与 03 章 modeSeg 同款），只有画布走过场
@@ -12232,6 +12265,19 @@ function netInit() {
     if (!S.netGw && !S.netQf) { S.netGw = S.netQf = true; }     // 两条都关掉没有意义 → 至少留一条
     syncNetControls();                                          // 按档状态立即响应
     // ★ V1.9.1（#7）：画布走过场（旧图褪去 → 换数据 → 新图浮现），与 03 章同一条曲线
+    cvSwap('netCv', function () { netView = null; netAutoView(); drawNet(); });
+    touchPrefs();
+    syncSectionResetBtns();
+  });
+  // ★ V2.0.1（R7）：**「是否包含试验星」开关**
+  //   行为：切换 → 立即高亮 → 走与其它 seg 相同的画布过场（旧图褪去 → 换数据 → 新图浮现）。
+  //   口径（Q14）：只改这张图的点，不动发射历史表 / 卫星表格。
+  var segI = document.getElementById('netIncSeg');
+  if (segI) segI.addEventListener('click', function (e) {
+    var b = e.target.closest('button[data-inctest]');
+    if (!b) return;
+    S.netIncTest = !S.netIncTest;
+    syncNetControls();
     cvSwap('netCv', function () { netView = null; netAutoView(); drawNet(); });
     touchPrefs();
     syncSectionResetBtns();

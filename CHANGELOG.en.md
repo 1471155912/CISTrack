@@ -225,6 +225,25 @@ classification is per-satellite by COSPAR suffix or per-launch. Either choice ch
 satellites are deducted. This project already had to redo "试验星12" because a sequence was invented by
 guesswork, so the decision is left to the user rather than assumed.
 
+### 10. A "include test satellites" toggle for network progress
+
+Implemented per Q14/Q24/Q25: it **only affects the points on this chart** (the launch-history table and
+the satellite table are untouched).
+
+- On by default; profiles saved before this change also read as "on" (otherwise existing users would see
+  their chart silently shrink after upgrading)
+- When off: batches that consist entirely of test satellites (the 12 CSCN test batches, Qianfan KL/DTC)
+  do not participate; **mixed batches lose only their test satellites** — 2026-211 counts **+8**
+  (the constellation table says "8 satellites"), not zero
+- The time axis then starts at the **first constellation satellite launch** (measured: CSCN moves from
+  23/10/26 to 24/02/29)
+- Measured CSCN total **251 → 224** (27 deducted; the failed batch `25F05` was never counted, hence not 28)
+- Classification uses **only the wiki section tables** (Q21) and is **per-satellite by COSPAR suffix** (Q25-a)
+
+Also fixed a defect hiding in the cache: `NET` was only invalidated by `mode`, so toggling the switch
+left the chart unchanged — the button went grey but the curve did not move. Adding `incTest` to the
+cache key made it work ("a cache key missing a field = silently showing stale data").
+
 ## [V1.9.9.630] — 2026-10-21
 
 > A **root-cause release for the data-fetch pipeline**. No visual change. The goal is to make fetching

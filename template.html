@@ -2531,6 +2531,16 @@ html[data-theme="light"] .res-fail { color:#c72929; }
          的底边对齐 → 视觉上就是同一行，且排列顺序自然是"星座 → 时间段"。
          三档：全部（现有视图 + 每年 1/1 节点）／今年（本年 1/1 至今，累计从 0 起，每月 1 日节点）／
          最近3月（三个月前至今，累计从 0 起，从起点每 7 天一个节点）。 -->
+    <!-- ★ V2.0.1（R7）：**「是否包含试验星」开关**（用户要求：放在星座控件与时间段控件中间）★
+         行为口径（Q14/Q24/Q25）：只影响**这张图上的点** —— 关闭时整批都是试验星的批次不参与、
+         混编批次只扣试验星那几颗（2026-211 记 +8）；发射历史表与卫星表格**一行都不改**。
+         默认**开启**（老存档没有这个键时也按开启处理，见 restorePrefs）。 -->
+    <div class="ctl">
+      <span class="lbl" data-i18n="l_inctest">是否包含试验星</span>
+      <div class="seg" id="netIncSeg">
+        <button data-inctest="1" class="on" data-i18n="nm_inc_test">包含</button>
+      </div>
+    </div>
     <div class="ctl">
       <span class="lbl" data-i18n="l_netspan">时间段</span>
       <div class="seg" id="netSpanSeg">

@@ -615,11 +615,51 @@ function launchNameFromWiki(row) {
   if (!out.length) return null;
   return { name: out.join('+'), payloadNames: out };
 }
+// ★★ V2.0.1（R7 · 依 Q24/Q25 裁决）：**这一发里有多少颗属于"试验星"** ★★
+//
+// 用户裁决（Q24/Q25）：
+//   · Q24：2026-211 在「不含试验星」下记 **+8** —— 按**组网星章节表**写的「共8颗」，
+//     不是按"整发剔除 = +0"，也不是"总 9 颗全扣"。
+//   · Q25：分类**按 COSPAR 后缀精确到单星**（8 组网 + 1 试验），不按整发归一。
+//   · Q14：这个开关**只影响组网进度的点**，不影响发射历史表的行。
+//
+// 判据：
+//   ① 该批在 wiki 里**只**出现在「试验星」章节（星网 12 个试验批、千帆 KL/DTC 等）
+//      ⇒ 整批都是试验星，试验星颗数 = 该批总颗数；
+//   ② 混编批次（实测只有 2026-211）⇒ 只数「试验星章节里带 COSPAR 后缀的行」，每行 1 颗；
+//      `2026-211K|试验星` 有后缀 K ⇒ 1 颗；`2026-211|组网星` 不算。
+//   ③ 纯组网/业务批次 ⇒ 0。
+// ⚠️ 没有章节信息的旧数据返回 0（**不扣**）—— 宁可少扣也不要凭名字猜着扣。
+// ⚠️ 返回值有两种形态：**数字**（混编批次，试验星颗数已确定）或字符串 **'all'**
+//   （整批都是试验星）。为什么不直接给数字：纯试验星批次的"总颗数"在 applyWikiTables 里
+//   还拿不到 —— 那时 `launchCounts` 尚未统计完（它要等 pendingSummary）。
+//   而 `v[6]`（百科记载颗数）在星网的多个试验批上是空的（实测 23181/26158 都是 0），
+//   直接用它会把"整批试验星"算成 0 颗，导致开关关掉时**一颗都不扣**（比不扣更糟：静默错数）。
+//   所以这里只判断"性质"，颗数留到挂载时用 `launchCounts` 的真实值补上。
+function testCountOf(row) {
+  if (!row) return 0;
+  const bySec = (row.bySec && typeof row.bySec === 'object') ? row.bySec : null;
+  const rows = Array.isArray(row.rows) ? row.rows : [];
+  const secKeys = bySec ? Object.keys(bySec) : [];
+  const hasNet = secKeys.some(s2 => NET_SEC.test(s2));
+  const hasTest = secKeys.some(s2 => TEST_SEC.test(s2));
+  if (!hasNet && !hasTest) return 0;                  // 旧数据/无章节 → 不扣
+  if (!hasNet) return 'all';                          // ① 纯试验星批次 → 整批
+  if (!hasTest) return 0;                             // ③ 纯组网/业务批次
+  let n = 0;                                          // ② 混编：数带后缀的试验星行
+  for (const r of rows) {
+    if (!TEST_SEC.test(String(r.sec || ''))) continue;
+    const m = String(r.cosparRaw || '').match(/-(\d+)([A-Z]+)$/);
+    n += (m && m[2]) ? m[2].length : 1;
+  }
+  return n;
+}
 function applyWikiTables(ledger, bk, tag) {
   const T = (WIKI_TABLES && WIKI_TABLES[bk]) || {};
   let nFix = 0, nAuto = 0, nFail = 0, nName = 0;
   const miss = [];
   const names = {};   // V2.0.1（R15/R14）：台账 key → 本星座载荷名数组
+  const tests = {};   // V2.0.1（R7）：台账 key → 该发**试验星颗数**（Q24/Q25 口径，见 testCountOf）
   for (const k in ledger) {
     const v = ledger[k];
     // ★★ V1.9.9.630（治本，第二处）：**台账 key 不止"5 位纯数字"一种形态。**
@@ -663,13 +703,17 @@ function applyWikiTables(ledger, bk, tag) {
       }
       names[k] = nm.payloadNames;
     }
+    // R7：试验星颗数按 Q24/Q25 口径算（与名字同源，都是 wiki 章节表驱动）
+    //   `'all'` 表示整批；具体颗数在挂载处用 launchCounts 补（见 testCount 的构造）
+    const tc = testCountOf(row);
+    if (tc === 'all' || (typeof tc === 'number' && tc > 0)) tests[k] = tc;
   }
   console.log(tag + ' H9 单源：日期修正 ' + nFix + ' 条' +
     (nName ? '｜R15 批次名以词条为准 ' + nName + ' 条' : '') +
     (nAuto ? '｜新批次未入词条 ' + nAuto + ' 条（窗口期，等本地任务刷新）' : '') +
     (nFail ? '｜失利发射豁免 ' + nFail + ' 条' : '') +
     (miss.length ? '｜⚠️⚠️ 词条缺失 ' + miss.length + ' 条：' + miss.join(', ') : '｜无缺失'));
-  return { nFix: nFix, nName: nName, nAuto: nAuto, nFail: nFail, miss: miss, names: names };
+  return { nFix: nFix, nName: nName, nAuto: nAuto, nFail: nFail, miss: miss, names: names, tests: tests };
 }
 const H9_GW = applyWikiTables(GW_LEDGER, 'gw', '星网');
 const H9_QF = applyWikiTables(QF_LEDGER, 'qf', '千帆');
@@ -1234,6 +1278,28 @@ const DATA = {
     // ★ V2.0.1（R14）：每批的**本星座载荷名数组**（`+` 之前的那几项）。
     //   页面用它判断「这一发是不是多载荷」—— 有 2 项以上就不能按「单星发射」显示成 −。
     payloadNames: H9_GW.names,
+    // V2.0.1（R7）：每批的试验星颗数（Q24/Q25 口径）。
+    //   `'all'` → 整批都是试验星，用真实颗数（launchCounts.n，缺则百科颗数）补上。
+    testCount: (function () {
+      const out = {};
+      for (const [kk, tv] of Object.entries(H9_GW.tests || {})) {
+        const tot = (gwCounts[kk] && gwCounts[kk].n) || 0;
+        const n = (tv === 'all') ? tot : tv;
+        if (n > 0) out[kk] = Math.min(n, tot || n);
+      }
+      return out;
+    })(),
+    // V2.0.1（R7）：每批的试验星颗数（Q24/Q25 口径）。
+    //   `'all'` 表示整批都是试验星 → 用真实颗数（launchCounts.n）补；数字则直接用。
+    testCount: (function () {
+      const out = {};
+      for (const [kk, tv] of Object.entries(H9_GW.tests || {})) {
+        const tot = (gwCounts[kk] && gwCounts[kk].n) || 0;
+        const n = (tv === 'all') ? tot : tv;
+        if (n > 0) out[kk] = Math.min(n, tot || n);
+      }
+      return out;
+    })(),
     // ★ V1.9.9.630：satcat 覆盖不到的批次（见 auditCountsCoverage 的长注释）。
     //   进产物的目的是**留证**：这样"发射卫星数偏少"这件事在数据里可被追溯，而不是只在控制台闪一下。
     _countMissing: GW_COUNT_MISS,
@@ -1251,6 +1317,24 @@ const DATA = {
     sub: '低轨互联网星座',
     launches: QF_LEDGER, pending: qfPend, pendingInfo: qfSum, launchCounts: qfCounts, stats: qfStats,
     payloadNames: H9_QF.names,   // V2.0.1（R14）同 gw
+    testCount: (function () {   // V2.0.1（R7）同 gw
+      const out = {};
+      for (const [kk, tv] of Object.entries(H9_QF.tests || {})) {
+        const tot = (qfCounts[kk] && qfCounts[kk].n) || 0;
+        const n = (tv === 'all') ? tot : tv;
+        if (n > 0) out[kk] = Math.min(n, tot || n);
+      }
+      return out;
+    })(),
+    testCount: (function () {   // V2.0.1（R7）同 gw
+      const out = {};
+      for (const [kk, tv] of Object.entries(H9_QF.tests || {})) {
+        const tot = (qfCounts[kk] && qfCounts[kk].n) || 0;
+        const n = (tv === 'all') ? tot : tv;
+        if (n > 0) out[kk] = Math.min(n, tot || n);
+      }
+      return out;
+    })(),
     _countMissing: QF_COUNT_MISS,
     goneCount: goneCountsOf(Object.keys(QF_LAUNCH)),
     dead: QF_POOLS.dead, pend: QF_POOLS.pend,
