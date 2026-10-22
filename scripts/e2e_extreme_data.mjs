@@ -100,5 +100,21 @@ await runCase('⑩ layers 为空数组：不崩', m => {
   m.gw.layers = [];
 }, 'alive');
 
+// ★★ V2.0.0.630（深入探测）：**非有限数值**是"永久循环"的真实入口 ★★
+//   背景：`wrapLon()` 旧实现是 `while (lon > 180) lon -= 360`，遇到 ±Infinity 会**永远减不完**。
+//   那些经度不只来自地图点击，也来自 SGP4 传播结果 —— 极端 TLE（偏心率接近 1 等）可能算出
+//   Infinity。所以这里直接注入非有限值，验证页面既不崩、也不卡死。
+await runCase('⑪ wk 为 Infinity：不崩', m => {
+  m.gw.sats.push(baseSat({ id: 990007, c: '2030-907A', wk: Infinity }));
+}, 'alive');
+
+await runCase('⑫ orb 为非法值（7）：不崩', m => {
+  m.gw.sats.push(baseSat({ id: 990008, c: '2030-908A', orb: 7 }));
+}, 'alive');
+
+await runCase('⑬ launches 的日期为 NaN 字符串：不崩', m => {
+  m.gw.launches['99998'] = ['坏日期批次', 'not-a-date', 'CZ-5', '文昌', 50, 'ok'];
+}, 'alive');
+
 console.log(`\nPASS: ${pass}  FAIL: ${fail}`);
 process.exit(fail ? 1 : 0);

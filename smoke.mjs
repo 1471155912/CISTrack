@@ -125,6 +125,8 @@ await new Promise(r => setTimeout(r, 2500));
 const lf = s => s.replace(/\r\n/g, '\n');
 const tpl = lf(fs.readFileSync(B + '/template.html', 'utf8'));
 const appSrc = lf(fs.readFileSync(B + '/app.js', 'utf8'));
+// V2.0.0.630：判读声明的守卫要检查 README 里的四态染色，这里一并读入
+const readmeSrc = fs.readFileSync(B + '/README.md', 'utf8') + '\n' + fs.readFileSync(B + '/README.en.md', 'utf8');
 const smokeSrc = lf(fs.readFileSync(B + '/smoke.mjs', 'utf8'));
 const refreshSrc = lf(fs.readFileSync(B + '/refresh.mjs', 'utf8'));       // ★ H42：抓取脚本源码
 const guardSrc = lf(fs.readFileSync(B + '/scripts/format_guard.mjs', 'utf8'));   // ★ H42：探测模块源码   // ★ V1.9.5（H29 前哨）：自身源码（用于 meta 守卫）
@@ -383,6 +385,36 @@ assert('底栏字标用星座配色（星网红 / 千帆蓝 / 两半各一色）
 assert('底栏版本号与页面同步（都用 VERSION）',
   /function drawShotBar\(/.test(appSrc) &&
   /var rest = \[VERSION, /.test(appSrc));
+// ★★ V2.0.0.630（用户要求）：**在轨状态判读说明**的四条硬约束 ★★
+//   用户这次把这段声明当成一个正式组件来要求：开头固定、状态名染四态色、
+//   免责并入不换行、并且**页面内与导出图（含表格导出）完全一样**。
+//   下面四条分别盯住"单一真源 / 分段着色 / 表格导出也画 / 文案形态"。
+assert('判读声明：单一真源 ST_NOTE + 页面与导出共用（分段着色）',
+  /var ST_NOTE = \{/.test(appSrc) &&
+  /function stNoteSegs\(\)/.test(appSrc) &&
+  /function stNoteHtml\(\)/.test(appSrc) &&
+  /function stNoteRuns\(ctx, W, dpr, size\)/.test(appSrc) &&
+  /function stNoteColor\(c\)/.test(appSrc));
+assert('判读声明：表格导出（卫星表格 / 发射历史）也要画',
+  /function exportTable\(opts\)/.test(appSrc) &&
+  /drawStatNote\(c2, W, H \+ 10 \* dpr, dpr, noteSize\)/.test(appSrc) &&
+  /statNoteHeightOf\(c2, W, dpr, noteSize\)/.test(appSrc));
+assert('判读声明：开头为「在轨状态判读说明」且免责已并入（无「均由公开」）',
+  appSrc.indexOf('在轨状态判读说明：') >= 0 &&
+  appSrc.indexOf('均由公开') < 0 &&
+  appSrc.indexOf('非官方项目，模拟基于开源 TLE 数据，不代表实际情况。') >= 0);
+assert('判读声明：四态名在段落里带颜色类（orbit/standby/raising/gone）',
+  // ⚠️ 段里存的是**带引号的完整字符串**（`"在轨·正常"` 含前后引号），
+  //   第一版正则漏了结尾的引号 → 永远不匹配（探针的错）。
+  appSrc.indexOf("['\"在轨·正常\"', 'orbit']") >= 0 &&
+  appSrc.indexOf("['\"在轨·可能异常\"', 'standby']") >= 0 &&
+  appSrc.indexOf("['\"变轨中\"', 'raising']") >= 0 &&
+  appSrc.indexOf("['\"已再入\"', 'gone']") >= 0);
+assert('README 四态表的标签也染了对应颜色（中英各 5 行）',
+  (readmeSrc.match(/<span style="color:#0f9d58">\*\*在轨·正常\*\*<\/span>/g) || []).length === 1 &&
+  (readmeSrc.match(/<span style="color:#7c3aed">\*\*在轨·可能异常\*\*<\/span>/g) || []).length === 1 &&
+  (readmeSrc.match(/<span style="color:#0f9d58">\*\*In orbit · normal\*\*<\/span>/g) || []).length === 1);
+
 // ★★ V2.0.0.630：**唯一的"可能真的永不结束"的循环** ★★
 //   旧实现 `while (lon > 180) lon -= 360; while (lon < -180) lon += 360;`
 //   对 ±Infinity 条件永真（Infinity − 360 仍是 Infinity）⇒ 页面卡死；

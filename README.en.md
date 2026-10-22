@@ -493,11 +493,11 @@ intended working orbit** with those **parked long-term in the wrong place**. V2.
 
 | Tag | Meaning |
 |---|---|
-| **In orbit · normal** | Holding (or essentially holding) the intended working orbit for its launch |
-| **In orbit · possibly anomalous** | Parked long-term at a **non-intended** altitude/orbit while other satellites from the same launch have already arrived |
-| **Raising · burning** | Still actively raising/lowering, with measurable thrust |
-| **Raising · coasting** | Still heading for the target, but currently moving very slowly (creeping near the layer, or paused) |
-| **Re-entered** | Already left orbit (with a decay date) |
+| <span style="color:#0f9d58">**In orbit · normal**</span> | Holding (or essentially holding) the intended working orbit for its launch |
+| <span style="color:#7c3aed">**In orbit · possibly anomalous**</span> | Parked long-term at a **non-intended** altitude/orbit while other satellites from the same launch have already arrived |
+| <span style="color:#b26a00">**Raising · burning**</span> | Still actively raising/lowering, with measurable thrust |
+| <span style="color:#b26a00">**Raising · coasting**</span> | Still heading for the target, but currently moving very slowly (creeping near the layer, or paused) |
+| <span style="color:#d93025">**Re-entered**</span> | Already left orbit (with a decay date) |
 
 ### Step 1 — find the working "layers" from the data (they are not hard-coded)
 

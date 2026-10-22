@@ -2109,6 +2109,12 @@ html[data-theme="light"] .res-fail { color:#c72929; }
 :root { --st-orbit:#3ddc84; --st-gone:#ff5c5c; --st-raising:#f59f00; --st-standby:#c084fc; }
 :root[data-theme="light"] { --st-orbit:#0f9d58; --st-gone:#d93025; --st-raising:#b26a00; --st-standby:#7c3aed; }
 #satTable td.stcell { text-align:center; white-space:nowrap; font-weight:600; font-size:12px; }
+/* ★★ V2.0.0.630（用户要求）：判读声明里的状态名要**染四态色**，与信息窗/表格同一套变量。
+   原来只有 `#satTable td.st-*` 这套限定作用域的规则，`.stat-note` 里的 span 拿不到颜色。 */
+.stat-note .st-orbit { color:var(--st-orbit); }
+.stat-note .st-standby { color:var(--st-standby); }
+.stat-note .st-raising { color:var(--st-raising); }
+.stat-note .st-gone { color:var(--st-gone); }
 #satTable td.st-orbit { color:var(--st-orbit); }
 #satTable td.st-gone { color:var(--st-gone); }
 /* V1.9.2（A7)：「正在变轨」黄 —— 三态中的第二态（在轨绿 / 变轨中黄 / 已再入红） */
@@ -2499,7 +2505,7 @@ html[data-theme="light"] .res-fail { color:#c72929; }
        用户原话：「在变轨情况章节和卫星表格章节的图表下面写一段关于如何识别和区分卫星在轨情况的
        简洁说明，并再次强调这是一个结合数据源的大概估计不一定代表卫星真实在轨情况」。
        V1.9.7 曾把旧的 #climbNote 整块删掉，这次是**换内容重新加回**（不是恢复旧文案）。 -->
-  <p class="sec-lead below stat-note" data-i18n="d_st_note_climb">判读说明：「在轨·正常」= 停在预定工作轨道（含正常位置保持）；「在轨·可能异常」= 长期停在非预定工作轨道、且同批其它星已到位；「变轨中」= 仍在抬升——2 天速率 > 0.5 km/天为「点火」，贴层慢爬或暂时停推为「间歇」；「已再入」= 已离轨。判据先看位置、再看速度：已经在工作层上且近期不再爬升的即算到位；停在临时轨道等点火的仍算「变轨中」；试验星本来就不在组网轨道上，长期稳定即按其自身轨道计入在轨。均由公开 TLE 反推，只是大概估计，不代表卫星真实在轨情况。</p>
+  <p class="sec-lead below stat-note" data-i18n="d_st_note_climb">在轨状态判读说明："在轨·正常" = 停在预定工作轨道（含正常位置保持）；"在轨·可能异常" = 长期停在非预定工作轨道、且同批其它星已到位；"变轨中" = 仍在抬升——2 天速率 > 0.5 km/天为"点火"，贴层慢爬或暂时停推为"间歇"；"已再入" = 已离轨。判据先看位置、再看速度：已经在工作层上且近期不再爬升的即算到位；停在临时轨道等点火的仍算变轨中；试验星本来就不在组网轨道上，长期稳定即按其自身轨道计入在轨。非官方项目，模拟基于开源 TLE 数据，不代表实际情况。</p>
 </section>
 
 <section id="sec-progress"><button class="fs-exit-btn" type="button" aria-label="退出全屏" data-i18n-title="t_exitfs">×</button>
@@ -2624,7 +2630,7 @@ html[data-theme="light"] .res-fail { color:#c72929; }
   <p class="tbl-foot" id="tableFoot"></p>
   <!-- ★ V1.9.9（R18）：卫星表格章图（表）下「在轨状态判读声明」—— 与 04 章同一份文案（同一个 i18n 键），
        用户要求两章都要写、且导出图片里也要写在表格下方。 -->
-  <p class="sec-lead below stat-note" data-i18n="d_st_note_climb">判读说明：「在轨·正常」= 停在预定工作轨道（含正常位置保持）；「在轨·可能异常」= 长期停在非预定工作轨道、且同批其它星已到位；「变轨中」= 仍在抬升——2 天速率 > 0.5 km/天为「点火」，贴层慢爬或暂时停推为「间歇」；「已再入」= 已离轨。判据先看位置、再看速度：已经在工作层上且近期不再爬升的即算到位；停在临时轨道等点火的仍算「变轨中」；试验星本来就不在组网轨道上，长期稳定即按其自身轨道计入在轨。均由公开 TLE 反推，只是大概估计，不代表卫星真实在轨情况。</p>
+  <p class="sec-lead below stat-note" data-i18n="d_st_note_climb">在轨状态判读说明："在轨·正常" = 停在预定工作轨道（含正常位置保持）；"在轨·可能异常" = 长期停在非预定工作轨道、且同批其它星已到位；"变轨中" = 仍在抬升——2 天速率 > 0.5 km/天为"点火"，贴层慢爬或暂时停推为"间歇"；"已再入" = 已离轨。判据先看位置、再看速度：已经在工作层上且近期不再爬升的即算到位；停在临时轨道等点火的仍算变轨中；试验星本来就不在组网轨道上，长期稳定即按其自身轨道计入在轨。非官方项目，模拟基于开源 TLE 数据，不代表实际情况。</p>
 </section>
 
 <section id="sec-launches">
@@ -2719,7 +2725,7 @@ html[data-theme="light"] .res-fail { color:#c72929; }
   <!-- ★ V1.9.6（用户要求）：第三行字号与第一行一致，末尾省略号**循环跳动**；V1.9.9 起改为**六个点**。 -->
   <div class="lm-epoch" id="lmThird"><span id="lmThirdMain">加载中/Reloading</span><span class="lm-dots" aria-hidden="true"><i>.</i><i>.</i><i>.</i><i>.</i><i>.</i><i>.</i></span></div>
   <!-- ★★ V1.9.9（N2）：跳过按钮 —— 只对本次生效（不写 localStorage、不改偏好） -->
-  <button class="lm-skip" id="lmSkip" type="button">跳过 / Skip</button>
+  <button class="lm-skip" id="lmSkip" type="button">跳过 / SKIP</button>
 </div>
 
 <div id="readmeMask" class="modal-mask hide">
@@ -2987,21 +2993,8 @@ var I18N = {
   //     · 已再入 —— 已离开轨道
   //   末尾统一强调"这是基于公开 TLE 的大概估计"。
   d_st_note_climb: [
-    '判读说明：「在轨·正常」= 停在预定工作轨道（含正常位置保持）；「在轨·可能异常」= 长期停在非预定工作轨道、'
-      + '且同批其它星已到位；「变轨中」= 仍在抬升——2 天速率 > 0.5 km/天为「点火」，贴层慢爬或暂时停推为「间歇」；'
-      + '「已再入」= 已离轨。判据先看位置、再看速度：已经在工作层上且近期不再爬升的即算到位；'
-      + '停在临时轨道等点火的仍算「变轨中」；试验星本来就不在组网轨道上，长期稳定即按其自身轨道计入在轨。'
-      + '均由公开 TLE 反推，只是大概估计，不代表卫星真实在轨情况。',
-    'Note: “In orbit · normal” = holding its intended working orbit (including normal station-keeping); '
-      + '“possibly anomalous” = long parked off its intended orbit while other satellites from the same '
-      + 'launch have already arrived; “raising” = still climbing — “burning” above 0.5 km/day, “coasting” '
-      + 'when creeping along a layer or pausing between burns; “re-entered” = left orbit. '
-      + 'The rule checks position first, velocity second: a satellite already on a working layer that '
-      + 'has stopped climbing counts as arrived; one holding on a temporary orbit between burns still counts '
-      + 'as raising; a test satellite that never targets the constellation shell is counted as in orbit once '
-      + 'it is stable on its own orbit. All inferred from open TLE data — a rough estimate, '
-      + 'not the satellite’s actual status.'
-  ],
+    '在轨状态判读说明："在轨·正常" = 停在预定工作轨道（含正常位置保持）；"在轨·可能异常" = 长期停在非预定工作轨道、且同批其它星已到位；"变轨中" = 仍在抬升——2 天速率 > 0.5 km/天为"点火"，贴层慢爬或暂时停推为"间歇"；"已再入" = 已离轨。判据先看位置、再看速度：已经在工作层上且近期不再爬升的即算到位；停在临时轨道等点火的仍算变轨中；试验星本来就不在组网轨道上，长期稳定即按其自身轨道计入在轨。非官方项目，模拟基于开源 TLE 数据，不代表实际情况。',
+    'In-orbit status guide: "In orbit · normal" = holding its intended working orbit (including normal station-keeping); "possibly anomalous" = long parked off its intended orbit while other satellites from the same launch have arrived; "raising" = still climbing — "burning" above 0.5 km/day, "coasting" when creeping along a layer or pausing between burns; "re-entered" = left orbit. The rule checks position first, velocity second: a satellite already on a working layer that has stopped climbing counts as arrived; one holding on a temporary orbit between burns still counts as raising; a test satellite that never targets the constellation shell is counted as in orbit once it is stable on its own orbit. Unofficial project · simulated from open TLE data — does not reflect actual conditions.'],
   b_pick: ['选择地面观测点', 'Pick ground site'], b_names: ['名称', 'Names'],
   // ★ V1.9.8（用户第 7 条）：导出弹层第二行改成「打印第 X 页～第 Y 页」
   shot_from: ['打印第', 'Pages '], shot_to: ['页～第', ' to '], shot_page: ['页', ' of this table'],
@@ -3277,7 +3270,12 @@ function blurSearchInputs() {
   } catch (e) {}
 }
 function applyStaticLang() {
-  document.querySelectorAll('[data-i18n]').forEach(function (el) { el.innerHTML = t(el.getAttribute('data-i18n')); });
+  document.querySelectorAll('[data-i18n]').forEach(function (el) {
+    var k2 = el.getAttribute('data-i18n');
+    // ★ V2.0.0.630：判读说明里的状态名要**染四态色**，所以走分段生成的 HTML；
+    //   其余键仍是一段纯文本（i18n 注入本来就是 innerHTML，所以两种都能用）。
+    el.innerHTML = (k2 === 'd_st_note_climb') ? stNoteHtml() : t(k2);
+  });
   document.querySelectorAll('[data-i18n-ph]').forEach(function (el) { el.placeholder = t(el.getAttribute('data-i18n-ph')); });
   // V1.7.0 第三轮（需求11）：title 提示气泡也要跟着语言切换（此前是硬编码中文，英文界面会漏中文）
   document.querySelectorAll('[data-i18n-title]').forEach(function (el) { el.title = t(el.getAttribute('data-i18n-title')); });
@@ -3292,6 +3290,49 @@ function applyStaticLang() {
   //   用 innerHTML 覆盖会把两个链接节点冲掉，所以单独改那个 <span>）。
   try { repoPillLang(); } catch (e) {}
 }
+// ★★ V2.0.0.630（用户要求）：**在轨状态判读说明的单一真源** ★★
+//   用户要求页面内与导出图「完全一样」，并且状态名要**染上四态色**。
+//   做法：这里定义**分段**（每段 = [文本, 颜色类]），页面内拼成 HTML、导出图按段逐色绘制 ——
+//   同一份数据两处消费，不存在「改了一处忘另一处」。
+//   颜色类与表格/信息窗完全复用同一套：orbit（绿）/ standby（紫）/ raising（橙）/ gone（红）。
+var ST_NOTE = {
+  zh: [
+      ['在轨状态判读说明：', null],
+      ['"在轨·正常"', 'orbit'],
+      [' = 停在预定工作轨道（含正常位置保持）；', null],
+      ['"在轨·可能异常"', 'standby'],
+      [' = 长期停在非预定工作轨道、且同批其它星已到位；', null],
+      ['"变轨中"', 'raising'],
+      [' = 仍在抬升——2 天速率 > 0.5 km/天为"点火"，贴层慢爬或暂时停推为"间歇"；', null],
+      ['"已再入"', 'gone'],
+      [' = 已离轨。判据先看位置、再看速度：已经在工作层上且近期不再爬升的即算到位；停在临时轨道等点火的仍算变轨中；试验星本来就不在组网轨道上，长期稳定即按其自身轨道计入在轨。', null],
+      ['非官方项目，模拟基于开源 TLE 数据，不代表实际情况。', null]
+  ],
+  en: [
+      ['In-orbit status guide: ', null],
+      ['"In orbit · normal"', 'orbit'],
+      [' = holding its intended working orbit (including normal station-keeping); ', null],
+      ['"possibly anomalous"', 'standby'],
+      [' = long parked off its intended orbit while other satellites from the same launch have arrived; ', null],
+      ['"raising"', 'raising'],
+      [' = still climbing — "burning" above 0.5 km/day, "coasting" when creeping along a layer or pausing between burns; ', null],
+      ['"re-entered"', 'gone'],
+      [' = left orbit. The rule checks position first, velocity second: a satellite already on a working layer that has stopped climbing counts as arrived; one holding on a temporary orbit between burns still counts as raising; a test satellite that never targets the constellation shell is counted as in orbit once it is stable on its own orbit. ', null],
+      ['Unofficial project · simulated from open TLE data — does not reflect actual conditions.', null]
+  ]
+};
+function stNoteSegs() { return ST_NOTE[LANG === 'en' ? 'en' : 'zh']; }
+// 页面内：拼成带 <span class="st-xxx"> 的 HTML（i18n 注入走 innerHTML，所以能染色）
+function stNoteHtml() {
+  return stNoteSegs().map(function (s2) {
+    return s2[1] ? '<span class="st-' + s2[1] + '">' + s2[0] + '</span>' : s2[0];
+  }).join('');
+}
+// 纯文本版（与 i18n 表的值必须一致 —— smoke 有一条断言盯着这个，防两处漂移）
+function stNotePlain() {
+  return stNoteSegs().map(function (s2) { return s2[0]; }).join('');
+}
+
 // 批次名的英文写法（低轨01组 → LEO Group 01 等）
 /**
  * ★ V1.9.9（信息窗一致性）：**单星发射**判据 —— 表格「批次/组」列与信息窗的同一行**共用这一条**。
@@ -7507,14 +7548,8 @@ function drawShotBar(ctx, W, yTop, title, satLines, dpr, view) {
   //     顺序：CISTrack 行 → **判读声明** → **免责声明**（"接在这段声明的后面"）。
   if (statNoteOn) {
     y += 2 * dpr;
+    // ★ V2.0.0.630：免责声明已并入判读声明（同一段、不另起一行），由 drawStatNote 一并画出。
     y += drawStatNote(ctx, W, y, dpr, size * 0.86);
-    // 免责声明接在判读声明之后，单独一行、左对齐（与声明同列，读起来是一段连贯的话）
-    y += 2 * dpr;
-    ctx.font = monoFont(size * 0.86);
-    ctx.fillStyle = shotInkDim();
-    ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-    ctx.fillText(disco, 12 * dpr, y + Math.round(size * 0.86 * 1.62) / 2);
-    y += Math.round(size * 0.86 * 1.62);
   }
   // V1.7.3（需求8）：CISTrack 行下缘→图片底边的距离 = 行上缘→分割线的距离（3dpr）。
   //   旧版这里是 pad(10dpr)，加上 shotBarHeight 无条件多预留的 0.9 行高，底部空白过大。
@@ -7526,53 +7561,73 @@ function drawShotBar(ctx, W, yTop, title, satLines, dpr, view) {
 //   直接套一种断法必然在另一种语言下断得难看。这里按"当前字符是否 CJK"决定断点粒度。
 //   ⚠️ 抽成独立函数（而不是在 drawStatNote 里现算）：shotBarHeight 要先知道占几行才能
 //   给画布分配高度，而那时**不能**真的往画布上落笔。测量必须无副作用。
-function statNoteLines(ctx, W, dpr, size) {
-  var txt = t('d_st_note_climb');
+// ★★ V2.0.0.630（用户要求）：判读声明改为**分段着色**渲染 ★★
+//   用户要求：状态名要"染上和信息窗/表格一样的颜色"，并且页面内与导出图**完全一样**。
+//   做法：`ST_NOTE` 是唯一真源（分段数组），这里按 token 折行、逐段取色绘制。
+//   为什么按 token 而不是按字符：英文若逐字符断会断在单词中间，很难看；
+//   所以把中文拆成单字、英文拆成"单词（含尾随空格）"，两者都自然。
+//   颜色类 → CSS 变量，与表格/信息窗同一套（orbit/standby/raising/gone）。
+function stNoteColor(c) {
+  if (!c) return shotInkDim();
+  if (c === 'orbit') return cssVar('--st-orbit', '#3ddc84');
+  if (c === 'standby') return cssVar('--st-standby', '#c084fc');
+  if (c === 'raising') return cssVar('--st-raising', '#f59f00');
+  if (c === 'gone') return cssVar('--st-gone', '#ff5c5c');
+  return shotInkDim();
+}
+// 把分段文本按宽度折行 → [[{t,c}, …], …]（每行是若干段）
+function stNoteRuns(ctx, W, dpr, size) {
   var maxW = W - 24 * dpr;
-  var saveFont = ctx.font;
+  var save = ctx.font;
   ctx.font = monoFont(size);
-  var lines = [], cur = '';
-  for (var i = 0; i < txt.length; i++) {
-    var ch = txt.charAt(i);
-    var next = cur + ch;
-    if (ctx.measureText(next).width > maxW && cur) {
-      // 超宽：英文尽量整体换行（回退到上一个空格），中文直接断
-      var sp = cur.lastIndexOf(' ');
-      var isCJK = /[\u3000-\u9fff\uff00-\uffef]/.test(ch);
-      if (!isCJK && sp > 0 && (cur.length - sp) < 20) {
-        lines.push(cur.slice(0, sp));
-        cur = cur.slice(sp + 1) + ch;
-      } else {
-        lines.push(cur); cur = ch;
-      }
-    } else cur = next;
-  }
-  if (cur) lines.push(cur);
-  ctx.font = saveFont;                 // 复原字体（测量不留副作用）
+  var tokens = [];                       // [{t, c}] 原子 token
+  stNoteSegs().forEach(function (seg) {
+    var txt = seg[0], c = seg[1];
+    // 英文/数字连续的片段当一个词；CJK 与标点逐字
+    var re = /[A-Za-z0-9.,:;'"()\-–—\/·%+±°]+\s*|\s+|./g;
+    var m;
+    while ((m = re.exec(txt))) tokens.push({ t: m[0], c: c });
+  });
+  var lines = [], cur = [], curW = 0;
+  var flush = function () { if (cur.length) { lines.push(cur); cur = []; curW = 0; } };
+  tokens.forEach(function (tk) {
+    var w = ctx.measureText(tk.t).width;
+    if (curW + w > maxW && curW > 0) flush();
+    var last = cur[cur.length - 1];
+    if (last && last.c === tk.c) last.t += tk.t; else cur.push({ t: tk.t, c: tk.c });
+    curW += w;
+  });
+  flush();
+  ctx.font = save;
   return lines;
 }
-/** 声明占用高度（供 shotBarHeight 预算画布） */
+/** 声明占用高度（供 shotBarHeight 与表格导出预算画布高度） */
 function statNoteHeightOf(ctx, W, dpr, size) {
   var lineH = Math.round(size * 1.62);
-  return statNoteLines(ctx, W, dpr, size).length * lineH;
+  return stNoteRuns(ctx, W, dpr, size).length * lineH;
 }
 /** 画出声明，返回占用高度 */
 function drawStatNote(ctx, W, yTop, dpr, size) {
-  var lines = statNoteLines(ctx, W, dpr, size);
+  var runs = stNoteRuns(ctx, W, dpr, size);
   var lineH = Math.round(size * 1.62);
   ctx.font = monoFont(size);
-  ctx.fillStyle = shotInkDim();
   ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
   var y = yTop;
-  for (var k = 0; k < lines.length; k++) {
-    ctx.fillText(lines[k], 12 * dpr, y + lineH / 2);
+  for (var k = 0; k < runs.length; k++) {
+    var x = 12 * dpr, cy = y + lineH / 2;
+    for (var i = 0; i < runs[k].length; i++) {
+      var seg = runs[k][i];
+      ctx.fillStyle = stNoteColor(seg.c);
+      ctx.fillText(seg.t, x, cy);
+      x += ctx.measureText(seg.t).width;
+    }
     y += lineH;
   }
   return y - yTop;
 }
 // ★ V1.9.9（R18）：该章导出图是否要带判读声明 —— 只有 04 变轨情况与 06 卫星表格要。
 function statNoteChapter(view) {
-  return view === 'climb' || view === 'table';
+  return view === 'climb' || view === 'table' || view === 'launch';
 }
 // 预计算条带高度（供 exportView 分配画布）
 // V1.7.0：多留一行余量 —— drawShotBar 在极端情况下会把右下角声明换到下一行，
@@ -7584,11 +7639,9 @@ function shotBarHeight(ctx, W, title, satLines, dpr, view) {
   //   ⚠️ 必须**真的量一遍**（而不是拍一个固定行数）：声明的折行数随图片宽度、
   //   语言（中/英长度差很大）、字号而变，拍固定值一定在某一种情况下不够 → 最后一行被裁。
   if (statNoteChapter(view)) {
-    // ★ V1.9.9（R18）：这两章的**免责声明也独占一行**（接在判读声明后面），
-    //   所以还要多预留「2dpr 间距 + 一行 0.86 号字」——旧版它是和 CISTrack 同行右对齐的，
-    //   那一份高度已经含在 `lineH * 0.9` 里，不能重复计。
-    base += 2 * dpr + statNoteHeightOf(ctx, W, dpr, size * 0.86)
-          + 2 * dpr + Math.round(size * 0.86 * 1.62);
+    // ★ V2.0.0.630：免责声明已**并入**判读声明末尾（用户要求"接在'计入在轨。'后面，不再换行"），
+    //   所以这里不再额外预留它的一行高度。
+    base += 2 * dpr + statNoteHeightOf(ctx, W, dpr, size * 0.86);
   }
   return base;
 }
@@ -8187,20 +8240,24 @@ function exportTable(opts) {
   ctx.font = monoFont(fs);
   ctx.textAlign = 'left';
   // 底栏：左=署名与模拟时间，右=免责声明（全白字）
-  var footH = Math.round(30 * dpr);
+  // ★★ V2.0.0.630（用户要求 · 第 5 条）：**【发射历史 / 卫星表格的导出图也要带判读说明】** ★★
+  //   用户原话：「发射历史的输出图片没有按照我的要求在图片底部加上和变轨情况章节完全一样的
+  //   在轨状态判读说明，请重新落实」。
+  //   根因：`statNoteChapter()` 只在 `exportView` 里被调用，而表格导出走的是 `exportTable`
+  //   ——它压根没调过这一段，所以 R18 当初"卫星表格导出图也要写声明"其实**从未生效**。
+  //   现在：表格图底部改为画**同一份** `drawStatNote`（含已并入的免责声明），
+  //   与 04 变轨章节导出图逐字一致；高度按实际折行数预算，不会裁掉最后一行。
+  var noteSize = 10 * dpr;
   var cv2 = document.createElement('canvas');
-  cv2.width = W; cv2.height = H + footH;
+  cv2.width = W;
   var c2 = cv2.getContext('2d');
+  var noteH = statNoteHeightOf(c2, W, dpr, noteSize);
+  var footH = noteH + 20 * dpr;
+  cv2.height = H + footH;
+  c2 = cv2.getContext('2d');            // 改过 height 之后重新取一次（画布状态已重置）
   c2.fillStyle = bg; c2.fillRect(0, 0, cv2.width, cv2.height);
   c2.drawImage(cv, 0, 0);
-  // V1.6.3：底部只保留「非官方……」声明（右下角原位），不再重复 CISTrack 那一行
-  var discStr = t('d_shot_disc');
-  c2.font = monoFont(10 * dpr);
-  c2.fillStyle = shotInkDim();
-  c2.textBaseline = 'middle'; c2.textAlign = 'right';
-  if (c2.measureText(discStr).width + 24 * dpr < cv2.width) {
-    c2.fillText(discStr, cv2.width - 12 * dpr, H + footH / 2);
-  }
+  drawStatNote(c2, W, H + 10 * dpr, dpr, noteSize);
   c2.textAlign = 'left';
   var pagesTxt = (from === to) ? ('p' + (to + 1)) : ('p' + (from + 1) + '-' + (to + 1));
   // V1.7.0 第三轮末修正⑥：extra 原本传的是 shotTitle，但 shotFileName 里已经拼过章节名了，

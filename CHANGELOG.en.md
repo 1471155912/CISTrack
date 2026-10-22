@@ -291,6 +291,40 @@ re-entered) to **425 / 17 / 72 / 1**. Four satellites moved from "raising" back 
 26091D, 26128A (DTC-01), 26155B and 26155P. The 17 genuinely climbing satellites of batch 26153 plus
 26155C all stay "raising".
 
+### 12. The in-orbit status note, redone — plus a SKIP label fix
+
+**Loading screen**: the skip button now reads `跳过 / SKIP` (capitalised) — requested earlier, never landed.
+
+**The status note** was rebuilt against five requirements, with the page and the exported images now
+sharing **one source of truth**:
+
+1. Opens with "在轨状态判读说明" (In-orbit status guide)
+2. Every Japanese-style bracket `「…」` replaced with Chinese double quotes `"…"`; English uses plain
+   `"…"` (the English text had been carrying Chinese quotes `“”` — also fixed)
+3. Status names are **coloured with the four-state palette**: in orbit · normal (green), possibly
+   anomalous (purple), raising (amber), re-entered (red) — the same CSS variables used by the info
+   panel and the table
+4. The closing "inferred from open TLE…" sentence is gone; "Unofficial project · simulated from open
+   TLE data — does not reflect actual conditions." is appended to the previous sentence (same
+   paragraph, no line break, with a full stop). The section footer in the page got it too, so the two
+   on-page copies and the three exported copies are **identical**
+5. The **exported** launch-history and satellite-table images now carry the same note
+
+**Root cause worth recording**: `statNoteChapter()` was only ever called from `exportView()`, while table
+exports go through `exportTable()` — which never called it. So the original R18 requirement
+("the satellite table's exported image also needs the note") had **never actually worked**.
+
+**Implementation**: a new `ST_NOTE` array is the single source (segments, each with an optional colour
+class). In the page, `stNoteHtml()` builds `<span class="st-xxx">` (i18n injection uses `innerHTML`, so
+colour survives); in exports, `stNoteRuns()` wraps by token (CJK per character, Latin per word) and
+`stNoteColor()` picks each segment's colour. One dataset, two consumers — no drift possible.
+
+**README**: the four-state definition table now colours its labels with inline `<span style="color:…">`
+(five rows in each language).
+
+**Also**: the separate disclaimer draw inside `drawStatNote` is gone (merged into the same paragraph),
+and the height budget was tightened accordingly.
+
 ## [V1.9.9.630] — 2026-10-21
 
 > A **root-cause release for the data-fetch pipeline**. No visual change. The goal is to make fetching

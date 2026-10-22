@@ -2109,6 +2109,12 @@ html[data-theme="light"] .res-fail { color:#c72929; }
 :root { --st-orbit:#3ddc84; --st-gone:#ff5c5c; --st-raising:#f59f00; --st-standby:#c084fc; }
 :root[data-theme="light"] { --st-orbit:#0f9d58; --st-gone:#d93025; --st-raising:#b26a00; --st-standby:#7c3aed; }
 #satTable td.stcell { text-align:center; white-space:nowrap; font-weight:600; font-size:12px; }
+/* ★★ V2.0.0.630（用户要求）：判读声明里的状态名要**染四态色**，与信息窗/表格同一套变量。
+   原来只有 `#satTable td.st-*` 这套限定作用域的规则，`.stat-note` 里的 span 拿不到颜色。 */
+.stat-note .st-orbit { color:var(--st-orbit); }
+.stat-note .st-standby { color:var(--st-standby); }
+.stat-note .st-raising { color:var(--st-raising); }
+.stat-note .st-gone { color:var(--st-gone); }
 #satTable td.st-orbit { color:var(--st-orbit); }
 #satTable td.st-gone { color:var(--st-gone); }
 /* V1.9.2（A7)：「正在变轨」黄 —— 三态中的第二态（在轨绿 / 变轨中黄 / 已再入红） */
@@ -2499,7 +2505,7 @@ html[data-theme="light"] .res-fail { color:#c72929; }
        用户原话：「在变轨情况章节和卫星表格章节的图表下面写一段关于如何识别和区分卫星在轨情况的
        简洁说明，并再次强调这是一个结合数据源的大概估计不一定代表卫星真实在轨情况」。
        V1.9.7 曾把旧的 #climbNote 整块删掉，这次是**换内容重新加回**（不是恢复旧文案）。 -->
-  <p class="sec-lead below stat-note" data-i18n="d_st_note_climb">判读说明：「在轨·正常」= 停在预定工作轨道（含正常位置保持）；「在轨·可能异常」= 长期停在非预定工作轨道、且同批其它星已到位；「变轨中」= 仍在抬升——2 天速率 > 0.5 km/天为「点火」，贴层慢爬或暂时停推为「间歇」；「已再入」= 已离轨。判据先看位置、再看速度：已经在工作层上且近期不再爬升的即算到位；停在临时轨道等点火的仍算「变轨中」；试验星本来就不在组网轨道上，长期稳定即按其自身轨道计入在轨。均由公开 TLE 反推，只是大概估计，不代表卫星真实在轨情况。</p>
+  <p class="sec-lead below stat-note" data-i18n="d_st_note_climb">在轨状态判读说明："在轨·正常" = 停在预定工作轨道（含正常位置保持）；"在轨·可能异常" = 长期停在非预定工作轨道、且同批其它星已到位；"变轨中" = 仍在抬升——2 天速率 > 0.5 km/天为"点火"，贴层慢爬或暂时停推为"间歇"；"已再入" = 已离轨。判据先看位置、再看速度：已经在工作层上且近期不再爬升的即算到位；停在临时轨道等点火的仍算变轨中；试验星本来就不在组网轨道上，长期稳定即按其自身轨道计入在轨。非官方项目，模拟基于开源 TLE 数据，不代表实际情况。</p>
 </section>
 
 <section id="sec-progress"><button class="fs-exit-btn" type="button" aria-label="退出全屏" data-i18n-title="t_exitfs">×</button>
@@ -2624,7 +2630,7 @@ html[data-theme="light"] .res-fail { color:#c72929; }
   <p class="tbl-foot" id="tableFoot"></p>
   <!-- ★ V1.9.9（R18）：卫星表格章图（表）下「在轨状态判读声明」—— 与 04 章同一份文案（同一个 i18n 键），
        用户要求两章都要写、且导出图片里也要写在表格下方。 -->
-  <p class="sec-lead below stat-note" data-i18n="d_st_note_climb">判读说明：「在轨·正常」= 停在预定工作轨道（含正常位置保持）；「在轨·可能异常」= 长期停在非预定工作轨道、且同批其它星已到位；「变轨中」= 仍在抬升——2 天速率 > 0.5 km/天为「点火」，贴层慢爬或暂时停推为「间歇」；「已再入」= 已离轨。判据先看位置、再看速度：已经在工作层上且近期不再爬升的即算到位；停在临时轨道等点火的仍算「变轨中」；试验星本来就不在组网轨道上，长期稳定即按其自身轨道计入在轨。均由公开 TLE 反推，只是大概估计，不代表卫星真实在轨情况。</p>
+  <p class="sec-lead below stat-note" data-i18n="d_st_note_climb">在轨状态判读说明："在轨·正常" = 停在预定工作轨道（含正常位置保持）；"在轨·可能异常" = 长期停在非预定工作轨道、且同批其它星已到位；"变轨中" = 仍在抬升——2 天速率 > 0.5 km/天为"点火"，贴层慢爬或暂时停推为"间歇"；"已再入" = 已离轨。判据先看位置、再看速度：已经在工作层上且近期不再爬升的即算到位；停在临时轨道等点火的仍算变轨中；试验星本来就不在组网轨道上，长期稳定即按其自身轨道计入在轨。非官方项目，模拟基于开源 TLE 数据，不代表实际情况。</p>
 </section>
 
 <section id="sec-launches">
@@ -2719,7 +2725,7 @@ html[data-theme="light"] .res-fail { color:#c72929; }
   <!-- ★ V1.9.6（用户要求）：第三行字号与第一行一致，末尾省略号**循环跳动**；V1.9.9 起改为**六个点**。 -->
   <div class="lm-epoch" id="lmThird"><span id="lmThirdMain">加载中/Reloading</span><span class="lm-dots" aria-hidden="true"><i>.</i><i>.</i><i>.</i><i>.</i><i>.</i><i>.</i></span></div>
   <!-- ★★ V1.9.9（N2）：跳过按钮 —— 只对本次生效（不写 localStorage、不改偏好） -->
-  <button class="lm-skip" id="lmSkip" type="button">跳过 / Skip</button>
+  <button class="lm-skip" id="lmSkip" type="button">跳过 / SKIP</button>
 </div>
 
 <div id="readmeMask" class="modal-mask hide">
