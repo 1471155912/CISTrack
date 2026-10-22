@@ -106,7 +106,11 @@ const GW_LAUNCH = {
   '25209': ['试验星08组', '2025-09-16T09:06', '长征二号丙 Y54 / 远征一号S Y11', '酒泉 LC-43/94', 50.0],
   '26078': ['试验星09', '2026-04-11T19:32', '捷龙三号 Y11', '南海 东方航天港号', 86.5],
   '26091': ['试验星10组', '2026-04-24T14:35', '长征二号丁 Y109', '西昌 LC-3', 55.0],
-  '26158': ['试验星12', '2026-07-10T12:15', '长征十号乙 Y1', '海商 LCC-2', 49.99],
+  // ★★ V2.0.1（R15/C1）：原名是硬编码的 **'试验星12'** —— 纯属序号发明（真名见 wiki：
+  //   「卫星互联网技术试验卫星（CX-26卫星）」），用户原话是「为什么叫 CX-23 试验星12？」。
+  //   批次名现在一律以 wiki 词条为准（见 applyWikiTables 的 R15 段），这里只是**兜底值**，
+  //   但兜底也必须是真名，否则 wiki 抓取失败的那一轮又会把假名字显示出来。
+  '26158': ['卫星互联网技术试验卫星（CX-26卫星）', '2026-07-10T12:15', '长征十号乙 Y1', '海商 LCC-2', 49.99],
   '24040': ['高轨01星', '2024-02-29T21:03', '长征三号乙 Y95', '西昌 LC-2', 0],
   '24135': ['高轨02星', '2024-08-01T21:14', '长征三号乙 Y97', '西昌 LC-2', 0],
   '24181': ['高轨03星', '2024-10-10T21:50', '长征三号乙 Y100', '西昌 LC-2', 0],
@@ -193,15 +197,26 @@ function mergeResults(meta) {
 function normBatchName(payload) {
   let s = String(payload || '').trim();
   if (!s) return '';
-  s = s.replace(/[（(]\s*(?:共)?\s*\d{1,3}\s*颗?\s*[)）]\s*$/,'')   // 去尾部「(9)」「（共10颗）」
-         .replace(/\s*\(\s*\d{1,3}\s*\)\s*$/,'')                   // 再去一次兜底（ defensive ）
-         .trim();
-  s = s.replace(/^卫星互联网技术试验卫星\s*/,'试验星')               // 技术试验卫星 → 试验星
-         .replace(/^卫星互联网\s*/,'')                              // 去掉星座前缀
-         .replace(/^千帆\s*/,'')
-         .replace(/卫星$/,'组')                                     // 「低轨27组卫星」→「低轨27组」
-         .replace(/组卫星$/,'组')
-         .trim();
+  // ① 去尾部颗数。★ V2.0.1（R-3）：原来这里是**两条**正则（第二条注释写 defensive），
+  //   实际第一条已覆盖 `(9)` / `（共10颗）` 两种形态，第二条是同一件事的兜底 —— 合并成一条。
+  //   容忍：全/半角括号、`共`、`颗`、空格。
+  s = s.replace(/[（(]\s*(?:共)?\s*\d{1,3}\s*颗?\s*[)）]\s*$/,'').trim();
+  // ② 组网星「…低轨/极轨/高轨 + 编号 + 组|星…」→ 压成台账同款短名
+  //   ★★ V2.0.1（R15/C1）：这里是**治本**的地方。旧实现紧跟一条
+  //     `s.replace(/^卫星互联网技术试验卫星\s*/,'试验星')`
+  //   —— 它把「卫星互联网技术试验卫星（CX-26卫星）」压成了「试验星」，再配上手工台账里
+  //   硬编码的序号，就编出了根本不存在的批次名「试验星12」。用户原话：
+  //     「为什么叫 CX-23 试验星12？你是不是错误地泛化应用了仅限于简化几个章节内
+  //       标记卫星光点的简化称呼？」
+  //   ⇒ 铁律：**组网星可以压（因为它有真实组号），试验星一律保持 wiki 原文**。
+  //     压缩只对 `低轨/极轨/高轨 + 数字 + 组|星` 这一种形态生效，其余原样返回。
+  const m = s.match(/^(?:卫星互联网|千帆)?\s*(?:卫星)?(低轨|极轨|高轨)\s*(\d{1,3})\s*(组|星)/);
+  if (m) return m[1] + m[2] + m[3];
+  // ③ 其余一律**原样返回**（含星座前缀也不削）
+  //   ⚠️ 这一条与旧实现相反，是刻意的：旧实现在这里 `replace(/^卫星互联网\s*/,'')`，
+  //   把「卫星互联网技术试验卫星一号、二号」削成「技术试验卫星一号、二号」——
+  //   而用户在 R15 验收里明确要的是**带前缀的百科全名**。既然 ② 已经把该压的组网星压完了，
+  //   剩下的就不该再动一个字（宁可不短，也不改名）。
   return s;
 }
 // ★★ V1.9.4：**给台账自动补新批次**（用户报的"新录入卫星没有批次/组号、制造商、在轨日"的真因）
@@ -558,10 +573,53 @@ const GW_LEDGER = mergeResults(GW_LAUNCH), QF_LEDGER = mergeResults(QF_LAUNCH);
 //      · 自动补录的新批次（v[8] 含 auto）→ 词条还没收录 = 正常窗口期，提示等本地任务刷新；
 //      · 任务失败（res=fail）→ 词条不收失利发射，**豁免**（25F05 即此）；
 //      · 其余（老台账键）→ **真缺口**，大声告警（该进词条表却没有）。
+// ★★ V2.0.1（R15 + R14）：从 wiki 词条行的**章节分组**里取出该发的本星座载荷名 ★★
+//
+// 为什么需要它：`wiki_tables` 现在带 `bySec`（每个章节各自的载荷名），这是唯一权威的
+//   「这一发到底发了什么、分别属于哪一类」的来源。没有它的时候，代码只能靠名字正则猜，
+//   而猜错就是「试验星12」那种事故。
+//
+// 章节语义（2026-10-22 实测，见 fetch_wiki_tables 的 secs 分布）：
+//   · gw：「试验星」12 批 / 「业务星」30 批
+//   · qf：「试验星」4 批 / 「组网星」16 批
+// ⇒ 组网星/业务星 = 本星座的正式组网载荷（必须排在前面）
+//   试验星        = 该发的试验载荷（拼在后面，用 `+` 连接，见 R14 的 2026-211）
+//
+// 返回 `{ name, payloadNames }`：
+//   · `name`         = 批次名（多载荷用 `+` 连接，如 `极轨26组+EUHT技术试验卫星`）
+//   · `payloadNames` = 规范化后的载荷名数组（R14 页面层要用）
+//   · 无可用名 → 返回 null，调用方回落到手工台账（降级链的最后一环）
+const NET_SEC = /组网星|业务星/;
+const TEST_SEC = /试验星/;
+function launchNameFromWiki(row) {
+  if (!row) return null;
+  const bySec = row.bySec;
+  let nets = [], tests = [];
+  if (bySec && typeof bySec === 'object') {
+    for (const sec of Object.keys(bySec)) {
+      const names = (bySec[sec] || []).filter(Boolean);
+      if (NET_SEC.test(sec)) nets = nets.concat(names);
+      else if (TEST_SEC.test(sec)) tests = tests.concat(names);
+      // 其它章节（如「发射记录」「导航星」等）暂不参与批次名，避免把非载荷行拼进来
+    }
+  }
+  let all = nets.concat(tests);
+  // 老数据（本轮之前抓的、没有 bySec）兜底：用 names 并集 —— 保证升级后不会突然没名字
+  if (!all.length) all = (Array.isArray(row.names) ? row.names : (row.name ? [row.name] : [])).filter(Boolean);
+  if (!all.length) return null;
+  const seen = new Set(), out = [];
+  for (const x of all) {
+    const n = normBatchName(x);
+    if (n && !seen.has(n)) { seen.add(n); out.push(n); }
+  }
+  if (!out.length) return null;
+  return { name: out.join('+'), payloadNames: out };
+}
 function applyWikiTables(ledger, bk, tag) {
   const T = (WIKI_TABLES && WIKI_TABLES[bk]) || {};
-  let nFix = 0, nAuto = 0, nFail = 0;
+  let nFix = 0, nAuto = 0, nFail = 0, nName = 0;
   const miss = [];
+  const names = {};   // V2.0.1（R15/R14）：台账 key → 本星座载荷名数组
   for (const k in ledger) {
     const v = ledger[k];
     // ★★ V1.9.9.630（治本，第二处）：**台账 key 不止"5 位纯数字"一种形态。**
@@ -590,12 +648,28 @@ function applyWikiTables(ledger, bk, tag) {
       nFix++;
     }
     if (String(v[8] || '') !== wantFlags) v[8] = wantFlags;
+    // ★★ V2.0.1（R15）：**批次名一律以 wiki 为准**，手工台账 v[0] 降级为兜底 ★★
+    //   这是本轮最直接的一处「用户指正落地」：旧台账把 12 个星网试验批写成「试验星01组…试验星12」，
+    //   其中 26158 的真名是「卫星互联网技术试验卫星（CX-26卫星）」，被硬编成了「试验星12」。
+    //   现在优先级：wiki 词条表的载荷名 > 手工台账。
+    //   ⚠️ 只在词条**确实有载荷名**时才覆盖；抓取失败（词条为空）时保持台账原值，
+    //      否则一次网络抖动就会把整张表的批次名刷成「无台账」。
+    const nm = launchNameFromWiki(row);
+    if (nm && nm.name) {
+      if (String(v[0] || '') !== nm.name) {
+        console.log('  R15 批次名以词条为准：' + k + ' ' + (v[0] || '(空)') + ' → ' + nm.name);
+        v[0] = nm.name;
+        nName++;
+      }
+      names[k] = nm.payloadNames;
+    }
   }
   console.log(tag + ' H9 单源：日期修正 ' + nFix + ' 条' +
+    (nName ? '｜R15 批次名以词条为准 ' + nName + ' 条' : '') +
     (nAuto ? '｜新批次未入词条 ' + nAuto + ' 条（窗口期，等本地任务刷新）' : '') +
     (nFail ? '｜失利发射豁免 ' + nFail + ' 条' : '') +
     (miss.length ? '｜⚠️⚠️ 词条缺失 ' + miss.length + ' 条：' + miss.join(', ') : '｜无缺失'));
-  return { nFix: nFix, nAuto: nAuto, nFail: nFail, miss: miss };
+  return { nFix: nFix, nName: nName, nAuto: nAuto, nFail: nFail, miss: miss, names: names };
 }
 const H9_GW = applyWikiTables(GW_LEDGER, 'gw', '星网');
 const H9_QF = applyWikiTables(QF_LEDGER, 'qf', '千帆');
@@ -1157,6 +1231,9 @@ const DATA = {
     key: 'gw', name: '星网', en: 'SatNet / CSCN', org: '中国卫星网络集团有限公司',
     sub: '低轨互联网星座',
     launches: GW_LEDGER, pending: gwPend, pendingInfo: gwSum, launchCounts: gwCounts, stats: gwStats,
+    // ★ V2.0.1（R14）：每批的**本星座载荷名数组**（`+` 之前的那几项）。
+    //   页面用它判断「这一发是不是多载荷」—— 有 2 项以上就不能按「单星发射」显示成 −。
+    payloadNames: H9_GW.names,
     // ★ V1.9.9.630：satcat 覆盖不到的批次（见 auditCountsCoverage 的长注释）。
     //   进产物的目的是**留证**：这样"发射卫星数偏少"这件事在数据里可被追溯，而不是只在控制台闪一下。
     _countMissing: GW_COUNT_MISS,
@@ -1173,6 +1250,7 @@ const DATA = {
     key: 'qf', name: '千帆', en: 'Qianfan / Thousand Sails (G60)', org: '上海垣信卫星科技有限公司',
     sub: '低轨互联网星座',
     launches: QF_LEDGER, pending: qfPend, pendingInfo: qfSum, launchCounts: qfCounts, stats: qfStats,
+    payloadNames: H9_QF.names,   // V2.0.1（R14）同 gw
     _countMissing: QF_COUNT_MISS,
     goneCount: goneCountsOf(Object.keys(QF_LAUNCH)),
     dead: QF_POOLS.dead, pend: QF_POOLS.pend,

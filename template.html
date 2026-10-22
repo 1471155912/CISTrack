@@ -619,6 +619,16 @@ section.sf-out  > *:not(.sec-head) { opacity:0; }
 .climb-pick, .climb-take { display:inline-flex; align-items:center; gap:10px; font-size:var(--fs-ctl, 11px); letter-spacing:0.12em; color:var(--dim); }
 .climb-pick select { min-width:220px; max-width:min(420px, 70vw); }
 @media (max-width: 620px) { .climb-pick select { min-width:0; width:100%; } .climb-bar { gap:12px; } }
+/* ★★ V2.0.1（R15 的连带布局修复）：03 倾角分布的「批次/组」下拉 ★★
+   病根：R15 把批次名改成 wiki 全名（「卫星互联网技术试验卫星（CX-26卫星）」）之后，
+   <select> 的固有宽度会按**最长的 option** 撑开 → 实测 466px，而 414/430/480px 视口下
+   章节内容区只有 398/414/464px ⇒ 控件与标签**越出章节右边界**（visual 的 52 组矩阵当场抓到）。
+   ⚠️ 这里刻意**只在窄屏**生效：宽屏下 select 本来就放得下，不必动它（宽屏画面零变化）。
+   展开下拉时浏览器仍显示完整批次名，只是收起状态按可用宽度截断 —— 这是 select 的标准行为。 */
+@media (max-width: 620px) {
+  #sec-chart .controls .ctl { min-width: 0; }
+  #sec-chart .controls select { min-width: 0; max-width: 100%; }
+}
 
 /* 全屏左上角小窗按钮条：左侧「展开设置」三角（仅 02/03 有设置）+ 「恢复默认视图」 */
 .fs-bar { display:none; position:absolute; left:10px; top:10px; z-index:45; align-items:center; gap:8px; }

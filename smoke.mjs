@@ -2586,19 +2586,44 @@ assert('V1.9.0（R17）：升轨速率算法在页面端与构建期**同一口�
     // ⚠️ 这里**自己读文件**取 satdata：本块所在作用域没有外层那个 D（用错会 ReferenceError）。
     const sd = JSON.parse(fs.readFileSync(B + '/build/satdata.json', 'utf8'));
     const DD = sd.SATDATA || sd;
+    // 行为验证走**真实产物**：所有台账批次名翻成英文后都**不能残留中文**。
+    //
+    // ★★ V2.0.1（R15）：判据从「手写正则清单」改为「**真跑一遍 batchName**」★★
+    //   旧写法用一个硬编码清单匹配形态：
+    //     /^(低轨\d+组|极轨\d+组|试验星\d+组?|试验星 KL-…|高轨\d+星?|千帆 .+|星网 .+|DTC…)$/
+    //   R15 把批次名改以 **wiki 全名**为准（如「卫星互联网技术试验卫星（CX-26卫星）」）之后，
+    //   这个清单立刻过期 → 报红。**但红的原因不是产品坏了，是判据过期了** ——
+    //   这正是"守卫的判据不能手写"的又一次实例（前几次：三处字段白名单的 KEY 清单）。
+    //   正确判据 = 这条守卫真正要防的事：**英文界面漏出中文**。
+    //   于是改为从 app.js 提取 `batchName` 源码 + `CN_NUM` 常量，构造一个可调用副本，
+    //   对每个批次名真译一遍，检查结果里还有没有 CJK。
+    //   ⚠️ 提取失败要**显式报错**，不能当成"通过"（否则又是一次假绿）。
+    const src2 = fs.readFileSync(B + '/app.js', 'utf8');
+    const fnM = src2.match(/function batchName\(name\) \{[\s\S]*?\n\}/);
+    const cnM = src2.match(/var CN_NUM = (\{[^}]*\});/);
+    let enOf = null;
+    try {
+      const CN = new Function('return ' + cnM[1])();
+      enOf = new Function('LANG', 'CN_NUM', fnM[0] + '\nreturn batchName;')('en', CN);
+    } catch (e) { enOf = null; }
     const bad = [];
-    ['gw', 'qf'].forEach(k => {
-      Object.keys((DD[k] && DD[k].launches) || {}).forEach(key => {
-        const v = DD[k].launches[key];
-        const nm = String((v && v[0]) || '');
-        if (!nm) return;
-        if (!/^(低轨\d+组|极轨\d+组|试验星\d+组?|试验星 KL-[A-Za-z0-9]+|高轨\d+星?|千帆 .+|星网 .+|DTC[ -]?\d+.*)$/.test(nm)) {
-          bad.push(k + ':' + key + '=' + nm);
-        }
+    let nChecked = 0;
+    if (enOf) {
+      ['gw', 'qf'].forEach(k => {
+        Object.keys((DD[k] && DD[k].launches) || {}).forEach(key => {
+          const nm = String(((DD[k].launches[key] || [])[0]) || '');
+          if (!nm) return;
+          nChecked++;
+          let en = '';
+          try { en = String(enOf(nm)); } catch (e) { en = ''; }
+          if (!en) { bad.push(k + ':' + key + '=(翻译为空)'); return; }
+          if (/[\u4e00-\u9fff]/.test(en)) bad.push(k + ':' + key + '=' + en);
+        });
       });
-    });
-    assert('V1.9.4：所有台账批次名都符合 batchName() 的可译形态（新补录的百科行名也受约束）',
-      bad.length === 0, bad.slice(0, 4).join(' | '));
+    }
+    assert('V1.9.4 / V2.0.1：所有台账批次名的英文翻译**不残留中文**（判据＝真跑 batchName，不是手写形态清单）',
+      !!enOf && bad.length === 0,
+      enOf ? (bad.length ? bad.slice(0, 4).join(' | ') : ('全部可译 ' + nChecked + ' 个')) : 'batchName 源码提取失败');
   }
   // ---- V1.9.1（A19）：搜索补池（dead / pend）+ satcat 缺失的**显式**探测 ----
 // 为什么 satcatOk 是必需的：A19 的两池与 1.4-D 的 st='r' 在**输入缺失时都会退化成空**
@@ -2662,7 +2687,10 @@ assert('V1.9.0（R17）：升轨速率算法在页面端与构建期**同一口�
 assert('V1.8.0（需求6）：launches 台账第 6 位=任务结果、第 7 位=百科记载颗数',
   Object.values(RAW.gw.launches).filter(v => v.length >= 6).length >= Math.floor(Object.keys(RAW.gw.launches).length * 0.9) &&
   Object.values(RAW.qf.launches).every(v => v.length >= 6) &&
-  ['ok', 'part', 'fail', '?'].includes(Object.values(RAW.gw.launches).find(v => v[0] === '试验星07组')[5]));
+  // ★ V2.0.1（R15）：原来按**批次名** '试验星07组' 去找这一条 —— R15 把批次名改以 wiki 全名为准后
+  //   名字变成了「卫星互联网技术试验卫星07组」，`find` 返回 undefined → 整条 smoke 直接崩溃。
+  //   改为按**批次 key**（'25F05'，失利批次，名字永远可能变、key 不变）定位，从此不再受改名影响。
+  ['ok', 'part', 'fail', '?'].includes(String((RAW.gw.launches['25F05'] || [])[5])));
 assert('V1.8.0（需求12）：卫星表插入「发射时间」列、发射历史插入「任务结果」列',
   /t_ltime: /.test(appCode) && /t_result: /.test(appCode) &&
   /res_ok: /.test(appCode) && /res_part: /.test(appCode) && /res_fail: /.test(appCode) &&
@@ -3637,7 +3665,9 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
     })(), JSON.stringify(tst));
 
   // ③ 只有单颗的批次 → 「已选择」
-  k3.selectGroup('26158');                       // 试验星12：1 颗（69972）
+  k3.selectGroup('26158');                       // 卫星互联网技术试验卫星（CX-26卫星）：1 颗（69972）
+  // ★ V2.0.1（R15）：台账原名是硬编码的「试验星12」——纯序号发明（真名见 wiki 词条）。
+  //   批次名现在一律以 wiki 为准，这里只是注释同步，断言本身仍只关心「1 颗」这个事实。
   tst = k3.toast();
   const st1 = k3.state();
   assert('A3：只有单颗的批次全选 → 「已选择」（复用既有零引用键 d_sel_one）',

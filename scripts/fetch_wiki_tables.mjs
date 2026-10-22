@@ -77,6 +77,27 @@ const ev = (e, aw) => c.ev(e, aw);
 // 表内提取（与 mkmanufacturers 原版同一套表头定位逻辑：按内容特征找列，不按下标硬取）
 const EXTRACT = `(function(){
   var out = [];
+  // ★★ V2.0.1（C6）：**采集所属章节（heading）** ★★
+  //   病根：旧实现只遍历 <table>，从头到尾没看过 heading ⇒ 于是「这一行属于『试验星』
+  //   还是『组网星』」这条信息**从未被采集过**，下游只能靠名字正则去猜（R15 就是这么猜错的：
+  //   把 CX-26 猜成了「试验星12」）。
+  //   做法：按**文档顺序**扫一遍 heading 与 table，遇到 heading 就更新当前章节，
+  //   遇到 table 就把它绑定到当前章节 —— 这是唯一不会错的关联方式
+  //   （用 "向上找最近 heading" 的 DOM 祖先法在 wiki 的表格嵌套布局里会漏）。
+  var SEC = new Map();
+  (function () {
+    var cur = '', lvl = 0;
+    var nodes = document.querySelectorAll('h1,h2,h3,h4,h5,h6,table');
+    for (var i = 0; i < nodes.length; i++) {
+      var n = nodes[i];
+      if (/^H[1-6]$/.test(n.tagName)) {
+        var tx = (n.innerText || '').trim().replace(/\\s+/g, '');
+        if (tx) { cur = tx; lvl = +n.tagName.slice(1); }
+      } else if (n.tagName === 'TABLE') {
+        SEC.set(n, { sec: cur, lvl: lvl });
+      }
+    }
+  })();
   document.querySelectorAll('table').forEach(function (t) {
     var trs = [...t.querySelectorAll('tr')];
     if (!trs.length) return;
@@ -88,6 +109,7 @@ const EXTRACT = `(function(){
     var iMk = head.findIndex(function (h) { return /研发机构|研制单位/.test(h); });
     var iEn = head.findIndex(function (h) { return /^英文名$/.test(h); });
     if (iCos < 0 || iDate < 0) return;                       // 单源表必须有 COSPAR + 日期
+    var sc = SEC.get(t) || { sec: '', lvl: 0 };              // V2.0.1（C6）：本表所属章节
     trs.slice(1).forEach(function (tr) {
       var cs = [...tr.children];
       if (cs.length <= iCos) return;
@@ -109,6 +131,10 @@ const EXTRACT = `(function(){
       }).filter(function (x) { return x.u; }) : [];
       out.push({
         cospar: cos,
+        // ★ V2.0.1（C6/C7）：章节 + 章节层级 + **COSPAR 原文**
+        //   cospar 是归一后的键（可能已被上游合并），cosparRaw 是表格里那一格的原文
+        //   （2026-211 / 2026-211K）—— C7 要靠它判断「这是同一批的两行」还是「两批」。
+        sec: sc.sec, secLvl: sc.lvl, cosparRaw: String(cs[iCos].innerText || '').trim().replace(/\\s+/g, ''),
         date: iDate >= 0 && cs[iDate] ? (cs[iDate].innerText || '').trim().replace(/\\s+/g, ' ') : '',
         name: iName >= 0 && cs[iName] ? (cs[iName].innerText || '').trim().replace(/\\s+/g, ' ').slice(0, 80) : '',
         nameLinks: nList,
@@ -216,6 +242,10 @@ for (const [key, url] of PAGES) {
   okPages++;
   const map = out[key];
   fetchedAt[key] = Date.now();          // 这一星座刚抓成功 → 记新时间（失败的时间戳保持旧值）
+  // ★★ V2.0.1（C7）：行级明细**每轮重建** ★★
+  //   本轮是整页重抓，行级信息自然完整；若不先清空，旧文件里的 rows 会被重复追加，
+  //   跑 N 次就是 N 倍膨胀（与 `en` 那次"去重不幂等"是同一类坑）。
+  for (const kk of Object.keys(map)) map[kk].rows = [];
   let n = 0;
   for (const r of arr) {
     const cos = normCospar(r.cospar);
@@ -238,7 +268,16 @@ for (const [key, url] of PAGES) {
       en: r.en || '',
       d8: dt ? dt.d8 : '', t8: dt ? dt.t8 : '', ms8: dt ? dt.ms8 : 0,
       site: r.site || '', siteUrl: r.siteUrl || '',
-      mk: r.mk ? { m: r.mk, url: r.mkUrl || '', links: r.mkLinks || [] } : null
+      mk: r.mk ? { m: r.mk, url: r.mkUrl || '', links: r.mkLinks || [] } : null,
+      // ★ V2.0.1（C6/C7）：章节落盘 + 行级明细
+      //   `sec` 只有单章节时才有值；多章节时由 `secs` / `bySec` 表达（见本循环之后的派生段）。
+      //   `rows` 是**表格里的原始行**：同一批次若在「试验星」与「组网星」两张表各出现一次，
+      //   这里就会有两项，各自带自己的章节与载荷名 —— 这正是 R14「按章节过滤载荷」的依据。
+      sec: r.sec || '', secLvl: r.secLvl || 0, cosparRaw: r.cosparRaw || '',
+      rows: [{
+        cosparRaw: r.cosparRaw || '', sec: r.sec || '', secLvl: r.secLvl || 0,
+        name: r.name || '', en: r.en || '', d8: dt ? dt.d8 : '', t8: dt ? dt.t8 : ''
+      }]
     };
     // ⚠️ 同一次发射在表里可能有多行（A/B/K 多载荷，COSPAR 只差后缀字母）→ **合并**而不是覆盖：
     //    已存在的非空字段保留，空字段由后行补齐（防止"无研发机构"的行把有机构的行覆盖成 null）。
@@ -276,13 +315,50 @@ for (const [key, url] of PAGES) {
         push(String(row.en || ''));      // ← 再加本次抓到的
         old.en = parts.join(' / ');
       }
+      // ★ V2.0.1（C7）：行级明细追加（每行的章节各自保留）
+      if (!Array.isArray(old.rows)) old.rows = [];
+      old.rows.push(row.rows[0]);
       n++;
       continue;
     }
     map[cos] = row;
     n++;
   }
-  console.log(key + '：' + n + ' 行（' + Object.keys(map).length + ' 个 COSPAR）');
+  // ★★ V2.0.1（C6/C7）：从**行级明细**统一派生 `secs` / `bySec`/ `sec` ★★
+  //   为什么不在合并时增量维护：增量维护最容易写错（漏一次就永久错），而 rows 是完整事实，
+  //   事后一次算清既正确又幂等。C7 要的"章节不丢"，本质就是把这张表补回来。
+  //     · `sec`   —— 只有一个章节时才写（绝大多数批次），下游最省事的读法
+  //     · `secs`  —— 该批次跨了哪些章节（去重，保持出现顺序）
+  //     · `bySec` —— { 章节: [该章节里的载荷名...] }，R14 按章节过滤载荷直接用
+  for (const kk of Object.keys(map)) {
+    const e = map[kk];
+    const rws = Array.isArray(e.rows) ? e.rows : [];
+    const secs = [];
+    const bySec = {};
+    for (const x of rws) {
+      const s = String(x.sec || '');
+      if (!s) continue;
+      if (secs.indexOf(s) < 0) secs.push(s);
+      if (x.name) (bySec[s] = bySec[s] || []).push(x.name);
+    }
+    if (secs.length) {
+      e.secs = secs;
+      e.bySec = bySec;
+      if (secs.length === 1) e.sec = secs[0]; else delete e.sec;
+    } else {
+      delete e.secs; delete e.bySec; delete e.sec;
+    }
+  }
+  console.log(key + '：' + n + ' 行（' + Object.keys(map).length + ' 个 COSPAR）'
+    + '｜章节：' + [...new Set(Object.values(map).flatMap(e => e.secs || []))].join(' / '));
+  // 多章节批次单独打一行 —— 它们正是 C7/R14 的对象，人工核对时看得见
+  {
+    const multi = Object.keys(map).filter(kk => (map[kk].secs || []).length > 1);
+    if (multi.length) {
+      console.log('  多章节批次 ' + multi.length + ' 个：');
+      multi.slice(0, 8).forEach(kk => console.log('    ' + kk + ' → ' + JSON.stringify(map[kk].bySec)));
+    }
+  }
 }
 if (!okPages) {
   console.log('!! 两个词条都没抓到 —— 保留原文件不动（不写坏数据）');

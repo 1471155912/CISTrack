@@ -539,6 +539,11 @@ function applyStaticLangIn(root) {
  *     于是高轨单星在表格里是 `−`、在信息窗里却是「高轨03星」，同一颗星两个说法。
  */
 function isLoneLaunch(L) {
+  // ★★ V2.0.1（R14）：**多载荷批次绝不能被当成「单星发射 → −」** ★★
+  //   判据不能只看 count：一次发射可能只编目到 1 颗（兄弟星还没进目录/已再入），
+  //   但它的载荷清单明确写着 2 项（`payloadNames.length === 2`）—— 这时显示 `−` 是错的。
+  //   实测对象：19077（KL-Alpha A+B）、21070（KL-Beta A+B）、26211（极轨26组+EUHT）。
+  if (L && L.pnames && L.pnames.length > 1) return false;
   return !L ||
     (L.name && L.key && L.name === L.key) ||
     ((L.count > 0 ? L.count : (L.sats ? L.sats.length : 0)) <= 1);
@@ -553,7 +558,44 @@ function batchCellHtml(L, asLink) {
 }
 function batchName(name) {
   if (LANG !== 'en') return name;
-  return name.replace(/^低轨(\d+)组$/, 'LEO Group $1')
+  var s = String(name == null ? '' : name);
+  // ★★ V2.0.1（R14/R15-4）：**多载荷批次按 `+` 分段翻译** ★★
+  //   R15 之后批次名可能是 `极轨26组+EUHT技术试验卫星`（2026-211）这种形态，
+  //   下面所有规则都是"整串精确匹配"，遇到 `+` 一定全部落空 ⇒ 英文界面直接漏出中文。
+  //   递归翻译每一段再拼回 ` + `（段内不含 `+`，不会无限递归）。
+  if (s.indexOf('+') >= 0) {
+    return s.split('+').map(function (x) { return batchName(x.trim()); }).join(' + ');
+  }
+  return s
+    // ★★ V2.0.1（R15-4）：**批次名改以 wiki 全名为准之后，英文翻译必须跟上** ★★
+    //   不加这一段的话，R15 会让英文界面从「Test Satellite 12」**退化成整串中文**（比改名前更糟）。
+    //   ⚠️ 这几条必须排在下方所有旧规则**之前** —— 它们形态更具体，先匹配才不会被子串规则抢走。
+    //   验收（R15 的表格）：26158→CX-26 ｜ 25067→WHJSW 0001 系列 ｜ 23181→XGQ 02A ｜ 23095→WHJSW 1 / 2
+    .replace(/^卫星互联网技术试验卫星\s*[（(]\s*(CX-?\d+[A-Z]?)\s*卫星?\s*[)）]$/i, '$1')
+    .replace(/^卫星互联网技术试验卫星\s*[（(](.+?)[)）]$/, 'WHJSW ($1)')
+    .replace(/^卫星互联网技术试验卫星\s*(\d{4})\s*星?\s*[-~～至]\s*(\d{4})\s*星?$/, 'WHJSW $1-$2')
+    .replace(/^卫星互联网技术试验卫星\s*(\d+)\s*组\s*(.+)$/, function (_, n, rest) {
+      return 'WHJSW ' + n + ' Group ' + rest.replace(/星/g, '').trim();
+    })
+    .replace(/^卫星互联网技术试验卫星\s*(\d+)\s*组$/, 'WHJSW $1 Group')
+    .replace(/^卫星互联网技术试验卫星\s*(\d+)\s*星?$/, 'WHJSW $1')
+    // 「一号、二号」→「WHJSW 1 / 2」（中文数字转阿拉伯，走全局 CN_NUM）
+    // ⚠️ 每个数字后面可能带「号」（实际数据就是「一号、二号」），必须 `号?` 紧随其后，
+    //   否则 `[、]` 会要求"数字紧邻顿号"而永远匹配不上（第一版就踩了这个）。
+    .replace(/^卫星互联网技术试验卫星\s*([一二三四五六七八九十]+)\s*号?\s*[、,，]\s*([一二三四五六七八九十]+)\s*号?$/,
+      function (_, a, b) { return 'WHJSW ' + (CN_NUM[a] || a) + ' / ' + (CN_NUM[b] || b); })
+    .replace(/^卫星互联网技术试验卫星\s*([一二三四五六七八九十]+)\s*号?$/,
+      function (_, a) { return 'WHJSW ' + (CN_NUM[a] || a); })
+    .replace(/^星网倾斜轨道试验星\s*(\d+)\s*组\s*(.+)$/, function (_, n, rest) {
+      return 'XGQ ' + n + ' ' + rest.replace(/星/g, '').trim();
+    })
+    .replace(/^卫星互联网高轨卫星\s*(\d+)\s*星$/, 'CSCN GEO $1')
+    .replace(/^全球多媒体卫星系统\s*α\s*阶段\s*([AB])\s*卫星$/, 'KL-Alpha $1')
+    .replace(/^全球多媒体卫星系统\s*β\s*阶段\s*([AB])\s*卫星$/, 'KL-Beta $1')
+    .replace(/^EUHT\s*技术试验卫星$/, 'EUHT Technology Test Satellite')
+    .replace(/^千帆\s*DTC\s*0*(\d+)\s*星$/i, 'Qianfan DTC-$1')
+    // —— 以下为原有规则（台账短名时代留下的），保持不动 ——
+    .replace(/^低轨(\d+)组$/, 'LEO Group $1')
     .replace(/^极轨(\d+)组$/, 'Polar Group $1')
     // V1.6.3：数据里既有「试验星03组」也有「试验星03」（无"组"），高轨则是「高轨03星」—— 都要覆盖
     .replace(/^试验星(\d+)组$/, 'Test Satellite $1')
@@ -594,8 +636,10 @@ function zhRules(n) {
     .replace(/^CHUANG ?XIN (\d+)([A-Z]?)(?: \([^)]*\))?$/, '创新$1$2')
     .replace(/^KL-ALPHA ([A-Z])$/, '千帆-α-$1')
     .replace(/^KL-BETA ([A-Z])$/, '千帆-β-$1')
-    .replace(/^DTC TEST OBJECT ([A-Z])$/, '千帆DTC-$1')
-    .replace(/^试验星(\d+)$/, '试验星$1');
+    .replace(/^DTC TEST OBJECT ([A-Z])$/, '千帆DTC-$1');
+  // ★ V2.0.1（C4）：这里原本还有一条 `.replace(/^试验星(\d+)$/, '试验星$1')` ——
+  //   替换前后**完全相同**，是纯空转（既不改值也不报错），已删除。
+  //   它大概是当年"想把试验星重排成别的形态"留下的残余，但从未生效过，留着只会误导读者。
 }
 
 // ---------------------------------------------------------------- ★ V1.9.5（H13/H19）：百科词条链接与中文名
@@ -716,20 +760,29 @@ function shortOf(s) {
   // ④ 倾斜轨道试验星 → XGQ + 组号 + 字母
   g = /倾斜轨道试验星\s*(\d+)\s*组\s*([A-Z])\s*星?$/.exec(zh);
   if (g) return 'XGQ' + pad2(g[1]) + g[2];
-  // ⑤ 卫星互联网技术试验卫星系列
+  // ★★ V2.0.1（C3/R15 前置防护）：**「创新 / CX」的判定必须排在 ⑤ 之前** ★★
+  //   病根：⑤ 末尾有一条早退
+  //     `if (/^卫星互联网技术试验卫星/.test(zh)) return 'S(' + s.norad + ')';`
+  //   而 CX-26 的词条名现在（R15 之后）是「卫星互联网技术试验卫星（CX-26卫星）」——
+  //   **完全符合那个前缀** ⇒ 会先被早退成 `S(69972)`，永远走不到原 ⑦ 的 CX 分支。
+  //   实测当前侥幸没出事：`wn` 恰好还是短名「CX-26卫星」（2026-10-22 核对），
+  //   但只要词条名一改成全名（这是 R15 的既定方向），`CX26` 就会静默消失。
+  //   ⇒ 按 R15 的口径把它提到 ⑤ 之前，⑤ 的早退降级为「⑤-b 兜底」。
+  //   ⚠️ 顺序仍有意义：④ 的「倾斜轨道试验星」更具体，必须排在 CX 之前。
+  g = /CX-?\s*(\d+[A-Z]?)/i.exec(zh) || /CX-?\s*(\d+[A-Z]?)/i.exec(name) || /创新\s*(\d+[A-Z]?)/.exec(zh);
+  if (g) return 'CX' + g[1].toUpperCase();
+  // ⑤ 卫星互联网技术试验卫星系列（⑤-a 显式编号优先 → ⑤-b S(NORAD) 兜底）
   g = /技术试验卫星\s*([一二三四五六七八九十]+)\s*号?$/.exec(zh);
   if (g) return 'S' + pad2(CN_NUM[g[1]] || 0);
   g = /技术试验卫星\s*(\d+)\s*组\s*([A-Z])\s*星?$/.exec(zh);
   if (g) return 'S' + pad2(g[1]) + g[2];
   g = /技术试验卫星\s*(\d+)\s*星?$/.exec(zh);
   if (g) return 'S' + g[1];
-  if (/^卫星互联网技术试验卫星/.test(zh)) return 'S(' + s.norad + ')';   // 保底：无编号 → S(NORAD)
+  if (/^卫星互联网技术试验卫星/.test(zh)) return 'S(' + s.norad + ')';   // ⑤-b 保底：无编号 → S(NORAD)
   // ⑥ 高轨（GEO）
   g = /高轨[^0-9]{0,8}(\d{2})\s*星?$/.exec(zh) || /GAOGUI-(\d+)/.exec(name);
   if (g) return 'G' + pad2(g[1]);
-  // ⑦ 创新 / CX
-  g = /CX-?\s*(\d+[A-Z]?)/i.exec(zh) || /CX-?\s*(\d+[A-Z]?)/i.exec(name) || /创新\s*(\d+[A-Z]?)/.exec(zh);
-  if (g) return 'CX' + g[1].toUpperCase();
+  // ⑦ 创新 / CX —— **已上移到 ⑤ 之前**（见那里 V2.0.1 的注释）。此处留空位，保持后续编号不变。
   // ⑧ 只有组名（最新批次，没有单星编号）：`互联网低轨27组A星` / `千帆极轨26组A星`
   var o = objForm(s);
   if (o) return 'A' + o.group + o.letter;
@@ -928,7 +981,15 @@ function build(key) {
       rseg: ln ? ln.r : null,       // 火箭分段（含卫星百科链接）
       slink: ln ? ln.s : null,       // 发射场（含卫星百科链接）
       auto: auto, dayOnly: dayOnly,
-      url: v[7] || ''                // V1.9.4：百科词条链接（payload 格的 <a>，若有）
+      url: v[7] || '',               // V1.9.4：百科词条链接（payload 格的 <a>，若有）
+      // ★★ V2.0.1（R14）：本批次在**本星座**的载荷名数组（`+` 之前的那几项）
+      //   来源：mkdata 的 `gw.payloadNames` / `qf.payloadNames`（按 wiki 章节过滤后的结果）。
+      //   用途：判断"这一发是不是多载荷"—— 只有它才能区分「单星发射」与「多载荷但只编目到 1 颗」。
+      pnames: (c.payloadNames && c.payloadNames[k]) || null,
+      // ★★ V2.0.1（R9）：本批**已再入**颗数（satcat 的 DECAY_DATE 数出来的）。
+      //   为什么挂在 launch 上：`netCountOf()` 只拿到 L，而"累计发射"与"当前在轨"这两个口径
+      //   的唯一区别就是这个数（见那里的长注释）。没有它，两条曲线在数学上必然重合。
+      gone: (c.goneCount && c.goneCount[k]) ? c.goneCount[k].length : 0
     };
     // ⚠️ dateMs 绝不允许是 NaN：发射历史表按 dateMs **倒序**排（见 renderLaunches），
     //   NaN 参与比较时全部返回 false → 排序结果未定义，该行会被随机挤到任意位置
@@ -11402,14 +11463,27 @@ function netMonday(ms) {                      // 该时刻所在周的周一 00:
 }
 // 单次发射在某个口径下记多少颗
 function netCountOf(L, mode) {
+  // ★★ V2.0.1（R9）：**「发射量」与「在轨量」必须真的是两个口径** ★★
+  //   病根（实测 2026-10-22）：旧实现里
+  //     · orbit = `L.sats.length + pending`（L.sats 里**含**已再入的星，因为卫星记录保留着）
+  //     · launch = `L.count`（satcat 数出来的**全部** PAY，也含已再入）
+  //   两者数学等价 ⇒ 曲线**逐批完全重合**（gw 42/42、qf 19/19 全部相同），
+  //   用户看到的"两条线贴在一起"不是巧合，是口径错误。
+  //   正确口径：
+  //     · 发射量 = **累计发射**，不因再入而减少（历史事实）
+  //     · 在轨量 = 累计 − 已再入（当前事实）
+  //   ⚠️ `L.gone` 来自 satcat 的 DECAY_DATE（由 build() 从 goneCount 挂上来），
+  //      不是"猜"出来的；没有 satcat 时它是 0，两条线会重合 —— 那是**输入缺失**，
+  //      与"口径错误"不是一回事（satcatOk 为 false 时页面另有提示）。
+  var gone = (L && L.gone > 0) ? L.gone : 0;
+  var tot = (L && L.count > 0) ? L.count : ((L && L.wn > 0) ? L.wn : 0);
   if (mode === 'orbit') {
-    // 在轨 = 已有 TLE 的颗数 + 成功但尚未编目的颗数（失利批次不补，因为它根本没进轨道）
-    return L.sats.length + ((L.pending > 0 && L.res !== 'fail') ? L.pending : 0);
+    // 在轨 = 累计 − 已再入 + 成功但尚未编目的颗数（失利批次不补，它根本没进轨道）
+    var pendAdd = (L && L.pending > 0 && L.res !== 'fail') ? L.pending : 0;
+    return Math.max(0, tot - gone) + pendAdd;
   }
-  // 发射量：优先用目录里数出来的颗数（launchCounts，最全）；目录里数不出来（如失利的那一发、
-  // 或还没有任何编目对象的批次）才用卫星百科记载的颗数；两者都没有 → 这一发不计（Q5 明确要求）
-  if (L.count > 0) return L.count;
-  return L.wn > 0 ? L.wn : 0;
+  // 发射量：累计发射（含已再入）。优先目录口径（launchCounts 最全），否则百科记载颗数
+  return tot;
 }
 function netBuild() {
   var mode = S.netMode, now = Date.now();
