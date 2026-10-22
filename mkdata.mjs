@@ -1260,6 +1260,9 @@ const DATA = {
     sats: qfPack.sats, tleTpl: qfPack.tpls,
   },
   urls: URLS,
+  // ★ V2.0.1（O-1）：自检结果**在这里不能内联** —— DATA 字面量的求值时间早于 SELF_CHECK
+  //   （它要等 ORBIT_ST 与状态挂载都跑完才算），内联会直接 ReferenceError。
+  //   统一在下面用 `DATA.selfCheck = SELF_CHECK;` 挂载（与 DATA.gw.layers 同一套路）。
 };
 
 fs.mkdirSync(BUILD, { recursive: true });
@@ -1659,7 +1662,14 @@ const ORBIT_ST = (() => {
         for (const p of x.pts) if (Math.abs((p[1] - RE) - ref) <= NEAR) { od = p[0]; break; }
       }
     }
-    const rec = { orb: orb, wk: wk, od: od ? ymd8(od) : '', la: la };
+    // ★ V2.0.1（O-1）：把 `alt`（实际高度）与 `bkey`（批次键）一并留在 ORBIT_ST 里 ——
+    //   构建期自检要用它们算「变轨中但离停泊层多远」。ORBIT_ST 是**构建期中间表**，
+    //   不进产物（只有 .layers 会被发布），所以加字段没有体积代价。
+    const rec = { orb: orb, wk: wk, od: od ? ymd8(od) : '', la: la, alt: actualAlt, bkey: x.key, thin: !!x.thin,
+      // ★ V2.0.1（O-1）：历史跨度也要留 —— 自检只对**跨度足够做判断**的星报错。
+      //   跨度不足 60 天的星，判据会保守地把它们留在「变轨中」（无法证明"停住了"），
+      //   那是**设计**，不是矛盾；把它算进自检等于让守卫误伤自己。
+      span: x.span };
     if (orb) {
       if (x.rate !== null && x.rate !== undefined && isFinite(x.rate)) {
         rec.rr = Math.round(x.rate * 100) / 100;
@@ -1795,6 +1805,55 @@ const ORBIT_ST = (() => {
 // ★ V1.9.7（§6 治本）：把**实测工作轨道层**随 satdata 发布 —— 页面第 0 章「轨道分布」与
 //   03 章的虚线椭圆直接读这份，与判定用的层是**同一份数据**（不再两处各算一遍，避免漂移）。
 //   结构：[{ alt: 整十公里, inc: 0.5° 档位, n: 成员数, sd: 高度标准差 }]，按成员数降序。
+// ★★ V2.0.1（O-1）：**构建期自检** —— 把「静默错判」变成可断言的数字 ★★
+//
+// 为什么需要它：本项目最危险的一类缺陷不是崩溃，而是**判据静默错判** ——
+//   页面不报错，只是把状态显示错。历史实例：18 颗 `P` 星全被判「变轨中」、
+//   「在轨·可能异常」这一档**永远显示不出来**（直到人肉探针才查到）。
+//   人肉探针能查一次，查不了每一天。所以把两条**可量化**的疑点写进产物，让 smoke 每天断言。
+//
+// 两条判据（都是"语义矛盾"，不是"数据异常"）：
+//   ① 变轨中但 2 天速率 ≈ 0（|rr| < 0.15 km/天）—— 在推就该有速率，没速率就不该叫"在推"；
+//   ② 变轨中但离自己的停泊高度 > 60 km —— 要么判据把已到位的星误判成变轨，
+//      要么它真的在做长途机动（正常应是个位数）。
+//
+// ⚠️ 超阈值只进 `warnings[]` 并让 smoke 断言，**不阻断构建**：
+//   数据本身可能是对的（例如 GEO 位置保持机动），阻断会逼人把阈值放宽 —— 那就成了新的自欺。
+//   （这条口径与「守卫的判据不能手写」是同一件事的两面：判据要能反映事实，不能反过来裁剪事实。）
+function selfCheckOf(map, isGw) {
+  let moving = 0, thin = 0, shortSpan = 0, rateZero = 0, far = 0;
+  const rateZeroIds = [], farIds = [];
+  for (const [norad, x] of map) {
+    if (x.orb !== 1) continue;
+    const inThis = isGw ? !!GW_LAUNCH[x.bkey] : !!QF_LAUNCH[x.bkey];
+    if (!inThis) continue;
+    moving++;
+    // ⚠️ **thin（历史点不足）的星必须单独排除**，否则自检会把**设计的保守兜底**当成缺陷：
+    //   `thin` 分支的判据是「首点距现在 ≤30 天 ⇒ moving」—— 刚发射的星本来就会被判「变轨中」，
+    //   而它算不出速率（点太少）时 `rr` 恰好是 0。
+    //   实测第一次跑：gw 14 颗 / qf 25 颗命中，6 位 NORAD（100795~100799、100973…）全是刚编目的新星。
+    if (x.thin) { thin++; continue; }
+    // 同理：**历史跨度 <60 天**的星判据无法证明"它停住了"，保守留在「变轨中」也是设计。
+    //   （与 `parked` 的 PARK_SPAN=60 同口径 —— 判据自己都要 60 天才敢说"停住了"，
+    //     自检没理由用更短的标准去指责它。）
+    if (!(x.span >= 60)) { shortSpan++; continue; }
+    if (typeof x.rr === 'number' && Math.abs(x.rr) < 0.15) { rateZero++; if (rateZeroIds.length < 6) rateZeroIds.push(norad); }
+    if (typeof x.alt === 'number' && typeof x.wk === 'number' && Math.abs(x.alt - x.wk) > 60) {
+      far++; if (farIds.length < 6) farIds.push(norad);
+    }
+  }
+  const warns = [];
+  if (rateZero > 0) warns.push('数据充分却「变轨中·速率≈0」 ' + rateZero + ' 颗（' + rateZeroIds.join(',') + '）');
+  if (far > 10) warns.push('变轨中但离停泊层 >60km ' + far + ' 颗（' + farIds.join(',') + '）');
+  return { moving, thin, shortSpan, rateZero, far, rateZeroIds, farIds, warns };
+}
+const SELF_CHECK = { gw: selfCheckOf(ORBIT_ST, true), qf: selfCheckOf(ORBIT_ST, false) };
+DATA.selfCheck = SELF_CHECK;   // V2.0.1（O-1）：自检结果随产物发布
+for (const k of ['gw', 'qf']) {
+  const s = SELF_CHECK[k];
+  console.log('自检 ' + k + '：变轨中 ' + s.moving + ' 颗（历史点不足 ' + s.thin + '｜跨度<60天 ' + s.shortSpan + '）｜数据充分却速率≈0 ' + s.rateZero + ' 颗｜离层>60km ' + s.far + ' 颗'
+    + (s.warns.length ? '  ⚠️ ' + s.warns.join('；') : '  ✓'));
+}
 DATA.gw.layers = ORBIT_ST.layers.gw;
 DATA.qf.layers = ORBIT_ST.layers.qf;
 

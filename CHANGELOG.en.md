@@ -159,6 +159,45 @@ reach CelesTrak — which the CI does daily.
   rate colour override the whole-row status colour ⇒ **the visuals would change**, so the duplication stays,
   with the reason recorded inline.
 
+### 8. Follow-up polish (same version, no version bump)
+
+**Batch names no longer invent sequence numbers**: the hand-maintained ledger named 12 CSCN test
+batches "试验星01组…试验星12"; batch 26158 is actually "卫星互联网技术试验卫星（CX-26卫星）" but was
+hard-coded as "试验星12". Batch names now come **from the wiki table** (the ledger is only a
+fallback), and compression applies only to "低轨/极轨/高轨 + number + 组|星" — test satellites keep
+the wiki wording verbatim.
+
+**Wiki table scraping now records sections**: the scraper only ever looked at `<table>` and never at
+headings, so "does this row belong to the test-satellite table or the constellation table?" was
+**never captured**, leaving downstream code to guess by name (and guessing wrong caused the incident
+above). It now walks headings and tables in document order, stores `sec` per row, and derives
+`secs` / `bySec` from row-level detail. Measured: CSCN 12 test / 30 operational; Qianfan 4 test /
+16 constellation. 2026-211 can now tell "test = EUHT technology test satellite" from
+"constellation = Qianfan Polar Group 26 (8 satellites)".
+
+**Multi-payload batches join with `+`**: `极轨26组+EUHT技术试验卫星` (2026-211) plus the KL-α/β A+B
+pairs — 3 batches. English mode translates each `+` segment separately (otherwise the whole string
+leaks Chinese); multi-payload batches are no longer misread as "single-satellite launch −"; rideshare
+payloads are filtered by section (26128 carries only "千帆DTC 01星", not China Mobile).
+
+**The two network-progress metrics are now genuinely different**: "launches" and "in orbit" used to be
+mathematically identical (`orbit` used `sats.length` including re-entered objects, `launch` used
+`count` which also included them), so the curves overlapped batch for batch. Now
+`launch` = cumulative launches (never decreases on re-entry) and `orbit` = cumulative − re-entered +
+pending cataloguing. Measured: CSCN 253/252, Qianfan 262/262.
+
+**New build-time self-check** (`satdata.selfCheck`): every build now computes two quantifiable
+suspicions — "raising but >60 km from its own parked altitude" and "enough data yet raising with
+≈0 rate" — and records them in `warnings[]` for smoke to assert on. The two "insufficient data"
+conservative fallbacks (too few history points / span under 60 days) are counted separately and
+**excluded from the contradiction counts**, otherwise the check would report its own design as a bug.
+Its first run flagged 7 objects (5 from batch 26153, plus 26155C and 26128A): they climbed, then
+stopped, but drifted more than 5 km over 90 days, so they fail the existing `parked` rule and stay
+labelled "raising". That is a rule-boundary question, recorded for a decision rather than changed
+unilaterally.
+
+Verification: smoke 1030/0, visual 132/0 (incl. the 52-case matrix), adversarial 66/0, other gates green.
+
 ## [V1.9.9.630] — 2026-10-21
 
 > A **root-cause release for the data-fetch pipeline**. No visual change. The goal is to make fetching

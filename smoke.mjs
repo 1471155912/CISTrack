@@ -2657,6 +2657,38 @@ assert('V1.9.0（R17）：升轨速率算法在页面端与构建期**同一口�
   assert('V1.9.1：satcat 可用时已再入链路必须有货（否则恒空的分支等于没被验证过）',
     !D.satcatOk || (D.gw.sats.some(s => s.st === 'r') && Object.keys(D.gw.goneCount || {}).length > 0),
     D.satcatOk ? '已再入 ' + D.gw.sats.filter(s => s.st === 'r').length + ' 颗' : '（satcat 缺失，mkdata 已给醒目警告）');
+
+  // ★★ V2.0.1（O-1）：**构建期自检**（把"判据自相矛盾"变成每天可断言的数字） ★★
+  //   为什么需要：本项目最危险的缺陷不是崩溃，而是**判据静默错判** ——
+  //   页面不报错、只是把状态显示错（历史实例：18 颗 P 星全被判「变轨中」、
+  //   「在轨·可能异常」这一档永远显示不出来，靠人肉探针才查到）。
+  //   人肉探针能查一次，查不了每一天。所以 mkdata 每次构建都把两条可量化的疑点算出来放进产物。
+  //   ⚠️ 阈值刻意留了余量、且**明细随断言一起打印**：
+  //     判据有疑点时应该"看得见"，而不是"红了但不知道为什么红"。
+  {
+    const sc = D.selfCheck;
+    assert('V2.0.1（O-1）：satdata 带构建期自检结果（gw/qf 各含 moving/thin/shortSpan/rateZero/far）',
+      !!sc && !!sc.gw && !!sc.qf &&
+      ['moving', 'thin', 'shortSpan', 'rateZero', 'far'].every(k => typeof sc.gw[k] === 'number') &&
+      ['moving', 'thin', 'shortSpan', 'rateZero', 'far'].every(k => typeof sc.qf[k] === 'number'),
+      sc ? ('gw=' + JSON.stringify({ m: sc.gw.moving, thin: sc.gw.thin, r0: sc.gw.rateZero, far: sc.gw.far }) +
+        ' qf=' + JSON.stringify({ m: sc.qf.moving, thin: sc.qf.thin, r0: sc.qf.rateZero, far: sc.qf.far })) : '缺失');
+    // ① 变轨中但离自己的停泊层 >60km —— 正常应是个位数，>10 说明判据可能整体失准
+    assert('V2.0.1（O-1）：变轨中却离停泊层 >60km 的星 ≤10 颗',
+      !!sc && sc.gw.far <= 10 && sc.qf.far <= 10,
+      sc ? ('gw ' + sc.gw.far + ' / qf ' + sc.qf.far + (sc.gw.farIds.length ? '（' + sc.gw.farIds.join(',') + '）' : '')) : '缺失');
+    // ② 数据充分却「变轨中·速率≈0」—— 语义矛盾（在推就该有速率）。
+    //    当前实测 7 颗（全是「爬升后停住、但 90 天整体漂移 >5km」的老星，不满足 parked 判据）；
+    //    阈值设 10 是留观察余量：超过 10 说明这批星在变多，需要回头审视 parked 的判据。
+    assert('V2.0.1（O-1）：数据充分却「变轨中·速率≈0」的星 ≤10 颗',
+      !!sc && sc.gw.rateZero <= 10 && sc.qf.rateZero <= 10,
+      sc ? ('gw ' + sc.gw.rateZero + ' / qf ' + sc.qf.rateZero +
+        (sc.qf.rateZeroIds.length ? '（qf: ' + sc.qf.rateZeroIds.join(',') + '）' : '')) : '缺失');
+    // ③ thin / shortSpan 必须真的被排除在外，否则上面两条会被"数据不足的保守兜底"污染成假警报
+    assert('V2.0.1（O-1）：自检把「历史点不足」与「跨度<60天」单独计数（不混进矛盾数）',
+      !!sc && sc.gw.thin + sc.qf.thin > 0 && sc.gw.shortSpan + sc.qf.shortSpan > 0,
+      sc ? ('thin ' + (sc.gw.thin + sc.qf.thin) + ' / shortSpan ' + (sc.gw.shortSpan + sc.qf.shortSpan)) : '缺失');
+  }
 }
   // ⚠️ CI 工作流文件只存在于**仓库**里；本地工作区（开发目录）通常没有 `.github/`。
   //   smoke 两边都会跑（本地自审 + CI），所以这里必须容错 —— 不存在就视为通过并注明。
