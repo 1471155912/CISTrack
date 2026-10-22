@@ -69,7 +69,11 @@
   --fs-sel:  clamp(12.6px, 12.05px + 0.10vw,   13.5px);    /* 390→12.6  1440→13.5 */
   --fs-tbl:  clamp(12.6px, 12.05px + 0.10vw,   13.5px);    /* 390→12.6  1440→13.5 */
   --fs-th:   clamp(10.8px, 10.72px + 0.0195vw, 11px);      /* 390→10.8  1440→11   */
-  --fs-info: clamp(11.6px, 11.08px + 0.1333vw, 13px);      /* 390→11.6  1440→13   */
+  /* ★★ V2.0.0.630（R4 落地）：字号**固定 13px**，两端同一套（用户裁决：不再做连续响应式）。
+     旧写法 clamp(11.6 .. 13) 让手机比桌面小 12%，同一颗星在两个设备上排版不同；
+     而 --si-w 是按 13px 标定的，手机端字号变小只会让"标签与值之间的空隙"更大。
+     ⚠️ 窄屏不再降字号，只由 --si-w（实测值）与 max-width 兜底。 */
+  --fs-info: 13px;
   /* ★★ V1.9.9.630（用户要求）：页脚字号**适度放大**（原来 11~11.5px，电脑端偏小），
      并"自适应屏幕大小"。取值：
        390px → 13.0   （≈ 原来的手机档 11.5 再放大一点点 —— 用户说手机端"还比较合适"，
@@ -688,11 +692,11 @@ section.fs-mobile .view-ctl,
 section.fs-stuck .view-ctl {
   bottom:var(--fs-ctl-bottom);
   right:calc(10px + env(safe-area-inset-right, 0px));
-  z-index:52;
+  z-index:44;
 }
 /* V1.3.5：02/03 全屏右上角的时间药丸 —— 与顶栏同款；实时=主题色细边框，调过时间=黄色 2s 呼吸 */
 /* V1.7.0（任务7）：毛玻璃加强 + 可点击切换 GMT/本地，指针提示 */
-.fs-clock { display:none; position:absolute; top:12px; right:14px; z-index:47; font-family:var(--mono);
+.fs-clock { display:none; position:absolute; top:12px; right:14px; z-index:70; font-family:var(--mono);
   font-size:10.5px; letter-spacing:0.1em; color:var(--dim); background:var(--nav-bg); backdrop-filter:var(--glass-std);
   -webkit-backdrop-filter:var(--glass-web); border:1px solid var(--row-sel); border-radius:999px; padding:5px 16px;
   white-space:nowrap; user-select:none; cursor:pointer; transition:border-color .2s var(--ease); }
@@ -771,8 +775,8 @@ section.fs-mobile .fs-search { display:block; width:100%; max-width:none; }
        → **376px**。这就是"刚好容纳最长情况、不换行"的宽度。
      ⚠️ 只作用于 01/02/03 三章（satBlock）；04 章信息窗内容不同，仍是它自己的口径。
      ⚠️ 窄屏（≤480）由 max-width 兜底，配合下面 .si-row 的换行规则 —— 宁可折成两行，也绝不截断。 */
-  --si-w: 376px;
-  display:none; position:absolute; top:16px; left:16px; z-index:30; width:var(--si-w);
+  --si-w: 300px;   /* JS 实测后覆盖（siFitWidth）；此值仅无脚本/首帧兜底 */
+  display:none; position:absolute; top:16px; left:16px; z-index:45; width:var(--si-w);
   /* ⚠️ max-width 必须按**视口**（100vw）而不是父容器（100%）：
      手机端 `.chart-wrap` 的实际宽度可能大于视口（画布有最小宽度），
      用 100% 时 max-width 会算出 ~700px → 452 不被收窄 → 整个信息窗**跑出屏幕**（实测 390px 视口拍到的就是这个）。
@@ -2505,7 +2509,7 @@ html[data-theme="light"] .res-fail { color:#c72929; }
        用户原话：「在变轨情况章节和卫星表格章节的图表下面写一段关于如何识别和区分卫星在轨情况的
        简洁说明，并再次强调这是一个结合数据源的大概估计不一定代表卫星真实在轨情况」。
        V1.9.7 曾把旧的 #climbNote 整块删掉，这次是**换内容重新加回**（不是恢复旧文案）。 -->
-  <p class="sec-lead below stat-note" data-i18n="d_st_note_climb">在轨状态判读说明："在轨·正常" = 停在预定工作轨道（含正常位置保持）；"在轨·可能异常" = 长期停在非预定工作轨道、且同批其它星已到位；"变轨中" = 仍在抬升——2 天速率 > 0.5 km/天为"点火"，贴层慢爬或暂时停推为"间歇"；"已再入" = 已离轨。判据先看位置、再看速度：已经在工作层上且近期不再爬升的即算到位；停在临时轨道等点火的仍算变轨中；试验星本来就不在组网轨道上，长期稳定即按其自身轨道计入在轨。非官方项目，模拟基于开源 TLE 数据，不代表实际情况。</p>
+  <p class="sec-lead below stat-note" data-i18n="d_st_note_climb">在轨状态判读说明："在轨·正常" = 停在预定工作轨道（含正常位置保持）；"在轨·可能异常" = 长期停在非预定工作轨道、且同批其它星已到位；"变轨中" = 仍在抬升——2 天速率 > 0.5 km/天为"点火"，贴层慢爬或暂时停推为"间歇"；"已再入" = 已离轨。判据先看位置、再看速度：已经在工作层上且近期不再爬升的即算到位；停在临时轨道等点火的仍算变轨中；试验星本来就不在组网轨道上，长期稳定即按其自身轨道计入在轨。注意：本图像卫星变轨情况折线的染色仅用于做互相区分，并不用于表示其对应卫星的在轨状态！非官方项目，模拟基于开源 TLE 数据，不代表实际情况。</p>
 </section>
 
 <section id="sec-progress"><button class="fs-exit-btn" type="button" aria-label="退出全屏" data-i18n-title="t_exitfs">×</button>
@@ -2630,7 +2634,7 @@ html[data-theme="light"] .res-fail { color:#c72929; }
   <p class="tbl-foot" id="tableFoot"></p>
   <!-- ★ V1.9.9（R18）：卫星表格章图（表）下「在轨状态判读声明」—— 与 04 章同一份文案（同一个 i18n 键），
        用户要求两章都要写、且导出图片里也要写在表格下方。 -->
-  <p class="sec-lead below stat-note" data-i18n="d_st_note_climb">在轨状态判读说明："在轨·正常" = 停在预定工作轨道（含正常位置保持）；"在轨·可能异常" = 长期停在非预定工作轨道、且同批其它星已到位；"变轨中" = 仍在抬升——2 天速率 > 0.5 km/天为"点火"，贴层慢爬或暂时停推为"间歇"；"已再入" = 已离轨。判据先看位置、再看速度：已经在工作层上且近期不再爬升的即算到位；停在临时轨道等点火的仍算变轨中；试验星本来就不在组网轨道上，长期稳定即按其自身轨道计入在轨。非官方项目，模拟基于开源 TLE 数据，不代表实际情况。</p>
+  <p class="sec-lead below stat-note" data-i18n="d_st_note_climb">在轨状态判读说明："在轨·正常" = 停在预定工作轨道（含正常位置保持）；"在轨·可能异常" = 长期停在非预定工作轨道、且同批其它星已到位；"变轨中" = 仍在抬升——2 天速率 > 0.5 km/天为"点火"，贴层慢爬或暂时停推为"间歇"；"已再入" = 已离轨。判据先看位置、再看速度：已经在工作层上且近期不再爬升的即算到位；停在临时轨道等点火的仍算变轨中；试验星本来就不在组网轨道上，长期稳定即按其自身轨道计入在轨。注意：本图像卫星变轨情况折线的染色仅用于做互相区分，并不用于表示其对应卫星的在轨状态！非官方项目，模拟基于开源 TLE 数据，不代表实际情况。</p>
 </section>
 
 <section id="sec-launches">

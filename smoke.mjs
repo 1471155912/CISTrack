@@ -243,8 +243,8 @@ assert('差分还原：每颗星都是两行 69 字符',
 //   兜底的窗口是固定的（BUNDLE_DAYS=60 / BUNDLE_STEP=2）。
 //   V1.9.0 全量历史注入后（436 颗 × 3 年），兜底点数约 1.1 万，satdata 稳定在 ~400KB。
 //   两段式口径同步放宽：硬上限 600KB / 软预警 350KB（突破说明兜底窗口或 TLE 差分被改大）。
-assert('satdata.json 体积 < 600KB（60 天兜底窗口固定，不随年数膨胀；超过 350KB 预警）',
-  rawSrc.length < 600000, rawSrc.length + (rawSrc.length > 350000 ? '  ⚠ 已过预警线' : ''));
+assert('satdata.json 体积 < 800KB（180 天兜底窗口固定，不随年数膨胀；超过 400KB 预警）',
+  rawSrc.length < 800000, rawSrc.length + (rawSrc.length > 400000 ? '  ⚠ 已过预警线' : ''));
 assert('词条链接去重成 urls 数组（links 里存下标）',
   Array.isArray(RAW.urls) && RAW.urls.length > 5 && typeof RAW.gw.links['24240'].r[0].u === 'number');
 assert('试验星批次元数据齐全（23095 / 23212 / 25F05 失败标记）',
@@ -1138,9 +1138,18 @@ assert('三章节信息窗外观统一（无 chart-info / #mapInfo 特例）', t
 //   "给一个刚好能容纳最长情况、不会换行的宽度"。简化后最长行变短（英文 337.7px + 30 = 367.7），
 //   实测折行阈值 **367px 折 / 368px 不折**，再按"升轨速度不会超过 XX.XX"留一个数字位 → **376px**。
 //   （实测记录见 template.html 里 .sat-info 的注释块。）
-assert('V1.9.9：信息窗宽度**固定统一**（376px 变量；不再 max-content）',
-  /--si-w:\s*376px/.test(tpl) && /\.sat-info \{[^}]*width:var\(--si-w\)/.test(tpl) &&
-  // ⚠️ 先去掉注释再判「不再 max-content」—— 否则规则上方那句"不再 width:max-content"的说明会被当成违规
+// ★★ V2.0.0.630（用户 2026-10-22 第 2 条）：宽度口径再改一次 —— **按行实测、三档统一** ★★
+//   用户原话：「123 统一，4、5 章节单独固定…然而现在信息窗还是这么宽（手机上几乎占满整屏），
+//   而明明信息项与其内容中间还有极大的空间」。R4 的裁决本来就是“宽度 = 各行的
+//   （标签 + 间隙 + 值）取最大值”，上一版只把它硬编码成 376px（按最长标签+最长值估的），
+//   所以行内空隙依然很大。现在的实现：固定 13px 字号 + `siFitWidth()` 实测量宽，
+//   按 123 / 4 / 5 三档缓存（换更长的一颗星只会变宽，不会来回跳）。
+assert('V2.0.0.630：信息窗宽度**按行实测**（三档缓存；不再硬编码 376px、不再 max-content）',
+  /--si-w: *300px/.test(tpl) && /\.sat-info \{[^}]*width:var\(--si-w\)/.test(tpl) &&
+  /--fs-info: *13px/.test(tpl) &&
+  /function siFitWidth\(el, key\)/.test(appSrc) &&
+  /function siBucket\(key\)[\s\S]{0,220}'a4'[\s\S]{0,160}'a5'/.test(appSrc) &&
+  /siFitWidth\(el, key\);/.test(appSrc) &&
   !/\.sat-info \{[^}]*width:max-content/.test(tpl.replace(/\/\*[\s\S]*?\*\//g, '')));
 
 // ---------- ★ V1.9.9 第二轮：信息窗**简写**（01/02/03 章），表格保持完整 ----------
@@ -1264,9 +1273,19 @@ assert('任务18：触屏用 tap（TAP_SLOP，非长按定时器）选中发光�
 // V1.7.3（需求6）：全屏按钮列的 bottom 合并为 --fs-ctl-bottom，选择器也并成一组
 //   （section.fs-mobile .view-ctl, section.fs-stuck .view-ctl { ... z-index:52 }），
 //   守卫改为在合并后的块里找 z-index:52。
-assert('任务10：拖动中信息窗低于顶栏（z<50），全屏下低于右侧按钮列',
-  /\.sat-info\.moving\s*\{[^}]*z-index:\s*48/.test(tpl) &&
-  /section\.fs-mobile \.view-ctl,\s*\n\s*section\.fs-stuck \.view-ctl\s*\{[^}]*z-index:\s*52/.test(tpl));
+// ★★ V2.0.0.630（用户 2026-10-22 第 1 条）：信息窗层级**重排** ★★
+//   实测 bug：全屏下 `.view-ctl` 是 z-index:52，而信息窗常驻只有 30 / 拖动 48 →
+//   放大/缩小/还原/全屏四个按钮**压在信息窗上面**（用户截图一）。
+//   新阶梯（自下而上）：画布按钮列 35（全屏 44）< 缩放框 40 < **信息窗 45 / 拖动 48**
+//   < 顶栏 50 < 时钟药丸 70 < 章节药丸 75。用户口径：信息窗悬浮于“除顶栏、时间药丸、
+//   章节药丸之外的一切”之上。
+assert('任务10/V2.0.0.630：信息窗(45/48) 高于画布按钮列(35、全屏 44)，低于顶栏(50)/时钟(70)/章节药丸(75)',
+  /\.sat-info\s*\{[^}]*z-index: *45/.test(tpl) &&
+  /\.sat-info\.moving\s*\{[^}]*z-index: *48/.test(tpl) &&
+  /\.view-ctl\s*\{[^}]*z-index: *35/.test(tpl) &&
+  /section\.fs-mobile \.view-ctl,\s*\n\s*section\.fs-stuck \.view-ctl\s*\{[^}]*z-index: *44/.test(tpl) &&
+  /#clockPill[^{]*\{[^}]*z-index: *70/.test(tpl) &&
+  /#jumpPill[^{]*\{[^}]*z-index: *75/.test(tpl));
 // 任务5：页内联想区层级必须低于右下角章节药丸（75），否则药丸点不到
 assert('任务5：页内联想区 z-index:62 < 右下角药丸 75（药丸永远可点）',
   /\.sug-list\s*\{\s*z-index:62\s*!important/.test(tpl) &&
@@ -3659,7 +3678,10 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
         (function () {
           const expSet = new Set(expReal);
           const got = datesAt(tx);
-          return got.length >= 1 && got.every(d => expSet.has(d));
+          // ★ V2.0.0.630：拐点若整个落在视野之外（数据只剩最近一段、相位却是 2024 年的老批次），
+          //   产品口径就是“一条都不画”—— 这正是“空白里画虚线”的修复。
+          //   ⇒ 这里只要求“画出来的日期必须是真的”，不再要求“至少画出一条”。
+          return got.every(d => expSet.has(d));
         })(),
         datesAt(tx).join(',') + ' ⊆ ' + expReal.join(','));
       // ② 画线风格：虚线 [5,4]（与 03 章 180° 边界线同一套画法）
@@ -6128,7 +6150,15 @@ assert('A9（V1.9.7 §6）：圈的来源 = 工作轨道层（orbLayerDefs），
     {
       const pubB2 = {};
       k3.climbLiteKeys().forEach(k => { const v = k3.climbPubB(k); if (v) pubB2[k] = v; });
-      const k2 = k3.climbLiteKeys().find(k => pubB2[k]) || '';
+      // ★ V2.0.0.630：必须挑一个**拐点落在视野内**的批次 —— 否则（老批次 + 只画最近数据）
+      //   一条线都不该出现，这条断言就会变成“在测一个不该存在的现象”。
+      const k2 = k3.climbLiteKeys().find(k => {
+        if (!pubB2[k]) return false;
+        k3.setClimbPick('b:' + k);
+        const v = k3.climbAutoReset();
+        const t = pubB2[k][0] * 86400000;
+        return t >= v.x0 && t <= v.x1;
+      }) || '';
       k3.setClimbPick(k2 ? ('b:' + k2) : ''); k3.climbSelClear(); k3.pickNode(null, 0);
       const ex = k3.climbExportCheck();
       const expDate = k2 ? k3.climbDateFmt(pubB2[k2][0] * 86400000) : '';

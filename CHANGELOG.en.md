@@ -10,6 +10,49 @@ The version is written in the footer (`CISTrack · Vx.y.z`), and the bottom bar 
 
 ---
 
+## [V2.0.0.630 · hotfix] — 2026-10-22 (re-released under the same version)
+
+> Five defects reported from real use. All are regressions or decisions that were never actually implemented;
+> no new features. Per the user's request the **same version number 2.0.0.630 is re-published**, overwriting the old build.
+
+### 1. Info window sat below the canvas buttons (regression)
+- In fullscreen, `.view-ctl` (zoom in / out / reset / fullscreen) had `z-index: 52` while the info window had **30**
+  (48 while dragging) — the four buttons were painted on top of it.
+- New ladder: canvas controls 35 (fullscreen 44) < zoom box 40 < **info window 45 / dragging 48** < top bar 50 <
+  clock pill 70 < chapter pill 75. Back to the original rule: the info window floats above everything **except**
+  the top bar, the time pill and the chapter pill.
+
+### 2. Info window width was never actually reduced (R4 was only half done)
+- The previous build hard-coded `376px` (estimated from "longest label + longest value"), so every row was
+  label-left / value-right with a large empty gap; on phones `100vw − 20px` took over and it filled the screen.
+- Now implemented as R4 specified: **fixed 13px font** (same on both ends, `clamp` removed) plus `siFitWidth()`
+  measuring each row (width = max of label + gap + value), cached per chapter group (**01/02/03, 04, 05**).
+- Measured: the same satellite's window went from 376px to **285px**; the hover window reuses the A window's width.
+
+### 3. Orbit-change chart: a wide blank area on the left with phase lines drawn in it
+- Two causes: **① the x-axis left edge used the launch date**, while opening the file locally (`file://` cannot
+  fetch the `history/` shards) leaves only the built-in fallback (previously the last 60 days) → weeks of blank space;
+  **② the dashed phase lines come from `phases` computed at build time over the full history**, so they landed in that blank area.
+- Fix: ① the left edge **uses the first data point** (launch date only when within 3 days);
+  ② the two places that stretched the left edge for phase lines are gone (`climbAutoView` / `clampClimbView`);
+  ③ the fallback window went from **60 days / 2-day step to 180 days / 3-day step** (satdata 0.44 → 0.68 MB).
+- Phase lines outside the viewport are dropped by `xOf()` — neither drawn nor allowed to widen the view.
+
+### 4. A bold note that curve colours are not status colours
+- Curve colours come from a golden-angle palette per batch, purely to tell lines apart; the legend below uses the
+  four status colours — easy to misread when both appear together.
+- Inserted between "…counted as in orbit once it is stable on its own orbit." and "Unofficial project…":
+  **Note: the colours of the orbit-change curves in this image are used only to tell them apart — they do not
+  indicate the in-orbit status of the satellites they belong to.** (bold)
+- The single source `ST_NOTE` gained a third `bold` flag: `<b>` on the page, 700 weight in the exported image.
+
+### 5. The loading page's SKIP button did not skip immediately
+- It only called `endLoadKey('d_skipped')`, which schedules `hideMask` after 420ms and `display:none` after another
+  500ms transition — the ring kept spinning.
+- Now: abort the in-flight requests → set the text → **hide the mask synchronously** (next frame `display:none`) → scroll to top.
+  Data stays on the built-in snapshot (epoch and update time shown are the packaged ones — no false "live" claim).
+- Added a `touchend` fallback for mobile browsers that swallow `click` on long press.
+
 ## [V2.0.0.630] — 2026-10-22
 
 > The first **2.x** release. The major bump is not about new features — it is because the

@@ -227,8 +227,8 @@ var I18N = {
   //     · 已再入 —— 已离开轨道
   //   末尾统一强调"这是基于公开 TLE 的大概估计"。
   d_st_note_climb: [
-    '在轨状态判读说明："在轨·正常" = 停在预定工作轨道（含正常位置保持）；"在轨·可能异常" = 长期停在非预定工作轨道、且同批其它星已到位；"变轨中" = 仍在抬升——2 天速率 > 0.5 km/天为"点火"，贴层慢爬或暂时停推为"间歇"；"已再入" = 已离轨。判据先看位置、再看速度：已经在工作层上且近期不再爬升的即算到位；停在临时轨道等点火的仍算变轨中；试验星本来就不在组网轨道上，长期稳定即按其自身轨道计入在轨。非官方项目，模拟基于开源 TLE 数据，不代表实际情况。',
-    'In-orbit status guide: "In orbit · normal" = holding its intended working orbit (including normal station-keeping); "possibly anomalous" = long parked off its intended orbit while other satellites from the same launch have arrived; "raising" = still climbing — "burning" above 0.5 km/day, "coasting" when creeping along a layer or pausing between burns; "re-entered" = left orbit. The rule checks position first, velocity second: a satellite already on a working layer that has stopped climbing counts as arrived; one holding on a temporary orbit between burns still counts as raising; a test satellite that never targets the constellation shell is counted as in orbit once it is stable on its own orbit. Unofficial project · simulated from open TLE data — does not reflect actual conditions.'],
+    '在轨状态判读说明："在轨·正常" = 停在预定工作轨道（含正常位置保持）；"在轨·可能异常" = 长期停在非预定工作轨道、且同批其它星已到位；"变轨中" = 仍在抬升——2 天速率 > 0.5 km/天为"点火"，贴层慢爬或暂时停推为"间歇"；"已再入" = 已离轨。判据先看位置、再看速度：已经在工作层上且近期不再爬升的即算到位；停在临时轨道等点火的仍算变轨中；试验星本来就不在组网轨道上，长期稳定即按其自身轨道计入在轨。注意：本图像卫星变轨情况折线的染色仅用于做互相区分，并不用于表示其对应卫星的在轨状态！非官方项目，模拟基于开源 TLE 数据，不代表实际情况。',
+    'In-orbit status guide: "In orbit · normal" = holding its intended working orbit (including normal station-keeping); "possibly anomalous" = long parked off its intended orbit while other satellites from the same launch have arrived; "raising" = still climbing — "burning" above 0.5 km/day, "coasting" when creeping along a layer or pausing between burns; "re-entered" = left orbit. The rule checks position first, velocity second: a satellite already on a working layer that has stopped climbing counts as arrived; one holding on a temporary orbit between burns still counts as raising; a test satellite that never targets the constellation shell is counted as in orbit once it is stable on its own orbit. Note: the colours of the orbit-change curves in this image are used only to tell them apart — they do not indicate the in-orbit status of the satellites they belong to. Unofficial project · simulated from open TLE data — does not reflect actual conditions.'],
   b_pick: ['选择地面观测点', 'Pick ground site'], b_names: ['名称', 'Names'],
   // ★ V1.9.8（用户第 7 条）：导出弹层第二行改成「打印第 X 页～第 Y 页」
   shot_from: ['打印第', 'Pages '], shot_to: ['页～第', ' to '], shot_page: ['页', ' of this table'],
@@ -540,6 +540,10 @@ var ST_NOTE = {
       [' = 仍在抬升——2 天速率 > 0.5 km/天为"点火"，贴层慢爬或暂时停推为"间歇"；', null],
       ['"已再入"', 'gone'],
       [' = 已离轨。判据先看位置、再看速度：已经在工作层上且近期不再爬升的即算到位；停在临时轨道等点火的仍算变轨中；试验星本来就不在组网轨道上，长期稳定即按其自身轨道计入在轨。', null],
+      // ★★ V2.0.0.630（用户 2026-10-22 第 3 条）：**折线染色 ≠ 在轨状态** ★★
+      //   变轨图里每条线是按"同批次内黄金角"上色的，纯为互相区分；而说明里讲的是四态配色。
+      //   两者都在同一张图下方出现，不加这一句必被读成"线的颜色就是状态色"。第三位 = 加粗。
+      ['注意：本图像卫星变轨情况折线的染色仅用于做互相区分，并不用于表示其对应卫星的在轨状态！', null, true],
       ['非官方项目，模拟基于开源 TLE 数据，不代表实际情况。', null]
   ],
   en: [
@@ -552,6 +556,7 @@ var ST_NOTE = {
       [' = still climbing — "burning" above 0.5 km/day, "coasting" when creeping along a layer or pausing between burns; ', null],
       ['"re-entered"', 'gone'],
       [' = left orbit. The rule checks position first, velocity second: a satellite already on a working layer that has stopped climbing counts as arrived; one holding on a temporary orbit between burns still counts as raising; a test satellite that never targets the constellation shell is counted as in orbit once it is stable on its own orbit. ', null],
+      ['Note: the colours of the orbit-change curves in this image are used only to tell them apart — they do not indicate the in-orbit status of the satellites they belong to. ', null, true],
       ['Unofficial project · simulated from open TLE data — does not reflect actual conditions.', null]
   ]
 };
@@ -559,7 +564,9 @@ function stNoteSegs() { return ST_NOTE[LANG === 'en' ? 'en' : 'zh']; }
 // 页面内：拼成带 <span class="st-xxx"> 的 HTML（i18n 注入走 innerHTML，所以能染色）
 function stNoteHtml() {
   return stNoteSegs().map(function (s2) {
-    return s2[1] ? '<span class="st-' + s2[1] + '">' + s2[0] + '</span>' : s2[0];
+    var t2 = s2[1] ? '<span class="st-' + s2[1] + '">' + s2[0] + '</span>' : s2[0];
+    // ★ V2.0.0.630：第三位 = 加粗（变轨图"折线染色 ≠ 在轨状态"那条提示）
+    return s2[2] ? '<b>' + t2 + '</b>' : t2;
   }).join('');
 }
 // 纯文本版（与 i18n 表的值必须一致 —— smoke 有一条断言盯着这个，防两处漂移）
@@ -2009,6 +2016,14 @@ function showFloat(key, html, idKey) {
   var body = setupFloat(key);
   if (!body) return;
   body.innerHTML = html;
+  // ★ V2.0.0.630（R4）：浮窗与 A 窗**必须同宽** —— 直接沿用 A 窗实测出来的 `--si-w`，
+  //   否则 B 窗会退回模板里的默认值，两个窗并排时宽窄不一。
+  var _a = infoAEl(key);
+  if (_a && _a.style.getPropertyValue('--si-w')) {
+    el.style.setProperty('--si-w', _a.style.getPropertyValue('--si-w'));
+  } else {
+    siFitWidth(el, key);
+  }
   el.__lastId = idKey;
   el.__wantH = null;          // V1.7.2 第七轮（需求5）：内容换了 → 高度要重新跟随 A 窗
   // 先量尺寸再定位：借 visibility 隐藏着量，避免肉眼看到"先跳到错误位置再修正"
@@ -2076,6 +2091,70 @@ function positionFloat(key) {
 }
 
 // A 窗：只有选中卫星时才用，带 ✕ 与拖动逻辑
+// ★★ V2.0.0.630（R4 落地 · 用户 2026-10-22 再次点名）★★
+//   信息窗**定宽**这件事以前只做了半截：`--si-w` 被硬编码成 376px（按"最长左标签 + 最长右值"
+//   估出来的），于是每一行都是"标签靠左、值靠右"，中间空出一大片；手机上 376px 还要被
+//   `100vw - 20px` 兜底 → 直接横占整屏。
+//   用户口径（最新的那条）：**宽度 = 各行的（左标签宽 + 间隙 + 右值宽）取最大值**（犬牙交错），
+//   01/02/03 共用一套、04 与 05 各自独立 → 三套宽度。
+//   CSS 声明式做不到逐行测量，所以在渲染后**实测一次**并缓存（每档 + 每种语言各一份，
+//   视口宽度变化超过 40px 时重测 —— 手机上横竖屏切换、桌面拉窗口都会重算）。
+var SI_W = {};                     // 'a123' | 'a4' | 'a5'  →  { w, vw, lang }
+var SI_MEASURE_CV = null;
+function siBucket(key) {
+  if (key === 'climb') return 'a4';
+  if (key === 'net') return 'a5';
+  return 'a123';                   // chart / map / globe 三章共用
+}
+function siFitWidth(el, key) {
+  if (!el || !el.querySelector) return;
+  var block = el.querySelector('.si-block');
+  if (!block) return;
+  var bk = siBucket(key), vw = window.innerWidth;
+  var c = SI_W[bk];
+  // 同一档、同一语言、视口没大变 → 用缓存（**只增不减**：换一颗更长的卫星时才变宽，不会来回跳）
+  if (c && c.lang === LANG && Math.abs(c.vw - vw) <= 40) {
+    el.style.setProperty('--si-w', c.w + 'px');
+    return;
+  }
+  if (!SI_MEASURE_CV) SI_MEASURE_CV = document.createElement('canvas').getContext('2d');
+  var cs = getComputedStyle(el);
+  var font = cs.fontSize + ' ' + cs.fontFamily;
+  SI_MEASURE_CV.font = font;
+  var tw = function (s) { return SI_MEASURE_CV.measureText(String(s || '')).width; };
+  var bcs = getComputedStyle(block);
+  var pad = (parseFloat(bcs.paddingLeft) || 0) + (parseFloat(bcs.paddingRight) || 0);
+  var bor = (parseFloat(bcs.borderLeftWidth) || 0) + (parseFloat(bcs.borderRightWidth) || 0);
+  var minW = parseFloat(bcs.minWidth) || 0;
+  var widest = 0;
+  // 行：左标签 + 列间距 + 右值（右值里可能嵌了带色的 span，取 textContent 即可）
+  var rows = block.querySelectorAll('.si-row');
+  for (var i = 0; i < rows.length; i++) {
+    var sp = rows[i].children;
+    if (sp.length < 2) continue;
+    var rcs = getComputedStyle(rows[i]);
+    var gap = parseFloat(rcs.columnGap) || parseFloat(rcs.gap) || 0;
+    var w = tw(sp[0].textContent) + gap + tw(sp[1].textContent);
+    if (w > widest) widest = w;
+  }
+  // 标题行：名字 + 间隙 + 色块（色块固定 12px 见 .swatch）
+  var nm = block.querySelector('.si-name');
+  if (nm) {
+    var ncs = getComputedStyle(nm);
+    var ngap = parseFloat(ncs.columnGap) || parseFloat(ncs.gap) || 0;
+    var nameTxt = nm.firstChild && nm.firstChild.nodeType === 3 ? nm.firstChild.textContent : nm.textContent;
+    // ⚠️ .si-name 有 letter-spacing:0.06em，canvas 量宽不含字距 → 乘 1.06 补回来
+    //   （不补的话，长名字那一行会贴着右边框被 overflow:hidden 切掉最后一个字）。
+    var wn = tw(nameTxt) * 1.06 + ngap + 12;
+    if (wn > widest) widest = wn;
+  }
+  // +3px 安全余量：canvas 的 measureText 与 DOM 实际排版会有 1~2px 的字体度量差，
+  //   宁可宽 3px，也不要让"刚好最宽的那一行"贴边或折行。
+  var w2 = Math.ceil(Math.max(widest + pad + bor + 3, minW + pad + bor, 120));
+  var prev = (c && c.lang === LANG) ? c.w : 0;
+  SI_W[bk] = { w: Math.max(prev, w2), vw: vw, lang: LANG };
+  el.style.setProperty('--si-w', SI_W[bk].w + 'px');
+}
 function showInfo(el, key, html, idKey) {
   if (!el) return;
   var body = setupInfo(el, key);
@@ -2095,6 +2174,8 @@ function showInfo(el, key, html, idKey) {
   var tipColor = S.key === 'qf' ? 'var(--c-qf)' : 'var(--c-gw)';
   body.innerHTML = html +
     '<div class="si-drag"' + (DRAGGED[key] ? ' style="display:none;color:' + tipColor + '"' : ' style="color:' + tipColor + '"') + '>' + t('d_drag_tip') + '</div>';
+  // ★ V2.0.0.630（R4）：内容写好后按"最宽的一行"实测定宽（三档：123 / 4 / 5）
+  siFitWidth(el, key);
   el.style.display = INFO_HIDDEN[key] ? 'none' : 'flex';
   positionFloat(key);                         // A 窗位置变了 → 浮窗跟着挪（或回到默认角落）
 }
@@ -4814,21 +4895,25 @@ function stNoteRuns(ctx, W, dpr, size) {
   var maxW = W - 24 * dpr;
   var save = ctx.font;
   ctx.font = monoFont(size);
-  var tokens = [];                       // [{t, c}] 原子 token
+  var tokens = [];                       // [{t, c, b}] 原子 token（b = 加粗）
   stNoteSegs().forEach(function (seg) {
-    var txt = seg[0], c = seg[1];
+    var txt = seg[0], c = seg[1], bd = !!seg[2];
     // 英文/数字连续的片段当一个词；CJK 与标点逐字
     var re = /[A-Za-z0-9.,:;'"()\-–—\/·%+±°]+\s*|\s+|./g;
     var m;
-    while ((m = re.exec(txt))) tokens.push({ t: m[0], c: c });
+    while ((m = re.exec(txt))) tokens.push({ t: m[0], c: c, b: bd });
   });
   var lines = [], cur = [], curW = 0;
   var flush = function () { if (cur.length) { lines.push(cur); cur = []; curW = 0; } };
   tokens.forEach(function (tk) {
+    // ★ V2.0.0.630：**必须用该 token 自己的字体量宽** —— 加粗比常规宽约 6%，
+    //   沿用常规字体量宽会让加粗那句在导出图里提前折行/溢出右边缘。
+    ctx.font = monoFont(size, tk.b);
     var w = ctx.measureText(tk.t).width;
     if (curW + w > maxW && curW > 0) flush();
     var last = cur[cur.length - 1];
-    if (last && last.c === tk.c) last.t += tk.t; else cur.push({ t: tk.t, c: tk.c });
+    if (last && last.c === tk.c && !!last.b === !!tk.b) last.t += tk.t;
+    else cur.push({ t: tk.t, c: tk.c, b: tk.b });
     curW += w;
   });
   flush();
@@ -4851,10 +4936,12 @@ function drawStatNote(ctx, W, yTop, dpr, size) {
     var x = 12 * dpr, cy = y + lineH / 2;
     for (var i = 0; i < runs[k].length; i++) {
       var seg = runs[k][i];
+      ctx.font = monoFont(size, !!seg.b);          // ★ 加粗段用 700 字重（与页面 <b> 对齐）
       ctx.fillStyle = stNoteColor(seg.c);
       ctx.fillText(seg.t, x, cy);
       x += ctx.measureText(seg.t).width;
     }
+    ctx.font = monoFont(size);
     y += lineH;
   }
   return y - yTop;
@@ -11329,7 +11416,7 @@ if (!window.satellite) {
 (function wireSkip() {
   var b = document.getElementById('lmSkip');
   if (!b) return;
-  b.addEventListener('click', function (e) {
+  function doSkip(e) {
     if (e && e.preventDefault) e.preventDefault();
     if (BOOT_SKIPPED) return;
     BOOT_SKIPPED = true;
@@ -11340,8 +11427,28 @@ if (!window.satellite) {
     //   跳过只应对"本次启动的这批请求"生效，不该污染之后的每一次取数。
     try { if (BOOT) BOOT.abort(); } catch (x) {}
     BOOT = null;
-    endLoadKey('d_skipped', true);
-  });
+    // ★★ V2.0.0.630 紧急修补（用户 2026-10-22 第 4 条：「SKIP 没有立即跳过」）★★
+    //   旧写法只调 endLoadKey('d_skipped') —— 它内部是 `setTimeout(hideMask, 420)`，
+    //   而且**遮罩的 display:none 还要再等 500ms 的过渡定时器**。用户点完看到的是：
+    //   文字变了、环还在转、页面没进来 ⇒「按钮没生效」。
+    //   现在：先写文案（万一用户看得见那一瞬），**紧接着同步收遮罩**，不再排队等定时器。
+    try {
+      var p = I18N.d_skipped || ['', ''];
+      var t1 = document.getElementById('lmTxt'), t2 = document.getElementById('lmTxt2');
+      if (t1) t1.textContent = p[0];
+      if (t2) t2.textContent = p[1];
+    } catch (x) {}
+    var m = document.getElementById('loadMask');
+    if (m) { try { m.classList.add('hide'); } catch (x) {} }
+    try { document.documentElement.classList.remove('loading'); } catch (x) {}
+    try { document.removeEventListener('touchmove', bootTouchBlock); } catch (x) {}
+    // 下一帧再真正摘掉（让 .hide 的淡出至少起一帧，避免"闪一下"），而不是等 500ms 定时器
+    requestAnimationFrame(function () { if (m) m.style.display = 'none'; });
+    try { window.scrollTo(0, 0); } catch (x) {}
+  }
+  b.addEventListener('click', doSkip);
+  // 触屏兜底：某些移动浏览器在"按住不放"时会吞掉 click（只在 touchend 派发）
+  b.addEventListener('touchend', doSkip, { passive: false });
 })();
 // ★ V1.9.9（N1）：加载期间禁止滑动 —— CSS 锁 html/body 只是第一层，
 //   这里再挂一道路径级拦截（iOS 的橡皮筋回弹能绕过 overflow:hidden）；
@@ -12677,9 +12784,15 @@ function climbSeries() {
 function climbStartMs(lk, list) {
   var t0 = Infinity;
   list.forEach(function (c) { c.pts.forEach(function (p) { if (p.ms < t0) t0 = p.ms; }); });
-  if (lk) {
+  if (lk && isFinite(t0)) {
     var L = climbBatchMeta(lk);
-    if (L && isFinite(L.dateMs) && L.dateMs > 0 && L.dateMs < t0) t0 = L.dateMs;
+    // ★★ V2.0.0.630 紧急修补：**只有当"发射 → 首个轨道点"的间隔很短时才把轴拉到发射日** ★★
+    //   旧写法无条件取较早者。在本地打开（file:// 取不到 history/ 分片、只剩内置兜底）时，
+    //   数据只覆盖最近一段，而发射日在几个月前 → 横轴左侧空出一大片，
+    //   构建期用全量历史算出的拐点虚线正好落在空白里（用户 2026-10-22 截图）。
+    //   间距 > 3 天 = 这份数据没有覆盖发射那天 → 以**数据首点**为准，绝不为"发射日"留白。
+    if (L && isFinite(L.dateMs) && L.dateMs > 0 && L.dateMs < t0 &&
+        (t0 - L.dateMs) <= 3 * 86400000) t0 = L.dateMs;
   }
   return t0;
 }
@@ -12731,6 +12844,13 @@ function climbPhaseNow(s) {
     }
     if (!starts.length && arr && arr[0] != null) starts.push(arr[0] * DAY);
     if (!ends.length && arr && arr[1] != null) ends.push(arr[1] * DAY);
+    // ★★ V2.0.0.630（用户 2026-10-22）：「空白里画拐点虚线」的根治**不在这里** ★★
+    //   我一开始在这里按"数据首点/末点"过滤拐点，结果把 H10 的三条既有契约一起弄红了
+    //   （发布层优先 / 单星为准 / 回退现算）—— 因为那几条断言要的正是"相位原样返回"。
+    //   真正的病根在**视野**：`climbStartMs` 曾把横轴左端拉到发射日（数据却只有最近一段），
+    //   而 `climbAutoView/clampClimbView` 又为拐点把左端继续往左扩。
+    //   这两处已改（左端只认数据首点），而 drawClimb 里 `xOf()` 本来就会丢掉视口外的拐点
+    //   ⇒ 视口外的拐点既不会被画、也不会再撑开视野。本函数恢复"原样返回"的契约。
     if (!starts.length && !ends.length) return null;
     var sMs = starts.length ? starts[0] : null;
     var eMs = ends.length ? ends[ends.length - 1] : null;
@@ -12814,7 +12934,8 @@ function climbAutoView() {
   //   与 clampClimbView **同一口径**（那里的右端钳位必须认同一个 t1，否则 autoView 定的视图会被拉回）。
   var _ph = climbPhaseNow(s);
   if (_ph) {
-    if (_ph.startMs != null && _ph.startMs < t0) t0 = _ph.startMs;
+    // ★ V2.0.0.630：**不再因为拐点把左端往左拉** —— 左端只认数据首点。
+    //   （climbPhaseNow 已把越界拐点滤掉，这里再拉左只会重演"空白里画虚线"。）
     if (_ph.endMs != null) {
       if (_ph.endMs > t1) t1 = _ph.endMs;
       if (t1 - _ph.endMs < 2 * 86400000) t1 = _ph.endMs + (t1 - t0) * 0.05;
@@ -12839,7 +12960,7 @@ function clampClimbView(v) {
   //   结束线贴右端时同留 5% 留白（否则会被钳回边缘 → 日期压到缩放按钮上，样张 D 实测）。
   var _ph = climbPhaseNow(s);
   if (_ph) {
-    if (_ph.startMs != null && _ph.startMs < t0) t0 = _ph.startMs;
+    // ★ V2.0.0.630：与 climbAutoView 同口径 —— 左端只认数据首点，不为拐点留白。
     if (_ph.endMs != null) {
       if (_ph.endMs > t1) t1 = _ph.endMs;
       if (t1 - _ph.endMs < 2 * 86400000) t1 = _ph.endMs + (t1 - t0) * 0.05;

@@ -2071,8 +2071,16 @@ DATA.qf.phases = CLIMB_PH.qf;
 //   · **satdata 里只留一份精简兜底**（BUNDLE_* 口径）—— 保证本地 file:// 双击打开也有曲线可看。
 // 两者都经过同一套 pruneRecords 容量治理，故任何一边都不会失控。
 const NOW_MS = Date.now();
-const BUNDLE_DAYS = 60;      // 内置兜底只留最近 60 天
-const BUNDLE_STEP = 2;       // 内置兜底每 2 天一点（≈30 点/星）
+// ★★ V2.0.0.630 紧急修补（2026-10-22 用户报「变轨图左侧一大片空白 + 空白里有拐点虚线」）★★
+//   病根：兜底窗口 60 天，而**变轨图的横轴左端取的是"发射日 vs 数据首点"的较早者**。
+//     于是打开本地 HTML（file:// 取不到 history/ 分片）时：数据只剩最近 60 天（如从 08-24 起），
+//     横轴却从发射日（07-16）画起 → 左边空出 5 周多；
+//     而拐点虚线来自**构建期用全量历史算的 phases**（07-16 那次抬升）→ 正好落在空白里。
+//   两处一起治：① 兜底窗口 60→180 天、抽稀 2→3 天（实测 satdata 0.28→0.51 MB，
+//     任何 180 天内发射的批次都能看到完整爬升段）；② 页面侧再兜一层（climbStartMs / 拐点越界丢弃），
+//     即使将来窗口再变，也不会把虚线画进虚空。
+const BUNDLE_DAYS = 180;     // 内置兜底只留最近 180 天
+const BUNDLE_STEP = 3;       // 内置兜底每 3 天一点（≈60 点/星）
 function bundleLite(hist) {
   const out = {};
   for (const lk of Object.keys(hist || {})) {
