@@ -11271,6 +11271,18 @@ function loadHistoryJson() {
       return isFinite(t0) ? (Date.now() - t0) : Infinity;
     } catch (e) { return Infinity; }
   })();
+  // ★ V2.0.0.630 三次修补：用户在加载条没跑满时就点了跳过 → 直接收尾，不发请求。
+  if (BOOT_SKIPPED || window.__CISTRACK_SKIP) {
+    BOOT_SKIPPED = true;
+    endLoadKey('d_skipped', true);
+    return;
+  }
+  // ★ V2.0.0.630 三次修补：用户在加载条没跑满时就点了跳过 → 直接收尾，不发请求。
+  if (BOOT_SKIPPED || window.__CISTRACK_SKIP) {
+    BOOT_SKIPPED = true;
+    endLoadKey('d_skipped', true);
+    return;
+  }
   if (bootAgeMs < FRESH_SKIP_MS) {
     endLoadKey('d_updated', true);
     return;
@@ -11416,6 +11428,12 @@ if (!window.satellite) {
 (function wireSkip() {
   var b = document.getElementById('lmSkip');
   if (!b) return;
+  // ★ 内联的早期监听器（template 里 INJECT_SGP4 之前那段）可能已经替用户跳过了 ——
+  //   这时把状态位接过来，后面的启动流程据此不再联网/不再重弹遮罩。
+  if (window.__CISTRACK_SKIP) BOOT_SKIPPED = true;
+  // ★ 内联的早期监听器（template 里 INJECT_SGP4 之前那段）可能已经替用户跳过了 ——
+  //   这时把状态位接过来，后面的启动流程据此不再联网/不再重弹遮罩。
+  if (window.__CISTRACK_SKIP) BOOT_SKIPPED = true;
   function doSkip(e) {
     if (e && e.preventDefault) e.preventDefault();
     // ★ V2.0.0.630 二次修补：**幂等** —— 即使之前已经被别的路径置过 BOOT_SKIPPED，

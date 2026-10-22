@@ -2754,6 +2754,54 @@ html[data-theme="light"] .res-fail { color:#c72929; }
   <button class="modal-x" id="licX" type="button" aria-label="关闭" data-i18n-aria="d_err_close">×</button>
 </div>
 
+<script>
+/* ★★ V2.0.0.630 三次修补（用户 2026-10-23：「加载条没跑满时点跳过没有任何效果」）★★
+   病根：跳过按钮的监听器写在 app.js 里，而 app.js 是**最后一个 <script>**（2 MB + SGP4 + 500 颗星解析）。
+   在它跑完之前按钮就是个死元素 —— 而这恰恰是用户最想跳过的那几秒。
+   治法：在遮罩标记之后立刻挂一个**极小的内联监听器**，只做三件事：
+   记下"用户要跳过"、把遮罩收掉、给 app.js 留一个标志位（后者据此不再联网、不再重新弹遮罩）。 */
+(function () {
+  var btn = document.getElementById('lmSkip'), mask = document.getElementById('loadMask');
+  if (!btn) return;
+  function earlySkip(e) {
+    if (e && e.preventDefault) e.preventDefault();
+    window.__CISTRACK_SKIP = true;                 // app.js 会读它
+    if (mask) {
+      mask.style.transition = 'none';
+      mask.classList.add('hide');
+      mask.style.display = 'none';
+    }
+    document.documentElement.classList.remove('loading');
+    try { window.scrollTo(0, 0); } catch (x) {}
+  }
+  btn.addEventListener('click', earlySkip);
+  btn.addEventListener('touchend', earlySkip, { passive: false });
+})();
+</script>
+<script>
+/* ★★ V2.0.0.630 三次修补（用户 2026-10-23：「加载条没跑满时点跳过没有任何效果」）★★
+   病根：跳过按钮的监听器写在 app.js 里，而 app.js 是**最后一个 <script>**（2 MB + SGP4 + 500 颗星解析）。
+   在它跑完之前按钮就是个死元素 —— 而这恰恰是用户最想跳过的那几秒。
+   治法：在遮罩标记之后立刻挂一个**极小的内联监听器**，只做三件事：
+   记下"用户要跳过"、把遮罩收掉、给 app.js 留一个标志位（后者据此不再联网、不再重新弹遮罩）。 */
+(function () {
+  var btn = document.getElementById('lmSkip'), mask = document.getElementById('loadMask');
+  if (!btn) return;
+  function earlySkip(e) {
+    if (e && e.preventDefault) e.preventDefault();
+    window.__CISTRACK_SKIP = true;                 // app.js 会读它
+    if (mask) {
+      mask.style.transition = 'none';
+      mask.classList.add('hide');
+      mask.style.display = 'none';
+    }
+    document.documentElement.classList.remove('loading');
+    try { window.scrollTo(0, 0); } catch (x) {}
+  }
+  btn.addEventListener('click', earlySkip);
+  btn.addEventListener('touchend', earlySkip, { passive: false });
+})();
+</script>
 <script>/* satellite-js v5.0.0 · MIT · https://github.com/shashwatak/satellite-js */
 /*!
  * satellite-js v5.0.0
@@ -14041,6 +14089,18 @@ function loadHistoryJson() {
       return isFinite(t0) ? (Date.now() - t0) : Infinity;
     } catch (e) { return Infinity; }
   })();
+  // ★ V2.0.0.630 三次修补：用户在加载条没跑满时就点了跳过 → 直接收尾，不发请求。
+  if (BOOT_SKIPPED || window.__CISTRACK_SKIP) {
+    BOOT_SKIPPED = true;
+    endLoadKey('d_skipped', true);
+    return;
+  }
+  // ★ V2.0.0.630 三次修补：用户在加载条没跑满时就点了跳过 → 直接收尾，不发请求。
+  if (BOOT_SKIPPED || window.__CISTRACK_SKIP) {
+    BOOT_SKIPPED = true;
+    endLoadKey('d_skipped', true);
+    return;
+  }
   if (bootAgeMs < FRESH_SKIP_MS) {
     endLoadKey('d_updated', true);
     return;
@@ -14186,6 +14246,12 @@ if (!window.satellite) {
 (function wireSkip() {
   var b = document.getElementById('lmSkip');
   if (!b) return;
+  // ★ 内联的早期监听器（template 里 INJECT_SGP4 之前那段）可能已经替用户跳过了 ——
+  //   这时把状态位接过来，后面的启动流程据此不再联网/不再重弹遮罩。
+  if (window.__CISTRACK_SKIP) BOOT_SKIPPED = true;
+  // ★ 内联的早期监听器（template 里 INJECT_SGP4 之前那段）可能已经替用户跳过了 ——
+  //   这时把状态位接过来，后面的启动流程据此不再联网/不再重弹遮罩。
+  if (window.__CISTRACK_SKIP) BOOT_SKIPPED = true;
   function doSkip(e) {
     if (e && e.preventDefault) e.preventDefault();
     // ★ V2.0.0.630 二次修补：**幂等** —— 即使之前已经被别的路径置过 BOOT_SKIPPED，

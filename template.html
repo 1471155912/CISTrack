@@ -2754,6 +2754,54 @@ html[data-theme="light"] .res-fail { color:#c72929; }
   <button class="modal-x" id="licX" type="button" aria-label="关闭" data-i18n-aria="d_err_close">×</button>
 </div>
 
+<script>
+/* ★★ V2.0.0.630 三次修补（用户 2026-10-23：「加载条没跑满时点跳过没有任何效果」）★★
+   病根：跳过按钮的监听器写在 app.js 里，而 app.js 是**最后一个 <script>**（2 MB + SGP4 + 500 颗星解析）。
+   在它跑完之前按钮就是个死元素 —— 而这恰恰是用户最想跳过的那几秒。
+   治法：在遮罩标记之后立刻挂一个**极小的内联监听器**，只做三件事：
+   记下"用户要跳过"、把遮罩收掉、给 app.js 留一个标志位（后者据此不再联网、不再重新弹遮罩）。 */
+(function () {
+  var btn = document.getElementById('lmSkip'), mask = document.getElementById('loadMask');
+  if (!btn) return;
+  function earlySkip(e) {
+    if (e && e.preventDefault) e.preventDefault();
+    window.__CISTRACK_SKIP = true;                 // app.js 会读它
+    if (mask) {
+      mask.style.transition = 'none';
+      mask.classList.add('hide');
+      mask.style.display = 'none';
+    }
+    document.documentElement.classList.remove('loading');
+    try { window.scrollTo(0, 0); } catch (x) {}
+  }
+  btn.addEventListener('click', earlySkip);
+  btn.addEventListener('touchend', earlySkip, { passive: false });
+})();
+</script>
+<script>
+/* ★★ V2.0.0.630 三次修补（用户 2026-10-23：「加载条没跑满时点跳过没有任何效果」）★★
+   病根：跳过按钮的监听器写在 app.js 里，而 app.js 是**最后一个 <script>**（2 MB + SGP4 + 500 颗星解析）。
+   在它跑完之前按钮就是个死元素 —— 而这恰恰是用户最想跳过的那几秒。
+   治法：在遮罩标记之后立刻挂一个**极小的内联监听器**，只做三件事：
+   记下"用户要跳过"、把遮罩收掉、给 app.js 留一个标志位（后者据此不再联网、不再重新弹遮罩）。 */
+(function () {
+  var btn = document.getElementById('lmSkip'), mask = document.getElementById('loadMask');
+  if (!btn) return;
+  function earlySkip(e) {
+    if (e && e.preventDefault) e.preventDefault();
+    window.__CISTRACK_SKIP = true;                 // app.js 会读它
+    if (mask) {
+      mask.style.transition = 'none';
+      mask.classList.add('hide');
+      mask.style.display = 'none';
+    }
+    document.documentElement.classList.remove('loading');
+    try { window.scrollTo(0, 0); } catch (x) {}
+  }
+  btn.addEventListener('click', earlySkip);
+  btn.addEventListener('touchend', earlySkip, { passive: false });
+})();
+</script>
 <!--INJECT_SGP4-->
 <!--INJECT_COAST-->
 <!--INJECT_DATA-->
