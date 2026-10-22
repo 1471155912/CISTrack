@@ -511,8 +511,8 @@ Layers are **clustered from the actual altitude distribution of the satellites**
    **break the chain whenever the gap exceeds 30 km**; a group needs at least `8` members, and its
    altitude standard deviation must be ≤ `8 km`.
    *That σ cap specifically blocks fake layers made of satellites that merely happen to line up*:
-   measured, 31 Qianfan satellites sit stably between 800 and 974 km (σ = 57.7 km) — without the cap
-   they would be taken as one 174 km-thick "working layer".
+   measured, 21 Qianfan satellites sit stably between 800 and 970 km (σ = 52.8 km, 2026-10-22 data) — without the cap
+   they would be taken as one 170 km-thick "working layer".
 3. **Layer altitude = the modal 10-km bucket**: heights are rounded to 10 km, voted, and the most
    frequent bucket wins — so layer altitudes are always round tens (1150 / 1170 / 510 / 1070 km),
    never an averaged number with decimals.

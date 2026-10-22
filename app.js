@@ -11418,8 +11418,9 @@ if (!window.satellite) {
   if (!b) return;
   function doSkip(e) {
     if (e && e.preventDefault) e.preventDefault();
-    if (BOOT_SKIPPED) return;
-    BOOT_SKIPPED = true;
+    // ★ V2.0.0.630 二次修补：**幂等** —— 即使之前已经被别的路径置过 BOOT_SKIPPED，
+    //   也照样把遮罩收掉（用户点的是"我要进去"，不是"我要一个状态位"）。
+    if (!BOOT_SKIPPED) BOOT_SKIPPED = true;
     // ⚠️ 顺序很重要：先 abort（把在途请求一次性掐掉），再把 BOOT 置空。
     //   置空这一步不是清理，是**功能修复**：`fetchText` 开头有一句
     //   `if (BOOT.signal.aborted) reject('boot-aborted')` —— 若 BOOT 一直挂着这个已 abort 的
@@ -11444,11 +11445,43 @@ if (!window.satellite) {
     try { document.removeEventListener('touchmove', bootTouchBlock); } catch (x) {}
     // 下一帧再真正摘掉（让 .hide 的淡出至少起一帧，避免"闪一下"），而不是等 500ms 定时器
     requestAnimationFrame(function () { if (m) m.style.display = 'none'; });
+    // ★ V2.0.0.630 二次修补：给一个**看得见的回执** —— 以前跳过之后界面毫无变化，
+    //   用户无法判断"是按钮没生效"还是"已经跳过了"。
+    setTimeout(function () { try { showToast(t('d_skipped'), 'ok'); } catch (x) {} }, 700);
+    // ★ V2.0.0.630 二次修补：给一个**看得见的回执** —— 以前跳过之后界面毫无变化，
+    //   用户无法判断"是按钮没生效"还是"已经跳过了"。
+    setTimeout(function () { try { showToast(t('d_skipped'), 'ok'); } catch (x) {} }, 700);
     try { window.scrollTo(0, 0); } catch (x) {}
+    // ★ V2.0.0.630 二次修补：给一个**看得见的回执** —— 以前跳过之后界面毫无变化，
+    //   用户无法判断"是按钮没生效"还是"已经跳过了"。进页面后补一条轻提示。
+    setTimeout(function () {
+      try { showToast(t('d_skipped'), 'ok'); } catch (x) {}
+    }, 650);
   }
   b.addEventListener('click', doSkip);
   // 触屏兜底：某些移动浏览器在"按住不放"时会吞掉 click（只在 touchend 派发）
   b.addEventListener('touchend', doSkip, { passive: false });
+  // ★★ V2.0.0.630 二次修补（用户 2026-10-23 反馈"SKIP 还是没实现"）★★
+  //   直接绑在按钮上的监听器有两个失效场景：① 遮罩已经带上 .hide（`.lm-skip` 被
+  //   `pointer-events:none` 摘掉指针）时用户还在点；② 其它浮层/动效把点击吃掉。
+  //   这里再加一层 **document 捕获阶段** 的委托：只要事件目标是（或位于）#lmSkip 内，
+  //   无论按钮处于什么状态都执行跳过。捕获阶段先于任何冒泡处理器，也不受 pointer-events
+  //   之外的因素影响。
+  var onDocSkip = function (e) {
+    var t2 = e.target;
+    if (!t2 || !t2.closest) return;
+    if (!t2.closest('#lmSkip')) return;
+    doSkip(e);
+  };
+  document.addEventListener('click', onDocSkip, true);
+  document.addEventListener('pointerdown', onDocSkip, true);
+  document.addEventListener('touchend', onDocSkip, true);
+  // 键盘可达性：焦点在按钮上按回车/空格（部分浏览器 click 不派发时兜底）
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    if (!document.activeElement || document.activeElement.id !== 'lmSkip') return;
+    doSkip(e);
+  }, true);
 })();
 // ★ V1.9.9（N1）：加载期间禁止滑动 —— CSS 锁 html/body 只是第一层，
 //   这里再挂一道路径级拦截（iOS 的橡皮筋回弹能绕过 overflow:hidden）；
