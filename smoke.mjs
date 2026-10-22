@@ -3159,8 +3159,9 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
     "  climbPub: function () { var P = RAW[S.key].phases || null; return P ? { nb: Object.keys(P.b).length, ns: Object.keys(P.s).length } : null; },\n" +
     "  climbPubB: function (lk) { var P = RAW[S.key].phases; return (P && P.b && P.b[lk]) || null; },\n" +
     "  climbPubS: function (n) { var P = RAW[S.key].phases; return (P && P.s && P.s[n]) || null; },\n" +
-    "  climbSetB: function (lk, s2, e2) { var P = RAW[S.key].phases; var old = P.b[lk] || null; P.b[lk] = [s2, e2]; return old; },\n" +
-    "  climbDelB: function (lk) { var P = RAW[S.key].phases; var old = P.b[lk] || null; delete P.b[lk]; return old; },\n" +
+    "  climbPubM: function (lk) { var P = RAW[S.key].phases; return (P && P.m && P.m[lk]) ? JSON.parse(JSON.stringify(P.m[lk])) : null; },\n" +
+    "  climbSetB: function (lk, s2, e2, m2) { var P = RAW[S.key].phases; var old = P.b[lk] || null; P.b[lk] = [s2, e2]; if (!P.m) P.m = {}; if (m2) P.m[lk] = m2; else delete P.m[lk]; return old; },\n" +
+    "  climbDelB: function (lk) { var P = RAW[S.key].phases; var old = P.b[lk] || null; delete P.b[lk]; if (P.m) delete P.m[lk]; return old; },\n" +
     "  climbViewNow: function () { if (!climbView) climbAutoView(); return { x0: climbView.x0, x1: climbView.x1 }; },\n" +
     "  climbAutoReset: function () { climbView = null; climbAutoView(); return { x0: climbView.x0, x1: climbView.x1 }; },\n" +
     "  climbRectNow: function () { return climbRect; },\n" +
@@ -3544,6 +3545,7 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
       const fake0 = Math.floor((view0.x0 + span0 * 0.35) / DAY3);
       const fake1 = Math.floor((view0.x0 + span0 * 0.55) / DAY3);
       const keepD = k3.climbPubB(doneK);
+      const keepDM = k3.climbPubM(doneK);     // ★ V2.0.1（R13）：原 m 子表要一起保存/还原
       k3.climbSetB(doneK, fake0, fake1);
       let tx = k3.climbTextsNow();
       const rect = k3.climbRectNow();
@@ -3552,11 +3554,33 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
       const expFake = [k3.climbDateFmt(fake0 * DAY3), k3.climbDateFmt(fake1 * DAY3)].sort();
       assert('V1.9.5（H10 ③b）：画线日期取自**发布层**（注入假值后文本随之改变）',
         JSON.stringify(datesAt(tx)) === JSON.stringify(expFake), datesAt(tx).join(',') + ' vs ' + expFake.join(','));
-      k3.climbSetB(doneK, keepD[0], keepD[1]);           // 还原
+      k3.climbSetB(doneK, keepD[0], keepD[1], keepDM);   // 还原（含 m 子表）
       tx = k3.climbTextsNow();
-      const expReal = [k3.climbDateFmt(keepD[0] * DAY3), k3.climbDateFmt(keepD[1] * DAY3)].sort();
-      assert('V1.9.5（H10 ③b）：还原后画线日期 = satdata 的真实 phase（两天组、各一条）',
-        JSON.stringify(datesAt(tx)) === JSON.stringify(expReal), datesAt(tx).join(','));
+      // ★ V2.0.1（R13）：期望值改为**按真实发布层算**（有 m 子表就是 1~4 条，没有才是两条）
+      const expReal = (function () {
+        const out = [];
+        if (keepDM) {
+          (keepDM.s || []).forEach(d => { if (d != null) out.push(k3.climbDateFmt(d * DAY3)); });
+          (keepDM.e || []).forEach(d => { if (d != null) out.push(k3.climbDateFmt(d * DAY3)); });
+        }
+        if (!out.length) {
+          out.push(k3.climbDateFmt(keepD[0] * DAY3));
+          if (keepD[1] != null) out.push(k3.climbDateFmt(keepD[1] * DAY3));
+        }
+        return [...new Set(out)].sort();
+      })();
+      assert('V1.9.5（H10 ③b）：还原后画线日期 = satdata 的真实 phase（R13 起每拐点 1~2 条）',
+        // ★ V2.0.1（R13）：判据从「完全相等」改成「**是真实 phase 的子集且至少 1 个**」。
+        //   为什么：多线时日期会挤在一起（实测 23212 的 4 条线只隔几十像素），
+        //   渲染侧改为**贪心放置、放不下就不画日期**（线仍然画）。
+        //   这条守卫真正要防的是"画出**假日期**"，而不是"必须把每个日期都画出来" ——
+        //   若坚持完全相等，就会逼着实现去叠字，那是拿可读性换断言绿。
+        (function () {
+          const expSet = new Set(expReal);
+          const got = datesAt(tx);
+          return got.length >= 1 && got.every(d => expSet.has(d));
+        })(),
+        datesAt(tx).join(',') + ' ⊆ ' + expReal.join(','));
       // ② 画线风格：虚线 [5,4]（与 03 章 180° 边界线同一套画法）
       assert('V1.9.5（H10 ③b）：竖虚线用 setLineDash([5,4])（与 03 章边界线同一套画法）',
         k3.climbDashNow() === '[5,4]', String(k3.climbDashNow()));
@@ -3614,21 +3638,23 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
       assert('V1.9.5（H10 ③b）：选中星不在本图 → 不画（相位只取自"被画的对象"；在 → 恢复）', memOK, memInfo);
       // ⑥ 缺失回退：删掉发布层条目 → 页面端 climbPhases 兜底仍要给出非空结论
       const keepR = k3.climbPubB(raisK);
+      const keepRM = k3.climbPubM(raisK);     // ★ V2.0.1（R13）
       k3.climbDelB(raisK);
       k3.setClimbPick('b:' + raisK);
       const pFb = k3.climbPhase();
-      k3.climbSetB(raisK, keepR[0], keepR[1]); k3.climbAutoReset();
+      k3.climbSetB(raisK, keepR[0], keepR[1], keepRM); k3.climbAutoReset();
       assert('V1.9.5（H10 ③b）：发布层缺失 → 回退现算仍能给出升轨中结论（离线/旧产物兜底）',
         !!pFb && pFb.s !== null, JSON.stringify(pFb));
       // ⑦ ④：视野包含"结束线"（注入一个 45 天后的结束日 → autoView 与 clamp 都必须够到）
       k3.setClimbPick('b:' + doneK);
       const keepD2 = k3.climbPubB(doneK);
+      const keepD2M = k3.climbPubM(doneK);    // ★ V2.0.1（R13）
       const farDay = Math.floor(Date.now() / DAY3) + 45;
       k3.climbSetB(doneK, keepD2[0], farDay);
       const vA = k3.climbAutoReset();
       k3.drawClimb();                                    // 走一遍 clamp（它会把 climbView 钳到合法范围）
       const vB = k3.climbViewNow();
-      k3.climbSetB(doneK, keepD2[0], keepD2[1]); k3.climbAutoReset();
+      k3.climbSetB(doneK, keepD2[0], keepD2[1], keepD2M); k3.climbAutoReset();
       assert('V1.9.5（H10 ④）：autoview 把结束线纳入视野（autoView 与 clamp 同一口径、不被拉回）',
         vA.x1 >= farDay * DAY3 - 1 && vB.x1 >= farDay * DAY3 - 1,
         'auto x1=' + new Date(vA.x1).toISOString().slice(0, 10) +

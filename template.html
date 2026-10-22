@@ -841,13 +841,20 @@ section.fs-mobile .fs-search { display:block; width:100%; max-width:none; }
    背景 / 边框 / 内边距 / 拖动时的主题色边框 / ✕ 全部与前三章一致，这里不需要额外样式。
    需求8：「新增卫星」整块 —— 左侧标签在块内**垂直居中**，右侧是 星网一行 / 千帆一行 上下两部分；
    批次/组名染本星座主题色 + 下划线 + 可点击，「×N」不参与染色与下划线。 */
+/* ★★ V2.0.1（R8）：**修「内容没靠右对齐」这个 bug**（用户点名）★★
+   病根：`.net-add` 把 justify-content 改成了 flex-start（因为它要放"标签 + 多行块"），
+   于是内容贴着标签开始，与上面「该周 / 星网 / 千帆」三行的"值靠右"完全不对齐 ——
+   同一张信息窗里一半右对齐、一半左对齐，看起来像排版坏了。
+   修法：让 body 吃掉剩余宽度（flex:1）并把内容右对齐；标签保持 flex:0 且**上下居中**
+   （Q15 裁决：标签在格内上下居中，值允许折行）。 */
 .sat-info .si-row.net-add { align-items:center; justify-content:flex-start; gap:14px; }
-.sat-info .si-row.net-add .net-add-lbl { flex:0 0 auto; }
-.sat-info .net-add-body { display:flex; flex-direction:column; gap:4px; min-width:0; }
+.sat-info .si-row.net-add .net-add-lbl { flex:0 0 auto; align-self:center; }
+.sat-info .net-add-body { display:flex; flex-direction:column; gap:4px; min-width:0; flex:1 1 auto; align-items:flex-end; text-align:right; }
 .sat-info .net-add-line { line-height:1.4; white-space:normal; }
 .sat-info .batch-link.net-add-gw { color:var(--c-gw); font-weight:700; text-decoration:underline; text-underline-offset:2px; cursor:pointer; }
 .sat-info .batch-link.net-add-qf { color:var(--c-qf); font-weight:700; text-decoration:underline; text-underline-offset:2px; cursor:pointer; }
 .sat-info .net-add-n { color:var(--dim); }
+.sat-info .net-add-sign { color:var(--dim); margin-right:2px; }
 .sat-info .si-block { flex:0 0 auto; min-width:222px; width:100%; background:var(--info-bg); border:1px solid var(--hair); padding:12px 14px; }
 /* V1.3.6：信息窗末尾那行主题色小字提示（「电脑点击 / 手机长按可自由拖拽」） */
 .sat-info .si-drag { align-self:flex-start; font-size:10px; letter-spacing:0.08em; padding:4px 2px 0; opacity:.92; margin-top:-9px; }   /* V1.4.9：颜色改由内联按星座给；V1.7.2：padding-top 6→4px，再省一点纵向空间 */
@@ -2500,14 +2507,14 @@ html[data-theme="light"] .res-fail { color:#c72929; }
     <div class="sec-tools"><span></span></div>
     <span class="sec-num">05</span>
   </div>
-  <p class="sec-lead" data-i18n="lead_progress">两条曲线分别是星网与千帆的组网推进速度。横轴按周、标的是那一周的日期；纵轴可切换「发射量（累计）」或「在轨数量」。发射量把所有发射的颗数累加（含失败与部分成功，百科没有记载颗数的不计），在轨数量 = 已有最新轨道要素的颗数 + 已发射但尚未编目的成功批次。</p>
+  <p class="sec-lead" data-i18n="lead_progress">两条曲线分别是星网与千帆的组网推进速度。横轴按周、标的是那一周的日期；纵轴可切换「发射量」或「在轨量」。发射量把所有发射的颗数累加（含失败与部分成功，百科没有记载颗数的不计）；在轨量 = 累计发射 − 已再入 + 已发射但尚未编目的成功批次。</p>
 
   <div class="controls">
     <div class="ctl">
       <span class="lbl"><span data-i18n="l_netmode">纵轴量</span> <button class="help-btn" data-help="progress" type="button">?</button></span>
       <div class="seg" id="netModeSeg">
-        <button data-netmode="launch" class="on" data-i18n="nm_launch">发射量（累计）</button>
-        <button data-netmode="orbit" data-i18n="nm_orbit">在轨数量</button>
+        <button data-netmode="launch" class="on" data-i18n="nm_launch">发射量</button>
+        <button data-netmode="orbit" data-i18n="nm_orbit">在轨量</button>
       </div>
     </div>
     <div class="ctl">

@@ -326,9 +326,12 @@ var I18N = {
   res_ok: ['成功', 'Success'], res_part: ['部分成功', 'Partial success'], res_fail: ['失败', 'Failure'],
   // V1.8.0（需求8）：03.5 组网进度
   h_progress: ['组网进度', 'Network Progress'],
-  lead_progress: ['两条曲线分别是星网与千帆的组网推进速度。横轴按周、标的是那一周的日期；纵轴可切换「发射量（累计）」或「在轨数量」。发射量把所有发射的颗数累加（含失败与部分成功，百科没有记载颗数的不计），在轨数量 = 已有最新轨道要素的颗数 + 已发射但尚未编目的成功批次。',
+  lead_progress: ['两条曲线分别是星网与千帆的组网推进速度。横轴按周、标的是那一周的日期；纵轴可切换「发射量」或「在轨量」。发射量把所有发射的颗数累加（含失败与部分成功，百科没有记载颗数的不计）；在轨量 = 累计发射 − 已再入 + 已发射但尚未编目的成功批次。',
     'Two curves track how fast CSCN and Qianfan build their constellations. The x axis is weekly, labelled with the actual date; the y axis switches between cumulative launches and satellites in orbit. "Launches" sums every satellite sent up (including failures and partial successes when a count is on record); "In orbit" counts satellites with fresh elements plus successful batches launched but not yet catalogued.'],
-  l_netmode: ['纵轴量', 'Y axis'], nm_launch: ['发射量（累计）', 'Launches (cum.)'], nm_orbit: ['在轨数量', 'In orbit'],
+  l_netmode: ['纵轴量', 'Y axis'],
+  // ★ V2.0.1（R7）：控件文案收短 —— 用户口径「发射量（累计）」→「发射量」、「在轨数量」→「在轨量」。
+  //   「（累计）」三字在纵轴标题与按钮上都显得啰嗦，而「累计」这层含义由图上的阶梯单调递增自明。
+  nm_launch: ['发射量', 'Launches'], nm_orbit: ['在轨量', 'In orbit'],
   nm_unit_launch: ['累计发射卫星数', 'Cumulative satellites launched'], nm_unit_orbit: ['在轨卫星数', 'Satellites in orbit'],
   l_netshow: ['星座', 'Constellation'], d_x_date: ['日期', 'Date'],
   // ★ V1.9.2（用户要求）：组网进度的时间区间档按钮 + 导出底栏的两段留底。
@@ -367,7 +370,9 @@ var I18N = {
   // ↑↑ V1.9.0（R17）：05 章的三段式 i18n（标题/说明/选择器），其中「升轨速度」的算法口径见 climbNote
   t_defprogress: ['恢复 05 组网进度的初始设置', 'Restore the default settings of 05 Network Progress'],
   // V1.9.0（需求8）：改名「新增批次」→「新增卫星」（内容也确实是新增的卫星/批次组）
-  d_net_week: ['该周', 'Week'], d_net_batches: ['新增卫星', 'New satellites'],
+  // ★ V2.0.1（R8）：用户口径「新增卫星」→「星座变化」—— 因为这一块同时表达**新增**与**再入**，
+  //   只说「新增」会把再入项也框进去，名不副实。
+  d_net_week: ['该周', 'Week'], d_net_batches: ['星座变化', 'Constellation changes'],
   d_net_span: ['数据跨度', 'Data span'],
   t_age: ['在轨日, 天', 'Days in orbit'],
   foot_data: ['轨道数据来自 NORAD 空间目标目录', 'Orbit data from the NORAD satellite catalog'],
@@ -7704,7 +7709,7 @@ var README_ZH = [
   // ★ V1.9.7（用户要求：0.5 阈值要标在页面里）：把「在轨状态」的三条判据就地写清楚 ——
   //   否则表格里的「变轨中·点火 / 间歇」只是两个词，读者无从知道分界在哪、也看不出为什么某颗星算"到位"。
   '- 🧭 **「在轨状态」怎么判**（06 卫星表格的这一列、以及 04 章图上的爬坡段用的是同一套）：**①「变轨中·点火」**= 最近 **2 天**的最小二乘速率 **|Δa| > 0.5 km/天**（这个阈值 ≈ 4.5σ，见噪声口径）；**②「变轨中·间歇」**= 速率不超 0.5（电推点火之间的滑行段），但高度还没落进该批的工作高度带；**③「在轨」**= 既不在推、也已在带内；**④** 另有两条兜底：**高度带 = 该批工作高度 ±30 km**（管"慢慢爬、累计离得远了"），**数据不足**（历史点 < 4 个且首次出现不足 30 天）按"变轨中"处理。关于阈值为什么取 0.5、以及慢速累积爬升的兜底，见下方「科学口径 → 在轨状态的判据」；',
-  '- 📶 **组网进度（05）**：两条曲线分别是星网与千帆的组网推进速度，横轴按周、纵轴可切「发射量（累计）」或「在轨数量」；',
+  '- 📶 **组网进度（05）**：两条曲线分别是星网与千帆的组网推进速度，横轴按周、纵轴可切「发射量」或「在轨量」（前者累计发射、不因再入减少，后者=累计−已再入）；',
   '- 📋 **卫星表格（06）**：13 列轨道要素（含「在轨日, 天」与**「在轨状态」**）、混合搜索与联想、排序、每页 10 条，卫星名点击直达 satcat.com 对应条目；',
   '- 🚀 **发射历史（07）**：列序为「批次/组 · 运载火箭（后跟 COSPAR 编号）· 发射时间 · 发射地点 · 设计倾角 · 轨道要素」，火箭与发射地点染主题色带下划线可点跳转；按页浏览（每页 10 条），**整行点一下**就选中整批 —— 图表 / 地图 / 地球只高亮这一批，卫星表自动翻到当前排序下该批第一颗所在的页，批次表这一行用一条星网红 / 千帆蓝的长边框整行框住；待编目批次只标一个「待编目 ×N」标签，完整目录摘要悬停标签即可看到，不再铺开拉长表格；',
   '- 🎨 **界面**：深浅色主题、中英文切换、任意比例屏幕适配、三幅图一键全屏、右下角章节跳转药丸、顶部实时时钟。',
@@ -12127,8 +12132,11 @@ function netShowInfoAt(i) {
     var dd = ddOf[key];
     if (!dd.items.length) return;
     var sep = en ? ', ' : '、';
+    // ★ V2.0.1（R8）：新增项前加「＋」（再入项将来是「－」），让"增/减"在视觉上自解释。
+    //   用户原话的格式是 `+低轨26组×8 + EUHT试验星`，所以「＋」属于每一项而不是整行前缀。
     addLines.push('<div class="net-add-line">' + dd.items.map(function (e) {
-      return '<a class="batch-link net-add-' + key + '" data-lk="' + e.lk + '" href="javascript:void(0)" title="' + t('d_sel_group') + '">' +
+      return '<span class="net-add-sign">＋</span>' +
+        '<a class="batch-link net-add-' + key + '" data-lk="' + e.lk + '" href="javascript:void(0)" title="' + t('d_sel_group') + '">' +
         batchName(e.name) + '</a><span class="net-add-n">×' + e.n + '</span>';
     }).join(sep) + '</div>');
   });
@@ -12720,8 +12728,26 @@ function climbPhaseNow(s) {
   var d = (s && s.list) || [];
   var pub = (RAW[S.key] && RAW[S.key].phases) || null;
   var DAY = 86400000;
-  var dec = function (a) {
-    return a ? { startMs: a[0] == null ? null : a[0] * DAY, endMs: a[1] == null ? null : a[1] * DAY } : null;
+  // ★★ V2.0.1（R13）：返回值从「单值 {startMs,endMs}」扩成「数组 {starts,ends} + 代表值」★★
+  //   用户口径（Q13/Q23）：虚线的本质是**标拐点**，不封顶条数；
+  //   同一拐点在该批各星上的时间跨度 ≤5 天 → 画 1 根（中值）；>5 天 → 画 2 根（最早/最晚）。
+  //   实测 51 个批次里 34 个「开始」、28 个「结束」跨度 >5 天 ⇒ 这不是特例，是常态。
+  //   `startMs`/`endMs` 保留为**代表值**（取最早/最晚），因为自动视野、贴边判据、导出底栏
+  //   都只在问"这段时间覆盖到哪里" —— 用最早/最晚才不会把线切出视野。
+  var mk = function (arr, m2) {
+    var starts = [], ends = [];
+    if (m2) {
+      (m2.s || []).forEach(function (d) { if (d != null) starts.push(d * DAY); });
+      (m2.e || []).forEach(function (d) { if (d != null) ends.push(d * DAY); });
+    }
+    if (!starts.length && arr && arr[0] != null) starts.push(arr[0] * DAY);
+    if (!ends.length && arr && arr[1] != null) ends.push(arr[1] * DAY);
+    if (!starts.length && !ends.length) return null;
+    var sMs = starts.length ? starts[0] : null;
+    var eMs = ends.length ? ends[ends.length - 1] : null;
+    // `s` / `e` 是 **V1.9.5 就存在的旧字段名**（断言与内部判据都在读），
+    // R13 改成数组后必须继续给，否则那些"读 p.s"的地方会静默拿到 undefined。
+    return { starts: starts, ends: ends, startMs: sMs, endMs: eMs, s: sMs, e: eMs };
   };
   // ① 单星：本章单星选择优先；否则看全局选中是否恰好一颗 —— 口径统一在 climbOneNorad（与导出行规则同源）
   var one = climbOneNorad(s);
@@ -12732,11 +12758,13 @@ function climbPhaseNow(s) {
     var inList = false;
     for (var j = 0; j < d.length; j++) if ((d[j].norad | 0) === one) { inList = true; break; }
     if (!inList) return null;
-    if (pub && pub.s && pub.s[one]) return dec(pub.s[one]);
+    // 单星：只有一颗星，天然只有 1 根线，不需要 m 子表
+    if (pub && pub.s && pub.s[one]) return mk(pub.s[one], null);
     for (var i = 0; i < d.length; i++) {
       if ((d[i].norad | 0) === one) {
         var p1 = climbPhases(d[i].pts, { decayMs: climbDecayMs(one) });
-        return (p1.startMs === null && p1.endMs === null) ? null : { startMs: p1.startMs, endMs: p1.endMs };
+        return (p1.startMs === null && p1.endMs === null) ? null
+          : mk(null, { s: p1.startMs === null ? [] : [p1.startMs / DAY], e: p1.endMs === null ? [] : [p1.endMs / DAY] });
       }
     }
     return null;
@@ -12749,7 +12777,8 @@ function climbPhaseNow(s) {
     Object.keys(cnt).forEach(function (k2) { if (!lk || cnt[k2] > cnt[lk]) lk = k2; });
   }
   if (!lk) return null;
-  if (pub && pub.b && pub.b[lk]) return dec(pub.b[lk]);
+  // 批次：优先用 m 子表（每阶段 1~2 根），缺失时回退 b 的单值（旧产物兼容）
+  if (pub && pub.b && pub.b[lk]) return mk(pub.b[lk], (pub.m && pub.m[lk]) || null);
   // 回退：按"多数星"口径现算（中位数/过半规则与构建期一致）
   var starts = [], ends = [];
   d.forEach(function (c) {
@@ -12759,7 +12788,17 @@ function climbPhaseNow(s) {
   });
   if (!starts.length) return null;
   var med = function (a) { a.sort(function (x2, y2) { return x2 - y2; }); return a[a.length >> 1]; };
-  return { startMs: med(starts), endMs: (ends.length * 2 > starts.length) ? med(ends) : null };
+  // 回退路径同样按 R13 口径：跨度 >5 天给两根（与构建期同一条规则，避免"有 pub 更少线"的不一致）
+  var MULTI_DAY = 5;
+  var dOf = function (ms) { return Math.floor(ms / 86400000); };
+  var sLo = dOf(Math.min.apply(null, starts)), sHi = dOf(Math.max.apply(null, starts));
+  var done = ends.length * 2 > starts.length;
+  var eLo = ends.length ? dOf(Math.min.apply(null, ends)) : null;
+  var eHi = ends.length ? dOf(Math.max.apply(null, ends)) : null;
+  return mk(null, {
+    s: (sHi - sLo > MULTI_DAY) ? [sLo, sHi] : [dOf(med(starts))],
+    e: done ? ((eHi - eLo > MULTI_DAY) ? [eLo, eHi] : [dOf(med(ends))]) : null
+  });
 }
 function climbAutoView() {
   var s = climbSeries(), d = s.list;
@@ -12902,11 +12941,6 @@ function drawClimb() {
   var climbPhaseFlank = false;    // 贴很近 → 日期改成向两侧分开写
   if (climbPhase) {
     var _inV = function (ms) { return ms != null && ms >= v.x0 && ms <= v.x1; };
-    var _xS = _inV(climbPhase.startMs) ? X(climbPhase.startMs) : null;
-    var _xE = _inV(climbPhase.endMs) ? X(climbPhase.endMs) : null;
-    if (_xS != null) climbPhaseXs.push(_xS);
-    if (_xE != null) climbPhaseXs.push(_xE);
-    climbPhaseFlank = (_xS != null && _xE != null && Math.abs(_xE - _xS) < 48);
     ctx.font = '10px ' + MONO;
     var _labBox = function (mx, ms, mode) {
       var tw = ctx.measureText(climbDateLabel(ms)).width;
@@ -12915,11 +12949,30 @@ function drawClimb() {
       var x0 = al === 'left' ? mx + 3 : (al === 'right' ? mx - 3 - tw : mx - tw / 2);
       climbPhaseBoxes.push({ x0: x0 - 2, x1: x0 + tw + 2 });
     };
-    if (climbPhaseFlank) { _labBox(_xS, climbPhase.startMs, 'right'); _labBox(_xE, climbPhase.endMs, 'left'); }
-    else {
-      if (_xS != null) _labBox(_xS, climbPhase.startMs, 'center');
-      if (_xE != null) _labBox(_xE, climbPhase.endMs, 'center');
-    }
+    // ★★ V2.0.1（R13）：刻度让位也按**任意条数**算 ★★
+    //   旧实现只处理 startMs/endMs 两条；多线（>5 天跨度）后第 3/4 条线的日期会与刻度叠字。
+    //   做法与渲染处完全一致（同一份排序 + 同一套"看左右邻居"的判定），保证两处不错位。
+    var _pm = [];
+    (climbPhase.starts || []).forEach(function (ms) { if (_inV(ms)) _pm.push({ x: X(ms), ms: ms }); });
+    (climbPhase.ends || []).forEach(function (ms) { if (_inV(ms)) _pm.push({ x: X(ms), ms: ms }); });
+    _pm.sort(function (a, b) { return a.x - b.x; });
+    _pm.forEach(function (o) { climbPhaseXs.push(o.x); });
+    climbPhaseFlank = _pm.length > 1 && Math.abs(_pm[_pm.length - 1].x - _pm[0].x) < 48;
+    // 与渲染处同一套贪心：放不下的日期不会真的画出来，所以也不该登记占位盒
+    //   （否则它会把邻近刻度误伤成"只画网格线不画日期"，看起来像随机缺字）。
+    var _lastR2 = -1e9;
+    _pm.forEach(function (o, i) {
+      var nearL = i > 0 && (o.x - _pm[i - 1].x) < 46;
+      var nearR = i < _pm.length - 1 && (_pm[i + 1].x - o.x) < 46;
+      var al = nearL ? 'right' : (nearR ? 'left' : 'center');
+      var txt = climbDateLabel(o.ms), tw = ctx.measureText(txt).width;
+      var al2 = al;
+      if (al2 === 'center') { if (o.x < PL + 28) al2 = 'left'; else if (o.x > PL + pw - 28) al2 = 'right'; }
+      var x0 = al2 === 'left' ? o.x + 3 : (al2 === 'right' ? o.x - 3 - tw : o.x - tw / 2);
+      if (x0 < _lastR2 + 4) return;
+      _lastR2 = x0 + tw;
+      _labBox(o.x, o.ms, al);
+    });
   }
   var nearPhaseX = function (x) {
     // ① 离竖虚线 < 26px：刻度日期会被线穿过、且与线下方日期重复 → 让位
@@ -13017,28 +13070,44 @@ function drawClimb() {
       if (ms == null || ms < v.x0 || ms > v.x1) return null;    // 视图外的线不画（④ 已尽量纳入视野）
       return X(ms);
     };
-    var xS = xOf(phase.startMs), xE = xOf(phase.endMs);
+    // ★★ V2.0.1（R13）：**逐条画**（不再是固定两条）★★
+    //   每个拐点可能 1 根（跨度 ≤5 天，取中值）或 2 根（>5 天，最早/最晚），
+    //   升轨开始与升轨结束各算一个拐点 ⇒ 实际可能是 1~4 根，未来加了再入线还会更多。
+    //   用户口径 Q13：**不封顶**，虚线的本质就是标出拐点。
+    var marks = [];
+    (phase.starts || []).forEach(function (ms) { var x = xOf(ms); if (x != null) marks.push({ x: x, ms: ms }); });
+    (phase.ends || []).forEach(function (ms) { var x = xOf(ms); if (x != null) marks.push({ x: x, ms: ms }); });
+    marks.sort(function (a, b) { return a.x - b.x; });
     var drawLine = function (mx) {
       ctx.beginPath(); ctx.moveTo(mx, PT); ctx.lineTo(mx, PT + ph); ctx.stroke();
     };
+    // ★★ V2.0.1（R13）：日期标签**贪心放置** —— 放不下就只画线、不画日期 ★★
+    //   实拍教训（2026-10-22，批次 23212 的变轨图）：该批「开始」跨度 67 天、「结束」112 天，
+    //   4 条线挤在很小一段像素里，旧写法把 4 个日期都画出来 → 叠成
+    //   「24/01/24/04/01/06」这样一团**完全不可读**的黑块。
+    //   取舍：**线本身才是拐点标记**（用户 Q13："虚线的本质是标拐点"），日期只是辅助读数。
+    //   所以宁可少画几个日期，也不能叠字。
+    var _lastR = -1e9;
     var labAt = function (mx, ms, mode) {
       var txt = climbDateLabel(ms);
       var tw = ctx.measureText(txt).width;
       var al = mode;
       if (al === 'center') { if (mx < PL + 28) al = 'left'; else if (mx > PL + pw - 28) al = 'right'; }
       var tx0 = al === 'left' ? mx + 3 : (al === 'right' ? mx - 3 - tw : mx - tw / 2);
+      if (tx0 < _lastR + 4) return;        // 与前一个标签重叠 → 跳过（线仍然在，位置信息不丢）
+      _lastR = tx0 + tw;
       ctx.textAlign = 'left';
       ctx.fillText(txt, tx0, PT + ph + 3);
     };
-    if (xS != null) drawLine(xS);
-    if (xE != null) drawLine(xE);
-    if (climbPhaseFlank) {                   // 两条线贴得很近 → 日期向外分开（与上面 _labBox 同一判定）
-      labAt(xS, phase.startMs, 'right');
-      labAt(xE, phase.endMs, 'left');
-    } else {
-      if (xS != null) labAt(xS, phase.startMs, 'center');
-      if (xE != null) labAt(xE, phase.endMs, 'center');
-    }
+    marks.forEach(function (o) { drawLine(o.x); });
+    // 日期标签：与**相邻**线间隔 <46px 就向外分开，否则居中
+    //   （旧实现只看"开始/结束"这一对，多于两条时会叠字；这里改成看左右邻居，任意条数都成立）
+    marks.forEach(function (o, i) {
+      var nearL = i > 0 && (o.x - marks[i - 1].x) < 46;
+      var nearR = i < marks.length - 1 && (marks[i + 1].x - o.x) < 46;
+      var al = nearL ? 'right' : (nearR ? 'left' : 'center');
+      labAt(o.x, o.ms, al);
+    });
     ctx.restore();
   })();
 

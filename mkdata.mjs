@@ -1873,7 +1873,10 @@ DATA.qf.layers = ORBIT_ST.layers.qf;
 //     个别星与同组不同步（甚至从未升轨/已再入）不会把整批的线带偏。
 const CLIMB_PH = (() => {
   const DAY = 86400000;
-  const out = { gw: { b: {}, s: {} }, qf: { b: {}, s: {} } };
+  // ★ V2.0.1（R13）：`m` = 「多线」子表 —— 每个拐点在最坏情况下要画 1 或 2 根线。
+  //   为什么不改 `b` 的既有形态：`b` 是**中值单值**，页面/导出/断言全都在读它；
+  //   新增 `m` 并存（`b` 继续给"代表值"，`m` 给"最早/最晚"），旧产物仍能跑、新产物更精确。
+  const out = { gw: { b: {}, s: {}, m: {} }, qf: { b: {}, s: {}, m: {} } };
   const stat = { sats: 0, endOnly: 0, batches: 0 };
   for (const bk of ['gw', 'qf']) {
     for (const key in HIST.out[bk]) {
@@ -1898,12 +1901,31 @@ const CLIMB_PH = (() => {
         const med = a => a.slice().sort((x, y) => x - y)[a.length >> 1];
         const done = ends.length * 2 > starts.length;         // 过半已结束 → 画结束线
         out[bk].b[key] = [Math.floor(med(starts) / DAY), done ? Math.floor(med(ends) / DAY) : null];
+        // ★★ V2.0.1（R13）：把「最早 / 最晚」也算出来 ★★
+        //   用户口径（Q13/Q23）：
+        //     · 虚线的本质是**标拐点**（由升转平 / 由平转升 / 进入再入），不封顶条数；
+        //     · 同批各星的这个拐点若在 **≤5 天**内 → 画 **1 根**（取中值）；
+        //       **>5 天** → 画 **2 根**（最早、最晚）—— 说明这一批的升轨本来就是分批进行的。
+        //   ⚠️ 实测（2026-10-22）：51 个批次里 **35 个跨度 >5 天**（最大 253 天），
+        //     所以这不是"极少触发的特例"，而是常态 —— 必须做，且页面要能画任意条数。
+        const dOf = ms => Math.floor(ms / DAY);
+        const sLo = dOf(Math.min.apply(null, starts)), sHi = dOf(Math.max.apply(null, starts));
+        const eLo = ends.length ? dOf(Math.min.apply(null, ends)) : null;
+        const eHi = ends.length ? dOf(Math.max.apply(null, ends)) : null;
+        const MULTI_DAY = 5;
+        out[bk].m[key] = {
+          s: (sHi - sLo > MULTI_DAY) ? [sLo, sHi] : [Math.floor(med(starts) / DAY)],
+          e: done ? ((eHi - eLo > MULTI_DAY) ? [eLo, eHi] : [Math.floor(med(ends) / DAY)]) : null
+        };
         stat.batches++;
+        if (sHi - sLo > MULTI_DAY) stat.multiStart = (stat.multiStart || 0) + 1;
+        if (done && eHi - eLo > MULTI_DAY) stat.multiEnd = (stat.multiEnd || 0) + 1;
       }
     }
   }
   console.log('升轨阶段（H10 ③b）：批次 ' + stat.batches + ' 条 / 单星 ' + stat.sats +
-    ' 条（其中仅再入线 ' + stat.endOnly + '）');
+    ' 条（其中仅再入线 ' + stat.endOnly + '）' +
+    '｜R13 多线：开始 ' + (stat.multiStart || 0) + ' 批 / 结束 ' + (stat.multiEnd || 0) + ' 批（跨度 >5 天）');
   return out;
 })();
 // 挂到产物上（与 A7 的 rec.orb 同一套路：DATA 的引用在这里赋值，JSON 序列化时自然带上）
