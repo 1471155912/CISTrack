@@ -1588,12 +1588,32 @@ const ORBIT_ST = (() => {
   //     69857/69860/69865 三颗 Δ30=24.9 但 Δ7≈0，早就停了）。7 天窗把这类误判挡掉。
   const RISE_TH = 10;    // 30 天净升（km）：超过它就不算「稳定种子」
   const CREEP_TH = 3;    // 7 天净升（km）：贴层但仍在慢爬 → 判变轨中
+  const FLAT_KM = 0.5;   // 相邻样本高度变化小于它 → 视为「这一段没动」
+  const ARRIVE_KM = 10;  // 「已停平 + 距层 ≤ 10 km」直接判到位（比 NEAR=30 更严，避免把临时停泊算进去）
   const LAYER_INC = 0.5, LAYER_GAP = 30, LAYER_MIN = 8, LAYER_SD = 8;
-  const hAt = (pts, agoDays, tail) => {          // tail 之前最近一点的高度（km，离地）
+  // ★★ V2.0.0.630 三次修补（用户 2026-10-23：「同批 9 颗星，1150 在轨、1149 变轨中」）★★
+  //   旧写法只取「≤ 目标时刻的最后一个点」，**不校验那个点离目标时刻有多远**。
+  //   实测 2026-221（26221）在 10-05 与 10-17 之间断了 12 天：100797 的「7 天净升」实际算的是
+  //   **16 天升了 36 km**，于是判成「贴层慢爬」；而同批另外 4 颗窗口落在爬升之后，判在轨。
+  //   同一批、同一高度（都 1155.7 km）被拆成两种状态，根因就在这里。
+  //   现在：取目标时刻**两侧各一点做线性插值**；若两侧点相距 > SPAN_TOL 天，判为「数据不足」
+  //   返回 null（由调用方退化到 2 天速率，且**不许**当成"没在爬"）。
+  const SPAN_TOL = 10;                            // 天：插值窗口的最大跨度
+  const hAt = (pts, agoDays, tail) => {
     const t = tail - agoDays * DAY;
-    let best = null;
-    for (const p of pts) if (p[0] <= t + 1e-9) best = p;
-    return best ? best[1] - RE : null;
+    let before = null, after = null;
+    for (const p of pts) {
+      if (p[0] <= t + 1e-9) before = p;
+      else { after = p; break; }
+    }
+    if (!before && !after) return null;
+    if (!before) return after ? after[1] - RE : null;      // 都在目标之后：用最早一点（近似）
+    if (!after) return before[1] - RE;                     // 都在之前：用最晚一点（近似）
+    const span = (after[0] - before[0]) / DAY;
+    if (span > SPAN_TOL) return null;                      // 断档太大 → 数据不足
+    if (span <= 0) return before[1] - RE;
+    const k = (t - before[0]) / (after[0] - before[0]);
+    return (before[1] + (after[1] - before[1]) * k) - RE;
   };
   // ① 稳定种子 + 逐星统计量
   for (const [, x] of rows) {
@@ -1601,6 +1621,13 @@ const ORBIT_ST = (() => {
     const h30 = hAt(x.pts, 30, tail), h7 = hAt(x.pts, 7, tail);
     x.rise30 = h30 === null ? null : (x.sma - RE) - h30;
     x.rise7 = h7 === null ? null : (x.sma - RE) - h7;
+    // ★ 新增：**最后两段是否都停平**（相邻样本 Δa 都 < FLAT_KM）。
+    //   用途：刚到位、7 天窗里还带着爬升尾巴的星（本次 26221E~J 就是这种），
+    //   靠这个信号把它们判成"到位"，而不是死等 7 天窗干净。
+    const n = x.pts.length;
+    x.flatTail = n >= 3 &&
+      Math.abs(x.pts[n - 1][1] - x.pts[n - 2][1]) < FLAT_KM &&
+      Math.abs(x.pts[n - 2][1] - x.pts[n - 3][1]) < FLAT_KM;
     const meta = SAT_META.get(x.norad) || {};
     x.con = meta.c || null;                      // 星座：层必须分星座建（星网 50° / 千帆 89° 各一套）
     x.inc = meta.inc;
@@ -1719,11 +1746,20 @@ const ORBIT_ST = (() => {
       // ★★ V1.9.9（Q26 修 ①）：thin 必须**先查层**。老写法直接"近期首现即变轨中"，
       //   把已经在层上、且不爬的星也判成变轨中。
       const inLayer = !!(x.layer && x.dist !== null && x.dist <= NEAR);
-      const rising = (x.rise7 !== null && x.rise7 >= CREEP_TH);
+      // ★ 与主判据同口径：停平贴层算到位；rise7 未知时退回 2 天速率
+      const settled = (x.flatTail && x.dist !== null && x.dist <= ARRIVE_KM) ||
+        (x.rise7 !== null ? x.rise7 < CREEP_TH : !x.moving);
+      const rising = !settled;
       orb = (inLayer && !rising) ? 0 : ((Date.now() - x.pts[0][0] <= WIN * DAY) ? 1 : 0);
       why = 'thin'; nThin++;
-    } else if (x.layer && x.dist !== null && x.dist <= NEAR &&
-               (x.rise7 === null || x.rise7 < CREEP_TH)) {
+    } else if (x.layer && x.dist !== null && x.dist <= NEAR && (
+                 // ① 已停平且贴层（≤ ARRIVE_KM）→ 到位。不必等 7 天窗彻底干净。
+                 (x.flatTail && x.dist <= ARRIVE_KM) ||
+                 // ② 7 天净升可信且没在爬 → 到位
+                 (x.rise7 !== null && x.rise7 < CREEP_TH) ||
+                 // ③ 7 天数据不足（断档/新星）→ 退回看 2 天速率，**不许**当成"没在爬"
+                 (x.rise7 === null && !x.moving)
+               )) {
       // ★★ V2.0.1（用户裁决 A）：**「已在工作层上」优先于「2 天速率」** ★★
       //   用户原话：「要合理区分**真在比较长的临时轨道等待变轨点火**的和**确实是位于新的工作轨道的**」。
       //   实例（实测抓到的两处误判）：
@@ -1798,6 +1834,83 @@ const ORBIT_ST = (() => {
       }
     }
     out.set(n, rec);
+  }
+  // ★★ V2.0.0.630 三次修补（用户 2026-10-23）：**同批一致性** —— 同一批同一高度，
+  //   不该一半"在轨"、一半"变轨中·间歇"（本次 2026-221：9 颗全在 1155.7 km，
+  //   只因 7 天窗落在爬升段的不同位置，就被拆成 4 在轨 + 5 间歇）。
+  //   判定条件（四条同时成立才改判）：
+  //     ① 同批成员 ≥4 颗，且**已有一半以上**判在轨；
+  //     ② 本星离设计层 |alt − la| ≤ ARRIVE_KM（10 km）—— 真的贴在层上；
+  //     ③ 2 天速率 < RATE_TH（0.5）—— 不是在点火（真点火一律不动）；
+  //     ④ 不是 thin（历史跨度不足的星，判据本来就不该改）。
+  //   改判后补 `od`（首次进入层带的那条 TLE），并清掉 `rr` —— 在轨态不显示速率。
+  {
+    const byBatch = new Map();
+    for (const [n, rec] of out) {
+      // ⚠️ thin（历史跨度 <60 天）也纳入：新批次整批都是 thin，排除它们就永远救不回
+      //    "刚到位但 7 天窗不干净"的情形。护栏交给贴层/未点火/同批多数三条。
+      const b = rec.bkey || '?';
+      if (!byBatch.has(b)) byBatch.set(b, []);
+      byBatch.get(b).push(n);
+    }
+    let promoted = 0;
+    for (const [, ns] of byBatch) {
+      if (ns.length < 4) continue;
+      const onCount = ns.filter(n => out.get(n).orb === 0).length;
+      if (onCount * 2 < ns.length) continue;
+      for (const n of ns) {
+        const rec = out.get(n);
+        if (rec.orb === 0 || typeof rec.la !== 'number') continue;
+        if (Math.abs(rec.alt - rec.la) > ARRIVE_KM) continue;
+        if (rec.rr !== undefined && Math.abs(rec.rr) > 0.5) continue;
+        rec.orb = 0;
+        const x = rows.get(n);
+        if (x && Array.isArray(x.pts)) {
+          for (const p of x.pts) if (Math.abs((p[1] - RE) - rec.la) <= NEAR) { rec.od = ymd8(p[0]); break; }
+        }
+        delete rec.rr;
+        promoted++;
+      }
+    }
+    if (promoted) console.log('  同批一致性改判：' + promoted + ' 颗「变轨中」→「在轨」');
+  }
+  // ★★ V2.0.0.630 三次修补（用户 2026-10-23）：**同批一致性** —— 同一批同一高度，
+  //   不该一半"在轨"、一半"变轨中·间歇"（本次 2026-221：9 颗全在 1155.7 km，
+  //   只因 7 天窗落在爬升段的不同位置，就被拆成 4 在轨 + 5 间歇）。
+  //   判定条件（四条同时成立才改判）：
+  //     ① 同批成员 ≥4 颗，且**已有一半以上**判在轨；
+  //     ② 本星离设计层 |alt − la| ≤ ARRIVE_KM（10 km）—— 真的贴在层上；
+  //     ③ 2 天速率 < RATE_TH（0.5）—— 不是在点火（真点火一律不动）；
+  //     ④ 不是 thin（历史跨度不足的星，判据本来就不该改）。
+  //   改判后补 `od`（首次进入层带的那条 TLE），并清掉 `rr` —— 在轨态不显示速率。
+  {
+    const byBatch = new Map();
+    for (const [n, rec] of out) {
+      if (rec.thin) continue;
+      const b = rec.bkey || '?';
+      if (!byBatch.has(b)) byBatch.set(b, []);
+      byBatch.get(b).push(n);
+    }
+    let promoted = 0;
+    for (const [, ns] of byBatch) {
+      if (ns.length < 4) continue;
+      const onCount = ns.filter(n => out.get(n).orb === 0).length;
+      if (onCount * 2 < ns.length) continue;
+      for (const n of ns) {
+        const rec = out.get(n);
+        if (rec.orb === 0 || typeof rec.la !== 'number') continue;
+        if (Math.abs(rec.alt - rec.la) > ARRIVE_KM) continue;
+        if (rec.rr !== undefined && Math.abs(rec.rr) > 0.5) continue;
+        rec.orb = 0;
+        const x = rows.get(n);
+        if (x && Array.isArray(x.pts)) {
+          for (const p of x.pts) if (Math.abs((p[1] - RE) - rec.la) <= NEAR) { rec.od = ymd8(p[0]); break; }
+        }
+        delete rec.rr;
+        promoted++;
+      }
+    }
+    if (promoted) console.log('  同批一致性改判：' + promoted + ' 颗「变轨中」→「在轨」');
   }
   // ★★ V2.0.1：**判据分支命中分布** —— 每个分支都必须 >0，否则说明存在不可达代码。
   //   放在这里（判据循环刚结束）而不是统计打印处：那些计数器是**本循环的局部变量**，

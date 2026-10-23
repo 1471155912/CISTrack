@@ -227,7 +227,7 @@ var I18N = {
   //     · 已再入 —— 已离开轨道
   //   末尾统一强调"这是基于公开 TLE 的大概估计"。
   d_st_note_climb: [
-    '在轨状态判读说明："在轨·正常" = 停在预定工作轨道（含正常位置保持）；"在轨·可能异常" = 长期停在非预定工作轨道、且同批其它星已到位；"变轨中" = 仍在抬升——2 天速率 > 0.5 km/天为"点火"，贴层慢爬或暂时停推为"间歇"；"已再入" = 已离轨。判据先看位置、再看速度：已经在工作层上且近期不再爬升的即算到位；停在临时轨道等点火的仍算变轨中；试验星本来就不在组网轨道上，长期稳定即按其自身轨道计入在轨。注意：本图像卫星变轨情况折线的染色仅用于做互相区分，并不用于表示其对应卫星的在轨状态！非官方项目，模拟基于开源 TLE 数据，不代表实际情况。',
+    '在轨状态判读说明："在轨·正常" = 停在预定工作轨道（含正常位置保持）；"在轨·可能异常" = 长期停在非预定工作轨道、且同批其它星已到位；"变轨中" = 仍在抬升——2 天速率 > 0.5 km/天为"点火"，贴层慢爬或暂时停推为"间歇"；"已再入" = 已离轨。判据先看位置、再看速度：已经在工作层上且近期不再爬升的即算到位（7 天净升按插值算，断档超过 10 天视为数据不足；距层 10 km 内且最近两次观测都停平，或同批过半已到位且本星未点火，也一并算到位）（7 天净升按插值算，断档超过 10 天视为数据不足；距层 10 km 内且最近两次观测都停平，或同批过半已到位且本星未点火，也一并算到位）；停在临时轨道等点火的仍算变轨中；试验星本来就不在组网轨道上，长期稳定即按其自身轨道计入在轨。注意：本图像卫星变轨情况折线的染色仅用于做互相区分，并不用于表示其对应卫星的在轨状态！非官方项目，模拟基于开源 TLE 数据，不代表实际情况。',
     'In-orbit status guide: "In orbit · normal" = holding its intended working orbit (including normal station-keeping); "possibly anomalous" = long parked off its intended orbit while other satellites from the same launch have arrived; "raising" = still climbing — "burning" above 0.5 km/day, "coasting" when creeping along a layer or pausing between burns; "re-entered" = left orbit. The rule checks position first, velocity second: a satellite already on a working layer that has stopped climbing counts as arrived; one holding on a temporary orbit between burns still counts as raising; a test satellite that never targets the constellation shell is counted as in orbit once it is stable on its own orbit. Note: the colours of the orbit-change curves in this image are used only to tell them apart — they do not indicate the in-orbit status of the satellites they belong to. Unofficial project · simulated from open TLE data — does not reflect actual conditions.'],
   b_pick: ['选择地面观测点', 'Pick ground site'], b_names: ['名称', 'Names'],
   // ★ V1.9.8（用户第 7 条）：导出弹层第二行改成「打印第 X 页～第 Y 页」
@@ -539,7 +539,7 @@ var ST_NOTE = {
       ['"变轨中"', 'raising'],
       [' = 仍在抬升——2 天速率 > 0.5 km/天为"点火"，贴层慢爬或暂时停推为"间歇"；', null],
       ['"已再入"', 'gone'],
-      [' = 已离轨。判据先看位置、再看速度：已经在工作层上且近期不再爬升的即算到位；停在临时轨道等点火的仍算变轨中；试验星本来就不在组网轨道上，长期稳定即按其自身轨道计入在轨。', null],
+      [' = 已离轨。判据先看位置、再看速度：已经在工作层上且近期不再爬升的即算到位（7 天净升按插值算，断档超过 10 天视为数据不足；距层 10 km 内且最近两次观测都停平，或同批过半已到位且本星未点火，也一并算到位）（7 天净升按插值算，断档超过 10 天视为数据不足；距层 10 km 内且最近两次观测都停平，或同批过半已到位且本星未点火，也一并算到位）；停在临时轨道等点火的仍算变轨中；试验星本来就不在组网轨道上，长期稳定即按其自身轨道计入在轨。', null],
       // ★★ V2.0.0.630（用户 2026-10-22 第 3 条）：**折线染色 ≠ 在轨状态** ★★
       //   变轨图里每条线是按"同批次内黄金角"上色的，纯为互相区分；而说明里讲的是四态配色。
       //   两者都在同一张图下方出现，不加这一句必被读成"线的颜色就是状态色"。第三位 = 加粗。
