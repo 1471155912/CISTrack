@@ -106,7 +106,7 @@ Without the sources below, this page could not draw a single dot. **Listed in or
 9. **[Audiowide](https://fonts.google.com/specimen/Audiowide)** (SIL OFL 1.1) — the typeface of the CISTrack
    wordmark, embedded as base64; thanks also to Google Fonts for distributing it.
 
-Finally, our thanks to **everyone who sent in comments and suggestions before the 1.9.9.630 stable release** —
+Finally, our thanks to **everyone who sent in comments and suggestions before the 2.0.0.630 stable release** —
 on Bilibili, in GitHub Issues, in Gitee Issues, or anywhere else. The bugs you found, the interactions that felt
 wrong and the conventions that made no sense: many of them are fixed in this version, and the rest are recorded
 in the [1.9.9.630 release notes](https://github.com/1471155912/CISTrack/releases) under "Roadmap". This page was
@@ -145,7 +145,7 @@ That is all. On first open it tries to fetch the latest TLEs; if that fails it f
 > - Fully offline: both use the snapshot bundled at build time; everything still works.
 
 > Want **scheduled automatic updates on your own machine** (periodically pull fresh orbital elements
-> and repackage the HTML)? See the dedicated **「🖥️ Local deployment (with scheduled updates)」** chapter below.
+> and repackage the HTML)? See the dedicated **"🖥️ Local deployment (with scheduled updates)"** chapter below.
 
 
 ## ✨ What it does

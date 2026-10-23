@@ -559,10 +559,10 @@ console.log('--- V1.9.9.630 页脚 / 弹窗 × / 仓库药丸 ---');
   const txt = fb ? fb.textContent : '';
   const links = fb ? [...fb.querySelectorAll('a')] : [];
   assert('V1.9.9.630：页脚新增「欢迎在…提意见」一行（文案完整）',
-    /^欢迎在B站动态页、GitHub Issue和Gitee Issue上为本项目提出更多宝贵的意见和建议！$/.test(txt), txt);
-  assert('V1.9.9.630：三处链接的地址与顺序都对（B站动态 / GitHub Issue / Gitee Issue）',
+    /^欢迎在B站专栏、GitHub Issue和Gitee Issue上为本项目提出更多宝贵的意见和建议！$/.test(txt), txt);
+  assert('V1.9.9.630：三处链接的地址与顺序都对（B站专栏 / GitHub Issue / Gitee Issue）',
     links.length === 3 &&
-    links[0].getAttribute('href') === 'https://www.bilibili.com/opus/1261335859431473175' &&
+    links[0].getAttribute('href') === 'https://www.bilibili.com/opus/1262306358793863173' &&
     links[1].getAttribute('href') === 'https://github.com/1471155912/CISTrack/issues' &&
     links[2].getAttribute('href') === 'https://gitee.com/Jackoraniverse/CISTrack/issues',
     links.map(a => a.getAttribute('href')).join(' | '));
@@ -6385,7 +6385,9 @@ assert('V1.9.9.630：加载页「跳过 / Skip」药丸有**实色**黄边框（
   assert('V1.9.5（H12 补漏）：术语「变轨速度 / Maneuver rate」已穿透到帮助正文（中英各 0 处旧词）',
     !/升轨速度/.test(appCode) &&
     !/climb rate/i.test(appCode) &&
-    /可切换纵轴量为「变轨速度」/.test(appCode) &&
+    // ★ 2026-10-23（用户裁决）：中文正文里的日语括号「」统一改中文双引号“”，
+    //   所以这里的判据跟着改成中文引号 —— 判的是**术语**,不是括号形状。
+    /可切换纵轴量为“变轨速度”/.test(appCode) &&
     /switched to \*maneuver rate\*/.test(appCode));
   // ★ V1.9.5（发布前补漏）：**静态回退文本必须与 i18n 表的中文值一致**。
   //   为什么值得一条守卫：模板里的静态文本是 JS 执行前的兜底，i18n 表是运行时真正的文案 ——

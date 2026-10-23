@@ -46,6 +46,20 @@ The version is written in the footer (`CISTrack · Vx.y.z`), and the bottom bar 
   indicate the in-orbit status of the satellites they belong to.** (bold)
 - The single source `ST_NOTE` gained a third `bold` flag: `<b>` on the page, 700 weight in the exported image.
 
+### 6. Wording cleanup in the docs and the footer (2026-10-23)
+- README (zh/en) and the in-page "README" modal were cleaned in one pass: Japanese corner brackets in Chinese
+  prose are now Chinese double quotes; the English page no longer keeps Japanese brackets.
+- The acknowledgement line and the "first stable release" wording now consistently say **2.0.0.630**
+  (a stale 1.9.9.630 reference was left behind).
+- The footer link "Bilibili" now reads "**Bilibili column**" (same colour and underline) and points at the new post.
+
+### 6. Wording cleanup in the docs and the footer (2026-10-23)
+- README (zh/en) and the in-page "README" modal were cleaned in one pass: Japanese corner brackets in Chinese
+  prose are now Chinese double quotes; the English page no longer keeps Japanese brackets.
+- The acknowledgement line and the "first stable release" wording now consistently say **2.0.0.630**
+  (a stale 1.9.9.630 reference was left behind).
+- The footer link "Bilibili" now reads "**Bilibili column**" (same colour and underline) and points at the new post.
+
 ### 5. The loading page's SKIP button did not skip immediately
 - It only called `endLoadKey('d_skipped')`, which schedules `hideMask` after 420ms and `display:none` after another
   500ms transition — the ring kept spinning.
