@@ -278,6 +278,25 @@ function autoFillLedger(meta, tag, sats) {
     added.push(key + '(' + (v[0] || '?') + ')[百科]');
     have.add(key);
   });
+  // —— A2. 词条正文表格兜底（★ V2.0.0.631 新增）——
+  //   病根：`引导页:发射记录` 比「星网 / 千帆星座」正文表格**慢**（实测 2026-243 已在正文，
+  //   引导页还没有）。旧实现只认引导页 → 新批次拿不到任何元数据 → `GW missing launch meta`，
+  //   页面显示「无台账」、没有批次名、没有发射日期。
+  //   现在：正文表格（data/wiki_tables.json）里已有的行，在引导页缺行时用来补
+  //   **名称 / 日期 / 发射场**；火箭与颗数留空（表格里没有这两列），并标 `auto,day` 供人工核对。
+  Object.keys(WIKI_TABLES[tag] || {}).forEach(function (full) {
+    const key = String(full).replace('-', '').slice(2);
+    if (have.has(key) || !inCat.has(key)) return;
+    const w = WIKI_TABLES[tag][full] || {};
+    if (!w.d8) return;
+    const nm = w.name || (Array.isArray(w.names) && w.names[0]) || '';
+    const v = [normBatchName(nm) || '新批次', w.d8 + 'T' + (w.t8 || '00:00'),
+      '', w.site || '', 0, '', 0];
+    v[8] = 'auto,day';
+    meta[key] = v;
+    added.push(key + '(' + (v[0] || '?') + ')[词条表]');
+    have.add(key);
+  });
   // —— B. TLE 名兜底：百科还没收录该发，但 TLE 名已写明组号 ——
   //   星网：`GUOWANG 27 OBJECT B` → 低轨27组；千帆：`SPACESAIL ...` / `QIANFAN ...` → 极轨NN组。
   //   只认**白名单形态**（GUOWANG <数字> / SPACESAIL|QIANFAN ... <数字>组），其余名字不猜。
@@ -2018,7 +2037,18 @@ const ORBIT_ST = (() => {
           else if (os && typeof os.wk === 'number') { sumGuess += os.wk; nGuess++; }
         }
         if (nGuess) wkGuess = Math.round((sumGuess / nGuess) / 10) * 10;
-        else wkGuess = Math.round(400 / 10) * 10;
+        else {
+          // ★ V2.0.0.631（真缺陷）：整批都没有历史点时，旧实现写死 **400 km**（"未知但合理"）。
+          //   实测 2026-243（低轨28组，9 颗）全批显示 400 km，而 TLE 的平均运动反算是 1052 km
+          //   —— 页面会显示一个**凭空捏造的高度**，且完全不报错。
+          //   现在：没有同批参考时，直接按**这一条 TLE 的 mean motion** 反算真实高度
+          //   （a = ∛(μ·(86400/n/2π)²)，alt = a − 6378.137，与全项目同一套常数）。
+          const mm = parseFloat(String(rec.l2 || '').slice(52, 63));
+          if (isFinite(mm) && mm > 0) {
+            const a = Math.cbrt(398600.4418 * Math.pow(86400 / mm / (2 * Math.PI), 2));
+            wkGuess = Math.round((a - 6378.137) / 10) * 10;
+          } else wkGuess = 400;
+        }
         rec.orb = 1; rec.wk = wkGuess; rec.la = null; rec.od = '';
         nRaising++; nFallback++;
         continue;

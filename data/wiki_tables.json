@@ -1,5 +1,5 @@
 {
- "_fetched": "2026-10-23T06:31:32.741Z",
+ "_fetched": "2026-11-07T06:09:18.490Z",
  "_src": [
   "https://sat.huijiwiki.com/wiki/%E6%98%9F%E7%BD%91",
   "https://sat.huijiwiki.com/wiki/%E5%8D%83%E5%B8%86%E6%98%9F%E5%BA%A7"
@@ -1933,6 +1933,51 @@
     ]
    },
    "sec": "试验星"
+  },
+  "2026-243": {
+   "name": "卫星互联网低轨28组",
+   "names": [
+    "卫星互联网低轨28组"
+   ],
+   "nameLinks": [],
+   "en": "",
+   "d8": "2026-10-25",
+   "t8": "10:03",
+   "ms8": 1792893780000,
+   "site": "海商 LCC-1",
+   "siteUrl": "/wiki/%E6%B5%B7%E5%8D%97%E5%95%86%E4%B8%9A%E8%88%AA%E5%A4%A9%E5%8F%91%E5%B0%84%E5%9C%BA",
+   "mk": {
+    "m": "五院",
+    "url": "/wiki/%E4%BA%94%E9%99%A2",
+    "links": [
+     {
+      "n": "五院",
+      "u": "/wiki/%E4%BA%94%E9%99%A2"
+     }
+    ]
+   },
+   "sec": "业务星",
+   "secLvl": 3,
+   "cosparRaw": "2026-243",
+   "rows": [
+    {
+     "cosparRaw": "2026-243",
+     "sec": "业务星",
+     "secLvl": 3,
+     "name": "卫星互联网低轨28组",
+     "en": "",
+     "d8": "2026-10-25",
+     "t8": "10:03"
+    }
+   ],
+   "secs": [
+    "业务星"
+   ],
+   "bySec": {
+    "业务星": [
+     "卫星互联网低轨28组"
+    ]
+   }
   }
  },
  "qf": {
@@ -2134,7 +2179,8 @@
    },
    "names": [
     "EUHT技术试验卫星",
-    "千帆极轨26组卫星（共8颗）"
+    "千帆极轨26组卫星（共8颗）",
+    "千帆极轨26组卫星"
    ],
    "nameLinks": [
     {
@@ -2143,7 +2189,7 @@
      "t": "EUHT技术试验卫星"
     }
    ],
-   "en": "EUHT technology test satellite / G60 Polar Group 26",
+   "en": "EUHT technology test satellite / G60 Polar Group 26 / Qianfan Polar Group 26",
    "rows": [
     {
      "cosparRaw": "2026-211K",
@@ -2158,8 +2204,8 @@
      "cosparRaw": "2026-211",
      "sec": "组网星",
      "secLvl": 3,
-     "name": "千帆极轨26组卫星（共8颗）",
-     "en": "G60 Polar Group 26",
+     "name": "千帆极轨26组卫星",
+     "en": "Qianfan Polar Group 26",
      "d8": "2026-09-16",
      "t8": "06:00"
     }
@@ -2173,7 +2219,7 @@
      "EUHT技术试验卫星"
     ],
     "组网星": [
-     "千帆极轨26组卫星（共8颗）"
+     "千帆极轨26组卫星"
     ]
    }
   },
@@ -2195,17 +2241,18 @@
     ]
    },
    "names": [
-    "千帆极轨01组卫星（共18颗）"
+    "千帆极轨01组卫星（共18颗）",
+    "千帆极轨01组卫星"
    ],
    "nameLinks": [],
-   "en": "G60 Polar Group 01",
+   "en": "G60 Polar Group 01 / Qianfan Polar Group 01",
    "rows": [
     {
      "cosparRaw": "2024-140",
      "sec": "组网星",
      "secLvl": 3,
-     "name": "千帆极轨01组卫星（共18颗）",
-     "en": "G60 Polar Group 01",
+     "name": "千帆极轨01组卫星",
+     "en": "Qianfan Polar Group 01",
      "d8": "2024-08-06",
      "t8": "14:42"
     }
@@ -2215,7 +2262,7 @@
    ],
    "bySec": {
     "组网星": [
-     "千帆极轨01组卫星（共18颗）"
+     "千帆极轨01组卫星"
     ]
    },
    "sec": "组网星"
@@ -2238,17 +2285,18 @@
     ]
    },
    "names": [
-    "千帆极轨02组卫星（共18颗）"
+    "千帆极轨02组卫星（共18颗）",
+    "千帆极轨02组卫星"
    ],
    "nameLinks": [],
-   "en": "G60 Polar Group 02",
+   "en": "G60 Polar Group 02 / Qianfan Polar Group 02",
    "rows": [
     {
      "cosparRaw": "2024-185",
      "sec": "组网星",
      "secLvl": 3,
-     "name": "千帆极轨02组卫星（共18颗）",
-     "en": "G60 Polar Group 02",
+     "name": "千帆极轨02组卫星",
+     "en": "Qianfan Polar Group 02",
      "d8": "2024-10-15",
      "t8": "19:06"
     }
@@ -2258,7 +2306,7 @@
    ],
    "bySec": {
     "组网星": [
-     "千帆极轨02组卫星（共18颗）"
+     "千帆极轨02组卫星"
     ]
    },
    "sec": "组网星"
@@ -2281,17 +2329,18 @@
     ]
    },
    "names": [
-    "千帆极轨03组卫星（共18颗）"
+    "千帆极轨03组卫星（共18颗）",
+    "千帆极轨03组卫星"
    ],
    "nameLinks": [],
-   "en": "G60 Polar Group 03",
+   "en": "G60 Polar Group 03 / Qianfan Polar Group 03",
    "rows": [
     {
      "cosparRaw": "2024-232",
      "sec": "组网星",
      "secLvl": 3,
-     "name": "千帆极轨03组卫星（共18颗）",
-     "en": "G60 Polar Group 03",
+     "name": "千帆极轨03组卫星",
+     "en": "Qianfan Polar Group 03",
      "d8": "2024-12-05",
      "t8": "12:41"
     }
@@ -2301,7 +2350,7 @@
    ],
    "bySec": {
     "组网星": [
-     "千帆极轨03组卫星（共18颗）"
+     "千帆极轨03组卫星"
     ]
    },
    "sec": "组网星"
@@ -2324,17 +2373,18 @@
     ]
    },
    "names": [
-    "千帆极轨06组卫星（共18颗）"
+    "千帆极轨06组卫星（共18颗）",
+    "千帆极轨06组卫星"
    ],
    "nameLinks": [],
-   "en": "G60 Polar Group 06",
+   "en": "G60 Polar Group 06 / Qianfan Polar Group 06",
    "rows": [
     {
      "cosparRaw": "2025-016",
      "sec": "组网星",
      "secLvl": 3,
-     "name": "千帆极轨06组卫星（共18颗）",
-     "en": "G60 Polar Group 06",
+     "name": "千帆极轨06组卫星",
+     "en": "Qianfan Polar Group 06",
      "d8": "2025-01-23",
      "t8": "13:15"
     }
@@ -2344,7 +2394,7 @@
    ],
    "bySec": {
     "组网星": [
-     "千帆极轨06组卫星（共18颗）"
+     "千帆极轨06组卫星"
     ]
    },
    "sec": "组网星"
@@ -2367,17 +2417,18 @@
     ]
    },
    "names": [
-    "千帆极轨04组卫星（共18颗）"
+    "千帆极轨04组卫星（共18颗）",
+    "千帆极轨04组卫星"
    ],
    "nameLinks": [],
-   "en": "G60 Polar Group 04",
+   "en": "G60 Polar Group 04 / Qianfan Polar Group 04",
    "rows": [
     {
      "cosparRaw": "2025-046",
      "sec": "组网星",
      "secLvl": 3,
-     "name": "千帆极轨04组卫星（共18颗）",
-     "en": "G60 Polar Group 04",
+     "name": "千帆极轨04组卫星",
+     "en": "Qianfan Polar Group 04",
      "d8": "2025-03-12",
      "t8": "00:38"
     }
@@ -2387,7 +2438,7 @@
    ],
    "bySec": {
     "组网星": [
-     "千帆极轨04组卫星（共18颗）"
+     "千帆极轨04组卫星"
     ]
    },
    "sec": "组网星"
@@ -2410,17 +2461,18 @@
     ]
    },
    "names": [
-    "千帆极轨18组卫星（共18颗）"
+    "千帆极轨18组卫星（共18颗）",
+    "千帆极轨18组卫星"
    ],
    "nameLinks": [],
-   "en": "G60 Polar Group 18",
+   "en": "G60 Polar Group 18 / Qianfan Polar Group 18",
    "rows": [
     {
      "cosparRaw": "2025-233",
      "sec": "组网星",
      "secLvl": 3,
-     "name": "千帆极轨18组卫星（共18颗）",
-     "en": "G60 Polar Group 18",
+     "name": "千帆极轨18组卫星",
+     "en": "Qianfan Polar Group 18",
      "d8": "2025-10-17",
      "t8": "15:08"
     }
@@ -2430,7 +2482,7 @@
    ],
    "bySec": {
     "组网星": [
-     "千帆极轨18组卫星（共18颗）"
+     "千帆极轨18组卫星"
     ]
    },
    "sec": "组网星"
@@ -2453,17 +2505,18 @@
     ]
    },
    "names": [
-    "千帆极轨07组卫星（共18颗）"
+    "千帆极轨07组卫星（共18颗）",
+    "千帆极轨07组卫星"
    ],
    "nameLinks": [],
-   "en": "G60 Polar Group 07",
+   "en": "G60 Polar Group 07 / Qianfan Polar Group 07",
    "rows": [
     {
      "cosparRaw": "2026-075",
      "sec": "组网星",
      "secLvl": 3,
-     "name": "千帆极轨07组卫星（共18颗）",
-     "en": "G60 Polar Group 07",
+     "name": "千帆极轨07组卫星",
+     "en": "Qianfan Polar Group 07",
      "d8": "2026-04-07",
      "t8": "21:32"
     }
@@ -2473,7 +2526,7 @@
    ],
    "bySec": {
     "组网星": [
-     "千帆极轨07组卫星（共18颗）"
+     "千帆极轨07组卫星"
     ]
    },
    "sec": "组网星"
@@ -2496,17 +2549,18 @@
     ]
    },
    "names": [
-    "千帆极轨09组卫星（共18颗）"
+    "千帆极轨09组卫星（共18颗）",
+    "千帆极轨09组卫星"
    ],
    "nameLinks": [],
-   "en": "G60 Polar Group 09",
+   "en": "G60 Polar Group 09 / Qianfan Polar Group 09",
    "rows": [
     {
      "cosparRaw": "2026-104",
      "sec": "组网星",
      "secLvl": 3,
-     "name": "千帆极轨09组卫星（共18颗）",
-     "en": "G60 Polar Group 09",
+     "name": "千帆极轨09组卫星",
+     "en": "Qianfan Polar Group 09",
      "d8": "2026-05-12",
      "t8": "19:59"
     }
@@ -2516,7 +2570,7 @@
    ],
    "bySec": {
     "组网星": [
-     "千帆极轨09组卫星（共18颗）"
+     "千帆极轨09组卫星"
     ]
    },
    "sec": "组网星"
@@ -2539,17 +2593,18 @@
     ]
    },
    "names": [
-    "千帆极轨10组卫星（共18颗）"
+    "千帆极轨10组卫星（共18颗）",
+    "千帆极轨10组卫星"
    ],
    "nameLinks": [],
-   "en": "G60 Polar Group 10",
+   "en": "G60 Polar Group 10 / Qianfan Polar Group 10",
    "rows": [
     {
      "cosparRaw": "2026-108",
      "sec": "组网星",
      "secLvl": 3,
-     "name": "千帆极轨10组卫星（共18颗）",
-     "en": "G60 Polar Group 10",
+     "name": "千帆极轨10组卫星",
+     "en": "Qianfan Polar Group 10",
      "d8": "2026-05-17",
      "t8": "22:42"
     }
@@ -2559,7 +2614,7 @@
    ],
    "bySec": {
     "组网星": [
-     "千帆极轨10组卫星（共18颗）"
+     "千帆极轨10组卫星"
     ]
    },
    "sec": "组网星"
@@ -2582,17 +2637,18 @@
     ]
    },
    "names": [
-    "千帆极轨08组卫星（共2颗）"
+    "千帆极轨08组卫星（共2颗）",
+    "千帆极轨08组卫星"
    ],
    "nameLinks": [],
-   "en": "G60 Polar Group 08",
+   "en": "G60 Polar Group 08 / Qianfan Polar Group 08",
    "rows": [
     {
      "cosparRaw": "2026-121",
      "sec": "组网星",
      "secLvl": 3,
-     "name": "千帆极轨08组卫星（共2颗）",
-     "en": "G60 Polar Group 08",
+     "name": "千帆极轨08组卫星",
+     "en": "Qianfan Polar Group 08",
      "d8": "2026-06-01",
      "t8": "16:40"
     }
@@ -2602,7 +2658,7 @@
    ],
    "bySec": {
     "组网星": [
-     "千帆极轨08组卫星（共2颗）"
+     "千帆极轨08组卫星"
     ]
    },
    "sec": "组网星"
@@ -2625,17 +2681,18 @@
     ]
    },
    "names": [
-    "千帆极轨11组卫星（共18颗）"
+    "千帆极轨11组卫星（共18颗）",
+    "千帆极轨11组卫星"
    ],
    "nameLinks": [],
-   "en": "G60 Polar Group 11",
+   "en": "G60 Polar Group 11 / Qianfan Polar Group 11",
    "rows": [
     {
      "cosparRaw": "2026-124",
      "sec": "组网星",
      "secLvl": 3,
-     "name": "千帆极轨11组卫星（共18颗）",
-     "en": "G60 Polar Group 11",
+     "name": "千帆极轨11组卫星",
+     "en": "Qianfan Polar Group 11",
      "d8": "2026-06-04",
      "t8": "19:59"
     }
@@ -2645,7 +2702,7 @@
    ],
    "bySec": {
     "组网星": [
-     "千帆极轨11组卫星（共18颗）"
+     "千帆极轨11组卫星"
     ]
    },
    "sec": "组网星"
@@ -2668,17 +2725,18 @@
     ]
    },
    "names": [
-    "千帆极轨12组卫星（共18颗）"
+    "千帆极轨12组卫星（共18颗）",
+    "千帆极轨12组卫星"
    ],
    "nameLinks": [],
-   "en": "G60 Polar Group 12",
+   "en": "G60 Polar Group 12 / Qianfan Polar Group 12",
    "rows": [
     {
      "cosparRaw": "2026-125",
      "sec": "组网星",
      "secLvl": 3,
-     "name": "千帆极轨12组卫星（共18颗）",
-     "en": "G60 Polar Group 12",
+     "name": "千帆极轨12组卫星",
+     "en": "Qianfan Polar Group 12",
      "d8": "2026-06-05",
      "t8": "14:34"
     }
@@ -2688,7 +2746,7 @@
    ],
    "bySec": {
     "组网星": [
-     "千帆极轨12组卫星（共18颗）"
+     "千帆极轨12组卫星"
     ]
    },
    "sec": "组网星"
@@ -2711,17 +2769,18 @@
     ]
    },
    "names": [
-    "千帆极轨13组卫星（共18颗）"
+    "千帆极轨13组卫星（共18颗）",
+    "千帆极轨13组卫星"
    ],
    "nameLinks": [],
-   "en": "G60 Polar Group 13",
+   "en": "G60 Polar Group 13 / Qianfan Polar Group 13",
    "rows": [
     {
      "cosparRaw": "2026-153",
      "sec": "组网星",
      "secLvl": 3,
-     "name": "千帆极轨13组卫星（共18颗）",
-     "en": "G60 Polar Group 13",
+     "name": "千帆极轨13组卫星",
+     "en": "Qianfan Polar Group 13",
      "d8": "2026-07-04",
      "t8": "17:30"
     }
@@ -2731,7 +2790,7 @@
    ],
    "bySec": {
     "组网星": [
-     "千帆极轨13组卫星（共18颗）"
+     "千帆极轨13组卫星"
     ]
    },
    "sec": "组网星"
@@ -2754,17 +2813,18 @@
     ]
    },
    "names": [
-    "千帆极轨15组卫星（共20颗）"
+    "千帆极轨15组卫星（共20颗）",
+    "千帆极轨15组卫星"
    ],
    "nameLinks": [],
-   "en": "G60 Polar Group 15",
+   "en": "G60 Polar Group 15 / Qianfan Polar Group 15",
    "rows": [
     {
      "cosparRaw": "2026-155",
      "sec": "组网星",
      "secLvl": 3,
-     "name": "千帆极轨15组卫星（共20颗）",
-     "en": "G60 Polar Group 15",
+     "name": "千帆极轨15组卫星",
+     "en": "Qianfan Polar Group 15",
      "d8": "2026-07-05",
      "t8": "21:43"
     }
@@ -2774,7 +2834,7 @@
    ],
    "bySec": {
     "组网星": [
-     "千帆极轨15组卫星（共20颗）"
+     "千帆极轨15组卫星"
     ]
    },
    "sec": "组网星"
@@ -2797,17 +2857,18 @@
     ]
    },
    "names": [
-    "千帆极轨19组卫星（共10颗）"
+    "千帆极轨19组卫星（共10颗）",
+    "千帆极轨19组卫星"
    ],
    "nameLinks": [],
-   "en": "G60 Polar Group 19",
+   "en": "G60 Polar Group 19 / Qianfan Polar Group 19",
    "rows": [
     {
      "cosparRaw": "2026-210",
      "sec": "组网星",
      "secLvl": 3,
-     "name": "千帆极轨19组卫星（共10颗）",
-     "en": "G60 Polar Group 19",
+     "name": "千帆极轨19组卫星",
+     "en": "Qianfan Polar Group 19",
      "d8": "2026-09-15",
      "t8": "14:26"
     }
@@ -2817,12 +2878,57 @@
    ],
    "bySec": {
     "组网星": [
-     "千帆极轨19组卫星（共10颗）"
+     "千帆极轨19组卫星"
     ]
    },
    "sec": "组网星"
+  },
+  "2026-248": {
+   "name": "千帆极轨21组卫星",
+   "names": [
+    "千帆极轨21组卫星"
+   ],
+   "nameLinks": [],
+   "en": "Qianfan Polar Group 21",
+   "d8": "2026-11-03",
+   "t8": "08:15",
+   "ms8": 1793664900000,
+   "site": "酒泉 LC-140",
+   "siteUrl": "/wiki/%E9%85%92%E6%B3%89%E5%8D%AB%E6%98%9F%E5%8F%91%E5%B0%84%E4%B8%AD%E5%BF%83",
+   "mk": {
+    "m": "上海微小卫星工程中心",
+    "url": "/wiki/%E4%B8%8A%E6%B5%B7%E5%BE%AE%E5%B0%8F%E5%8D%AB%E6%98%9F%E5%B7%A5%E7%A8%8B%E4%B8%AD%E5%BF%83",
+    "links": [
+     {
+      "n": "上海微小卫星工程中心",
+      "u": "/wiki/%E4%B8%8A%E6%B5%B7%E5%BE%AE%E5%B0%8F%E5%8D%AB%E6%98%9F%E5%B7%A5%E7%A8%8B%E4%B8%AD%E5%BF%83"
+     }
+    ]
+   },
+   "sec": "组网星",
+   "secLvl": 3,
+   "cosparRaw": "2026-248",
+   "rows": [
+    {
+     "cosparRaw": "2026-248",
+     "sec": "组网星",
+     "secLvl": 3,
+     "name": "千帆极轨21组卫星",
+     "en": "Qianfan Polar Group 21",
+     "d8": "2026-11-03",
+     "t8": "08:15"
+    }
+   ],
+   "secs": [
+    "组网星"
+   ],
+   "bySec": {
+    "组网星": [
+     "千帆极轨21组卫星"
+    ]
+   }
   }
  },
- "_fetched_gw": "2026-10-23T06:31:32.741Z",
- "_fetched_qf": "2026-10-23T06:31:35.906Z"
+ "_fetched_gw": "2026-11-07T06:09:18.490Z",
+ "_fetched_qf": "2026-11-07T06:09:21.587Z"
 }

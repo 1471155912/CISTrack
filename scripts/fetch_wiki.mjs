@@ -93,7 +93,12 @@ function toEn(zh) {
     .replace(/低轨业务星(\d+)/g, 'LEO service $1').replace(/组网星(\d+)/g, 'network $1')
     .replace(/\+/g, ' + ').replace(/，/g, ', ')
     // V1.7.0 第三轮（需求11）：词条里这些词此前没译，英文界面会直接漏出中文
-    .replace(/理论值/g, 'theoretical').replace(/理论/g, 'theoretical');
+    .replace(/理论值/g, 'theoretical').replace(/理论/g, 'theoretical')
+    // ★ V2.0.0.631：千帆统计栏会出现「截至2026.11.3」—— 之前没译，英文页直接漏中文，
+    //   并让 smoke 的「en 字段零中文」守卫变红（CI 会被卡住）。这里按固定格式转成 as of。
+    .replace(/截至\s*(\d{4})[.\-](\d{1,2})[.\-](\d{1,2})/g,
+      function (_m, y, m1, d1) { return 'as of ' + y + '-' + ('0' + m1).slice(-2) + '-' + ('0' + d1).slice(-2); })
+    .replace(/截至/g, 'as of');
 }
 function parseStats(html) {
   const launchedRaw = cellAfter(html, '发射卫星数量');

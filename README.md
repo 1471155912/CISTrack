@@ -11,7 +11,7 @@
 </div>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.0.0.630-ff6b6b?style=flat-square" alt="version">
+  <img src="https://img.shields.io/badge/version-2.0.0.631-ff6b6b?style=flat-square" alt="version">
   <a href="https://sat.huijiwiki.com/wiki/%E6%98%9F%E7%BD%91"><img src="https://img.shields.io/badge/%E6%98%9F%E7%BD%91-CSCN-ff6b6b?style=flat-square" alt="星网"></a>
   <a href="https://sat.huijiwiki.com/wiki/%E5%8D%83%E5%B8%86%E6%98%9F%E5%BA%A7"><img src="https://img.shields.io/badge/%E5%8D%83%E5%B8%86-G60-4dabf7?style=flat-square" alt="千帆"></a>
   <img src="https://img.shields.io/badge/license-MIT-4dabf7?style=flat-square" alt="license">
@@ -182,7 +182,7 @@
 两种方式任选：
 
 - **下载 Release 的 zip**（[最新 Release](https://github.com/1471155912/CISTrack/releases/latest) 的
-  `CISTrack_v2.0.0.630_local-deploy.zip`）→ 解压即用，**这是给本地部署准备的完整包**；
+  `CISTrack_v2.0.0.631_local-deploy.zip`）→ 解压即用，**这是给本地部署准备的完整包**；
 - 或 `git clone https://github.com/1471155912/CISTrack.git`
 
 ### 第二步：按需要选一种用法

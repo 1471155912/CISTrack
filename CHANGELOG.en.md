@@ -10,6 +10,40 @@ The version is written in the footer (`CISTrack · Vx.y.z`), and the bottom bar 
 
 ---
 
+## [V2.0.0.631] — 2026-11-07
+
+> This release fixes **the update pipeline itself**: the scheduled job had failed 30 times in a row
+> since 23 Oct, leaving the data 15 days stale. The cause was not fetching — it was a handful of
+> assertions that hard-coded *what upstream looked like at release time*. One upstream rename stopped
+> the pipeline before the commit step.
+
+### 1. Upstream rename (all SatNet satellites)
+- Since 2026-10-24 CelesTrak names them `HULIANWANG DIGUI-214` instead of `GUOWANG 27 OBJECT A`
+  (NNN is a catalogue sequence, no batch letter); 231 of 235 records were already renamed.
+- Effect: short/full names fall back to the existing “catalogue-number” rule — `A214` / `互联网低轨-214`
+  (that is what the 2026-10-18 decision specifies); the batch column still shows “低轨27组”.
+  **Display rules were not changed** — only the assertions are now form-based.
+
+### 2. Six guards rewritten as rule assertions
+- The three §6 assertions (100973 must be `GUOWANG 27 OBJECT A` / `A27A` / `互联网低轨27组A星`) are merged
+  into one form-based check covering **both** naming shapes, requiring ≥200 satellites.
+- H18③ no longer hard-codes `A27A…A27J`; it now requires the labels to be the selected batch's own short names.
+- O-1③ no longer requires `thin > 0` (a transient data state); it checks that the four counters are subsets of `moving`.
+- A7 now verifies that `od` has a matching “entered the shell” history point, instead of requiring the
+  satellite to still be on the shell today.
+
+### 3. Data-chain gaps
+- `autoFillLedger` now falls back to the **article table** (`wiki_tables.json`) when the launch-record guide page lags —
+  that is why 2026-243 (低轨28组) had no ledger row at all.
+- Satellites without history no longer get a hard-coded `wk = 400 km`; the altitude is derived from the TLE mean motion
+  (2026-243 measured 400 → 1052 km).
+- The Qianfan stats line “截至2026.11.3” now has an English form (`as of 2026-11-03`), and the generator was fixed.
+
+### 4. Known gap
+- The history store has a **16-day hole (2026-10-22 … 11-06)**: all 30 failed runs discarded their commits.
+  Backfilling needs Space-Track credentials (`fetch_history.mjs --net`); without them the store resumes from today
+  and the orbit-change curves will draw a straight segment across the gap (the judge treats it as insufficient data).
+
 ## [V2.0.0.630 · hotfix] — 2026-10-22 (re-released under the same version)
 
 > Five defects reported from real use. All are regressions or decisions that were never actually implemented;

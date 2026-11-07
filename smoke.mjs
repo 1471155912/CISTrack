@@ -2785,9 +2785,17 @@ assert('V1.9.0（R17）：升轨速率算法在页面端与构建期**同一口�
       sc ? ('gw ' + sc.gw.rateZero + ' / qf ' + sc.qf.rateZero +
         (sc.qf.rateZeroIds.length ? '（qf: ' + sc.qf.rateZeroIds.join(',') + '）' : '')) : '缺失');
     // ③ thin / shortSpan 必须真的被排除在外，否则上面两条会被"数据不足的保守兜底"污染成假警报
-    assert('V2.0.1（O-1）：自检把「历史点不足」与「跨度<60天」单独计数（不混进矛盾数）',
-      !!sc && sc.gw.thin + sc.qf.thin > 0 && sc.gw.shortSpan + sc.qf.shortSpan > 0,
-      sc ? ('thin ' + (sc.gw.thin + sc.qf.thin) + ' / shortSpan ' + (sc.gw.shortSpan + sc.qf.shortSpan)) : '缺失');
+    // ★★ V2.0.0.631：**旧写法断言 `thin > 0`，这是把"瞬态数据"当成了期望** ★★
+    //   2026-11-07 CI 实测 `thin 0 / shortSpan 37` —— 所有星的历史都补够了，thin 自然归零，
+    //   旧断言于是把"数据齐全"报成失败，并直接卡住整条更新链（连红 30 次）。
+    //   现在只断言**结构不变量**：四个计数器都 ≥0、且都属于 moving（thin/shortSpan/rateZero/far
+    //   都是在 `moving++` 之后分出来的子集），不再要求任何"当前必须有多少颗"。
+    const keys4 = ['thin', 'shortSpan', 'rateZero', 'far'];
+    assert('V2.0.1/V2.0.0.631：自检把「历史点不足」「跨度<60天」与矛盾数分开计数（四个子集都 ⊆ moving）',
+      !!sc && ['gw', 'qf'].every(k => keys4.every(f => typeof sc[k][f] === 'number' &&
+        sc[k][f] >= 0 && sc[k][f] <= sc[k].moving)),
+      sc ? ('thin ' + (sc.gw.thin + sc.qf.thin) + ' / shortSpan ' + (sc.gw.shortSpan + sc.qf.shortSpan) +
+        ' / moving ' + (sc.gw.moving + sc.qf.moving)) : '缺失');
   }
 }
   // ⚠️ CI 工作流文件只存在于**仓库**里；本地工作区（开发目录）通常没有 `.github/`。
@@ -3115,6 +3123,9 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
     "  climbLabels: function () { drawClimb(); return climbLabelRects.map(function (r) { return { n: r.n, x: r.x, y: r.y, w: r.w, h: r.h }; }); },\n" +
     "  climbLabelAt: function (x, y) { return climbLabelAt(x, y); },\n" +
     "  shortName: function (norad, en) { var i = climbSatIdx(norad); return i < 0 ? '' : shortOf(cur().sats[i]); },\n" +
+    // ★ V2.0.0.631：按**下标**取短名（H18③ 要按"当前选中的那批"反推期望值，
+    //   不能写死 A27A —— 上游改名后同一批星的短名已经变成 A214…）。
+    "  shortAt: function (i) { var s = cur().sats[i]; return s ? shortOf(s) : ''; },\n" +
     "  zhName: function (norad) { var i = climbSatIdx(norad); return i < 0 ? '' : fullNameOf(cur().sats[i]); },\n" +
     "  fullName: function (norad) { var i = climbSatIdx(norad); return i < 0 ? '' : String(cur().sats[i].name); },\n" +
     // ★★★ V1.9.7（P0-E）：**离线模拟"在线刷新"** —— 这是本项目最大的测试盲区：
@@ -3475,22 +3486,47 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
 
   // ================================================================ V1.9.7（§6/§7）：短名 + 标签点击
   {
-    // ① 原名保留在底层、显示名走短名
-    const g27 = 100973;                    // GUOWANG 27 OBJECT A
-    assert('§6：TLE 登记原名**完整保留**在数据层（`s.name` 不被改写）',
-      k3.fullName(g27) === 'GUOWANG 27 OBJECT A',
-      JSON.stringify(k3.fullName(g27)));
-    // ★ V1.9.8：短名规则整套换新（用户 2026-10-18 口径），中英共用一套；
-    //   全名改为「百科正式名 / WHJSW-编号」，且**只给 DOM 用**（画布小字仍用短名）。
-    assert('§6：最新批次没有单星编号 → `A` + 组号 + 字母（`A27A`）',
-      k3.shortName(g27, false) === 'A27A' && k3.shortName(g27, true) === 'A27A',
-      JSON.stringify(k3.shortName(g27, false)));
-    assert('§6：中文全名用批次组名构词（`互联网低轨27组A星`）',
-      k3.zhName(g27) === '互联网低轨27组A星', JSON.stringify(k3.zhName(g27)));
-    // ⚠️ 100791 的目录名当前是 HULIANWANG DIGUI-205（编号会随目录更新变化，这里按实际值断言）
-    assert('§6：目录编号型（HULIANWANG DIGUI-205）→ `A205`',
-      k3.shortName(100791, false) === 'A205' && k3.shortName(100791, true) === 'A205',
-      JSON.stringify(k3.shortName(100791, false)));
+    // ① 原名保留在底层、显示名按**形态**派生（不再写死任何一颗星的名字）
+    // ★★ V2.0.0.631：2026-10-24 CelesTrak 把星网**全量改名**成 `HULIANWANG DIGUI-NNN`
+    //   （NNN = 编目序号，不再带批次字母）。旧断言写死 100973 = 'GUOWANG 27 OBJECT A' /
+    //   'A27A' / '互联网低轨27组A星' —— 上游一改名就全红，直接把更新链锁死 30 次。
+    //   现在按**两种形态各自的规则**断言（判据从数据反推，不写死任何名字）：
+    //     · HULIANWANG DIGUI-NNN  → 短名 A<NNN>、中文 互联网低轨-<NNN>（2026-10-18 的"目录编号型"口径）
+    //     · GUOWANG N OBJECT X    → 短名 A<组号><X>、中文 互联网<批次名><X>星
+    (function () {
+      const bad = [];
+      let nDigui = 0, nObj = 0;
+      // 这里用 rawSrc（build/satdata.json 的原文）而不是外层的 D —— 本块在另一个作用域里，
+      // D 不可见（第一版就因为这个在 3499 行抛了 ReferenceError）。
+      const DS = JSON.parse(rawSrc);
+      const L = DS.gw.launches || {};
+      for (const s2 of (DS.gw.sats || [])) {
+        const raw = k3.fullName(s2.id);
+        if (!raw) { bad.push(String(s2.c) + ' 取不到 s.name'); continue; }
+        const md = /^HULIANWANG DIGUI-(\d+)$/.exec(raw);
+        if (md) {
+          nDigui++;
+          const sc2 = k3.shortName(s2.id, false), zh = k3.zhName(s2.id);
+          if (sc2 !== 'A' + md[1]) bad.push(raw + ' short=' + sc2);
+          if (zh !== '互联网低轨-' + md[1]) bad.push(raw + ' zh=' + zh);
+          continue;
+        }
+        const mg = /^GUOWANG\s+(\d+)\s+OBJECT\s+([A-Z])$/.exec(raw);
+        if (mg) {
+          const row = L[String(s2.c || '').slice(0, 5)];
+          const gg = row ? /(\d+)\s*组/.exec(String(row[0] || '')) : null;
+          if (!gg) continue;                       // 无组号台账的样本不参与（它本来就走别的分支）
+          nObj++;
+          const wantS = 'A' + gg[1] + mg[2];
+          const wantZ = '互联网' + String(row[0]) + mg[2] + '星';
+          if (k3.shortName(s2.id, false) !== wantS) bad.push(raw + ' short=' + k3.shortName(s2.id, false));
+          if (k3.zhName(s2.id) !== wantZ) bad.push(raw + ' zh=' + k3.zhName(s2.id));
+        }
+      }
+      assert('§6：显示名按**形态**派生（DIGUI-NNN → A<NNN>；GUOWANG N OBJECT X → A<组号><X>），0 例外',
+        bad.length === 0 && nDigui + nObj >= 200,
+        'DIGUI ' + nDigui + ' 颗 / OBJECT ' + nObj + ' 颗；异常 ' + bad.slice(0, 4).join(' ｜ '));
+    })();
     assert('§6：倾斜轨道试验星（…02组A星）→ `XGQ02A`',
       k3.shortName(58425, false) === 'XGQ02A', JSON.stringify(k3.shortName(58425, false)));
     assert('§6：GEO → `G01`（高轨卫星01星）',
@@ -4039,19 +4075,50 @@ assert('V1.9.2：右侧留白按"要标几条"动态加宽（否则名称会被�
     //   实测：在轨 439 颗里 409 颗在层上（od 齐备）、30 颗不在层上（27 颗 od 空 + 3 颗 GEO 不计层）。
     //   ⇒ 正例：**在层上**的星必须有 od；反例：变轨中的一律没有 od。
     //   （"离层却有 od"只允许 GEO —— 它的 od 走 GEO_SMA 另一条分支）
+    // ★★ V2.0.0.631：**"进过层" ≠ "此刻还在层上"** ★★
+    //   实测唯一"违规"是 千帆 26155C（69850）：10-14 到过 1057 km（层 1070±30 内，od 合法），
+    //   之后回落到 1030–1042 → 旧断言按"当前离层"判它误填。语义上 od 是**历史事件**，
+    //   正确判据是"od 那天真的在层带内"。这里直接拿 data/history 的点验证，
+    //   不再要求"当前仍在层上"（那会把正常的下漂 / 再调整判成错误）。
+    const histOf = (function () {
+      const m = new Map();
+      const dir = B + '/data/history';
+      try {
+        for (const f of fs.readdirSync(dir)) {
+          if (!f.endsWith('.json') || f.endsWith('.bak')) continue;
+          let arr; try { arr = JSON.parse(fs.readFileSync(dir + '/' + f, 'utf8')); } catch (e) { continue; }
+          for (const r of arr) {
+            if (!Array.isArray(r) || r.length < 3) continue;
+            let a = m.get(+r[0]); if (!a) m.set(+r[0], a = []);
+            a.push([+r[1], +r[2] - 6378.137]);
+          }
+        }
+      } catch (e) {}
+      return m;
+    })();
+    const odBad = orbS.filter(r => r.od).filter(r => {
+      if (r.wk === 'GEO') return false;                 // GEO 的 od 走 GEO_SMA 另一条分支
+      if (typeof r.la !== 'number') return true;        // 非 GEO、无设计层却有 od → 真错
+      const d = Date.parse(r.od + 'T00:00:00Z');
+      if (!isFinite(d)) return true;
+      const pts = histOf.get(r.id) || [];
+      if (!pts.length) return false;                    // 无历史点可核（新批次）→ 不冤判
+      const first = pts.reduce((a, q) => Math.min(a, q[0]), Infinity);
+      if (d < first - 2 * 86400000) return false;        // od 早于源库覆盖 → 无法核，跳过
+      return !pts.some(q => Math.abs(q[0] - d) <= 2 * 86400000 && Math.abs(q[1] - r.la) <= 30);
+    });
     assert('A7：**在层上**的在轨星都写「进入工作轨道日期」od；**变轨中**的一律不写（它在上升途中会穿过工作带）',
       (function () {
         const onLayer = orbS.filter(r => typeof r.la === 'number' && Math.abs(r.wk - r.la) <= 30);
         return onLayer.length > 300 && onLayer.every(r => /^\d{4}-\d{2}-\d{2}$/.test(r.od));
       })() &&
-      // 反例：离层且非 GEO 的星不许有 od（有 = od 语义被写坏了）
-      orbS.filter(r => r.wk !== 'GEO' && !(typeof r.la === 'number' && Math.abs(r.wk - r.la) <= 30))
-        .every(r => !r.od) &&
+      // 反例：非 GEO 的 od 必须能在历史里找到"落层"那一点（而不是要求此刻仍在层上）
+      odBad.length === 0 &&
       raiS.every(r => !r.od),
       '在层上缺日期 ' + orbS.filter(r => typeof r.la === 'number' && Math.abs(r.wk - r.la) <= 30 &&
         !/^\d{4}-\d{2}-\d{2}$/.test(r.od)).length + ' 颗' +
-      '｜离层却误填 ' + orbS.filter(r => r.wk !== 'GEO' &&
-        !(typeof r.la === 'number' && Math.abs(r.wk - r.la) <= 30) && r.od).length + ' 颗' +
+      '｜离层却误填 ' + odBad.length + ' 颗' +
+        (odBad.length ? '：' + odBad.slice(0, 6).map(r => r.id).join(',') : '') +
       '｜变轨中误填 ' + raiS.filter(r => r.od).length + ' 颗');
     assert('A7/Q46：GEO 的工作高度写 `GEO` 而非数字（周期≈1436 min，等价于半长轴 ≥42000 km）',
       geoS.length === 3 && geoS.every(r => r.orb === 0),
@@ -4154,9 +4221,15 @@ assert('V1.9.2：右侧留白按"要标几条"动态加宽（否则名称会被�
         //   夹着 26 行说明注释（实测踩到 —— 第一版写 {0,900} 匹配不到）。
         // ★ V1.9.9（Q27）：兜底行多了 `rec.la = null;`（无层可比 → 设计层高未知），
         //   所以正则尾巴改成"以 rec.od = '' 开头"，不再要求它是整条语句的结尾。
-        return /const st = ORBIT_ST\.get\(rec\.id\);[\s\S]{0,3000}?rec\.orb = 1; rec\.wk = wkGuess; rec\.la = null; rec\.od = '';/.test(mkSrc) &&
+        // ★ V2.0.0.631：锚点从 `const st = ...` 换成 `if (!st) {` —— 本轮在两者之间新增了
+        //   “按 TLE 平均运动反算”的 10 行代码，原来的 3000 字符窗口已经套不住了。
+        return /if \(!st\) \{[\s\S]{0,6000}?rec\.orb = 1; rec\.wk = wkGuess; rec\.la = null; rec\.od = '';/.test(mkSrc) &&
           /wkGuess = Math\.round\(\(sumGuess \/ nGuess\) \/ 10\) \* 10;/.test(mkSrc) &&
-          /else wkGuess = Math\.round\(400 \/ 10\) \* 10;/.test(mkSrc) &&
+          // ★ V2.0.0.631：整批都没有历史点时**不再写死 400 km**（那会把 2026-243 的 1052 km
+          //   显示成 400）。改成按该条 TLE 的平均运动反算，所以守卫也要跟着换判据。
+          /const mm = parseFloat\(String\(rec\.l2 \|\| ''\)\.slice\(52, 63\)\);/.test(mkSrc) &&
+          /wkGuess = Math\.round\(\(a - 6378\.137\) \/ 10\) \* 10;/.test(mkSrc) &&
+          /else wkGuess = 400;/.test(mkSrc) &&
           !/if \(!st\) continue;/.test(mkSrc);
       })());
 
@@ -4167,16 +4240,29 @@ assert('V1.9.2：右侧留白按"要标几条"动态加宽（否则名称会被�
     //   而且**不报错**。这条把"不匹配颗数"钉在一个很小的上限内（当前 2 颗：刚编目、历史池未覆盖）。
     {
       const histIds = new Set();
+      const shardKeys = new Set();
       const hd = path.join(B, 'build', 'history');
       for (const f of fs.readdirSync(hd).filter(x => /^(gw|qf)-/.test(x))) {
+        shardKeys.add(f.replace(/^(gw|qf)-/, '').replace(/\.json$/, ''));
         const j = JSON.parse(fs.readFileSync(path.join(hd, f), 'utf8'));
         for (const s2 of (j.sats || [])) histIds.add(String(s2.n));
       }
       const miss = liveS.map(s2 => String(s2.id)).filter(x => !histIds.has(x));
-      assert('§23.3-a：satdata 编目号与历史库键**同源**（六位号映射漏一处就会成批不匹配）',
-        histIds.size > 100 && miss.length <= 8,
-        '历史库 ' + histIds.size + ' 颗｜未匹配 ' + miss.length + ' 颗' +
-        (miss.length ? '：' + miss.slice(0, 8).join(',') : ''));
+      // ★★ V2.0.0.631：把「同源」与「覆盖」分开 —— 打包器要求每颗星 **≥2 个点**，
+      //   所以刚编目、只有当天一条记录的批次**整批没有分片**（2026-243 就是这样）。
+      //   那不是“编目号不同源”，而是“历史还没长出来”，不能混在一个阈值里（旧口径 ≤8
+      //   正是因此在 2026-11-07 变红，卡了整条更新链）。
+      //   仍然保留上限 20：整批分片因为 bug 消失时，这条照样会红。
+      const uncovered = miss.filter(id => {
+        const s2 = liveS.filter(x => String(x.id) === id)[0];
+        return s2 && !shardKeys.has(String(s2.c || '').slice(0, 5));
+      });
+      const reallyBad = miss.filter(id => uncovered.indexOf(id) < 0);
+      assert('§23.3-a：satdata 编目号与历史库键**同源**（有分片的批次必须 100% 匹配；无分片的新批次单列）',
+        histIds.size > 100 && reallyBad.length === 0 && uncovered.length <= 20,
+        '历史库 ' + histIds.size + ' 颗｜同源缺口 ' + reallyBad.length + ' 颗' +
+        (reallyBad.length ? '：' + reallyBad.slice(0, 8).join(',') : '') +
+        (uncovered.length ? '｜未覆盖新批次 ' + uncovered.length + ' 颗' : ''));
     }
 
     // ★ V1.9.9（Q26 四态化改写）：原断言找的是 `st_orbit_a: ['在轨（~', ...]` ——
@@ -4881,31 +4967,41 @@ assert('V1.9.2：右侧留白按"要标几条"动态加宽（否则名称会被�
     //   两者坐标只差二十来个像素，屏幕上就是末端出现两个一模一样的数（截图实锤 "150"×2）。
     //   修法：删掉 ①，统一由末端节点标签承担（它就是用户说的"显示今天的最新颗数的节点"）。
     //   这里用**源码 + 运行时双重断言**把"只画一次"钉住 —— 只断源码挡不住将来换个写法再画一遍。
-    assert('V1.9.2：末端数值**只画一次**（曲线端点不再单独标数，统一由末端节点标签承担）—— 防"同一个数画两遍"',
-      // ① 源码：那段右对齐的「末端数值」绘制必须已删除
-      !/末端数值[\s\S]{0,200}?fillText\(String\(Math\.round\(lp\.v\)\), X\(lp\.ms\) - 4, Y\(lp\.v\) - 4\)/.test(appCode) &&
-      !/fillText\(String\(Math\.round\(lp\.v\)\), X\(lp\.ms\) - 4, Y\(lp\.v\) - 4\)/.test(appCode) &&
-      // ② 运行时：三档 × 单/双星座，**末端那一处**那个数只能落笔一次。
-      //    ⚠️ 判据必须限定在"末端附近"：不同节点的累计值**碰巧相同**是正常数据
-      //    （year 档实测有两个月份节点都是 87、相距 480px），那不叫重复显示。
-      //    判据：以末端标签的落笔点为圆心，横向 ±80px、纵向 ±20px 内，同一个数出现 ≥2 次 → 重复。
-      ['all', 'year', 'qtr'].every(function (sp) {
-        return ['gw', 'qf', 'both'].every(function (who) {
+    // ★ V2.0.0.631：把运行时那半段抽出来单独收集失败项 —— 旧写法只返回 true/false，
+    //   红的时候完全不知道是哪一档 / 哪个星座 / 哪个值出的问题（这次只能靠猜）。
+    const netBad = (function () {
+      const bad = [];
+      ['all', 'year', 'qtr'].forEach(function (sp) {
+        ['gw', 'qf', 'both'].forEach(function (who) {
           k3.netSetSpan(sp);
           if (who === 'gw') k3.netOnly('gw');
           else if (who === 'qf') k3.netOnly('qf');
           else k3.netBoth();
           var L = k3.netLabels(), lastL = L.filter(function (x) { return x.last; })[0];
-          if (!lastL) { k3.netBoth(); return false; }
-          var texts = k3.netTexts();   // 本帧 netCv 上所有 fillText 的 {t, x, y}（含刻度、轴名）
+          if (!lastL) { k3.netBoth(); bad.push(sp + '/' + who + ' 无末端标签'); return; }
+          var texts = k3.netTexts();
           var hits = texts.filter(function (o) {
             return o.t === String(lastL.v) &&
               Math.abs(o.x - lastL.x) < 80 && Math.abs(o.y - lastL.y) < 20;
           });
+          // ★ V2.0.0.631：**双星座模式**下两条线可能都停在同一个数（实测 2026-11-07：gw 262 / qf 262），
+          //   这两个「262」是两条线各自的末端标签，各画一次是对的。
+          //   判据改为：落笔次数 == 该邻域内 last 标签的条数（同一 series 画两次才会多出来）。
+          var expect = L.filter(function (x) {
+            return x.last && Math.abs(x.x - lastL.x) < 80 && Math.abs(x.y - lastL.y) < 20;
+          }).length;
           k3.netBoth();
-          return hits.length === 1;
+          if (hits.length !== expect) bad.push(sp + '/' + who + ' v=' + lastL.v +
+            ' hits=' + hits.length + '/' + expect + ' @' + Math.round(lastL.x) + ',' + Math.round(lastL.y));
         });
-      }));
+      });
+      return bad;
+    })();
+    assert('V1.9.2：末端数值**只画一次**（曲线端点不再单独标数，统一由末端节点标签承担）—— 防"同一个数画两遍"',
+      !/末端数值[\s\S]{0,200}?fillText\(String\(Math\.round\(lp\.v\)\), X\(lp\.ms\) - 4, Y\(lp\.v\) - 4\)/.test(appCode) &&
+      !/fillText\(String\(Math\.round\(lp\.v\)\), X\(lp\.ms\) - 4, Y\(lp\.v\) - 4\)/.test(appCode) &&
+      netBad.length === 0,
+      netBad.length ? netBad.slice(0, 4).join(' ｜ ') : '三档 × 单/双星座 全部只落笔一次');
     // ---- 复原，别影响后面的断言 ----
     k3.netSetSpan('all'); k3.netBoth(); k3.netDraw();
   }
@@ -5093,10 +5189,17 @@ assert('A9（V1.9.7 §6）：圈的来源 = 工作轨道层（orbLayerDefs），
       const before2 = k3.chartTexts().length;
       k3.chartDraw();
       const drew2 = k3.chartTexts().slice(before2);
-      assert('H18③：放大到能分辨（拉满该批自身范围）→ 切换为**单星名**',
-        // ★ V1.9.8：短名改成 `A`+组号+字母 —— 低轨27组 = GUOWANG 27 OBJECT A–J → `A27A`…`A27J`
-        drew2.some(x => /^A27[A-J]$/.test(x)) && drew2.indexOf('低轨27组') < 0,
-        '视窗 x=' + (rg.x0 - padX).toFixed(2) + '~' + (rg.x1 + padX).toFixed(2) + '；标签: ' + JSON.stringify(drew2.filter(x => /^低轨|^A27/.test(x))));
+      const selNow = k3.state().sel || [];
+      const wantSet = selNow.map(i => k3.shortAt(i)).filter(Boolean);
+      const drawnMine = drew2.filter(x => wantSet.indexOf(x) >= 0);
+      assert('H18③：放大到能分辨（拉满该批自身范围）→ 切换为**单星名**（期望值按当前数据形态反推）',
+        // ★ V2.0.0.631：不再写死 `A27A…A27J` —— 上游把星网改名成 DIGUI-NNN 后，
+        //   同一批的短名已经是 A214…A222。这里改为"必须画出**该批选中星自己的短名**"，
+        //   既守住了"批次名 → 单星名"的切换行为，又不会因为上游改名而假红。
+        wantSet.length >= 5 && drawnMine.length >= Math.min(5, wantSet.length) &&
+          drew2.indexOf('低轨27组') < 0,
+        '视窗 x=' + (rg.x0 - padX).toFixed(2) + '~' + (rg.x1 + padX).toFixed(2) +
+          '；期望 ' + wantSet.slice(0, 4).join('/') + '…；实际 ' + JSON.stringify(drew2.slice(0, 6)));
       k3.chartViewAuto();
       k3.state().sel.forEach(i => {});                 // 选中态由后续断言自行重置（selectGroup 会覆盖）
     })();
