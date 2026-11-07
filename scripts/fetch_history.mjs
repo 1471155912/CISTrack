@@ -193,12 +193,18 @@ function parse3le(text) {
 
 // ---------- 拉取一个 (chunk, year) 窗口 ----------
 async function fetchWindow(sats, year) {
+  return fetchWindowRange(sats, String(year) + '-01-01', String(year + 1) + '-01-01');
+}
+/** ★ V2.0.0.631：任意时间窗（补"中间空洞"用）。与按年窗口同一套请求/续期/204 语义。 */
+async function fetchWindowRange(sats, f0, f1) {
   const ids = sats.map(s => s.norad).join(',');
-  const f0 = String(year) + '-01-01', f1 = String(year + 1) + '-01-01';
   const url = BASE + '/basicspacedata/query/class/gp_history/NORAD_CAT_ID/' + ids +
     '/EPOCH/' + f0 + '--' + f1 + '/orderby/EPOCH%20asc/format/tle';
   // ⚠️ 实测：nullsort=ignore 会让整个查询 400（gp_history 不认），不要加回来。
-  const r = await fetch(url, { headers: { Cookie: cookie, 'User-Agent': 'Mozilla/5.0' } });
+  // ★ V2.0.0.631：**必须带超时** —— 实测补数中途有一次请求永久挂住（16 分钟零进展），
+  //   而 fetch() 默认没有超时，整条补数就卡死在那一块上。60s 足够（正常 3~8s）。
+  const r = await fetch(url, { headers: { Cookie: cookie, 'User-Agent': 'Mozilla/5.0' },
+    signal: AbortSignal.timeout(60000) });
   const sc = r.headers.getSetCookie ? r.headers.getSetCookie() : [];
   if (sc.length) cookie = sc.map(c => c.split(';')[0]).join('; ');   // 会话续期
   const t = await r.text();
@@ -376,6 +382,55 @@ if (!NET) {
 } else {
   // ---------------- 在线增量：按分块窗口取数（需要凭据）----------------
   await login();
+
+  // ★★ V2.0.0.631：**任意时间窗补数**（`--from=YYYY-MM-DD --to=YYYY-MM-DD`）★★
+  //   起因：2026-10-23~11-06 定时任务连续失败，历史源库中间断了 16 天。
+  //   而 `--net` 只按"年"取（会把 2019 年以来全部重拉一遍）、`--missing` 只看"跨度不足"，
+  //   两者都补不了**中间的洞**。这里按块把指定窗口拉一遍，缓存键带窗口，重跑不重复请求。
+  const argOf = (k) => { const a = process.argv.find(x => x.startsWith('--' + k + '=')); return a ? a.slice(k.length + 3) : ''; };
+  const WIN_FROM = argOf('from'), WIN_TO = argOf('to');
+  if (WIN_FROM && WIN_TO) {
+    log('窗口补数：' + WIN_FROM + ' → ' + WIN_TO + '（' + chunks.length + ' 块 × 每块 ' + CHUNK + ' 颗）');
+    for (let ci = 0; ci < chunks.length; ci++) {
+      const sats = chunks[ci];
+      const ck = 'win-' + WIN_FROM + '_' + WIN_TO + '-' + String(ci).padStart(2, '0');
+      const cf = path.join(CACHE, ck + '.txt');
+      let text = fs.existsSync(cf) ? fs.readFileSync(cf, 'utf8') : null;
+      if (text === null) {
+        for (let att = 0; att < 3; att++) {
+          try {
+            text = await fetchWindowRange(sats, WIN_FROM, WIN_TO); reqN++;
+            if (/^\s*\{\s*"error"/.test(text)) { text = null; throw new Error('限流'); }
+            fs.writeFileSync(cf, text);
+            failStreak = 0;
+            break;
+          } catch (e) {
+            failStreak++;
+            log('  [' + ck + '] 第' + (att + 1) + '次失败：' + (e && e.message));
+            text = null;
+            await new Promise(r => setTimeout(r, Math.min(30000, 5000 * (att + 1))));
+            if (failStreak >= 3) { log('连续失败 3 次，停止（保护配额）。'); process.exit(3); }
+          }
+        }
+        await new Promise(r => setTimeout(r, SLEEP));
+      }
+      if (!text) continue;
+      const recs = parse3le(text);
+      totalParsed += recs.length;
+      for (const r of recs) {
+        const sat = sats.find(s2 => s2.norad === r.norad);
+        if (sat) accBatch(sat.lk, r.norad, r.omm);
+      }
+      const st0 = flushAcc();
+      log('[' + ck + '] 解析 ' + recs.length + ' 条 → 新增 ' + st0.added + ' / 重复 ' + st0.dup);
+    }
+    const keys2 = fs.readdirSync(HIST).filter(f => f.endsWith('.json'));
+    let total2 = 0; keys2.forEach(k => { total2 += readShard(HIST, k.replace('.json', '')).length; });
+    log('窗口补数完成：' + reqN + ' 次请求 / 解析 ' + totalParsed + ' 条 / 库内合计 ' + total2 + ' 行 / 耗时 ' +
+      Math.round((Date.now() - t0) / 1000) + 's');
+    process.exit(0);
+  }
+
   outer:
   for (let ci = 0; ci < chunks.length; ci++) {
     const sats = chunks[ci];
