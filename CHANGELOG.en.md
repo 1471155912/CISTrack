@@ -20,9 +20,9 @@ The version is written in the footer (`CISTrack · Vx.y.z`), and the bottom bar 
 ### 1. Upstream rename (all SatNet satellites)
 - Since 2026-10-24 CelesTrak names them `HULIANWANG DIGUI-214` instead of `GUOWANG 27 OBJECT A`
   (NNN is a catalogue sequence, no batch letter); 231 of 235 records were already renamed.
-- Effect: short/full names fall back to the existing “catalogue-number” rule — `A214` / `互联网低轨-214`
-  (that is what the 2026-10-18 decision specifies); the batch column still shows “低轨27组”.
-  **Display rules were not changed** — only the assertions are now form-based.
+- Handling: since the batch is known, names follow the same scheme as every other batch —
+  `互联网低轨27组A星` / short `A27A`, built from the ledger group number plus the COSPAR letter
+  (`objForm()` gained a COSPAR branch). Only satellites without a ledger row fall back to the catalogue number.
 
 ### 2. Six guards rewritten as rule assertions
 - The three §6 assertions (100973 must be `GUOWANG 27 OBJECT A` / `A27A` / `互联网低轨27组A星`) are merged
