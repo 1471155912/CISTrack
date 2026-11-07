@@ -4239,13 +4239,16 @@ assert('V1.9.2：右侧留白按"要标几条"动态加宽（否则名称会被�
     //   历史库是 203"这种 100% 不匹配（曾一次性 64 颗）—— 表现是三态字段退化、层归属全丢，
     //   而且**不报错**。这条把"不匹配颗数"钉在一个很小的上限内（当前 2 颗：刚编目、历史池未覆盖）。
     {
+      // ★ V2.0.0.631（CI 实测）：判据必须读**历史源库**（data/history），不是打包产物（build/history）。
+      //   打包器要求每颗星 ≥2 个点才写进分片；刚编目的批次只有 1 个点 → 分片里只有一部分星，
+      //   于是 CI 报“同源缺口 4 颗”，而这 4 颗在源库里**明明都在**。这是打包取舍，不是编目号不同源。
       const histIds = new Set();
       const shardKeys = new Set();
-      const hd = path.join(B, 'build', 'history');
-      for (const f of fs.readdirSync(hd).filter(x => /^(gw|qf)-/.test(x))) {
-        shardKeys.add(f.replace(/^(gw|qf)-/, '').replace(/\.json$/, ''));
-        const j = JSON.parse(fs.readFileSync(path.join(hd, f), 'utf8'));
-        for (const s2 of (j.sats || [])) histIds.add(String(s2.n));
+      const hd = path.join(B, 'data', 'history');
+      for (const f of fs.readdirSync(hd).filter(x => x.endsWith('.json') && !x.endsWith('.bak'))) {
+        shardKeys.add(f.replace(/\.json$/, ''));
+        let arr; try { arr = JSON.parse(fs.readFileSync(path.join(hd, f), 'utf8')); } catch (e) { continue; }
+        for (const r of (Array.isArray(arr) ? arr : [])) histIds.add(String(r[0]));
       }
       const miss = liveS.map(s2 => String(s2.id)).filter(x => !histIds.has(x));
       // ★★ V2.0.0.631：把「同源」与「覆盖」分开 —— 打包器要求每颗星 **≥2 个点**，
@@ -4258,7 +4261,7 @@ assert('V1.9.2：右侧留白按"要标几条"动态加宽（否则名称会被�
         return s2 && !shardKeys.has(String(s2.c || '').slice(0, 5));
       });
       const reallyBad = miss.filter(id => uncovered.indexOf(id) < 0);
-      assert('§23.3-a：satdata 编目号与历史库键**同源**（有分片的批次必须 100% 匹配；无分片的新批次单列）',
+      assert('§23.3-a：satdata 编目号与**历史源库**键同源（有源库的批次必须 100% 匹配；无源库的新批次单列）',
         histIds.size > 100 && reallyBad.length === 0 && uncovered.length <= 20,
         '历史库 ' + histIds.size + ' 颗｜同源缺口 ' + reallyBad.length + ' 颗' +
         (reallyBad.length ? '：' + reallyBad.slice(0, 8).join(',') : '') +
