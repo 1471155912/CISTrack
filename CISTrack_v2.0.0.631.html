@@ -3549,11 +3549,24 @@ function fullNameOf(s) {
  *  注意里面的数字是**发射序号**，不是单星编号，也未必等于组号（千帆 2026-211 是"第16次发射"，
  *  但组名是"极轨26组"）—— 所以组号必须从**批次名**取，不能从 TLE 里取。 */
 function objForm(s) {
-  var m = /^(GUOWANG|QIANFAN)\s+(\d+)\s+OBJECT\s+([A-Z])$/.exec(String(s.name || ''));
-  if (!m) return null;
+  var nm = String(s.name || '');
   var bn = (s.launch && s.launch.name) || '';
   var g = /(\d+)\s*组/.exec(bn);
-  return { sys: m[1], seq: m[2], letter: m[3], batch: bn, group: g ? g[1] : m[2] };
+  var m = /^(GUOWANG|QIANFAN)\s+(\d+)\s+OBJECT\s+([A-Z])$/.exec(nm);
+  if (m) return { sys: m[1], seq: m[2], letter: m[3], batch: bn, group: g ? g[1] : m[2] };
+  // ★★ V2.0.0.631 二次修补（用户 2026-11-08：「以前其他批次怎么命名就怎么命名」）★★
+  //   星网自 2026-10-24 被上游全量改名成 `HULIANWANG DIGUI-NNN`（NNN 是编目流水号，
+  //   不带批次字母）。若照旧走“有编号就用编号”，231 颗会显示成「互联网低轨-214」，
+  //   与其它批次（`互联网低轨27组A星`）完全不是一套叫法。
+  //   现在：只要台账里有「N组」且 COSPAR 末尾有字母，就还原成与旧批次**完全同款**的
+  //   `互联网低轨<N>组<X>星` / 短名 `A<N><X>`；没有台账的（试验星等）仍按目录编号显示。
+  if (/^HULIANWANG DIGUI-\d+$/.test(nm) && g) {
+    // ⚠️ 运行期卫星对象上的国际编号字段叫 **cospar**（build() 里 `cospar: s.c`），
+    //   不是 `c` —— 第一版写了 `s.c` 导致这 231 颗全部退回目录编号（实测 DIGUI-01 → A01）。
+    var mc = /^(\d{5})([A-Z])$/.exec(String(s.cospar || s.c || ''));
+    if (mc) return { sys: 'GUOWANG', seq: mc[1].slice(2), letter: mc[2], batch: bn, group: g[1] };
+  }
+  return null;
 }
 /** 没有词条名时的中文名（★ V1.9.8 / Q21：`互联网低轨27组A星`、`千帆极轨26组A星`） */
 function zhAuto(s) {

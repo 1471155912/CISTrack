@@ -3495,7 +3495,7 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
     //     · GUOWANG N OBJECT X    → 短名 A<组号><X>、中文 互联网<批次名><X>星
     (function () {
       const bad = [];
-      let nDigui = 0, nObj = 0;
+      let nDigui = 0, nObj = 0, nBat = 0;
       // 这里用 rawSrc（build/satdata.json 的原文）而不是外层的 D —— 本块在另一个作用域里，
       // D 不可见（第一版就因为这个在 3499 行抛了 ReferenceError）。
       const DS = JSON.parse(rawSrc);
@@ -3506,9 +3506,21 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
         const md = /^HULIANWANG DIGUI-(\d+)$/.exec(raw);
         if (md) {
           nDigui++;
+          // ★ V2.0.0.631（用户 2026-11-08）：改名后的星网**必须和别的批次同一套叫法** ——
+          //   台账有「N组」+ COSPAR 带字母 → A<组号><字母> / 互联网低轨<N>组<X>星；
+          //   只有在没有台账（试验星等）时才退回目录编号 A<NNN> / 互联网低轨-<NNN>。
+          const row2 = L[String(s2.c || '').slice(0, 5)];
+          const gg2 = row2 ? /(\d+)\s*组/.exec(String(row2[0] || '')) : null;
+          const mc2 = /^(\d{5})([A-Z])$/.exec(String(s2.c || ''));
           const sc2 = k3.shortName(s2.id, false), zh = k3.zhName(s2.id);
-          if (sc2 !== 'A' + md[1]) bad.push(raw + ' short=' + sc2);
-          if (zh !== '互联网低轨-' + md[1]) bad.push(raw + ' zh=' + zh);
+          if (gg2 && mc2) {
+            nBat++;
+            if (sc2 !== 'A' + gg2[1] + mc2[2]) bad.push(raw + ' short=' + sc2 + ' 期望 A' + gg2[1] + mc2[2]);
+            if (zh !== '互联网' + String(row2[0]) + mc2[2] + '星') bad.push(raw + ' zh=' + zh);
+          } else {
+            if (sc2 !== 'A' + md[1]) bad.push(raw + ' short=' + sc2);
+            if (zh !== '互联网低轨-' + md[1]) bad.push(raw + ' zh=' + zh);
+          }
           continue;
         }
         const mg = /^GUOWANG\s+(\d+)\s+OBJECT\s+([A-Z])$/.exec(raw);
@@ -3523,9 +3535,10 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
           if (k3.zhName(s2.id) !== wantZ) bad.push(raw + ' zh=' + k3.zhName(s2.id));
         }
       }
-      assert('§6：显示名按**形态**派生（DIGUI-NNN → A<NNN>；GUOWANG N OBJECT X → A<组号><X>），0 例外',
-        bad.length === 0 && nDigui + nObj >= 200,
-        'DIGUI ' + nDigui + ' 颗 / OBJECT ' + nObj + ' 颗；异常 ' + bad.slice(0, 4).join(' ｜ '));
+      assert('§6：显示名与其它批次同一套（有台账 → A<组号><字母>；无台账才退回 A<NNN>），0 例外',
+        // ★ 要求绝大多数改名星都走“批次+字母”（nBat），否则说明台账没接上
+        bad.length === 0 && nDigui + nObj >= 200 && nBat >= 150,
+        'DIGUI ' + nDigui + ' 颗（其中按批次命名 ' + nBat + '）/ OBJECT ' + nObj + ' 颗；异常 ' + bad.slice(0, 4).join(' ｜ '));
     })();
     assert('§6：倾斜轨道试验星（…02组A星）→ `XGQ02A`',
       k3.shortName(58425, false) === 'XGQ02A', JSON.stringify(k3.shortName(58425, false)));
