@@ -1,5 +1,5 @@
 {
- "_fetched": "2026-11-07T06:09:18.490Z",
+ "_fetched": "2026-11-09T13:48:05.565Z",
  "_src": "derived from data/wiki_tables.json (H9 单源)",
  "byCospar": {
   "2023-095": {
@@ -457,6 +457,16 @@
    ]
   },
   "2026-243": {
+   "manufacturer": "五院",
+   "url": "/wiki/%E4%BA%94%E9%99%A2",
+   "links": [
+    {
+     "n": "五院",
+     "u": "/wiki/%E4%BA%94%E9%99%A2"
+    }
+   ]
+  },
+  "2026-253": {
    "manufacturer": "五院",
    "url": "/wiki/%E4%BA%94%E9%99%A2",
    "links": [
@@ -1123,6 +1133,16 @@
    ]
   },
   "2026-10-25": {
+   "manufacturer": "五院",
+   "url": "/wiki/%E4%BA%94%E9%99%A2",
+   "links": [
+    {
+     "n": "五院",
+     "u": "/wiki/%E4%BA%94%E9%99%A2"
+    }
+   ]
+  },
+  "2026-11-09": {
    "manufacturer": "五院",
    "url": "/wiki/%E4%BA%94%E9%99%A2",
    "links": [
