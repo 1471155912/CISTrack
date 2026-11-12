@@ -3131,6 +3131,8 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
     // ★ V2.0.0.631：按**下标**取短名（H18③ 要按"当前选中的那批"反推期望值，
     //   不能写死 A27A —— 上游改名后同一批星的短名已经变成 A214…）。
     "  shortAt: function (i) { var s = cur().sats[i]; return s ? shortOf(s) : ''; },\n" +
+    // ★ V2.0.0.632：直接测「目录名 → 中文名」的翻译规则（上游分隔符变来变去，这里一次覆盖多种写法）
+    "  zh: function (raw) { return zhRules(raw); },\n" +
     "  zhName: function (norad) { var i = climbSatIdx(norad); return i < 0 ? '' : fullNameOf(cur().sats[i]); },\n" +
     "  fullName: function (norad) { var i = climbSatIdx(norad); return i < 0 ? '' : String(cur().sats[i].name); },\n" +
     // ★★★ V1.9.7（P0-E）：**离线模拟"在线刷新"** —— 这是本项目最大的测试盲区：
@@ -3491,6 +3493,14 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
 
   // ================================================================ V1.9.7（§6/§7）：短名 + 标签点击
   {
+  // ★ V2.0.0.632（真实事故的回归守卫）：上游把新 8 颗写成 `HULIANWANG DIGUI 233`（空格），
+  //   而规则只认连字符 → 中文名翻不出来、表格漏英文。这里把四种常见写法一次钉死。
+  assert('§6：星网目录名的四种写法都能译成中文（连字符 / 空格 / 多空格 / 小写）',
+    ['HULIANWANG DIGUI-233', 'HULIANWANG DIGUI 233',
+     'HULIANWANG  DIGUI  233', 'hulianwang digui 233']
+      .every(function (x) { return k3.zh(x) === '互联网低轨-233'; }),
+    ['HULIANWANG DIGUI-233', 'HULIANWANG DIGUI 233', 'hulianwang digui 233']
+      .map(function (x) { return x + '→' + k3.zh(x); }).join(' | '));
     // ① 原名保留在底层、显示名按**形态**派生（不再写死任何一颗星的名字）
     // ★★ V2.0.0.631：2026-10-24 CelesTrak 把星网**全量改名**成 `HULIANWANG DIGUI-NNN`
     //   （NNN = 编目序号，不再带批次字母）。旧断言写死 100973 = 'GUOWANG 27 OBJECT A' /

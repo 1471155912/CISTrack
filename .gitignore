@@ -99,3 +99,4 @@ data/.edge-profile-*/
 
 # V1.9.8：词条卡片抓取器的 Edge profile（可能上百 MB）绝不允许进仓库
 data/.edge-profile-*/
+smoke.log

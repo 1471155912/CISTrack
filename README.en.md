@@ -11,7 +11,7 @@
 </div>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.0.0.631-ff6b6b?style=flat-square" alt="version">
+  <img src="https://img.shields.io/badge/version-2.0.0.632-ff6b6b?style=flat-square" alt="version">
   <a href="https://sat.huijiwiki.com/wiki/%E6%98%9F%E7%BD%91"><img src="https://img.shields.io/badge/%E6%98%9F%E7%BD%91-CSCN-ff6b6b?style=flat-square" alt="SatNet"></a>
   <a href="https://sat.huijiwiki.com/wiki/%E5%8D%83%E5%B8%86%E6%98%9F%E5%BA%A7"><img src="https://img.shields.io/badge/%E5%8D%83%E5%B8%86-G60-4dabf7?style=flat-square" alt="Qianfan"></a>
   <img src="https://img.shields.io/badge/license-MIT-4dabf7?style=flat-square" alt="license">
@@ -197,7 +197,7 @@ data always current without manually downloading anything.
 
 Either way works:
 
-- **Download the Release zip** (`CISTrack_v2.0.0.631_local-deploy.zip` from the [latest Release](https://github.com/1471155912/CISTrack/releases/latest)) — unzip and go; **this is the complete package for local deployment**;
+- **Download the Release zip** (`CISTrack_v2.0.0.632_local-deploy.zip` from the [latest Release](https://github.com/1471155912/CISTrack/releases/latest)) — unzip and go; **this is the complete package for local deployment**;
 - or `git clone https://github.com/1471155912/CISTrack.git`
 
 ### Step 2: pick the usage that fits

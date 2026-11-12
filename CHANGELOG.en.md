@@ -10,6 +10,26 @@ The version is written in the footer (`CISTrack · Vx.y.z`), and the bottom bar 
 
 ---
 
+## [V2.0.0.632] — 2026-11-12
+
+> Two fixes: upstream switched the satellite-name separator from a hyphen to a space
+> (Chinese names leaked English), and — more importantly — **a display-level assertion can no longer freeze the data**.
+
+### 1. Accept the space separator
+- Since 2026-11-10 CelesTrak names the newest eight satellites `HULIANWANG DIGUI 233` (space, not hyphen).
+  Our rule only matched `DIGUI-233`, so the Chinese name was not derived and the table showed raw English
+  (the H19 assertion caught it; CI went red six times).
+- `HULIANWANG[\s-]+DIGUI[\s-]+NNN` now accepts both separators (case-insensitive too).
+
+### 2. “Endpoint value drawn once” check corrected
+- In the two-constellation view both series may end on the same number (271/271); if one label is clipped,
+  a single stroke is correct. The check is now `1 ≤ hits ≤ expect`; duplicate drawing is still caught per series.
+
+### 3. Pipeline: data is committed before smoke
+- New order: **build → adversarial → repo hygiene → commit & push → smoke**.
+  A smoke failure still turns the run red and sends mail, but the data has already been pushed.
+- Smoke output is captured to `smoke.log` and uploaded as an artifact on failure.
+
 ## [V2.0.0.631] — 2026-11-07
 
 > This release fixes **the update pipeline itself**: the scheduled job had failed 30 times in a row

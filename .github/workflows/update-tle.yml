@@ -184,19 +184,6 @@ jobs:
           console.log("历史源库体检 OK：" + n + " 条 / 范围 " + min.toFixed(2) + " ~ " + max.toFixed(2) + " km");
           '
 
-      - name: 冒烟测试（jsdom 全量断言 —— V1.9.1 起纳入 CI）
-        # 为什么现在才挂上来：jsdom 与 ws 早就在 devDependencies 里、本地也一直在跑 smoke，
-        #   但 **CI 从来没跑过它**。后果是"仓库自己的测试引用了仓库里不存在的文件"这种状态
-        #   （scripts/climb.mjs 漏提交）既无人发现也无人报警 —— 直到该文件在工作区丢失，
-        #   smoke 才当场崩在 readFileSync。凡是"只在本地跑过"的测试，都要当成"没跑过"。
-        #   放在 build/release 之后：这样它校验的是**本次刚构建出来的产物**。
-        env:
-          CISTRACK_TMP: ${{ runner.temp }}
-        run: |
-          set -e
-          npm ci --no-audit --no-fund --loglevel=error
-          node smoke.mjs
-
       - name: 对抗性测试（喂坏数据 —— V1.9.9.630 起纳入 CI）
         # 为什么必须有这一步（与 smoke / e2e 的分工）：
         #   · `smoke.mjs` 校验的是**源码性质**（该有的守卫在不在、判据写没写对）；
@@ -205,7 +192,8 @@ jobs:
         #     本项目历史上绝大多数静默失败都是后者 —— 上游给了怪东西，脚本当成正常值写下去，
         #     日志一片绿、页面少几颗星。正常路径永远测不出这类问题。
         # 完全离线、不碰网络；所有造数据都在 `CISTRACK_TMP` 下的临时副本里做，跑完自动清理。
-        # 放在 smoke 之后：smoke 先保证"结构对"，这里再保证"坏输入不会穿透"。
+        # ★ V2.0.0.632：顺序改为"构建 → 对抗 → 卫生 → 提交 → 冒烟"，本步在提交之前跑，
+        #   坏输入必须在落库前被拦住（它比显示层断言更接近数据完整性）。
         # 它同时是 V1.9.9.630 那三个真缺陷的**回归守卫**：
         #   ① `tleHealth` 只查 isFinite → 放过"倾角 999 / 平均运动 0"这类物理不可能值；
         #   ② `tleFromOmm` 历元为 NaN 时产出 **70 列** L1（定宽错位，且没人查 L1）；
@@ -213,6 +201,7 @@ jobs:
         env:
           CISTRACK_TMP: ${{ runner.temp }}
         run: node scripts/e2e_adversarial.mjs
+
 
       - name: 仓库卫生检查（防过程类文件入库 —— V1.9.5 起强制）
         # 为什么挂在**提交之前**：紧随其后的 `git add -A` 会把工作区里一切新文件都提交上去 ——
@@ -222,7 +211,10 @@ jobs:
         #   于是提交根本不会发生。判据与白名单在 `scripts/repo_hygiene.mjs` 里逐条写明。
         run: node scripts/repo_hygiene.mjs
 
+
       - name: 有变化才提交并推送
+        # ★ V2.0.0.632：**本步在冒烟之前** —— 数据必须先落库，
+        #   显示层断言失败只影响"红/绿"，不影响"数据有没有更新"。
         run: |
           set -e
           git config user.name "github-actions[bot]"
@@ -248,3 +240,28 @@ jobs:
             git push origin HEAD:${GITHUB_REF_NAME}
           fi
           echo "已推送"
+
+      - name: 冒烟测试（jsdom 全量断言 —— V1.9.1 起纳入 CI）
+        # ★★ V2.0.0.632（2026-11-12）：**本步被移到最后** ★★
+        #   它是"显示/行为"层断言，而上一大步已经把本次构建的数据提交并推送了。
+        #   起因：上游把星名从 `DIGUI-233` 改成 `DIGUI 233`（连字符→空格），本步连红 6 次，
+        #   数据跟着停更 3 天。现在的约定：
+        #     · **数据完整性**由构建期的硬检查（TLE 体检 / OMM 映射 / 历史量级 / 产物非空）负责；
+        #     · **显示层问题**只让 run 变红并发邮件，不再冻结数据。
+        #   失败日志写成 smoke.log 并在下一步作为 artifact 上传。
+        env:
+          CISTRACK_TMP: ${{ runner.temp }}
+        run: |
+          set -e
+          set -o pipefail
+          npm ci --no-audit --no-fund --loglevel=error
+          node smoke.mjs 2>&1 | tee smoke.log
+
+      - name: 上传冒烟日志（失败时留证）
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-log
+          path: smoke.log
+          if-no-files-found: ignore
+          retention-days: 14
