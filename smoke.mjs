@@ -1618,16 +1618,13 @@ assert('V1.7.2r7（新需求A）：导出图底栏不再拼「数据更新」，
   /var rest = \[VERSION, cs\.both \? t\('shot_both'\) : t\('shot_' \+ cs\.key\), title, timePart\]\.join\(' \| '\);/.test(appSrc) &&
   /\[' \+ t\('d_row_epoch_sat'\) \+ ' ' \+ fmtUTC\(s\.epochMs\) \+ '\]'/.test(appSrc));
 // 需求2：卫星百科更新行
-// ★ O30-12（V1.9.9 收尾）：该行现在附显词条卡片抓取状态（d_cards_ok / d_cards_err），
-//   旧守卫里"wu.textContent = (wiki && wiki.asOf) ? …"的精确匹配已随改写失效，改为形态守卫。
-assert('需求2+O30-12：第0章概况「卫星百科更新」行存在，且附显卡片抓取状态（checkedAt + cards 后缀）',
+// ★ V2.0.0.632（用户 2026-11-12）：该行恢复为**只写更新日期与时刻**，
+//   不再附「词条卡片 N 张 / 抓取失败」这类内部细节（用户明确要求去掉）。
+assert('需求2/V2.0.0.632：第0章「卫星百科更新」行只显示更新时间（不再附卡片张数/抓取状态）',
   /kv_wiki: \['卫星百科更新', 'Satwiki info update'\]/.test(appSrc) &&
   /data-i18n="kv_wiki">卫星百科更新<\/span><span class="v" id="mWikiUpd">/.test(tpl) &&
-  /d_cards_ok: \['词条卡片 \{n\} 张/.test(appSrc) &&
-  /d_cards_err: \['词条卡片更新失败/.test(appSrc) &&
-  /cardTxt = t\('d_cards_ok'\)/.test(appSrc) &&
-  /cardTxt = t\('d_cards_err'\)/.test(appSrc) &&
-  /wu\.textContent = \(wTxt \? wTxt \+ t\('d_bjtime'\)/.test(appSrc),
+  /wu\.textContent = wTxt \? wTxt \+ t\('d_bjtime'\) :/.test(appSrc) &&
+  !/d_cards_ok/.test(appSrc) && !/d_cards_err/.test(appSrc) && !/cardTxt/.test(appSrc),
   'mWikiUpd=' + (/mWikiUpd/.test(appSrc) ? 'ok' : 'missing'));
 // 需求3：倾角分布限位
 assert('需求3+V1.7.2（需求8）+V1.9.5（H39）：倾角边界 0\u2013180\u00b0 / 等效高度 0\u20132200 + clampChartView 全路径',

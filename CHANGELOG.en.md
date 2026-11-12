@@ -30,6 +30,10 @@ The version is written in the footer (`CISTrack · Vx.y.z`), and the bottom bar 
   A smoke failure still turns the run red and sends mail, but the data has already been pushed.
 - Smoke output is captured to `smoke.log` and uploaded as an artifact on failure.
 
+### 4. Section 0 “Satwiki info update” shows the timestamp only
+- Removed the “N article cards (as of …) / card update failed” suffix (requested 2026-11-12);
+  the row again shows just `checkedAt` (date + time, UTC+8). Card status stays in the build log.
+
 ## [V2.0.0.631] — 2026-11-07
 
 > This release fixes **the update pipeline itself**: the scheduled job had failed 30 times in a row

@@ -133,8 +133,6 @@ var I18N = {
   // ★ O30-12（V1.9.9 收尾）：词条**卡片**抓取状态 —— wiki.json 的 `cards` 键（{asOf, error, n}）。
   //   为什么单独两键：卡片抓取受卫星百科 WAF 节拍影响，失败时以前只有日志里看得见；
   //   现在「卫星百科更新」行直接附显，访客也能看出卡片数据新不新。
-  d_cards_ok: ['词条卡片 {n} 张（截至 {d}）', '{n} article cards (as of {d})'],
-  d_cards_err: ['词条卡片更新失败（沿用 {d} 的数据）', 'article-card update failed (keeping data from {d})'],
   // V1.3.6：章节改名与重排 —— 01 地图 / 02 轨道 / 03 轨道分布 / 04 卫星表格 / 05 发射历史
   // V1.4.0：英文标题一律 Title Case（每个实词首字母大写）——这组键顶栏标签与页面章节标题共用
   h_map: ['地图', 'Map'], h_orbits: ['轨道', 'Orbits'], h_dist: ['倾角分布', 'Inclination Distribution'],
@@ -5989,13 +5987,10 @@ function renderHeader() {
   if (wu) {
     var wTxt = (wiki && wiki.checkedAt) ? wiki.checkedAt
              : (wiki && wiki.asOf) ? wiki.asOf : '';
-    // ★ O30-12（V1.9.9 收尾）：附显词条卡片抓取状态 —— 以前卡片失败只有日志里看得见。
-    //   正常 → 「词条卡片 37 张（截至 2026-10-19 11:58）」；有失败 → 「词条卡片更新失败（沿用 … 的数据）」。
-    var cd = wiki && wiki.cards;
-    var cardTxt = '';
-    if (cd && cd.error) cardTxt = t('d_cards_err').replace('{d}', cd.asOf || '\u2014');
-    else if (cd && cd.n) cardTxt = t('d_cards_ok').replace('{n}', cd.n).replace('{d}', cd.asOf || '');
-    wu.textContent = (wTxt ? wTxt + t('d_bjtime') : '\u2014') + (cardTxt ? ' \u00b7 ' + cardTxt : '');
+    // ★ V2.0.0.632（用户 2026-11-12）：「卫星百科更新」这一行**只写更新日期与时刻**。
+    //   不再附「词条卡片 N 张（截至 …）/ 卡片更新失败」这类内部抓取细节 ——
+    //   那是维护信息，不属于概况表要展示的内容（用户原话：只写更新日期，不写提取了多少卡片）。
+    wu.textContent = wTxt ? wTxt + t('d_bjtime') : '\u2014';
   }
   // V1.7.2 第七轮（需求2/6）：顶栏那行历元已整体删除（连同五个章节链接）。
   //   现在**页面上唯一**显示「TLE 更新时间」的地方，就是主标题「中国低轨互联网卫星在轨态势」
