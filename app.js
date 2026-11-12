@@ -668,7 +668,10 @@ function cleanName(t) { return String(t || '').replace(/_/g, ' ').replace(/\s+/g
  *  为什么抽出来：`nameVariants()` 原先自己抄了一半规则（缺 GEO/KL/DTC/CX…），两处会越走越偏；
  *  搜索索引必须认**全部**中文写法（含词条名），否则"搜得到名字却搜不到卫星"。 */
 function zhRules(n) {
-  return String(n).replace(/^HULIANWANG DIGUI-(\d+)$/, '互联网低轨-$1')
+  // ★ 2026-11-12：上游开始**混用分隔符** —— 老的是 `HULIANWANG DIGUI-233`，
+  //   新的 8 颗直接写成 `HULIANWANG DIGUI 233`（空格）。正则必须两种都认，
+  //   否则中文名翻不出来 → 表格里直接漏出英文（H19 断言当场抓到）。
+  return String(n).replace(/^HULIANWANG[\s-]+DIGUI[\s-]+(\d+)$/i, '互联网低轨-$1')
     .replace(/^HULIANWANG JISHU SHIYAN.*$/, '互联网技术试验')
     .replace(/^HJS.*$/, '互联网技术试验')
     .replace(/^HULIANWAN GAOGUI-(\d+).*$/, '互联网高轨-$1')
@@ -732,7 +735,7 @@ function objForm(s) {
   //   与其它批次（`互联网低轨27组A星`）完全不是一套叫法。
   //   现在：只要台账里有「N组」且 COSPAR 末尾有字母，就还原成与旧批次**完全同款**的
   //   `互联网低轨<N>组<X>星` / 短名 `A<N><X>`；没有台账的（试验星等）仍按目录编号显示。
-  if (/^HULIANWANG DIGUI-\d+$/.test(nm) && g) {
+  if (/^HULIANWANG[\s-]+DIGUI[\s-]+\d+$/i.test(nm) && g) {
     // ⚠️ 运行期卫星对象上的国际编号字段叫 **cospar**（build() 里 `cospar: s.c`），
     //   不是 `c` —— 第一版写了 `s.c` 导致这 231 颗全部退回目录编号（实测 DIGUI-01 → A01）。
     var mc = /^(\d{5})([A-Z])$/.exec(String(s.cospar || s.c || ''));

@@ -907,6 +907,11 @@ assert('Manufacturer简要渲染：简称都是短文本（≤20 字），且渲
     /function nameOf\(s\)/.test(appSrc) && /return shortOf\(s\);/.test(appSrc) &&
     /function fullNameOf\(s\)/.test(appSrc) && /if \(LANG === 'en'\) return enOf\(s\);/.test(appSrc) &&
     (appSrc.match(/nameOf\(/g) || []).length >= 4 && (appSrc.match(/fullNameOf\(/g) || []).length >= 4);
+  // ★ 2026-11-12（真实事故）：上游把新 8 颗写成 `HULIANWANG DIGUI 233`（**空格**，不是连字符），
+  //   而规则只认连字符 → 中文名翻不出来、表格直接漏英文。这里把"两种分隔都要认"钉进源码守卫，
+  //   避免以后又有人把它改回单一形态。
+  assert('H19：星网名称解析同时认「连字符」与「空格」两种分隔（上游 2026-11-10 起混用）',
+    appSrc.indexOf('HULIANWANG[\\s-]+DIGUI') >= 0);
   // 中文态抽样（含 GEO/CX/KL/DTC 这些曾经的残留形态）：显示名不得含成串拉丁字母
   assert('H19：中文模式显示名无拼音/英文残留（抽样 GEO/KL/DTC/组网星）',
     (function () {
@@ -5007,7 +5012,11 @@ assert('V1.9.2：右侧留白按"要标几条"动态加宽（否则名称会被�
             return x.last && Math.abs(x.x - lastL.x) < 80 && Math.abs(x.y - lastL.y) < 20;
           }).length;
           k3.netBoth();
-          if (hits.length !== expect) bad.push(sp + '/' + who + ' v=' + lastL.v +
+          // ★ 2026-11-12：**不能要求 hits === expect**。双星座下两条线可能都停在 271，
+          //   但其中一个标签被裁到画布外/被避让逻辑跳过 → 只落笔一次是正常的。
+          //   判据改为：至少画一次，且不超过"该邻域内 last 标签条数"（多出来才是同一条线画了两遍）。
+          //   同一条线重复绘制的回归由单星座两轮（gw / qf）负责抓。
+          if (hits.length < 1 || hits.length > expect) bad.push(sp + '/' + who + ' v=' + lastL.v +
             ' hits=' + hits.length + '/' + expect + ' @' + Math.round(lastL.x) + ',' + Math.round(lastL.y));
         });
       });
