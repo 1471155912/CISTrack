@@ -12,7 +12,10 @@ name: Sync release to Gitee
 
 on:
   release:
-    types: [published]
+    # published：发版即同步（主路径）
+    # edited   ：改了标题/正文/附件后再同步一次 —— 脚本是幂等的（同名附件跳过），
+    #            所以一次发行被编辑多次也不会产生重复附件；反过来也只有 GitHub 是源。
+    types: [published, edited]
   workflow_dispatch:
     inputs:
       tag:
