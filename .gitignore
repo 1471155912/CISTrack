@@ -100,3 +100,6 @@ data/.edge-profile-*/
 # V1.9.8：词条卡片抓取器的 Edge profile（可能上百 MB）绝不允许进仓库
 data/.edge-profile-*/
 smoke.log
+
+# 发行同步工作流的临时目录（CI 内生成，不入库）
+.release/

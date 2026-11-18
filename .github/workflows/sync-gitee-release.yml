@@ -1,0 +1,89 @@
+name: Sync release to Gitee
+
+# ★ 2026-11-18：把「发版」也纳入自动同步。
+#   以前 v2.0.0.632 这类发行是**我手动**在 Gitee 建一份（正文 + 两个附件），
+#   漏一次就会出现「代码同步了、发行页停在上一版」——和之前 Gitee 落后两个数据批次
+#   是同一类问题：靠人记着，迟早忘。
+#   现在：GitHub 上发布 Release → 本工作流自动把标题/正文/附件镜像到 Gitee，
+#   并用脚本复核附件是否齐全（缺一个就判红）。
+#
+# 注意：Gitee 建发行要求 tag 已存在，所以第 3 步先把 tag 推过去
+#   （数据工作流每 12 小时也会对齐一次 tag，这里再补一次，避免发版时刚好没跑到）。
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '要同步的 tag（留空 = 最近一次 GitHub 发行）'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gitee-release-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 取发行信息（标题 / 正文 / 附件）
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_IN: ${{ github.event.inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [ -n "${TAG_IN:-}" ]; then
+            TAG="$TAG_IN"
+          elif [ -n "${{ github.event.release.tag_name }}" ]; then
+            TAG="${{ github.event.release.tag_name }}"
+          else
+            TAG=$(gh release view --json tagName -q .tagName)
+          fi
+          [ -n "$TAG" ] || { echo "::error::无法确定要同步的 tag"; exit 1; }
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+          mkdir -p .release/assets
+          gh release view "$TAG" --json name,body,isPrerelease -q .name > .release/name.txt
+          gh release view "$TAG" --json name,body,isPrerelease -q .body > .release/body.md
+          gh release view "$TAG" --json isPrerelease -q '.isPrerelease' > .release/pre.txt
+          # 附件可能为 0 个（某些 tag 只发说明）→ 不能让下载失败拖垮整步
+          gh release download "$TAG" --dir .release/assets --clobber || echo "（该发行没有附件）"
+          echo "标题：$(cat .release/name.txt)"
+          echo "正文字节：$(wc -c < .release/body.md)"
+          ls -la .release/assets || true
+
+      - name: 推送标签到 Gitee（Gitee 建发行要求 tag 先存在）
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+        run: |
+          set -euo pipefail
+          [ -n "${GITEE_TOKEN:-}" ] || { echo "::error::缺少 GITEE_TOKEN 密钥"; exit 1; }
+          git remote remove gitee 2>/dev/null || true
+          git remote add gitee "https://oauth2:${GITEE_TOKEN}@gitee.com/Jackoraniverse/CISTrack.git"
+          git push --force gitee --tags
+
+      - name: 同步发行到 Gitee（正文 + 附件，幂等）
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+        run: |
+          set -euo pipefail
+          PRE=$(cat .release/pre.txt 2>/dev/null || echo false)
+          node scripts/sync_gitee_release.mjs \
+            --tag "$TAG" \
+            --name-file .release/name.txt \
+            --body-file .release/body.md \
+            --assets-dir .release/assets \
+            --prerelease "$PRE"
