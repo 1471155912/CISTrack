@@ -49,6 +49,9 @@ The version is written in the footer (`CISTrack · Vx.y.z`), and the bottom bar 
   `ls-remote`, failing the run on mismatch. The mirror source is `origin/main`, not local HEAD, so a new
   commit on GitHub can never be rolled back on Gitee.
 - On divergence it force-pushes (GitHub is authoritative) and prints any Gitee-only commits first.
+- **Release pages sync too** (added 2026-11-18): publishing a GitHub Release triggers `sync-gitee-release.yml`,
+  which creates/updates the same release on Gitee (title + body + assets), skips assets that already exist
+  (idempotent) and fails the run if anything is missing.
 
 ## [V2.0.0.631] — 2026-11-07
 

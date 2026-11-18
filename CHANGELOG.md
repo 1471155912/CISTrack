@@ -48,6 +48,8 @@
 - 现在 CI 在推送 GitHub 之后立刻镜像到 Gitee（`GITEE_TOKEN` 密钥），末尾用 `ls-remote` 校验两边 SHA，
   不一致即判红。镜像源取 `origin/main` 而非本地 HEAD，避免把 GitHub 上的新提交从 Gitee 顶掉。
 - 历史分叉时以 GitHub 为准强推，并把「只存在于 Gitee 的提交」打进日志留证。
+- **发行页也自动同步**（2026-11-18 补）：GitHub 发布 Release → `sync-gitee-release.yml` 自动在 Gitee
+  建/更新同一发行（标题 + 正文 + 附件），同名附件跳过上传（幂等），缺附件即判红。
 
 ## [V2.0.0.631] — 2026-11-07
 
