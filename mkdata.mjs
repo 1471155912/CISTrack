@@ -1693,13 +1693,43 @@ const ORBIT_ST = (() => {
   for (const bk of ['gw', 'qf']) {
     ORB_LAYERS[bk] = buildLayers([...rows.values()].filter(x => x.con === bk));
   }
-  // ③ 逐星归层
+  // ★★ 2026-11-18（真实故障的根因修复）：**按批次定层，而不是逐星取最近层** ★★
+  //   病根：同一次发射的卫星共用一条设计轨道，但旧实现让每颗星各自找"最近的层"。
+  //   当整批还在爬升、高度正好落在两层中间时，同一批会被**劈成两半**：
+  //   实测 26213（低轨25组，9 颗，正在 1120→1150 的途中）被判成
+  //     7 颗 → 1150 层、2 颗 → 1100 层（它们当时 1121/1123 km，离 1100 更近）。
+  //   "同批同层"断言因此变红（2026-11-15 起连续失败），但数据本身没错 —— 是归层方法错了。
+  //   修法：先按「星座 + 批次」聚合，用**整批高度中位数**选一次层，再统一下发给该批所有成员；
+  //   每颗星的 dist 仍按自己的实际高度算（用于"是否已在层上"的判定，不受影响）。
+  const BATCH_GROUP = new Map();     // 'con|key' -> { con, band, alts: [] }
   for (const [, x] of rows) {
     if (x.geo || x.band === null) continue;
+    const gk = x.con + '|' + x.key;
+    let g = BATCH_GROUP.get(gk);
+    if (!g) BATCH_GROUP.set(gk, g = { con: x.con, band: Number(x.band), alts: [] });
+    g.alts.push(x.sma - RE);
+  }
+  const BATCH_LAYER = new Map();
+  for (const [gk, g] of BATCH_GROUP) {
+    const alts = g.alts.slice().sort((a, b) => a - b);
+    const med = alts[Math.floor(alts.length / 2)];          // 中位数：个别成员漂移不影响整批
+    let best = null, bd = Infinity;
+    for (const L of (ORB_LAYERS[g.con] || [])) {
+      if (L.inc !== g.band) continue;                       // 同倾角带才能落层
+      const dd = Math.abs(med - L.alt);
+      if (dd < bd) { bd = dd; best = L; }
+    }
+    if (best) BATCH_LAYER.set(gk, best);
+  }
+  // ③ 逐星归层（批层优先；退路保留逐星最近层，供没有批次归属的星使用）
+  for (const [, x] of rows) {
+    if (x.geo || x.band === null) continue;
+    const bl = BATCH_LAYER.get(x.con + '|' + x.key);
+    if (bl) { x.layer = bl; x.dist = Math.abs((x.sma - RE) - bl.alt); continue; }
     const cands = ORB_LAYERS[x.con] || [];
     let best = null, bd = Infinity;
     for (const L of cands) {
-      if (L.inc !== Number(x.band)) continue;    // 只跟同倾角带比（50° 的星不可能落到 86.5° 的层里）
+      if (L.inc !== Number(x.band)) continue;
       const dd = Math.abs((x.sma - RE) - L.alt);
       if (dd < bd) { bd = dd; best = L; }
     }
