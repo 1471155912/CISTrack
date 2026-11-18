@@ -34,6 +34,22 @@ The version is written in the footer (`CISTrack · Vx.y.z`), and the bottom bar 
 - Removed the “N article cards (as of …) / card update failed” suffix (requested 2026-11-12);
   the row again shows just `checkedAt` (date + time, UTC+8). Card status stays in the build log.
 
+### 5. Layer assignment is now per batch (median)
+- Root cause: each satellite used to pick its own nearest layer. A batch climbing across the midpoint
+  between two shells got split — 26213 (batch 25) measured 7×1150 + 2×1100, turning the
+  “one batch, one layer” assertion red from 15 Nov onwards.
+- The layer is now chosen once per (constellation, batch) from the **median** altitude and applied to
+  the whole batch; each satellite's `dist` still uses its own altitude.
+- A source-level guard pins this implementation so it cannot silently regress to per-satellite nearest-layer.
+
+### 6. Gitee now updates with the same commit as GitHub
+- Previously CI pushed GitHub only; Gitee received just the local wiki task's pushes, so it fell two
+  data batches behind — **silently** (the live site is served from GitHub Pages, which looked fine).
+- CI now mirrors to Gitee right after pushing GitHub (secret `GITEE_TOKEN`) and verifies both SHAs with
+  `ls-remote`, failing the run on mismatch. The mirror source is `origin/main`, not local HEAD, so a new
+  commit on GitHub can never be rolled back on Gitee.
+- On divergence it force-pushes (GitHub is authoritative) and prints any Gitee-only commits first.
+
 ## [V2.0.0.631] — 2026-11-07
 
 > This release fixes **the update pipeline itself**: the scheduled job had failed 30 times in a row

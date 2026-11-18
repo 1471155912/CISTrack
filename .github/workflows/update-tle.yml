@@ -241,6 +241,51 @@ jobs:
           fi
           echo "已推送"
 
+      - name: 镜像到 Gitee（与 GitHub 同一次提交）
+        # ★★ 2026-11-18（用户要求「以后和 GitHub 一起接受更新」）★★
+        #   症结：Gitee 以前只收到**本机 wiki 任务**的推送（本地 origin 配了两个 pushurl：
+        #   GitHub + Gitee），而 CI 的数据刷新只推 GitHub → Gitee 两天就落后两个批次。
+        #   更糟的是没有任何信号：页面走的是 GitHub Pages，看起来一切正常，镜像停了没人知道。
+        #   现在：每次 CI 推完 GitHub，立刻把**同一个提交**镜像到 Gitee，末尾用 ls-remote
+        #   校验两边 SHA 相同；不同就判红（宁可红一次，也不要静默落后）。
+        #   镜像源取 `refs/remotes/origin/main` 而不是本地 HEAD —— 本机任务可能在这几分钟里
+        #   又推了一个 wiki 提交，镜像要跟到最新，而不是把 GitHub 上的新提交从 Gitee 顶掉。
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GITEE_TOKEN:-}" ]; then
+            echo "::error::缺少 GITEE_TOKEN 密钥，Gitee 镜像无法执行（仓库 Settings → Secrets 配置）"
+            exit 1
+          fi
+          git remote remove gitee 2>/dev/null || true
+          git remote add gitee "https://oauth2:${GITEE_TOKEN}@gitee.com/Jackoraniverse/CISTrack.git"
+          git fetch --no-tags origin "+refs/heads/${GITHUB_REF_NAME}:refs/remotes/origin/${GITHUB_REF_NAME}"
+          SRC="refs/remotes/origin/${GITHUB_REF_NAME}"
+          echo "镜像提交：$(git rev-parse --short "$SRC") $(git log -1 --format=%s "$SRC")"
+          ok=0
+          for i in 1 2 3; do
+            if git push gitee "${SRC}:refs/heads/${GITHUB_REF_NAME}"; then ok=1; break; fi
+            echo "第 ${i} 次推送失败，5 秒后重试…"
+            sleep 5
+          done
+          if [ "$ok" != "1" ]; then
+            echo "非快进或网络失败 —— 先列出**只存在于 Gitee** 的提交（下面这些会被强推丢弃）："
+            git fetch --no-tags gitee "+refs/heads/${GITHUB_REF_NAME}:refs/remotes/gitee/${GITHUB_REF_NAME}" || true
+            git log --oneline "${SRC}..refs/remotes/gitee/${GITHUB_REF_NAME}" | head -20 || true
+            echo "以 GitHub 为准强推（Gitee 是镜像，历史以 GitHub 为准）"
+            git push --force gitee "${SRC}:refs/heads/${GITHUB_REF_NAME}"
+          fi
+          LOCAL=$(git rev-parse "$SRC")
+          REMOTE=$(git ls-remote gitee "refs/heads/${GITHUB_REF_NAME}" | cut -f1)
+          echo "GitHub: ${LOCAL}"
+          echo "Gitee : ${REMOTE}"
+          if [ "$LOCAL" != "$REMOTE" ]; then
+            echo "::error::Gitee 与 GitHub 未对齐（${LOCAL} vs ${REMOTE}）"
+            exit 1
+          fi
+          echo "OK：Gitee 已与 GitHub 对齐"
+
       - name: 冒烟测试（jsdom 全量断言 —— V1.9.1 起纳入 CI）
         # ★★ V2.0.0.632（2026-11-12）：**本步被移到最后** ★★
         #   它是"显示/行为"层断言，而上一大步已经把本次构建的数据提交并推送了。
