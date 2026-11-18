@@ -276,6 +276,10 @@ jobs:
             echo "以 GitHub 为准强推（Gitee 是镜像，历史以 GitHub 为准）"
             git push --force gitee "${SRC}:refs/heads/${GITHUB_REF_NAME}"
           fi
+          # 标签也顺手对齐：发版时才新增，但每个 run 互相对一次，
+          # 免得出现「代码同步了、tag 只在 GitHub」（Gitee 早期就漏过 v1.9.6~v2.0.0.630）。
+          git push --force gitee --tags
+
           LOCAL=$(git rev-parse "$SRC")
           REMOTE=$(git ls-remote gitee "refs/heads/${GITHUB_REF_NAME}" | cut -f1)
           echo "GitHub: ${LOCAL}"

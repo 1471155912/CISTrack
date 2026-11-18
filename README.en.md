@@ -25,6 +25,9 @@
 >
 > ⚠️ **How the two repos relate**: GitHub is the primary repository and Gitee is a **content-identical mirror**;
 > every commit is **pushed to both** (same commit hash, byte-for-byte identical content).
+> The scheduled CI refresh follows the same rule: right after pushing GitHub it mirrors the commit to Gitee and
+> verifies both SHAs with `ls-remote`, failing the run on mismatch — so "GitHub updated, Gitee stuck days behind"
+> can no longer go unnoticed (since 2026-11-18).
 > Because Gitee Pages was officially shut down in 2024–2025 ([official notice](https://gitee.com/help/articles/4228), issue #IK5SM4 "no plan to bring it back"),
 > **Gitee hosts code only and serves no web preview**; the online page is served exclusively by GitHub Pages.
 > The Gitee mirror exists for **faster cloning/downloading from mainland China** and as an off-site backup of the primary repo.
