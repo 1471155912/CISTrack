@@ -1,7 +1,7 @@
 {
- "exported": "2026-11-21T11:59:47.277Z",
- "rows": 1324,
- "batches": 64,
- "bytes": 116710,
+ "exported": "2026-11-21T21:14:39.247Z",
+ "rows": 1334,
+ "batches": 65,
+ "bytes": 117646,
  "note": "satcat 精简子集：只含本项目的批次前缀下的全部行（含搭车星/R-B）。由 refresh.mjs 自动导出，勿手改。"
 }
