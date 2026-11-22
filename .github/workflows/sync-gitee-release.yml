@@ -22,6 +22,10 @@ on:
         description: '要同步的 tag（留空 = 最近一次 GitHub 发行）'
         required: false
         default: ''
+      force_assets:
+        description: '同版本重发时重建发行（换掉同名附件）—— 填 true'
+        required: false
+        default: 'false'
 
 permissions:
   contents: read
@@ -84,9 +88,12 @@ jobs:
         run: |
           set -euo pipefail
           PRE=$(cat .release/pre.txt 2>/dev/null || echo false)
+          FORCE="${{ github.event.inputs.force_assets }}"
+          [ -n "$FORCE" ] || FORCE=false
           node scripts/sync_gitee_release.mjs \
             --tag "$TAG" \
             --name-file .release/name.txt \
             --body-file .release/body.md \
             --assets-dir .release/assets \
-            --prerelease "$PRE"
+            --prerelease "$PRE" \
+            --force-assets "$FORCE"

@@ -37,6 +37,11 @@ const NAME_FILE = arg('name-file');
 const BODY_FILE = arg('body-file');
 const ASSETS_DIR = arg('assets-dir');
 const PRE = /^(1|true|yes)$/i.test(arg('prerelease', 'false'));
+// ★ 2026-11-22：**同版本重发**（资产内容变了、但版本号没变）时，Gitee 上同名的旧附件
+//   不会被覆盖（它按文件名去重，API 也不给"改附件"）。默认按名跳过是为了幂等；
+//   真要换内容时必须显式 `--force-assets` → 删掉整个发行再重建（附件随之清空重传）。
+//   为什么不用"大小比对"：Gitee 返回的 asset.size 实测是 null，比不了。
+const FORCE_ASSETS = /^(1|true|yes)$/i.test(arg('force-assets', 'false'));
 
 if (!TAG) {
   console.error('✗ 缺少 --tag');
@@ -102,9 +107,18 @@ async function upload(releaseId, file) {
 (async () => {
   console.log(`同步 ${TAG} → gitee.com/${OWNER}/${REPO}`);
 
-  // ① 找到或创建发行
+  // ① 找到或创建发行（`--force-assets` 时先删后建）
   const got = await req('GET', `/repos/${OWNER}/${REPO}/releases/tags/${encodeURIComponent(TAG)}?access_token=${TOKEN}`);
   let rid;
+  if (FORCE_ASSETS && got.status === 200 && got.data && got.data.id) {
+    const del = await req('DELETE', `/repos/${OWNER}/${REPO}/releases/${got.data.id}?access_token=${TOKEN}`);
+    if (!/^2/.test(String(del.status)) && del.status !== 404) {
+      console.error(`✗ 删除旧发行失败：${del.status} ${JSON.stringify(del.data).slice(0, 200)}`);
+      process.exit(1);
+    }
+    console.log(`  · 已删除旧发行（id=${got.data.id}，force-assets）`);
+    got.status = 404; got.data = null;
+  }
   if (got.status === 200 && got.data && got.data.id) {
     rid = got.data.id;
     const up = await req('PATCH', `/repos/${OWNER}/${REPO}/releases/${rid}`, {
