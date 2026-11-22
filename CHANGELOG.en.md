@@ -53,6 +53,21 @@ The version is written in the footer (`CISTrack · Vx.y.z`), and the bottom bar 
   which creates/updates the same release on Gitee (title + body + assets), skips assets that already exist
   (idempotent) and fails the run if anything is missing.
 
+### 7. Third naming-shape incident: `GUOWANG-30 OBJECT A` (same version, 2026-11-22)
+- Upstream named the nine batch-30 satellites with a **hyphen plus batch number**: `GUOWANG-30 OBJECT A`
+  (the other 232 still use `HULIANWANG DIGUI-NNN`). Our rule only accepted the space form, so those nine
+  kept their raw English name in the Chinese UI and the H19 guard failed three runs in a row.
+- All three SatNet shapes are now accepted (space / hyphen / lowercase):
+  `GUOWANG[\s-]+N[\s-]+OBJECT[\s-]+X`.
+- **The guard is now a full scan**: instead of sampling visible table rows it compares
+  "display name == raw TLE name" for **all 560 satellites of both constellations**, reporting the COSPAR
+  and name of any leak, so a future separator/word-order change cannot slip through unnoticed.
+- Also fixed a **false red**: the export-chart phase-date assertion used `phases.b` (the median
+  representative) as the expected value, while since R13 the renderer draws `phases.m` (earliest/latest
+  when the spread exceeds 5 days). Batch 26120 starts on 06-28 / 07-28 / 08-06; the median 07-28 is not
+  on any drawn line, so the check flapped. It now expects the leftmost mark that is actually rendered.
+
+
 ## [V2.0.0.631] — 2026-11-07
 
 > This release fixes **the update pipeline itself**: the scheduled job had failed 30 times in a row

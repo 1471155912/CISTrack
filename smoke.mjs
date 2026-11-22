@@ -3131,6 +3131,18 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
     // ★ V2.0.0.632：直接测「目录名 → 中文名」的翻译规则（上游分隔符变来变去，这里一次覆盖多种写法）
     "  zh: function (raw) { return zhRules(raw); },\n" +
     "  zhName: function (norad) { var i = climbSatIdx(norad); return i < 0 ? '' : fullNameOf(cur().sats[i]); },\n" +
+    // ★ 2026-11-22：**全量**取「原始目录名 → 中文显示名」的配对（两颗星座都取，取完立刻还原 S.key）。
+    //   为什么不用 §6 那种 `zhName(id)`：它只认当前星座，千帆那边拿不到；
+    //   而这条守卫的价值就在于"**每一颗**都过一遍"，不能再抽样。
+    "  nameScanAll: function () {\n" +
+    "    var out = [], old = S.key;\n" +
+    "    ['gw', 'qf'].forEach(function (k) {\n" +
+    "      S.key = k;\n" +
+    "      (CONST[k].sats || []).forEach(function (s) {\n" +
+    "        out.push({ k: k, c: s.cospar || '', raw: String(s.name || ''), zh: fullNameOf(s) });\n" +
+    "      });\n" +
+    "    });\n" +
+    "    S.key = old; return out; },\n" +
     "  fullName: function (norad) { var i = climbSatIdx(norad); return i < 0 ? '' : String(cur().sats[i].name); },\n" +
     // ★★★ V1.9.7（P0-E）：**离线模拟"在线刷新"** —— 这是本项目最大的测试盲区：
     //   旧口径下 applyFresh 用在线列表整体替换 RAW.sats，而在线 feed 只有 {name,id,c,l1,l2}，
@@ -3271,6 +3283,15 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
     // ★ V1.9.5（H10 ③b/④）：取数入口 + 视野。phaseOf 用**真实函数**跑当前视图；pubOf 读发布层；
     //   setDel 用于"注入/删除/还原"发布层的 batch phase（测"发布优先"与"缺失回退"两条路径）。
     "  climbPhase: function () { var p = climbPhaseNow(climbSeries()); return p ? { s: p.startMs, e: p.endMs } : null; },\n" +
+    // ★ 2026-11-22：**实际会落笔的拐点**（starts ∪ ends，按当前视野过滤）。
+    //   为什么要这个：`phases.b` 是"中位代表值"，而 R13 之后**画的是 `phases.m`（最早/最晚）** ——
+    //   当一批的开始跨度 >5 天时，b 的值根本不在任何一条线上。旧断言拿 b 当期望，
+    //   只要该批的"中位数"与"最早/最晚"都不重合就必然误红（26120：06-28 / 07-28 / 08-06 三条）。
+    "  climbMarksIn: function () {\n" +
+    "    var p = climbPhaseNow(climbSeries()); if (!p) return [];\n" +
+    "    var v = climbView || climbAutoView();\n" +
+    "    return p.starts.concat(p.ends).filter(function (x) { return x != null && x >= v.x0 && x <= v.x1; })\n" +
+    "      .sort(function (a, b) { return a - b; }); },\n" +
     "  climbPub: function () { var P = RAW[S.key].phases || null; return P ? { nb: Object.keys(P.b).length, ns: Object.keys(P.s).length } : null; },\n" +
     "  climbPubB: function (lk) { var P = RAW[S.key].phases; return (P && P.b && P.b[lk]) || null; },\n" +
     "  climbPubS: function (n) { var P = RAW[S.key].phases; return (P && P.s && P.s[n]) || null; },\n" +
@@ -3492,6 +3513,16 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
   {
   // ★ V2.0.0.632（真实事故的回归守卫）：上游把新 8 颗写成 `HULIANWANG DIGUI 233`（空格），
   //   而规则只认连字符 → 中文名翻不出来、表格漏英文。这里把四种常见写法一次钉死。
+  // ★ 2026-11-22（第二次踩同一个坑）：上游**又换了一种分隔符** ——
+  //   `GUOWANG-30 OBJECT A`（连字符）。上一轮只给 DIGUI 做了多写法覆盖，OBJECT 形态
+  //   仍只认空格，于是这 9 颗中文名漏英文、CI 连红 3 次。这里把 OBJECT 形态也钉死。
+  assert('§6：OBJECT 形态的三写法都能译成中文（空格 / 连字符 / 小写）',
+    ['GUOWANG 27 OBJECT A', 'GUOWANG-30 OBJECT A', 'guowang-30 object a']
+      .every(function (x) { return /^互联网\d+组A星$/.test(k3.zh(x)); }) &&
+    k3.zh('GUOWANG-30 OBJECT A') === '互联网30组A星' &&
+    k3.zh('QIANFAN-16 OBJECT B') === '千帆16组B星',
+    ['GUOWANG 27 OBJECT A', 'GUOWANG-30 OBJECT A', 'guowang-30 object a', 'QIANFAN-16 OBJECT B']
+      .map(function (x) { return x + '→' + k3.zh(x); }).join(' | '));
   assert('§6：星网目录名的四种写法都能译成中文（连字符 / 空格 / 多空格 / 小写）',
     ['HULIANWANG DIGUI-233', 'HULIANWANG DIGUI 233',
      'HULIANWANG  DIGUI  233', 'hulianwang digui 233']
@@ -3535,7 +3566,8 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
           }
           continue;
         }
-        const mg = /^GUOWANG\s+(\d+)\s+OBJECT\s+([A-Z])$/.exec(raw);
+        // ★ 2026-11-22：上游出现 `GUOWANG-30 OBJECT A`（连字符）→ 分隔符放宽
+        const mg = /^GUOWANG[\s-]+(\d+)[\s-]+OBJECT[\s-]+([A-Z])$/i.exec(raw);
         if (mg) {
           const row = L[String(s2.c || '').slice(0, 5)];
           const gg = row ? /(\d+)\s*组/.exec(String(row[0] || '')) : null;
@@ -3549,9 +3581,27 @@ assert('V1.8.0（需求16）：章节「默认设置」把本章视图回出厂�
       }
       assert('§6：显示名与其它批次同一套（有台账 → A<组号><字母>；无台账才退回 A<NNN>），0 例外',
         // ★ 要求绝大多数改名星都走“批次+字母”（nBat），否则说明台账没接上
-        bad.length === 0 && nDigui + nObj >= 200 && nBat >= 150,
+        // ★ 连字符形态（GUOWANG-30 OBJECT A）必须真的被计入 nObj，否则"0 例外"是假的
+        bad.length === 0 && nDigui + nObj >= 200 && nBat >= 150 && nObj >= 5,
         'DIGUI ' + nDigui + ' 颗（其中按批次命名 ' + nBat + '）/ OBJECT ' + nObj + ' 颗；异常 ' + bad.slice(0, 4).join(' ｜ '));
     })();
+    // ★★ 2026-11-22（第二次命名事故的根治）：把"抽样"升级成**全量** ★★
+    //   上一轮只在表格可见行里抽样，而新形态（GUOWANG-30 OBJECT A）恰好不在可见行里
+    //   —— 抽样没抓到，靠另一条 H19 才暴露。现在就地对**两颗星座的全部卫星**跑一遍
+    //   显示名派生：只要有一颗漏出 2 个以上连续拉丁字母，就把它的 COSPAR 与名字打出来。
+    //   这样**任何**新命名形态（换分隔符、换词序、加后缀）都会在第一次构建时被抓到。
+    {
+      // 判据：**规则没把它翻成中文**才算漏 —— 直接比较「显示名 == TLE 原名」。
+      //   为什么不按"含拉丁字母"判：百科词条名里本来就有合法拉丁（`CX-26卫星`、
+      //   `卫星互联网技术试验卫星(CZ 12 Y1)`），按字母判会制造假警报。
+      //   "翻不出来"的典型症状就是**一字未改地原样显示**（这次 9 颗就是这样）。
+      const scan = k3.nameScanAll();
+      const bad5 = scan.filter(o => o.raw && (!o.zh || o.zh.trim() === o.raw.trim()));
+      assert('H19：**全量**扫描（两颗星座每一颗）—— 显示名不得原样漏出 TLE 原名',
+        scan.length > 500 && bad5.length === 0,
+        '扫描 ' + scan.length + ' 颗｜原样漏出 ' + bad5.length + ' 颗' +
+        (bad5.length ? '：' + bad5.slice(0, 8).map(o => o.k + '/' + o.c + '=' + o.zh).join(' | ') : ''));
+    }
     assert('§6：倾斜轨道试验星（…02组A星）→ `XGQ02A`',
       k3.shortName(58425, false) === 'XGQ02A', JSON.stringify(k3.shortName(58425, false)));
     assert('§6：GEO → `G01`（高轨卫星01星）',
@@ -6305,12 +6355,21 @@ assert('A9（V1.9.7 §6）：圈的来源 = 工作轨道层（orbLayerDefs），
       }) || '';
       k3.setClimbPick(k2 ? ('b:' + k2) : ''); k3.climbSelClear(); k3.pickNode(null, 0);
       const ex = k3.climbExportCheck();
-      const expDate = k2 ? k3.climbDateFmt(pubB2[k2][0] * 86400000) : '';
+      // ★★ 2026-11-22（真实误红）：期望值必须取**实际会落笔的拐点**，不能用 `phases.b`。★★
+      //   `b` 是"中位代表值"，而 R13 之后画的是 `phases.m`（跨度 >5 天时画最早/最晚两根）。
+      //   26120 的三个开始日是 06-28 / 07-28 / 08-06，b 取中位 07-28 → 但它**不在任何一条线上**，
+      //   于是这条断言在 11-20 之后周期性变红（本质和"把上游快照写死成期望"是同一类错误）。
+      const marksIn = k3.climbMarksIn();
+      const expDate = marksIn.length ? k3.climbDateFmt(marksIn[0]) : '';
       const yExp = ex.rect ? ex.rect.PT + ex.rect.ph + 3 : -1;
       assert('V1.9.5（H11）：导出图带竖虚线（导出倍率 2× 重绘后：[5,4] 虚线 + 相位日期都在）',
         !!k2 && ex.k >= 1 && ex.dash === '[5,4]' &&
-        ex.texts.some(o => o.t === expDate && Math.abs(o.y - yExp) < 0.75),
-        '批次=' + k2 + ' k=' + ex.k + ' dash=' + ex.dash + ' 期望日期=' + expDate + ' 文本条数=' + ex.texts.length);
+        !!expDate && ex.texts.some(o => o.t === expDate && Math.abs(o.y - yExp) < 0.75),
+        // ★ 2026-11-22：失败时把「实际落了哪些字」一并打出来 —— 上一轮只有条数，
+        //   排查得靠猜（这次才知道是日期没落笔，还是落了但 y 偏了）。
+        '批次=' + k2 + ' k=' + ex.k + ' dash=' + ex.dash + ' 最左拐点=' + expDate +
+        '（视野内拐点 ' + marksIn.length + ' 条）@y=' + yExp.toFixed(1) + ' 文本条数=' + ex.texts.length +
+        '｜实际：' + ex.texts.map(function (o) { return o.t + '@' + o.y.toFixed(1); }).join(' / '));
       assert('V1.9.5（H11）：导出与屏幕共用同一绘制函数（源码守卫：导出分支调 drawClimb，不另写一套）',
         /else if \(view === 'climb'\) drawClimb\(\)/.test(appSrc));
     }

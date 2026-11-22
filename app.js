@@ -673,9 +673,18 @@ function zhRules(n) {
     .replace(/^HULIANWANG JISHU SHIYAN.*$/, '互联网技术试验')
     .replace(/^HJS.*$/, '互联网技术试验')
     .replace(/^HULIANWAN GAOGUI-(\d+).*$/, '互联网高轨-$1')
-    .replace(/^GUOWANG TEST OBJECT ([A-Z])$/, '互联网试验-$1')
-    .replace(/^GUOWANG (\d+) OBJECT ([A-Z])$/, '互联网$1组$2星')
-    .replace(/^QIANFAN (\d+) OBJECT ([A-Z])$/, '千帆$1组$2星')
+    // ★ 2026-11-22：上游对第 30 组的 9 颗改用**连字符**：`GUOWANG-30 OBJECT A`
+    //   （其余 232 颗仍是 `HULIANWANG DIGUI-NNN`）。只认空格会让这 9 颗中文名翻不出来
+    //   → 表格直接漏英文，H19 当场抓到（CI 11-20 22:24 起连红 3 次）。
+    //   分隔符一律放宽成「空格 或 连字符」，与 DIGUI 那条保持一致。
+    //   ⚠️ 用函数式替换而不是 `$2`：带了 `i` 之后 `$2` 会把小写原样带出来
+    //   （`guowang-30 object a` → 「互联网30组a星」，H19 的用例当场抓到）。
+    .replace(/^GUOWANG[\s-]+TEST OBJECT[\s-]+([A-Z])$/i,
+      function (_m, g1) { return '互联网试验-' + g1.toUpperCase(); })
+    .replace(/^GUOWANG[\s-]+(\d+)[\s-]+OBJECT[\s-]+([A-Z])$/i,
+      function (_m, g1, g2) { return '互联网' + g1 + '组' + g2.toUpperCase() + '星'; })
+    .replace(/^QIANFAN[\s-]+(\d+)[\s-]+OBJECT[\s-]+([A-Z])$/i,
+      function (_m, g1, g2) { return '千帆' + g1 + '组' + g2.toUpperCase() + '星'; })
     .replace(/^QIANFAN-(\d+)$/, '千帆-$1')
     // ★ V1.9.5（H19）：补齐普查出来的最后几种残留形态（实测 30 颗，见 §23.2）
     .replace(/^CHUANG ?XIN (\d+)([A-Z]?)(?: \([^)]*\))?$/, '创新$1$2')
@@ -725,8 +734,11 @@ function objForm(s) {
   var nm = String(s.name || '');
   var bn = (s.launch && s.launch.name) || '';
   var g = /(\d+)\s*组/.exec(bn);
-  var m = /^(GUOWANG|QIANFAN)\s+(\d+)\s+OBJECT\s+([A-Z])$/.exec(nm);
-  if (m) return { sys: m[1], seq: m[2], letter: m[3], batch: bn, group: g ? g[1] : m[2] };
+  // ★ 2026-11-22：分隔符放宽到「空格 / 连字符」—— 上游出现了 `GUOWANG-30 OBJECT A`。
+  //   这里若只认空格，这 9 颗会退化成 `GUOWANG-30 OBJECT A` 原文（H19 红）或短名错位。
+  var m = /^(GUOWANG|QIANFAN)[\s-]+(\d+)[\s-]+OBJECT[\s-]+([A-Z])$/i.exec(nm);
+  // ⚠️ 同上：带 `i` 时 `letter` 可能是小写，短名会变成 `A30a` —— 统一转大写。
+  if (m) return { sys: m[1].toUpperCase(), seq: m[2], letter: m[3].toUpperCase(), batch: bn, group: g ? g[1] : m[2] };
   // ★★ V2.0.0.631 二次修补（用户 2026-11-08：「以前其他批次怎么命名就怎么命名」）★★
   //   星网自 2026-10-24 被上游全量改名成 `HULIANWANG DIGUI-NNN`（NNN 是编目流水号，
   //   不带批次字母）。若照旧走“有编号就用编号”，231 颗会显示成「互联网低轨-214」，
