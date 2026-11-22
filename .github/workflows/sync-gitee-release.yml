@@ -12,10 +12,13 @@ name: Sync release to Gitee
 
 on:
   release:
-    # published：发版即同步（主路径）
-    # edited   ：改了标题/正文/附件后再同步一次 —— 脚本是幂等的（同名附件跳过），
-    #            所以一次发行被编辑多次也不会产生重复附件；反过来也只有 GitHub 是源。
-    types: [published, edited]
+    # 只挂 published（发版即同步）—— 这是唯一可靠的事件。
+    # ⚠️ 2026-11-22 实测：**`edited` 在本仓库不触发工作流**。
+    #   我用 GitHub API 改了 v2.0.0.632 的正文（并确认正文已变），等 75 秒仍无 run；
+    #   早前 `gh release edit` 同样没有触发。既然不生效，就不要写在 types 里假装有。
+    #   ⇒ 已发布之后要改标题/正文/附件：手动 dispatch 本工作流；
+    #     要换同名附件（同版本重发）时带 `force_assets=true`（会重建发行）。
+    types: [published]
   workflow_dispatch:
     inputs:
       tag:
